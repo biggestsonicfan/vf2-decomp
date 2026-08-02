@@ -1,0 +1,49 @@
+name: Integrate v0.0.24 frame tail functions via PR trigger
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Apply verified frame-tail recovery
+        run: |
+          base64 -d tools/frame_tail_v0024.patch.gz.b64 | gzip -d > /tmp/frame-tail-v0024.patch
+          git apply --check /tmp/frame-tail-v0024.patch
+          git apply /tmp/frame-tail-v0024.patch
+          rm tools/frame_tail_v0024.patch.gz.b64
+          rm .github/workflows/integrate-frame-tail.yml
+          rm .github/workflows/integrate-frame-tail-pr.yml
+
+      - name: Configure warning-as-error build
+        run: >-
+          cmake -S . -B build
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run ROM-independent tests
+        run: >-
+          ctest --test-dir build --output-on-failure
+          -R '^(vf2_tests|vf2_orchestrator_.*)$'
+
+      - name: Commit verified integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "decomp(i960): recover frame tail functions"
+          git push origin master
