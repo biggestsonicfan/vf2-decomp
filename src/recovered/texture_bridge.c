@@ -47,6 +47,10 @@
 #define VF2_TEXTURE_ACTIVE_PREPARE_RETURN UINT32_C(0x0004be6c)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 #define VF2_TEXTURE_COORD_TABLE UINT32_C(0x0004c120)
+#define VF2_TEXTURE_HEADER_DECODE_ENTRY UINT32_C(0x0004c180)
+#define VF2_TEXTURE_HEADER_DECODE_EXIT UINT32_C(0x0004c3f0)
+#define VF2_TEXTURE_HEADER_STATE UINT32_C(0x00550080)
+#define VF2_TEXTURE_HEADER_OUTPUT UINT32_C(0x0055c320)
 #define VF2_TEXTURE_RECORD_START UINT32_C(0x00550168)
 #define VF2_TEXTURE_RECORD_END UINT32_C(0x005502a8)
 #define VF2_TEXTURE_RUNTIME_FLAGS UINT32_C(0x00508000)
@@ -113,6 +117,86 @@ static vf2_status read_u16(
     if (status == VF2_OK) {
         *value = (uint16_t)((uint16_t)bytes[0] |
                             ((uint16_t)bytes[1] << 8u));
+    }
+    return status;
+}
+
+typedef struct texture_bit_reader {
+    uint32_t next_address;
+    uint32_t accumulator;
+    uint32_t available_bits;
+    uint32_t next_word;
+    uint32_t last_shifted_word;
+} texture_bit_reader;
+
+static vf2_status texture_bit_reader_initialize(
+    const vf2_model2a *machine,
+    uint32_t address,
+    texture_bit_reader *reader
+)
+{
+    uint16_t word = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || reader == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(reader, 0, sizeof(*reader));
+    status = read_u16(machine, address, &word);
+    if (status != VF2_OK) {
+        return status;
+    }
+    reader->next_address = address + UINT32_C(2);
+    reader->next_word = word;
+    return VF2_OK;
+}
+
+static vf2_status texture_bit_reader_refill(
+    const vf2_model2a *machine,
+    texture_bit_reader *reader
+)
+{
+    uint16_t word = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || reader == NULL || reader->available_bits > 31u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    reader->last_shifted_word =
+        reader->next_word << (reader->available_bits & UINT32_C(31));
+    status = read_u16(machine, reader->next_address, &word);
+    if (status != VF2_OK) {
+        return status;
+    }
+    reader->next_address += UINT32_C(2);
+    reader->accumulator |= reader->last_shifted_word;
+    reader->available_bits += UINT32_C(16);
+    reader->next_word = word;
+    return VF2_OK;
+}
+
+static vf2_status texture_bit_reader_take(
+    const vf2_model2a *machine,
+    texture_bit_reader *reader,
+    uint32_t width,
+    uint32_t *value
+)
+{
+    const uint32_t mask = width == UINT32_C(32)
+        ? UINT32_MAX
+        : (UINT32_C(1) << width) - UINT32_C(1);
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || reader == NULL || value == NULL ||
+        width == 0u || width > UINT32_C(32) ||
+        reader->available_bits < width) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *value = reader->accumulator & mask;
+    reader->available_bits -= width;
+    reader->accumulator >>= (width & UINT32_C(31));
+    if (reader->available_bits <= UINT32_C(16)) {
+        status = texture_bit_reader_refill(machine, reader);
     }
     return status;
 }
@@ -2586,6 +2670,172 @@ static vf2_status execute_texture_convert(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_header_decode(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    texture_bit_reader reader;
+    uint32_t raw_width = 0u;
+    uint32_t raw_height = 0u;
+    uint32_t width = 0u;
+    uint32_t height = 0u;
+    uint32_t area = 0u;
+    uint32_t code_bits = 0u;
+    uint32_t symbol_count = 0u;
+    uint32_t table_a = 0u;
+    uint32_t table_b = 0u;
+    uint32_t nibble = 0u;
+    uint32_t table_c = 0u;
+    uint32_t child_state = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u || cpu->registers[19] == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(
+        machine, VF2_TEXTURE_HEADER_STATE, &child_state
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = child_state;
+    if (child_state != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = texture_bit_reader_initialize(
+        machine, cpu->registers[19], &reader
+    );
+    if (status == VF2_OK) {
+        status = texture_bit_reader_refill(machine, &reader);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_refill(machine, &reader);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 8u, &raw_width);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 8u, &raw_height);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 8u, &code_bits);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 16u, &symbol_count);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 16u, &table_a);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 16u, &table_b);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 4u, &nibble);
+    }
+    if (status == VF2_OK) {
+        status = texture_bit_reader_take(machine, &reader, 16u, &table_c);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    width = (raw_width + UINT32_C(1)) >> 1u;
+    height = (raw_height + UINT32_C(1)) >> 1u;
+    area = width * height;
+    if (code_bits == 0u || code_bits > UINT32_C(31) ||
+        symbol_count == 0u || symbol_count > VF2_TEXTURE_MAX_LOOP) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = write_u16(
+        machine, VF2_TEXTURE_HEADER_OUTPUT, (uint16_t)width
+    );
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(2),
+            (uint16_t)height
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(4), area
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(8),
+            (symbol_count << 1u) - UINT32_C(1)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(12), symbol_count
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(16), code_bits
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(20), table_a
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(24), table_b
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(28), nibble
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_HEADER_OUTPUT + UINT32_C(32), table_c
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[3] = UINT32_C(0x0055c344);
+    cpu->registers[4] = UINT32_C(0x0055c344);
+    cpu->registers[5] = code_bits;
+    cpu->registers[7] = (symbol_count << 1u) - UINT32_C(1);
+    cpu->registers[12] =
+        (UINT32_C(1) << code_bits) - UINT32_C(1);
+    cpu->registers[13] = reader.accumulator;
+    cpu->registers[14] = reader.available_bits;
+    cpu->registers[15] = reader.next_address;
+    cpu->registers[16] = reader.last_shifted_word;
+    cpu->registers[18] = table_c;
+    cpu->registers[19] = UINT32_C(0x00000100);
+    cpu->registers[20] = UINT32_C(0x00000102);
+    cpu->registers[21] = UINT32_C(0x00000122);
+    cpu->registers[22] = UINT32_C(0x00000142);
+    cpu->registers[27] = reader.next_word;
+    set_signed_condition(cpu, 0, 1);
+    cpu->ip = VF2_TEXTURE_HEADER_DECODE_EXIT;
+    cpu->executed_instructions += UINT64_C(120);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_HEADER_DECODE;
+    report->entry_address = VF2_TEXTURE_HEADER_DECODE_ENTRY;
+    report->exit_address = VF2_TEXTURE_HEADER_DECODE_EXIT;
+    report->iterations = UINT64_C(8);
+    report->changed_values = UINT64_C(10);
+    report->bytes_written = 36u;
+    report->recovered_instruction_count = UINT64_C(120);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
 static vf2_status execute_texture_active_prepare_call(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -3338,6 +3588,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
             machine, cpu, &local_report
         );
         break;
+    case VF2_TEXTURE_HEADER_DECODE_ENTRY:
+        status = execute_texture_header_decode(
+            machine, cpu, &local_report
+        );
+        break;
     case VF2_TEXTURE_ACTIVE_PREPARE_ENTRY:
         status = execute_texture_active_prepare_call(
             machine, cpu, &local_report
@@ -3507,6 +3762,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-status-dispatch-call";
     case VF2_HYBRID_BRIDGE_TEXTURE_ACTIVE_PREPARE_CALL:
         return "texture-active-prepare-call";
+    case VF2_HYBRID_BRIDGE_TEXTURE_HEADER_DECODE:
+        return "texture-header-decode";
     case VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END:
         return "texture-status-scan-end";
     case VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A:

@@ -3898,6 +3898,7 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0004c6e0) ||
                 native_ip_before == UINT32_C(0x0004cce8) ||
                 native_ip_before == UINT32_C(0x0004cc28) ||
+                native_ip_before == UINT32_C(0x0004c180) ||
                 native_ip_before == UINT32_C(0x0004c3f0) ||
                 native_ip_before == UINT32_C(0x0004c4d4) ||
                 native_ip_before == UINT32_C(0x0004c928) ||
@@ -4102,6 +4103,8 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_ACTIVE_PREPARE_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_HEADER_DECODE ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END ||
                         bridge_report.kind ==
@@ -4348,10 +4351,10 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1269091) ||
-             bridge_interpreted_instructions != UINT64_C(1731) ||
-             bridge_validated_blocks != 176u ||
-             bridge_memory_checkpoints != 176u ||
+             bridge_recovered_instructions != UINT64_C(1269571) ||
+             bridge_interpreted_instructions != UINT64_C(1251) ||
+             bridge_validated_blocks != 180u ||
+             bridge_memory_checkpoints != 180u ||
              bridge_recovered_calls != UINT64_C(270) ||
              bridge_recovered_returns != UINT64_C(300) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
@@ -4363,6 +4366,7 @@ static int command_native_dispatch(
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ACTIVE_PREPARE_CALL] != 4u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_HEADER_DECODE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B] != 4u ||
@@ -4492,6 +4496,10 @@ static int command_native_dispatch(
         printf("  active prepare/calls:              %zu\n",
                bridge_block_counts[
                    VF2_HYBRID_BRIDGE_TEXTURE_ACTIVE_PREPARE_CALL
+               ]);
+        printf("  texture header decodes:            %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_HEADER_DECODE
                ]);
         printf("  status scan endings:              %zu\n",
                bridge_block_counts[
