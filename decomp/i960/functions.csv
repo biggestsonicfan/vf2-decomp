@@ -22,6 +22,13 @@ address,end,name,status,source,notes
 0x0000281c,,game_state_classify,recovered-observed-branch,dynamic-differential,v0.0.22 observed game-state classifier
 0x000026ec,,game_color_lookup,recovered-observed-branch,dynamic-differential,v0.0.22 color/control lookup with 0x00010101 adjustment
 0x000028d4,0x00002a10,game_threshold_evaluate,recovered-observed-branch,dynamic-differential+unit,Combines two color lookups and a game-state classification into the observed below-nine threshold result; observed twice
+0x0006dcb8,0x0000a03c,system_memory_diagnostic,recovered-observed-branch,dynamic-differential+unit,Runs the observed four-byte memory probe and increments the mirrored 64-bit diagnostic counter in seventy-five instructions
+0x000110f4,0x00000ce0,video_input_sync,recovered-observed-branch,dynamic-differential+unit,Synchronizes input latch bits and runtime video flags in twenty-eight instructions
+0x000112f8,0x0000a040,frame_counter_advance,recovered-observed-branch,dynamic-differential+unit,Advances the observed frame counter and validates its phase mask in twenty-one instructions
+0x00011c78,0x0000a044,frame_phase_advance,recovered-observed-branch,dynamic-differential+unit,Advances and mirrors the packed frame phase byte in ten instructions
+0x00000530,0x00009ffc,frame_shadow_verify,recovered-observed-branch,dynamic-differential+unit,Verifies nine live bytes against their shadow copy and returns in twenty-eight instructions
+0x000110b0,0x0000a004,frame_buffer_gate,recovered-observed-branch,dynamic-differential+unit,Loads both frame-buffer records and follows the observed clear-bit gate in nine instructions
+0x0000a6c0,0x0000a010,frame_dispatch_tick,recovered-observed-branch,dynamic-differential+unit,Mirrors the frame selector and executes the observed countdown callback in fourteen instructions
 0x000438ec,0x00002020,game_event_queue_write,recovered-observed-branch,dynamic-differential+unit,Queues the observed game event and returns in nineteen instructions
 0x0004b8d8,0x0004bb98,texture_maintenance,recovered-observed-branch,dynamic-differential+unit,Performs two texture-record consistency checks and returns in seventeen instructions
 0x0004ba80,0x00002de4,texture_upload_dispatch,recovered-observed-branch,dynamic-differential+unit,Checks three upload sentinels and enters palette upload in ten instructions
