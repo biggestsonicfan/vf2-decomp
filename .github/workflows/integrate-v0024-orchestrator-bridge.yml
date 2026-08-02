@@ -7,6 +7,9 @@ on:
     paths:
       - .github/workflows/integrate-v0024-orchestrator-bridge.yml
       - tools/apply_v0024_orchestrator_bridge.py
+  pull_request:
+    branches:
+      - master
 
 permissions:
   contents: write
@@ -46,4 +49,4 @@ jobs:
           git commit -m "decomp(i960): integrate orchestrator scan and zero gates"
           git push origin master
 
-# Merge-triggered push; the functional commit self-removes this workflow.
+# The functional commit removes this temporary workflow and patch script.
