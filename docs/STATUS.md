@@ -1,84 +1,68 @@
 # Status
 
-## v0.0.23
+## Current master
 
 | Component | State |
 |---|---|
-| Repository and CMake build | Complete |
+| Repository and warning-as-error C17 build | Complete |
 | Supported ROM validation | 36/36 files |
-| Texture orchestrator cluster | Profiled; recovery targeted at v0.0.24 |
-| Orchestrator evidence file | `decomp/i960/notes/texture_orchestrator_v0023.md` |
-| Orchestrator trace command | `vf2i960 trace-orchestrator` (read-only developer instrument) |
-| Recovered bridge blocks | 143 (unchanged from v0.0.22) |
-| Post-frame bridge remaining | 2,070 interpreted instructions (unchanged) |
-| `0x00001f5c` geometry-prep cluster | Deferred to v0.0.24 |
-
-This release makes zero claims about newly recovered behavior. All v0.0.22
-headline totals (1,270,822 / 1,268,752 / 2,070 / 143 / 250 / 297) are
-preserved verbatim via the strict-equality assertions at
-`tools/vf2i960/main.c:4305-4322`.
-
-## v0.0.22
-
-| Component | State |
-|---|---|
-| Repository and CMake build | Complete |
-| Supported ROM validation | 36/36 files |
-| i960 reset stack | Read from `PRCB + 24` |
-| Mutable snapshot format | v5, 18 regions |
-| Startup and hardware initialization | Matching C |
-| `fa_*` descriptor table | 29 entries recovered |
-| Timer IRQ and runtime-ready transition | Matching/proven |
-| Complete first scheduler sweep | 4,623 instructions in C |
-| Persistent task contexts | Preserved for all 29 descriptors |
-| Second scheduler re-entry | 235 instructions in C |
-| Post-frame bridge total | 1,270,822 instructions |
-| Post-frame bridge recovered | 1,268,752 instructions in C |
-| Post-frame bridge remaining | 2,070 interpreted instructions |
-| Recovered bridge blocks | 143 |
-| Complete differential checkpoints | 143 |
-| Inline text thunk | 1 validated |
-| Texture status lines | 4 validated |
-| Game-state classifier | 3 direct + 8 nested calls |
-| Game color/control lookup | 8 validated |
-| Frame wait | Native four-visit state machine |
-| Geometry frame commit/setup | Recovered and validated |
-| First geometry instruction | `0x00002eec` |
+| Accepted startup/second-dispatch path | Recovered C |
+| Post-frame bridge instructions | 1,270,822 / 1,270,822 recovered |
+| Native-side interpreted instructions on that path | 0 |
+| Complete CPU/memory checkpoints | 190 |
+| Recovered procedure calls/returns | 342 / 340 |
+| Frame wait and vector-12 interrupt | Recovered and validated |
+| Second scheduler entry | Recovered and validated |
+| Reusable native runtime dispatcher | Implemented |
+| Continuous execution beyond second `fa_game_info` | Not yet recovered |
 | TGP protocol and renderer | Not recovered |
-| 68000 sound recovery | Not started |
+| Motorola 68000 / SCSP audio | Not recovered |
+| Window, input and production platform backend | Not implemented |
 | Playable port | No |
 
-Measured evidence:
+## Proven scope
 
-```text
-first-sweep recovered instructions:             4623
-post-frame bridge instructions:              1270822
-recovered bridge instructions:               1268752
-interpreted bridge instructions:                2070
-recovered bridge blocks:                         143
-intermediate memory checkpoints:                 143
-inline text thunks:                                 1
-texture status lines:                               4
-game-state classifier blocks:                      3
-game color/control lookups:                        8
-recovered bridge calls/returns:                 250/297
-frame-wait threshold:                              4
-frame interrupts injected:                         1
-persistent task contexts:                         29
-first geometry instruction:               0x00002eec
-first geometry write target:              0x00803008
-second scheduler entry:                    0x00010d54
-second task entry:                         0x0001645c
-second task registry:                      0x00515200
-ROM-backed/unit CTest targets:                  22/22
-```
+The current zero-interpreted result covers one exact Virtua Fighter 2 Version
+2.1 execution path: from the completed first scheduler sweep, through the
+post-frame texture, gameplay, video, interrupt and main-loop work, to the second
+entry into `fa_game_info`.
 
-`compare-game-geometry-helpers` initializes independent reference and native
-machines from the same first-task fixture. No state is copied between them
-after that fixture. Every newly accepted helper is checked with complete CPU,
-local-frame and mutable-memory comparison.
+The reference i960 executor remains active only as a differential oracle in the
+ROM-backed validation command. It does not produce state on the native side for
+this accepted path.
 
-This proves 99.84% recovered-C execution across the post-frame bridge. It does
-not make the game playable: 2,070 bridge instructions, later task branches,
-the top-level texture orchestrator, TGP command protocol, rendering and audio
-remain future work.
+This result does not prove alternate gameplay states, subsequent frames, all
+scheduler task branches, rendering, TGP behavior or audio. Unsupported paths
+continue to fail explicitly rather than silently invoking the interpreter.
+
+## Native runtime layer
+
+`include/vf2/native_runtime.h` and `src/recovered/native_runtime.c` provide the
+first reusable recovered execution layer outside the developer CLI. It can:
+
+- execute one accepted recovered block;
+- route ordinary bridge, frame-wait/interrupt and second-scheduler blocks;
+- run until a requested instruction boundary with a block budget;
+- retain cumulative recovered instruction/call/return accounting;
+- report unsupported addresses and budget exhaustion without fallback.
+
+The dedicated ROM-independent test raises the project total to 27 CTest targets
+when the supported ROM directory is configured. The implementation has also
+been exercised under AddressSanitizer and UndefinedBehaviorSanitizer.
+
+## Next acceptance target: v0.1.0
+
+The next target is a continuous native runtime rather than another isolated
+bridge percentage:
+
+1. make `vf2i960 native-second-dispatch` consume `vf2_native_runtime` instead of
+   maintaining its own candidate router;
+2. profile and recover the first unsupported boundary after the second
+   `fa_game_info` entry;
+3. preserve all 29 task contexts across repeated scheduler cycles;
+4. execute multiple consecutive frame interrupts and frame boundaries;
+5. prove a bounded multi-frame run with complete CPU and mutable-memory
+   comparison against the reference executor;
+6. keep interpreter fallback at zero for every newly accepted path.
+
+See `docs/NATIVE_RUNTIME.md` for the API and integration boundary.
