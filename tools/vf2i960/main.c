@@ -3492,7 +3492,7 @@ static int command_native_dispatch(
     uint64_t bridge_recovered_returns = 0u;
     size_t bridge_validated_blocks = 0u;
     size_t bridge_memory_checkpoints = 0u;
-    size_t bridge_block_counts[32] = {0u};
+    size_t bridge_block_counts[64] = {0u};
     uint32_t first_geometry_instruction = 0u;
     uint32_t first_geometry_address = 0u;
     uint32_t first_geometry_changed_byte = 0u;
@@ -3903,6 +3903,11 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0004c928) ||
                 native_ip_before == UINT32_C(0x0004ce88) ||
                 native_ip_before == UINT32_C(0x0004bb18) ||
+                native_ip_before == UINT32_C(0x0004bd24) ||
+                native_ip_before == UINT32_C(0x0004bf90) ||
+                native_ip_before == UINT32_C(0x0004bfdc) ||
+                native_ip_before == UINT32_C(0x0004bb94) ||
+                native_ip_before == UINT32_C(0x0004bc58) ||
                 native_ip_before == UINT32_C(0x0004bcd4) ||
                 native_ip_before == UINT32_C(0x0004bfe0) ||
                 native_ip_before == UINT32_C(0x0004d16c) ||
@@ -4087,6 +4092,16 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE ||
                         (bridge_validated_blocks % 128u) == 0u;
                     memset(&diff, 0, sizeof(diff));
                     if (status == VF2_OK && compare_memory_now) {
@@ -4313,12 +4328,12 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1268800) ||
-             bridge_interpreted_instructions != UINT64_C(2022) ||
-             bridge_validated_blocks != 146u ||
-             bridge_memory_checkpoints != 146u ||
-             bridge_recovered_calls != UINT64_C(252) ||
-             bridge_recovered_returns != UINT64_C(298) ||
+             bridge_recovered_instructions != UINT64_C(1268866) ||
+             bridge_interpreted_instructions != UINT64_C(1956) ||
+             bridge_validated_blocks != 154u ||
+             bridge_memory_checkpoints != 154u ||
+             bridge_recovered_calls != UINT64_C(258) ||
+             bridge_recovered_returns != UINT64_C(300) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 3u ||
@@ -4326,6 +4341,11 @@ static int command_native_dispatch(
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL] != 4u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY] != 1u ||
              first_geometry_instruction != UINT32_C(0x00002eec) ||
              first_geometry_address != UINT32_C(0x00803008) ||
@@ -4437,6 +4457,26 @@ static int command_native_dispatch(
         printf("  texture default limits:           %zu\n",
                bridge_block_counts[
                    VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS
+               ]);
+        printf("  status dispatch/calls:             %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL
+               ]);
+        printf("  final status/calls:                %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL
+               ]);
+        printf("  body returns:                      %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN
+               ]);
+        printf("  post-body calls:                   %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL
+               ]);
+        printf("  orchestrator epilogues:            %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE
                ]);
         printf("  second scheduler entries:         %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY]);
