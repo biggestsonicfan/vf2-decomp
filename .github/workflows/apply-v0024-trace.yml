@@ -1,0 +1,541 @@
+name: Apply v0.0.24 orchestrator trace upgrade
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/apply-v0024-trace.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Apply trace upgrade
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+          path = Path("tools/vf2i960/main.c")
+          text = path.read_text(encoding="utf-8")
+
+          old_globals = '''static FILE *g_orchestrator_trace_file = NULL;
+          static uint64_t g_orchestrator_trace_step = 0u;
+
+          static bool is_orchestrator_cluster_ip(uint32_t ip)
+          {
+              return ip >= UINT32_C(0x0004bb18) && ip <= UINT32_C(0x0004c180);
+          }
+          '''
+          new_globals = '''static FILE *g_orchestrator_trace_file = NULL;
+          static uint64_t g_orchestrator_trace_step = 0u;
+          static bool g_orchestrator_trace_active = false;
+          static uint32_t g_orchestrator_trace_entry_depth = 0u;
+
+          typedef struct orchestrator_trace_state {
+              uint32_t ip;
+              uint32_t frame_depth;
+              uint32_t arithmetic_control;
+              uint64_t executed_instructions;
+              uint64_t procedure_calls;
+              uint64_t procedure_returns;
+              uint32_t maximum_local_frame_depth;
+              uint32_t registers[VF2_I960_REGISTER_COUNT];
+              uint8_t frame_state;
+              uint8_t display_mode;
+              uint32_t runtime_flags;
+              uint32_t texture_limit_low;
+              uint32_t texture_limit_high;
+              uint32_t texture_status;
+              uint32_t texture_gate;
+          } orchestrator_trace_state;
+
+          static bool orchestrator_trace_begin_step(
+              uint32_t ip,
+              uint32_t frame_depth
+          )
+          {
+              if (!g_orchestrator_trace_active &&
+                  ip == UINT32_C(0x0004bb18)) {
+                  g_orchestrator_trace_active = true;
+                  g_orchestrator_trace_entry_depth = frame_depth;
+              }
+              return g_orchestrator_trace_active &&
+                     frame_depth >= g_orchestrator_trace_entry_depth;
+          }
+
+          static void orchestrator_trace_end_step(uint32_t frame_depth)
+          {
+              if (g_orchestrator_trace_active &&
+                  frame_depth < g_orchestrator_trace_entry_depth) {
+                  g_orchestrator_trace_active = false;
+                  g_orchestrator_trace_entry_depth = 0u;
+              }
+          }
+
+          static void capture_orchestrator_trace_state(
+              const vf2_model2a *machine,
+              const vf2_i960_cpu *cpu,
+              orchestrator_trace_state *state
+          )
+          {
+              if (machine == NULL || cpu == NULL || state == NULL) {
+                  return;
+              }
+              memset(state, 0, sizeof(*state));
+              state->ip = cpu->ip;
+              state->frame_depth = cpu->local_frame_depth;
+              state->arithmetic_control = cpu->arithmetic_control;
+              state->executed_instructions = cpu->executed_instructions;
+              state->procedure_calls = cpu->procedure_calls;
+              state->procedure_returns = cpu->procedure_returns;
+              state->maximum_local_frame_depth = cpu->maximum_local_frame_depth;
+              memcpy(state->registers, cpu->registers, sizeof(state->registers));
+              (void)vf2_model2a_read(
+                  machine, UINT32_C(0x00500000),
+                  &state->frame_state, sizeof(state->frame_state)
+              );
+              (void)vf2_model2a_read(
+                  machine, UINT32_C(0x0050002b),
+                  &state->display_mode, sizeof(state->display_mode)
+              );
+              (void)vf2_model2a_read_u32(
+                  machine, UINT32_C(0x00500068), &state->runtime_flags
+              );
+              (void)vf2_model2a_read_u32(
+                  machine, UINT32_C(0x00550004), &state->texture_limit_low
+              );
+              (void)vf2_model2a_read_u32(
+                  machine, UINT32_C(0x00550008), &state->texture_limit_high
+              );
+              (void)vf2_model2a_read_u32(
+                  machine, UINT32_C(0x0055000c), &state->texture_status
+              );
+              (void)vf2_model2a_read_u32(
+                  machine, UINT32_C(0x00550080), &state->texture_gate
+              );
+          }
+
+          static void write_orchestrator_trace_header(FILE *file)
+          {
+              size_t index = 0u;
+
+              (void)fprintf(
+                  file,
+                  "step,event,pre_ip,pre_frame_depth,pre_arithmetic_control,"
+                  "pre_executed_instructions,pre_procedure_calls,"
+                  "pre_procedure_returns,pre_maximum_local_frame_depth"
+              );
+              for (index = 0u; index < VF2_I960_REGISTER_COUNT; ++index) {
+                  (void)fprintf(
+                      file,
+                      index < 16u ? ",pre_r%zu" : ",pre_g%zu",
+                      index < 16u ? index : index - 16u
+                  );
+              }
+              (void)fprintf(
+                  file,
+                  ",pre_frame_state,pre_display_mode,pre_runtime_flags,"
+                  "pre_texture_limit_low,pre_texture_limit_high,"
+                  "pre_texture_status,pre_texture_gate,"
+                  "post_ip,post_frame_depth,post_arithmetic_control,"
+                  "post_executed_instructions,post_procedure_calls,"
+                  "post_procedure_returns,post_maximum_local_frame_depth"
+              );
+              for (index = 0u; index < VF2_I960_REGISTER_COUNT; ++index) {
+                  (void)fprintf(
+                      file,
+                      index < 16u ? ",post_r%zu" : ",post_g%zu",
+                      index < 16u ? index : index - 16u
+                  );
+              }
+              (void)fprintf(
+                  file,
+                  ",post_frame_state,post_display_mode,post_runtime_flags,"
+                  "post_texture_limit_low,post_texture_limit_high,"
+                  "post_texture_status,post_texture_gate,instruction\n"
+              );
+          }
+
+          static void write_orchestrator_trace_state(
+              FILE *file,
+              const orchestrator_trace_state *state
+          )
+          {
+              size_t index = 0u;
+
+              (void)fprintf(
+                  file,
+                  ",0x%08x,%u,%u,%llu,%llu,%llu,%u",
+                  (unsigned)state->ip,
+                  (unsigned)state->frame_depth,
+                  (unsigned)state->arithmetic_control,
+                  (unsigned long long)state->executed_instructions,
+                  (unsigned long long)state->procedure_calls,
+                  (unsigned long long)state->procedure_returns,
+                  (unsigned)state->maximum_local_frame_depth
+              );
+              for (index = 0u; index < VF2_I960_REGISTER_COUNT; ++index) {
+                  (void)fprintf(
+                      file, ",0x%08x", (unsigned)state->registers[index]
+                  );
+              }
+              (void)fprintf(
+                  file,
+                  ",%u,%u,0x%08x,0x%08x,0x%08x,0x%08x,0x%08x",
+                  (unsigned)state->frame_state,
+                  (unsigned)state->display_mode,
+                  (unsigned)state->runtime_flags,
+                  (unsigned)state->texture_limit_low,
+                  (unsigned)state->texture_limit_high,
+                  (unsigned)state->texture_status,
+                  (unsigned)state->texture_gate
+              );
+          }
+
+          static void write_orchestrator_trace_row(
+              const char *event,
+              const orchestrator_trace_state *before,
+              const orchestrator_trace_state *after,
+              const char *instruction
+          )
+          {
+              if (g_orchestrator_trace_file == NULL || event == NULL ||
+                  before == NULL || after == NULL || instruction == NULL) {
+                  return;
+              }
+              (void)fprintf(
+                  g_orchestrator_trace_file,
+                  "%llu,%s",
+                  (unsigned long long)g_orchestrator_trace_step,
+                  event
+              );
+              write_orchestrator_trace_state(g_orchestrator_trace_file, before);
+              write_orchestrator_trace_state(g_orchestrator_trace_file, after);
+              (void)fprintf(g_orchestrator_trace_file, ",\"%s\"\n", instruction);
+              ++g_orchestrator_trace_step;
+          }
+          '''
+          text = replace_once(text, old_globals, new_globals, "trace globals")
+
+          old_loop = '''        while (status == VF2_OK && bridge_steps < UINT64_C(2000000)) {
+                      const uint32_t original_ip_before = original_cpu.ip;
+                      const uint32_t native_ip_before = native_cpu.ip;
+                      const bool second_scheduler_candidate =
+          '''
+          new_loop = '''        while (status == VF2_OK && bridge_steps < UINT64_C(2000000)) {
+                      const uint32_t original_ip_before = original_cpu.ip;
+                      const uint32_t native_ip_before = native_cpu.ip;
+                      const uint32_t native_frame_depth_before =
+                          native_cpu.local_frame_depth;
+                      const bool trace_orchestrator =
+                          g_orchestrator_trace_file != NULL &&
+                          orchestrator_trace_begin_step(
+                              native_ip_before, native_frame_depth_before
+                          );
+                      orchestrator_trace_state trace_before;
+                      const bool second_scheduler_candidate =
+          '''
+          text = replace_once(text, old_loop, new_loop, "bridge loop prologue")
+
+          old_pre_candidate = '''            if (original_cpu.ip == second_entry &&
+                          native_cpu.ip == second_entry &&
+          '''
+          new_pre_candidate = '''            if (trace_orchestrator) {
+                          capture_orchestrator_trace_state(
+                              &native_machine, &native_cpu, &trace_before
+                          );
+                      }
+
+                      if (original_cpu.ip == second_entry &&
+                          native_cpu.ip == second_entry &&
+          '''
+          text = replace_once(
+              text, old_pre_candidate, new_pre_candidate,
+              "trace state capture"
+          )
+
+          old_bridge_tail = '''                    if ((size_t)bridge_report.kind <
+                                  sizeof(bridge_block_counts) /
+                                      sizeof(bridge_block_counts[0])) {
+                                  ++bridge_block_counts[bridge_report.kind];
+                              }
+                          }
+                          continue;
+                      }
+          '''
+          new_bridge_tail = '''                    if ((size_t)bridge_report.kind <
+                                  sizeof(bridge_block_counts) /
+                                      sizeof(bridge_block_counts[0])) {
+                                  ++bridge_block_counts[bridge_report.kind];
+                              }
+                          }
+                          if (status == VF2_OK && trace_orchestrator) {
+                              orchestrator_trace_state trace_after;
+                              capture_orchestrator_trace_state(
+                                  &native_machine, &native_cpu, &trace_after
+                              );
+                              write_orchestrator_trace_row(
+                                  "recovered",
+                                  &trace_before,
+                                  &trace_after,
+                                  vf2_hybrid_bridge_kind_name(bridge_report.kind)
+                              );
+                              orchestrator_trace_end_step(
+                                  native_cpu.local_frame_depth
+                              );
+                          }
+                          continue;
+                      }
+          '''
+          text = replace_once(
+              text, old_bridge_tail, new_bridge_tail,
+              "recovered child trace"
+          )
+
+          trace_pattern = re.compile(
+              r'''            if \(g_orchestrator_trace_file != NULL &&\n'''
+              r'''                is_orchestrator_cluster_ip\(native_ip_before\)\) \{\n'''
+              r'''.*?'''
+              r'''            \}\n'''
+              r'''            if \(original_cpu\.ip != native_cpu\.ip\) \{''',
+              re.DOTALL,
+          )
+          trace_replacement = '''            if (trace_orchestrator) {
+                          char instruction_text[256];
+                          orchestrator_trace_state trace_after;
+                          vf2_i960_instruction instruction;
+                          vf2_status decode_status = vf2_i960_decode(
+                              native_machine.main_rom, native_machine.main_rom_size,
+                              native_ip_before, &instruction
+                          );
+                          if (decode_status == VF2_OK && instruction.valid) {
+                              (void)vf2_i960_format_instruction(
+                                  &instruction,
+                                  instruction_text,
+                                  sizeof(instruction_text)
+                              );
+                          } else {
+                              (void)snprintf(
+                                  instruction_text,
+                                  sizeof(instruction_text),
+                                  "<decode-failure>"
+                              );
+                          }
+                          capture_orchestrator_trace_state(
+                              &native_machine, &native_cpu, &trace_after
+                          );
+                          write_orchestrator_trace_row(
+                              "interpreted",
+                              &trace_before,
+                              &trace_after,
+                              instruction_text
+                          );
+                          orchestrator_trace_end_step(
+                              native_cpu.local_frame_depth
+                          );
+                      }
+                      if (original_cpu.ip != native_cpu.ip) {'''
+          text, count = trace_pattern.subn(trace_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(
+                  f"interpreted trace block: expected one match, found {count}"
+              )
+
+          text = replace_once(
+              text,
+              'return "decomp/i960/notes/texture_orchestrator_v0023.csv";',
+              'return "decomp/i960/notes/texture_orchestrator_v0024.csv";',
+              "default trace path",
+          )
+
+          old_header = '''    (void)fprintf(trace_file,
+                            "step,ip_before,ip_after,frame_depth,arithmetic_control,"
+                            "executed_instructions,procedure_calls,procedure_returns,"
+                            "maximum_local_frame_depth,instruction\\n");
+                    g_orchestrator_trace_file = trace_file;
+                    g_orchestrator_trace_step = 0u;
+          '''
+          new_header = '''    write_orchestrator_trace_header(trace_file);
+                    g_orchestrator_trace_file = trace_file;
+                    g_orchestrator_trace_step = 0u;
+                    g_orchestrator_trace_active = false;
+                    g_orchestrator_trace_entry_depth = 0u;
+          '''
+          text = replace_once(text, old_header, new_header, "trace header")
+
+          old_reset = '''    g_orchestrator_trace_file = NULL;
+                    g_orchestrator_trace_step = 0u;
+                    if (fclose(trace_file) != 0 && dispatch_result == EXIT_SUCCESS) {
+          '''
+          new_reset = '''    g_orchestrator_trace_file = NULL;
+                    g_orchestrator_trace_step = 0u;
+                    g_orchestrator_trace_active = false;
+                    g_orchestrator_trace_entry_depth = 0u;
+                    if (fclose(trace_file) != 0 && dispatch_result == EXIT_SUCCESS) {
+          '''
+          text = replace_once(text, old_reset, new_reset, "trace reset")
+
+          old_failure = '''    if (dispatch_result != EXIT_SUCCESS) {
+                      fprintf(
+                          stderr,
+                          "Trace-orchestrator aborted: native second-dispatch validation "
+                          "did not reach MATCH. Headline totals must be preserved before any "
+                          "trace record may be considered evidence.\\n"
+                      );
+                      return dispatch_result;
+                  }
+          '''
+          new_failure = '''    if (dispatch_result != EXIT_SUCCESS) {
+                      (void)remove(path);
+                      fprintf(
+                          stderr,
+                          "Trace-orchestrator aborted: native second-dispatch validation "
+                          "did not reach MATCH. The incomplete trace was removed.\\n"
+                      );
+                      return dispatch_result;
+                  }
+          '''
+          text = replace_once(text, old_failure, new_failure, "trace failure cleanup")
+
+          path.write_text(text, encoding="utf-8")
+
+          build_path = Path("build.ps1")
+          build_text = build_path.read_text(encoding="utf-8")
+          build_text = replace_once(
+              build_text,
+              "decomp/i960/notes/texture_orchestrator_v0023.csv",
+              "decomp/i960/notes/texture_orchestrator_v0024.csv",
+              "PowerShell trace path",
+          )
+          build_path.write_text(build_text, encoding="utf-8")
+
+          note = Path("decomp/i960/notes/texture_orchestrator_trace_v0024.md")
+          note.write_text(
+              '''# v0.0.24 invocation-aware texture orchestrator trace
+
+This release upgrades `trace-orchestrator` without claiming a recovered
+orchestrator function. The v0.0.23 fixed-address trace is preserved as historical
+evidence.
+
+The new trace starts at the live `0x0004bb18` invocation and follows the complete
+dynamic call tree until that invocation returns below its entry frame depth. It
+therefore includes interpreted descendants outside the old
+`[0x0004bb18, 0x0004c180]` address window.
+
+Each CSV row now records:
+
+- interpreted steps and recovered-child events in execution order;
+- complete pre- and post-step `r0..r15` and `g0..g15` register snapshots;
+- frame depth, arithmetic control and architectural counters;
+- the observed frame byte, display mode and runtime flags;
+- texture control words at `0x00550004`, `0x00550008`, `0x0055000c` and
+  `0x00550080` before and after each event.
+
+The default output is
+`decomp/i960/notes/texture_orchestrator_v0024.csv`. It is produced only when the
+existing native second-dispatch validation reaches `MATCH`; failed runs delete
+the incomplete CSV. The strict v0.0.22 aggregate assertions remain unchanged.
+
+This evidence is intended to establish exact entry states, child ordering and
+localized state changes before any v0.0.24 orchestrator helper is accepted as
+recovered C.
+''',
+              encoding="utf-8",
+          )
+
+          changelog_path = Path("docs/CHANGELOG.md")
+          changelog = changelog_path.read_text(encoding="utf-8")
+          marker = "# Changelog\n\n"
+          entry = '''# Changelog
+
+## 0.0.24 — 2026-08-02
+
+- upgraded `trace-orchestrator` from a fixed-address instruction trace to an
+  invocation-aware dynamic call-tree trace rooted at `0x0004bb18`;
+- added complete pre/post i960 register snapshots, architectural counters and
+  watched texture-control memory values to every trace event;
+- added explicit recovered-child events so downstream call ordering is visible
+  even when a child executes through recovered C;
+- changed the default evidence path to
+  `decomp/i960/notes/texture_orchestrator_v0024.csv` while preserving the
+  v0.0.23 CSV as historical evidence;
+- delete incomplete trace output when the final differential `MATCH` gate fails;
+- made no new recovered-function claim and preserved the strict v0.0.22 bridge
+  totals pending analysis of the richer evidence.
+
+'''
+          if not changelog.startswith(marker):
+              raise SystemExit("CHANGELOG heading not found")
+          changelog_path.write_text(
+              entry + changelog[len(marker):], encoding="utf-8"
+          )
+
+          status_path = Path("docs/STATUS.md")
+          status_text = status_path.read_text(encoding="utf-8")
+          status_marker = "# Status\n\n"
+          status_entry = '''# Status
+
+## v0.0.24
+
+| Component | State |
+|---|---|
+| Repository and CMake build | Complete |
+| Supported ROM validation | 36/36 files |
+| Texture orchestrator trace | Invocation-aware dynamic call tree |
+| Register evidence | Complete pre/post `r0..r15`, `g0..g15` snapshots |
+| Watched texture state | Pre/post values at seven control addresses |
+| Newly recovered functions | None in this evidence increment |
+| Post-frame bridge remaining | 2,070 interpreted instructions |
+| Strict differential totals | Preserved from v0.0.22 |
+
+The default trace is now
+`decomp/i960/notes/texture_orchestrator_v0024.csv`. The v0.0.23 trace remains
+historical evidence and is not overwritten.
+
+'''
+          if not status_text.startswith(status_marker):
+              raise SystemExit("STATUS heading not found")
+          status_path.write_text(
+              status_entry + status_text[len(status_marker):], encoding="utf-8"
+          )
+          PY
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build-ci
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build-ci --parallel 2
+
+      - name: Run ROM-independent tests
+        run: ./build-ci/vf2_tests
+
+      - name: Commit directly to master
+        shell: bash
+        run: |
+          rm .github/workflows/apply-v0024-trace.yml
+          git config user.name "OpenAI GitHub Connector"
+          git config user.email "github-connector@openai.com"
+          git add -A
+          git commit -m "v0.0.24: invocation-aware orchestrator trace"
+          git push origin HEAD:master
