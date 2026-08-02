@@ -54,6 +54,7 @@ add_library(vf2_core STATIC
     src/recovered/camera_viewport.c
     src/recovered/hybrid.c
     src/recovered/frame_wait.c
+    src/recovered/native_runtime.c
     src/recovered/texture_bridge.c
     src/recovered/boot/boot_stage1.c
     src/recovered/boot/boot_stage2.c
@@ -148,6 +149,17 @@ if(VF2_BUILD_TESTS)
     add_test(
         NAME vf2_orchestrator_bridge
         COMMAND vf2_orchestrator_bridge_tests
+    )
+
+    add_executable(vf2_native_runtime_tests
+        tests/recovered/test_native_runtime.c
+    )
+    target_link_libraries(vf2_native_runtime_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_native_runtime_tests)
+
+    add_test(
+        NAME vf2_native_runtime
+        COMMAND vf2_native_runtime_tests
     )
 
     if(VF2_ROM_DIR)
