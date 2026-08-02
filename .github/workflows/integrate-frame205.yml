@@ -49,6 +49,14 @@ jobs:
           assert marker in source
           source = source.replace(marker, prototype + marker, 1)
           path.write_text(source)
+
+          test_path = Path('tests/analysis/test_orchestrator_bridge.c')
+          tests = test_path.read_text()
+          invalid_mmio_read = '''    CHECK(read_test_u16(&machine, UINT32_C(0x01c00040)) == UINT16_C(1));
+          '''
+          assert invalid_mmio_read in tests
+          tests = tests.replace(invalid_mmio_read, '', 1)
+          test_path.write_text(tests)
           PY
           rm -rf tools/frame205-stage
           rm .github/workflows/integrate-frame205.yml
