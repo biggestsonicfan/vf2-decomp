@@ -22,6 +22,7 @@ address,end,name,status,source,notes
 0x0000281c,,game_state_classify,recovered-observed-branch,dynamic-differential,v0.0.22 observed game-state classifier
 0x000026ec,,game_color_lookup,recovered-observed-branch,dynamic-differential,v0.0.22 color/control lookup with 0x00010101 adjustment
 0x0004bd24,0x0004d2c0,texture_status_dispatch_call,recovered-observed-branch,dynamic-trace+unit,Four observed record dispatches recover eight instructions each
+0x0004bde0,0x0004d16c,texture_active_prepare_call,recovered-observed-branch,dynamic-differential+unit,Loads the active record and coordinate table state then enters the address-table helper in twenty-two instructions; observed four times
 0x0004bd24,0x0004bf90,texture_status_scan_end,recovered-observed-branch,dynamic-differential+unit,Final pass scans ten inactive records in 43 instructions through the hybrid bridge
 0x0004bebc,0x0004cb64,texture_child_zero_gate_a,recovered-observed-branch,dynamic-differential+unit,Zero child-state path enters 0x0004cb64 in three instructions through the hybrid bridge; observed four times
 0x0004bef4,0x0004cd18,texture_child_zero_gate_b,recovered-observed-branch,dynamic-differential+unit,Zero child-state path enters 0x0004cd18 in three instructions through the hybrid bridge; observed four times

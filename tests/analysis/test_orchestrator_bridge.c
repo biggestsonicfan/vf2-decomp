@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "vf2/analysis/orchestrator_gates.h"
 #include "vf2/analysis/orchestrator_scan.h"
@@ -161,6 +162,107 @@ static void test_loop_gate_dispatch(void)
 
     vf2_model2a_shutdown(&machine);
 }
+
+static void test_active_prepare_dispatch(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint8_t *rom = NULL;
+    uint32_t active_flags = UINT32_MAX;
+    const uint32_t record = UINT32_C(0x00550168);
+    const uint32_t stream = UINT32_C(0x00551000);
+    const uint32_t stream_word = UINT32_C(0x12340004);
+    const uint8_t count[2] = {3u, 0u};
+    const size_t rom_size = (size_t)UINT32_C(0x0004c200);
+    const uint32_t arithmetic_before = UINT32_C(0x3f001002);
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    rom = (uint8_t *)calloc(rom_size, 1u);
+    CHECK(rom != NULL);
+    if (rom == NULL) {
+        vf2_model2a_shutdown(&machine);
+        return;
+    }
+    rom[UINT32_C(0x0004c128)] = 10u;
+    rom[UINT32_C(0x0004c129)] = 0u;
+    rom[UINT32_C(0x0004c12a)] = 0xfdu;
+    rom[UINT32_C(0x0004c12b)] = 0xffu;
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, rom_size) == VF2_OK);
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine, record + UINT32_C(0x10), 0u
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine, record + UINT32_C(2), count, sizeof(count)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine, record + UINT32_C(0x14), stream
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine, record + UINT32_C(0x18), UINT32_C(0x00552000)
+        ) == VF2_OK
+    );
+    CHECK(vf2_model2a_write_u32(&machine, stream, stream_word) == VF2_OK);
+
+    enter_parent(&cpu, UINT32_C(0x0004bde0));
+    cpu.registers[5] = record;
+    cpu.arithmetic_control = arithmetic_before;
+
+    CHECK(
+        vf2_hybrid_post_frame_bridge_execute(
+            &machine, &cpu, &report
+        ) == VF2_OK
+    );
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_TEXTURE_ACTIVE_PREPARE_CALL);
+    CHECK(report.entry_address == UINT32_C(0x0004bde0));
+    CHECK(report.exit_address == UINT32_C(0x0004d16c));
+    CHECK(report.recovered_instruction_count == UINT64_C(22));
+    CHECK(report.recovered_procedure_calls == UINT64_C(1));
+    CHECK(report.recovered_procedure_returns == UINT64_C(0));
+    CHECK(report.bytes_written == 4u);
+    CHECK(report.cpu_poststate_applied == 1);
+    CHECK(cpu.ip == UINT32_C(0x0004d16c));
+    CHECK(cpu.local_frame_depth == 2u);
+    CHECK(cpu.maximum_local_frame_depth == 2u);
+    CHECK(cpu.executed_instructions == UINT64_C(22));
+    CHECK(cpu.procedure_calls == UINT64_C(2));
+    CHECK(cpu.procedure_returns == UINT64_C(0));
+    CHECK(cpu.local_frames[1].registers[2] == UINT32_C(0x0004be6c));
+    CHECK(cpu.local_frames[1].registers[5] == record);
+    CHECK(cpu.local_frames[1].registers[6] == 1u);
+    CHECK(cpu.local_frames[1].registers[7] == 0u);
+    CHECK(cpu.local_frames[1].registers[8] == 3u);
+    CHECK(cpu.local_frames[1].registers[9] == stream);
+    CHECK(cpu.local_frames[1].registers[10] == UINT32_C(0x00552000));
+    CHECK(cpu.registers[16] == UINT32_C(0x12));
+    CHECK(cpu.registers[17] == UINT32_C(0x34));
+    CHECK(cpu.registers[18] == stream_word);
+    CHECK(cpu.registers[22] == UINT32_C(28));
+    CHECK(cpu.registers[23] == UINT32_C(49));
+    CHECK(cpu.registers[24] == 0u);
+    CHECK(cpu.arithmetic_control == arithmetic_before);
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_NONE);
+    CHECK(
+        vf2_model2a_read_u32(
+            &machine, UINT32_C(0x0055c2f4), &active_flags
+        ) == VF2_OK
+    );
+    CHECK(active_flags == 0u);
+
+    free(rom);
+    vf2_model2a_shutdown(&machine);
+}
+
 
 static void test_record_advance_dispatch(void)
 {
@@ -338,6 +440,7 @@ int main(void)
         VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B
     );
     test_loop_gate_dispatch();
+    test_active_prepare_dispatch();
     test_record_advance_dispatch();
     test_counter_update_dispatch();
 
