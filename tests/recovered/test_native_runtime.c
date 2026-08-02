@@ -53,6 +53,12 @@ static void test_initialize_and_names(void)
             "second-scheduler"
         ) == 0
     );
+    CHECK(
+        strcmp(
+            vf2_native_runtime_step_kind_name(VF2_NATIVE_RUNTIME_STEP_TASK),
+            "task"
+        ) == 0
+    );
 }
 
 static void test_zero_length_run(void)
@@ -162,6 +168,84 @@ static void test_single_bridge_run(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_second_game_info_task_run(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state state;
+    vf2_native_runtime_run_report report;
+    const uint32_t registry = UINT32_C(0x00515200);
+    const uint32_t fighter0 = UINT32_C(0x00502000);
+    const uint32_t fighter1 = UINT32_C(0x00503000);
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine,
+            UINT32_C(0x00500804),
+            fighter0
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine,
+            UINT32_C(0x00500808),
+            fighter1
+        ) == VF2_OK
+    );
+    CHECK(vf2_model2a_write_u32(&machine, fighter0, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1, 0u) == VF2_OK);
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine,
+            UINT32_C(0x00508000),
+            UINT32_C(1) << 5u
+        ) == VF2_OK
+    );
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00010d54));
+    cpu.registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x3000);
+    cpu.registers[29] = registry;
+    CHECK(
+        vf2_i960_cpu_enter_procedure(
+            &cpu,
+            UINT32_C(0x0001645c),
+            UINT32_C(0x00010dcc)
+        ) == VF2_OK
+    );
+    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+
+    CHECK(
+        vf2_native_runtime_run_until(
+            &machine,
+            &cpu,
+            &state,
+            UINT32_C(0x00010dcc),
+            1u,
+            &report
+        ) == VF2_OK
+    );
+    CHECK(report.reached_stop == 1);
+    CHECK(report.blocks_executed == 1u);
+    CHECK(report.task_bodies_executed == 1u);
+    CHECK(report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_TASK);
+    CHECK(report.last_task_kind == VF2_HYBRID_TASK_GAME_INFO);
+    CHECK(report.recovered_instruction_count == UINT64_C(19));
+    CHECK(report.recovered_procedure_calls == UINT64_C(0));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(state.blocks_executed == 1u);
+    CHECK(state.task_bodies_executed == 1u);
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+    CHECK(cpu.registers[23] == fighter1);
+    CHECK(cpu.registers[24] == fighter0);
+
+    vf2_model2a_shutdown(&machine);
+}
+
 static void test_budget_and_unsupported_are_explicit(void)
 {
     vf2_model2a machine;
@@ -213,6 +297,7 @@ int main(void)
     test_initialize_and_names();
     test_zero_length_run();
     test_single_bridge_run();
+    test_second_game_info_task_run();
     test_budget_and_unsupported_are_explicit();
 
     if (failures != 0) {
