@@ -6,10 +6,10 @@ No elevated prompt required.
 USAGE
   .\build.ps1 cfg            fresh cmake configure into build/
   .\build.ps1 build          configure-if-needed + compile (strict Werror)
-  .\build.ps1 test           run vf2_tests (ROM-backed ctest only if $env:VF2_ROM_DIR is set)
+  .\build.ps1 test           run all 22 CTest targets (ROM-backed)
   .\build.ps1 asan           ASAN+UBSan build into build_asan/
-  .\build.ps1 trace [csv]    trace-orchestrator over $env:VF2_ROM_DIR
-  .\build.ps1 clean          wipe build/
+  .\build.ps1 trace [csv]    trace-orchestrator over $Repo\roms\vf2
+  .\build.ps1 clean          wipe build/ and build_asan/
 #>
 param(
   [ValidateSet('cfg','build','clean','test','asan','trace','help')]
@@ -20,7 +20,7 @@ param(
 $Repo     = $PSScriptRoot
 $BuildDir = Join-Path $Repo 'build'
 $SanDir   = Join-Path $Repo 'build_asan'
-$RomDir   = $env:VF2_ROM_DIR
+$RomDir   = Join-Path $Repo 'roms\vf2'
 
 # --- self-bootstrap: prepend the local toolchains this machine happens to have
 #     (MSYS2 UCRT64 GCC + LLVM). No-op if they are absent.
@@ -31,8 +31,8 @@ foreach ($tc in $toolchains) {
 if (-not $env:CC -and (Get-Command gcc -ErrorAction SilentlyContinue)) { $env:CC = 'gcc' }
 
 function Need-RomDir {
-  if (-not $RomDir) {
-    throw "env:VF2_ROM_DIR is unset. Point it at your 36-ROM root and re-run."
+  if (-not (Test-Path "$RomDir")) {
+    throw "$RomDir missing. Populate $Repo\roms\vf2 with the 36 VF2 ROMs and re-run."
   }
 }
 
@@ -64,12 +64,7 @@ switch ($Command) {
     if (-not (Test-Path "$BuildDir\build.ninja")) {
       throw "run '.\\build.ps1 build' first"
     }
-    if ($RomDir) {
-      & ctest --test-dir "$BuildDir" -C Release --output-on-failure
-    } else {
-      Write-Host "no ROM dir: running ROM-independent unit suite only"
-      & "$BuildDir\vf2_tests.exe"
-    }
+    & ctest --test-dir "$BuildDir" -C Release --output-on-failure
   }
 
   'asan' {
@@ -88,19 +83,19 @@ switch ($Command) {
     if (-not (Test-Path "$BuildDir\vf2i960.exe")) {
       throw "run '.\\build.ps1 build' first"
     }
-    $csv = if ($Args.Count -gt 0) { $Args[0] } else { 'decomp/i960/notes/texture_orchestrator_v0023.csv' }
+    $csv = if ($Args.Count -gt 0) { $Args[0] } else { (Join-Path $Repo 'decomp/i960/notes/texture_orchestrator_v0023.csv') }
     & "$BuildDir\vf2i960.exe" trace-orchestrator "$RomDir" "$csv"
   }
 
   'help' {
     @'
-vf2-decomp build harness (no admin needed)
+  vf2-decomp build harness (no admin needed)
 
   .\build.ps1 cfg            fresh cmake configure into build\
   .\build.ps1 build          configure-if-needed + compile (strict Werror)
-  .\build.ps1 test           run vf2_tests (ROM-backed ctest only if $env:VF2_ROM_DIR is set)
+  .\build.ps1 test           run all 22 CTest targets (ROM-backed)
   .\build.ps1 asan           ASAN+UBSan build into build_asan\
-  .\build.ps1 trace [csv]    trace-orchestrator over $env:VF2_ROM_DIR
+  .\build.ps1 trace [csv]    trace-orchestrator over $Repo\roms\vf2
   .\build.ps1 clean          wipe build\ and build_asan\
 '@ | Write-Host
   }

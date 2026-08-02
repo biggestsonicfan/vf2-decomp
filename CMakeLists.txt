@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     vf2_decomp
-    VERSION 0.0.23
+    VERSION 0.0.24
     DESCRIPTION "Clean-room, non-matching C decompilation project for Virtua Fighter 2 Version 2.1"
     LANGUAGES C
 )
@@ -15,6 +15,9 @@ option(VF2_BUILD_TESTS "Build unit tests" ON)
 option(VF2_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(VF2_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
+if(NOT VF2_ROM_DIR)
+  set(VF2_ROM_DIR "${CMAKE_SOURCE_DIR}/roms/vf2")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(VF2Warnings)
