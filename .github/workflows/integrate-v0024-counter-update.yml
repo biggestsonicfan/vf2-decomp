@@ -1,0 +1,43 @@
+name: Integrate v0.0.24 texture counter update
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Apply counter update integration
+        run: python3 tools/apply_v0024_counter_update.py
+
+      - name: Configure warning-as-error build
+        run: >-
+          cmake -S . -B build
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run ROM-independent tests
+        run: >-
+          ctest --test-dir build --output-on-failure
+          -R '^(vf2_tests|vf2_orchestrator_.*)$'
+
+      - name: Commit verified integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "decomp(i960): recover texture counter update"
+          git push origin master
