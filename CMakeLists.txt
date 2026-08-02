@@ -26,6 +26,7 @@ add_library(vf2_core STATIC
     src/analysis/boundaries.c
     src/analysis/cfg.c
     src/analysis/image_map.c
+    src/analysis/orchestrator_gates.c
     src/analysis/orchestrator_limits.c
     src/analysis/orchestrator_scan.c
     src/analysis/pseudoc.c
@@ -125,6 +126,17 @@ if(VF2_BUILD_TESTS)
     add_test(
         NAME vf2_orchestrator_scan
         COMMAND vf2_orchestrator_scan_tests
+    )
+
+    add_executable(vf2_orchestrator_gates_tests
+        tests/analysis/test_orchestrator_gates.c
+    )
+    target_link_libraries(vf2_orchestrator_gates_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_orchestrator_gates_tests)
+
+    add_test(
+        NAME vf2_orchestrator_gates
+        COMMAND vf2_orchestrator_gates_tests
     )
 
     if(VF2_ROM_DIR)
