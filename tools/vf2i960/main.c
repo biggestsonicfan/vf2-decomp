@@ -3899,6 +3899,7 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0004cb64) ||
                 native_ip_before == UINT32_C(0x0004cce8) ||
                 native_ip_before == UINT32_C(0x0004cc28) ||
+                native_ip_before == UINT32_C(0x0004cd18) ||
                 native_ip_before == UINT32_C(0x0004c180) ||
                 native_ip_before == UINT32_C(0x0004c3f0) ||
                 native_ip_before == UINT32_C(0x0004c4d4) ||
@@ -4061,6 +4062,8 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_TEXTURE_SYMBOL_TABLE_BUILD ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_PAIR_TABLE_BUILD ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_COLOR_PREPARE ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_WORD_PREPARE ||
                         bridge_report.kind ==
@@ -4357,11 +4360,11 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1269914) ||
-             bridge_interpreted_instructions != UINT64_C(908) ||
+             bridge_recovered_instructions != UINT64_C(1269998) ||
+             bridge_interpreted_instructions != UINT64_C(824) ||
              bridge_validated_blocks != 180u ||
              bridge_memory_checkpoints != 180u ||
-             bridge_recovered_calls != UINT64_C(278) ||
+             bridge_recovered_calls != UINT64_C(282) ||
              bridge_recovered_returns != UINT64_C(300) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
@@ -4376,7 +4379,8 @@ static int command_native_dispatch(
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_TREE_DISPATCH] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_TREE_EXPAND] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_WORD_PREPARE] != 4u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_TIMER_WAIT_UPDATE] != 4u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TIMER_WAIT_UPDATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_COLOR_PREPARE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B] != 4u ||
@@ -4459,6 +4463,8 @@ static int command_native_dispatch(
                bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_TREE_EXPAND]);
         printf("  texture word prepares:            %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_WORD_PREPARE]);
+        printf("  texture color prepares:           %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_COLOR_PREPARE]);
         printf("  texture color conversions:        %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_COLOR_CONVERT]);
         printf("  texture address tables:           %zu\n",
