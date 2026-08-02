@@ -26,6 +26,7 @@ add_library(vf2_core STATIC
     src/analysis/boundaries.c
     src/analysis/cfg.c
     src/analysis/image_map.c
+    src/analysis/orchestrator_limits.c
     src/analysis/pseudoc.c
     src/analysis/semantics.c
     src/analysis/symbols.c
@@ -102,6 +103,17 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_tests)
 
     add_test(NAME vf2_tests COMMAND vf2_tests)
+
+    add_executable(vf2_orchestrator_limits_tests
+        tests/analysis/test_orchestrator_limits.c
+    )
+    target_link_libraries(vf2_orchestrator_limits_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_orchestrator_limits_tests)
+
+    add_test(
+        NAME vf2_orchestrator_limits
+        COMMAND vf2_orchestrator_limits_tests
+    )
 
     if(VF2_ROM_DIR)
         add_test(
