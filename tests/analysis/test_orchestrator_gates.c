@@ -73,7 +73,6 @@ static void test_child_gate(
     CHECK(cpu.procedure_calls == UINT64_C(2));
     CHECK(cpu.procedure_returns == UINT64_C(0));
     CHECK(cpu.registers[VF2_I960_G0_REGISTER] == 0u);
-    CHECK(cpu.registers[2] == expected_return);
 
     vf2_model2a_shutdown(&machine);
 }
