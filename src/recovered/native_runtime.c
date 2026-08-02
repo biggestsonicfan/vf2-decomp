@@ -5,6 +5,7 @@
 #define VF2_NATIVE_FRAME_WAIT_POLL_ENTRY UINT32_C(0x00010f90)
 #define VF2_NATIVE_INTERRUPT_RETURN_ENTRY UINT32_C(0x00000d20)
 #define VF2_NATIVE_SECOND_SCHEDULER_ENTRY UINT32_C(0x0000a010)
+#define VF2_NATIVE_GAME_INFO_TASK_ENTRY UINT32_C(0x0001645c)
 
 static void accumulate_step(
     vf2_native_runtime_state *state,
@@ -16,7 +17,9 @@ static void accumulate_step(
     state->recovered_procedure_calls += report->recovered_procedure_calls;
     state->recovered_procedure_returns += report->recovered_procedure_returns;
 
-    if (report->kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT) {
+    if (report->kind == VF2_NATIVE_RUNTIME_STEP_TASK) {
+        ++state->task_bodies_executed;
+    } else if (report->kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT) {
         ++state->frame_wait_phases;
     } else if (report->kind == VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER) {
         ++state->scheduler_entries;
@@ -101,6 +104,26 @@ vf2_status vf2_native_runtime_step(
             local_report.recovered_procedure_returns =
                 scheduler_report.recovered_procedure_returns;
         }
+    } else if (cpu->ip == VF2_NATIVE_GAME_INFO_TASK_ENTRY) {
+        vf2_hybrid_task_report task_report;
+        memset(&task_report, 0, sizeof(task_report));
+        status = vf2_hybrid_first_dispatch_task_execute(
+            machine,
+            cpu,
+            cpu->registers[29],
+            &task_report
+        );
+        if (status == VF2_OK) {
+            local_report.kind = VF2_NATIVE_RUNTIME_STEP_TASK;
+            local_report.task_kind = task_report.kind;
+            local_report.exit_address = cpu->ip;
+            local_report.recovered_instruction_count =
+                task_report.recovered_instruction_count;
+            local_report.recovered_procedure_calls =
+                task_report.recovered_procedure_calls;
+            local_report.recovered_procedure_returns =
+                task_report.recovered_procedure_returns;
+        }
     } else {
         vf2_hybrid_bridge_report bridge_report;
         memset(&bridge_report, 0, sizeof(bridge_report));
@@ -170,7 +193,9 @@ vf2_status vf2_native_runtime_run_until(
             step_report.recovered_procedure_calls;
         local_report.recovered_procedure_returns +=
             step_report.recovered_procedure_returns;
-        if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT) {
+        if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_TASK) {
+            ++local_report.task_bodies_executed;
+        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT) {
             ++local_report.frame_wait_phases;
         } else if (
             step_report.kind == VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER
@@ -179,6 +204,7 @@ vf2_status vf2_native_runtime_run_until(
         }
         local_report.last_step_kind = step_report.kind;
         local_report.last_bridge_kind = step_report.bridge_kind;
+        local_report.last_task_kind = step_report.task_kind;
         local_report.final_address = cpu->ip;
     }
 
@@ -203,6 +229,8 @@ const char *vf2_native_runtime_step_kind_name(
         return "none";
     case VF2_NATIVE_RUNTIME_STEP_BRIDGE:
         return "bridge";
+    case VF2_NATIVE_RUNTIME_STEP_TASK:
+        return "task";
     case VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT:
         return "frame-wait";
     case VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER:
