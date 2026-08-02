@@ -201,28 +201,37 @@
 - reached 1,268,752 recovered instructions across 143 checked blocks;
 - kept alternate gameplay states explicitly unsupported.
 
-## v0.0.23 — texture orchestrator profile (evidence-only release)
+## v0.0.23 — texture orchestrator profile — complete
 
-- added the read-only `trace-orchestrator` developer command and recorded observations of the `[0x0004bb18, 0x0004c180]` cluster in `decomp/i960/notes/texture_orchestrator_v0023.md`;
-- no recovered blocks were added in this release and no `vf2_hybrid_bridge_kind` was defined;
-- preserved all v0.0.22 headline totals (1,270,822 / 1,268,752 / 2,070 / 143 / 250 / 297);
-- backfilled `symbols.csv` and `functions.csv` with the v0.0.22 helpers that were missing from those tables;
-- deferred the `0x00001f5c` geometry-preparation cluster to v0.0.24.
+- added the read-only `trace-orchestrator` developer command and recorded observations of the `[0x0004bb18, 0x0004c180]` cluster;
+- preserved all v0.0.22 headline totals while collecting evidence;
+- backfilled `symbols.csv` and `functions.csv` with the v0.0.22 helpers;
+- prepared the final texture-orchestrator and frame recovery.
 
-## v0.0.24 — remaining texture orchestration and geometry preparation (target)
+## v0.0.24 — zero-interpreted second dispatch — complete
 
-- recover the top-level texture orchestrator rooted at `0x0004bb18`, using the evidence recorded in v0.0.23;
-- recover the remaining helpers around `0x0004bcd4` and `0x0004c180`;
-- recover later geometry-preparation helpers rooted near `0x00001f5c`;
-- reduce or eliminate the remaining 2,070 interpreted bridge instructions;
-- profile execution beyond the second `fa_game_info` entry.
+- recovered the top-level texture orchestrator and remaining geometry/gameplay/frame helpers;
+- recovered the four-visit frame wait, vector-12 interrupt entry and architectural return;
+- reproduced all 1,270,822 bridge instructions in C with zero native-side interpreter fallback;
+- validated 190 complete CPU and mutable-memory checkpoints;
+- reached 342/340 recovered procedure calls/returns;
+- added a reusable native runtime dispatcher;
+- recovered the entire observed second scheduler sweep from the second
+  `fa_game_info` entry through recurring camera, user, sound, kill-osage and both
+  osage tasks;
+- added 566 recovered instructions across 14 blocks and returned to the main
+  loop at `0x0000a014`.
 
-## v0.1.0 — native initialization and main-loop entry
+## v0.1.0 — repeated-frame native runtime — in progress
 
-- accepted startup path requires no i960 execution;
-- scheduler represented by named C structures and functions;
-- one deterministic scheduler cycle and frame boundary proven;
-- first named tasks invoked through recovered C interfaces.
+- route main-loop, geometry, texture, frame timer and interrupt blocks through
+  `vf2_native_runtime`;
+- execute another complete frame boundary and vector-12 interrupt;
+- reach and validate the third scheduler sweep;
+- preserve all 29 task contexts across repeated cycles;
+- make the differential CLI and future platform executable consume the same
+  runtime dispatcher;
+- keep native-side interpreter fallback at zero.
 
 ## v0.2.0 — game subsystems
 
