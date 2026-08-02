@@ -29,39 +29,21 @@ requires the exact entry IP and a live procedure frame. Any active record is
 rejected with `VF2_ERROR_UNSUPPORTED`; the active-record processing path is not
 guessed or merged into this recovery.
 
-`execute_texture_status_dispatch_call` now delegates its zero-count path to the
-recovery and returns the `VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END` report.
-The live second-dispatch bridge executes the original interpreter for exactly
-43 reference instructions and compares the resulting CPU and memory snapshots
+`execute_texture_status_dispatch_call` delegates its zero-count path to the
+recovery and returns `VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END`. The live
+second-dispatch bridge executes the original interpreter for exactly 43
+reference instructions and compares the resulting CPU and memory snapshots
 against the recovered post-state.
 
-The implementation applies the observed i960 register, comparison-control,
-instruction-counter and instruction-pointer post-state. It performs no writes
-to Model 2 memory.
+## Validation
 
-## Test coverage
+CTest targets `vf2_orchestrator_scan` and `vf2_orchestrator_bridge` passed in a
+warning-as-error build. The exact supported VF2 2.1 ROM set then produced:
 
-CTest targets `vf2_orchestrator_scan` and `vf2_orchestrator_bridge` verify:
+```text
+Native second-dispatch validation: MATCH
+Final CPU and memory state:         MATCH
+```
 
-- the complete ten-record inactive scan;
-- the 43-instruction accounting;
-- exact `r3`, `r5`, `r6`, IP and comparison post-state;
-- unchanged procedure call/return accounting;
-- dispatch through the public hybrid bridge;
-- rejection when an active record is encountered;
-- rejection of invalid entry state;
-- invalid-argument handling.
-
-The warning-as-error build and all ROM-independent tests passed before the
-functional integration commit was written.
-
-## Claim boundary
-
-The scan is integrated into the live hybrid bridge and contributes one of the
-167 strict differential checkpoints. Together with the zero-gate recoveries,
-the strict bounded-bridge accounting is now 1,268,941 recovered and 1,881
-interpreted instructions.
-
-The remaining promotion condition is a local `native-second-dispatch` run with
-the supported VF2 2.1 ROM set. Until that ROM-backed run reports `MATCH`, the
-function catalog remains marked `pending-rom-differential+unit`.
+The scan contributes one of the 168 confirmed differential checkpoints. The
+function catalog is therefore promoted to `dynamic-differential+unit`.
