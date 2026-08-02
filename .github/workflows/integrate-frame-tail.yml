@@ -46,3 +46,5 @@ jobs:
           git add -A
           git commit -m "decomp(i960): recover frame tail functions"
           git push origin master
+
+# A second push ensures this workflow already exists on the default branch when triggered.
