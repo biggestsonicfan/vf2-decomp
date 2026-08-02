@@ -1,0 +1,30 @@
+name: Export master source
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+
+      - name: Package source
+        run: |
+          rm -rf .git build
+          zip -qr vf2-decomp-master.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2-decomp-master-source
+          path: vf2-decomp-master.zip
+          if-no-files-found: error
+          retention-days: 1
