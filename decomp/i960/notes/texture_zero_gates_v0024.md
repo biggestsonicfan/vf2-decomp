@@ -4,7 +4,7 @@
 
 The observed texture-record loop repeatedly checks the 32-bit child state at
 `0x00550080`. During the recorded startup path the value is zero for every
-visit, selecting three small deterministic control blocks:
+visit, selecting three deterministic control blocks:
 
 | Entry | Observed action | Instructions | Visits |
 |---|---|---:|---:|
@@ -29,42 +29,21 @@ state.
 
 `execute_texture_orchestrator_gate` maps these reports to the live hybrid bridge
 kinds `TEXTURE_CHILD_GATE_A`, `TEXTURE_CHILD_GATE_B` and
-`TEXTURE_LOOP_GATE`. The second-dispatch validator executes the same number of
-reference interpreter instructions and compares complete CPU/memory snapshots
-for every visit.
+`TEXTURE_LOOP_GATE`. Nonzero branches remain deliberately unsupported.
 
-The nonzero branches remain deliberately unsupported.
+## Validation
 
-## Test coverage
+CTest targets `vf2_orchestrator_gates` and `vf2_orchestrator_bridge` passed in a
+warning-as-error build. The exact supported VF2 2.1 ROM set then produced:
 
-CTest targets `vf2_orchestrator_gates` and `vf2_orchestrator_bridge` verify:
+```text
+Native second-dispatch validation: MATCH
+Final CPU and memory state:         MATCH
+```
 
-- both child targets and return addresses;
-- exact frame depth, call counter and instruction counter post-state;
-- the two-instruction loop-tail transition;
-- propagation of the state word into i960 `g0`;
-- dispatch through the public hybrid bridge;
-- rejection of nonzero state;
-- rejection of invalid entry/frame state;
-- invalid-argument handling.
+The three gate classes account for twelve of the 168 confirmed differential
+checkpoints. Their function-catalog entries are promoted to
+`dynamic-differential+unit`.
 
-The warning-as-error build and all ROM-independent tests passed before the
-functional integration commit was written.
-
-## Claim boundary
-
-The three gate classes are integrated into the live hybrid bridge and account
-for twelve of the 167 strict differential checkpoints. Combined with the
-43-instruction inactive-record scan, they reduce the bounded bridge by 75
-interpreted instructions.
-
-The strict accounting is now:
-
-- total bridge instructions: 1,270,822;
-- recovered bridge instructions: 1,268,941;
-- interpreted bridge instructions: 1,881;
-- recovered bridge calls and returns: 266 / 300.
-
-The remaining promotion condition is a local `native-second-dispatch` run with
-the supported VF2 2.1 ROM set. Until that ROM-backed run reports `MATCH`, the
-function catalog remains marked `pending-rom-differential+unit`.
+The confirmed bounded-bridge totals are 1,268,955 recovered and 1,867
+interpreted instructions, with 266 recovered calls and 300 recovered returns.
