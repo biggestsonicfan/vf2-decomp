@@ -19,10 +19,14 @@ jobs:
 
       - name: Apply verified frame-tail recovery
         run: |
-          base64 -d tools/frame_tail_v0024.patch.gz.b64 | gzip -d > /tmp/frame-tail-v0024.patch
+          cat tools/frame_tail_v0024.part?? > /tmp/frame-tail-v0024.b64
+          test "$(sha256sum /tmp/frame-tail-v0024.b64 | cut -d' ' -f1)" = "f9a21a40d9e8838a94972ecf8ad361689ab35b453031a5ec48dc8a8b8629d7e6"
+          base64 -d /tmp/frame-tail-v0024.b64 > /tmp/frame-tail-v0024.patch.gz
+          gzip -t /tmp/frame-tail-v0024.patch.gz
+          gzip -dc /tmp/frame-tail-v0024.patch.gz > /tmp/frame-tail-v0024.patch
           git apply --check /tmp/frame-tail-v0024.patch
           git apply /tmp/frame-tail-v0024.patch
-          rm tools/frame_tail_v0024.patch.gz.b64
+          rm -f tools/frame_tail_v0024.patch.gz.b64 tools/frame_tail_v0024.part??
           rm .github/workflows/integrate-frame-tail.yml
           rm .github/workflows/integrate-frame-tail-pr.yml
 
