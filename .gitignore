@@ -1,0 +1,43 @@
+# Build output
+/build/
+/build-*/
+/out/
+/dist/
+CMakeUserPresets.json
+compile_commands.json
+
+# IDEs
+.vscode/
+.idea/
+.vs/
+*.user
+*.suo
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Proprietary files: never commit
+*.zip
+*.7z
+*.rar
+*.chd
+*.bin
+*.rom
+*.trace
+*.sav
+*.state
+
+/roms/*
+!/roms/README.md
+!/roms/.gitkeep
+
+# Extracted/generated assets
+/assets/generated/
+/analysis/generated/
+
+# Dynamic recovery evidence
+*.vf2snap
+*.trace.csv
+/traces/
+/snapshots/

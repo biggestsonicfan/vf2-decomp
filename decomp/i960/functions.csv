@@ -1,0 +1,23 @@
+address,end,name,status,source,notes
+0x000000b0,0x000001b0,boot_entry,recovered,reset-vector+differential,Initial CPU and RAM setup
+0x000001b0,0x0000052c,boot_stage_2,recovered,manual-entry+differential,Post-IAC hardware initialization
+0x00000b58,,iac_reinitialize_candidate,candidate,direct-call,Called twice by boot entry
+0x00010cbc,0x00010d54,task_registry_initialize,recovered,manual+differential,29-entry scheduler registry initializer
+0x00010d54,,scheduler_dispatch,recovered-prefix,dynamic+semantic,Runnable registry scan and indirect dispatch
+0x0001645c,0x00016504,task_game_info,recovered-first-dispatch,dynamic-differential,Direct no-call first-dispatch branch
+0x00029748,0x0002974c,task_user,recovered,dynamic-differential,Complete no-op task
+0x000439fc,0x00043a40,task_sound_initialize,recovered,dynamic-differential,Complete first-entry initializer
+0x000640f4,0x0006428c,task_osage,recovered-first-dispatch,dynamic-differential,Initialization path for both instances
+0x0001d320,0x0001eff0,task_camera,recovered-prefixes,dynamic-differential,Initialization update and observed post-update fast gate match
+0x000657dc,0x00065838,task_kill_osage,recovered,dynamic-differential,Complete timer-derived two-record evaluation
+0x000214dc,0x00021550,camera_classify_range,recovered,dynamic-differential,Complete scalar helper
+0x00020558,0x00020660,camera_derived_state_update,recovered-observed-branch,dynamic-differential,First-dispatch early return after task flag bit 8
+0x0001fc00,0x0001fcc0,camera_mode_dispatch,recovered-observed-branch,dynamic-differential,First-dispatch early return while input flag bit 6 is clear
+0x0001d660,0x0001d984,camera_post_update_gate,recovered-control-block,dynamic-differential,Observed fast return at 0x1e524 and normal flag path through 0x1d984
+0x0001d678,0x0001d8e8,camera_viewport_construct,recovered-control-block,synthetic-differential,Optional fixed and calculated viewport table construction
+0x0001fbb4,,camera_range_window,recovered,synthetic-differential,Centered range helper
+0x0001facc,,camera_fill_viewport_table,recovered,synthetic-differential,ROM-backed viewport lookup table fill
+0x00009444,,inline_text_thunk,recovered-observed-branch,dynamic-differential,v0.0.22 balx-continuation inline string thunk
+0x0004d2c0,,texture_status_line,recovered-observed-branch,dynamic-differential,v0.0.22 texture TEX/t4e status line writer
+0x0000281c,,game_state_classify,recovered-observed-branch,dynamic-differential,v0.0.22 observed game-state classifier
+0x000026ec,,game_color_lookup,recovered-observed-branch,dynamic-differential,v0.0.22 color/control lookup with 0x00010101 adjustment

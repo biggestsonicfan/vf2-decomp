@@ -1,0 +1,4 @@
+address,name,status,evidence
+0x000000b0,boot_entry,confirmed,reset-vector
+0x000001b0,boot_stage_2,confirmed,IAC-reinitialization-target
+0x00010cbc,task_registry_initialize,confirmed,differential-memory-match

@@ -1,0 +1,29 @@
+address,name,kind,status,notes
+0x00000000,i960_system_address_table,boot-vector,verified,Value stored in reset vector word 0
+0x00003000,i960_initial_prcb,boot-structure,verified,Address stored in reset vector word 1
+0x000000b0,vf2_boot_entry,function,verified,Address stored in reset vector word 3
+0x00010d54,scheduler_dispatch,function,verified,Runtime registry consumer and indirect dispatcher
+0x00009ca4,runtime_ready_setter,instruction,verified,Sets work RAM 0x00500068 bit 31
+0x0001645c,task_game_info,function,verified,First-dispatch path recovered
+0x0001d320,task_camera,function,verified,Initialization update and post-update gate recovered
+0x00029748,task_user,function,verified,Complete task recovered
+0x000439fc,task_sound_initialize,function,verified,First-entry initializer recovered
+0x000640f4,task_osage,function,verified,Shared entry for two instances
+0x000657dc,task_kill_osage,function,verified,Complete task recovered and differentially validated
+0x000216b8,camera_palette_initialize,function,verified,Camera palette averaging helper recovered in C
+0x0001f148,camera_state_reset,function,verified,Observed no-secondary-setup branch recovered in C
+0x00065838,kill_osage_evaluate,function,verified,Per-record age and kill-flag helper recovered in C
+0x000214dc,camera_classify_range,function,verified,Complete scalar range classifier recovered in C
+0x00020558,camera_derived_state_update,function,verified,Observed first-dispatch early-return branch recovered
+0x0001fc00,camera_mode_dispatch,function,verified,Observed first-dispatch early-return branch recovered
+0x0001d660,camera_post_update_gate,basic-block,verified,Observed fast exit and normal control path recovered
+0x0001e524,camera_fast_return,basic-block,verified,Observed first-dispatch return target
+0x00010dcc,first_dispatch_checkpoint,instruction,verified,Scheduler continuation after all seven initial task returns
+0x0001d678,camera_viewport_construct,basic-block,verified,Optional viewport block recovered in fixed and calculated states
+0x0001fbb4,camera_range_window,function,verified,Centered range construction helper
+0x0001eff0,camera_project_fighter_ranges,function,verified,Two-fighter projection helper
+0x0001facc,camera_fill_viewport_table,function,verified,Viewport lookup table fill helper
+0x00009444,inline_text_thunk,function,verified,Recovered in src/recovered/texture_bridge.c:359-415
+0x0004d2c0,texture_status_line,function,verified,Recovered in src/recovered/texture_bridge.c:417-521
+0x0000281c,game_state_classify,function,verified,Recovered in src/recovered/texture_bridge.c:230-262
+0x000026ec,game_color_lookup,function,verified,Recovered in src/recovered/texture_bridge.c:264-357

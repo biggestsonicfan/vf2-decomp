@@ -1,0 +1,37 @@
+name: Function recovery
+description: Track one candidate or recovered function
+title: "[i960] "
+labels:
+  - decompilation
+body:
+  - type: input
+    id: address
+    attributes:
+      label: Address
+      placeholder: "0x000000b0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Evidence level
+      options:
+        - verified
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence_details
+    attributes:
+      label: Static and dynamic evidence
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan

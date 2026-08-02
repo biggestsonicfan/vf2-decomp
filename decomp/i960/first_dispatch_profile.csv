@@ -1,0 +1,8 @@
+order,name,entry,registry,instructions,calls,returns,entry_depth,max_depth,work_ram_changed,buffer_ram_changed,geometry_changed,copro_port_changed,first_work_change,last_work_change,call_sequence,c_recovery
+1,fa_game_info,0x0001645c,0x00515200,19,0,1,2,2,0,0,0,0,0x00000000,0x00000000,,first-dispatch
+2,fa_camera,0x0001d320,0x00515400,2700,6,7,2,3,60,0,0,2,0x00501086,0x005155bb,0x0001d444->0x000216b8|0x0001d448->0x0001f148|0x0001d4d4->0x0001f148*|0x0001d5cc->0x000214dc|0x0001d5d4->0x00020558|0x0001d650->0x0001fc00,init+first-update+post-gate
+3,fa_user,0x00029748,0x00515880,1,0,1,2,2,0,0,0,0,0x00000000,0x00000000,,complete
+4,fa_sound,0x000439fc,0x00515d80,15,0,1,2,2,8,0,0,0,0x00515d8c,0x00515dfe,,initializer-complete
+5,fa_kill_osage,0x000657dc,0x00515e80,36,2,3,2,3,0,0,0,0,0x00000000,0x00000000,0x00065828->0x00065838|0x00065830->0x00065838,complete
+6,fa_osage0,0x000640f4,0x00515f00,19,0,1,2,2,6,0,0,0,0x00515f40,0x00515f4d,,first-dispatch
+7,fa_osage1,0x000640f4,0x00516180,18,0,1,2,2,6,0,0,0,0x005161c0,0x005161cd,,first-dispatch
