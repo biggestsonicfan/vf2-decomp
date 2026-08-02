@@ -8,34 +8,34 @@ contains ROM validation and reconstruction tools, a structured Intel i960
 analyzer, a bounded semantic executor used for differential validation, and the
 first game/runtime functions recovered in portable C.
 
-## v0.0.22 milestone
+## v0.0.24 milestone
 
-Four gameplay/diagnostic helpers used around the first geometry boundary now
-execute as bounded recovered C:
+The accepted startup path from the end of the first scheduler sweep through the
+second entry into `fa_game_info` now executes entirely as recovered C. The
+reference i960 interpreter is still advanced in the differential validator, but
+it is no longer used to produce any CPU or Model 2 state on the native side.
 
-- the inline diagnostic thunk at `0x00009444`;
-- the texture-status line procedure at `0x0004d2c0`;
-- the observed game-state classifier at `0x0000281c`;
-- the observed game color/control lookup at `0x000026ec`.
-
-The live bridge now contains:
+The strict ROM-backed bridge totals are:
 
 - 1,270,822 total original bridge instructions;
-- 1,268,752 instructions replaced by recovered C;
-- 2,070 instructions still interpreted;
-- 143 recovered blocks with 143 complete CPU/memory checkpoints;
-- one inline-text thunk, four texture-status lines, three direct classifier
-  calls and eight color/control lookups validated against the i960 path;
-- 250 recovered procedure calls and 297 recovered returns;
-- complete CPU, local-frame and all 18 mutable-memory regions matching at the
+- 1,270,822 instructions reproduced by recovered C;
+- **zero interpreted instructions** on the native path;
+- 190 semantically composed blocks, each followed by a complete CPU and
+  mutable-memory checkpoint;
+- 342 recovered procedure calls and 340 recovered returns;
+- the four-visit frame wait, vector-12 interrupt injection and interrupt return
+  reproduced by the recovered frame scheduler;
+- complete CPU, local-frame and all mutable-memory regions matching at the
   second `fa_game_info` entry.
 
-The bridge is now 99.84% recovered C. The accepted classifier and color lookup
-are deliberately restricted to the states observed on this startup path;
-alternate gameplay states return `VF2_ERROR_UNSUPPORTED`. This remains a
-research checkpoint rather than a playable port: 2,070 bridge instructions,
-the top-level texture orchestrator, the TGP protocol, renderer and audio remain
-future work.
+The lower block count is intentional: small helpers were absorbed into complete
+call-site, interrupt and main-loop procedures while retaining one implementation
+of each underlying semantic helper.
+
+This milestone does **not** mean that Virtua Fighter 2 is fully decompiled or
+playable. It proves the single observed Version 2.1 startup/second-dispatch path.
+Unobserved branches continue to return `VF2_ERROR_UNSUPPORTED`, and substantial
+TGP, rendering, gameplay and audio work remains.
 
 ## Build
 

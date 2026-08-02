@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.24 — 2026-08-02
+
+- completed recovery of the accepted post-scheduler second-dispatch path: all
+  1,270,822 original bridge instructions now execute as recovered C, with zero
+  native-side interpreter fallbacks;
+- composed the gameplay input/state/meter, tile controller, interrupt support,
+  video, texture-orchestrator and main-loop tails from the previously recovered
+  helpers without duplicating their semantics;
+- replaced the final ten polling/return instructions with an explicit recovered
+  frame-wait executor that preserves four observed visits, vector-12 interrupt
+  injection, the i960 interrupt frame, return state and changed-frame-byte exit;
+- retained step-by-step execution of the reference interpreter in the ROM-backed
+  validator and compared complete CPU and mutable Model 2 memory after all 190
+  recovered blocks;
+- reached strict totals of 1,270,822 recovered, 0 interpreted, 190 blocks and
+  memory checkpoints, and 342/340 recovered procedure calls/returns;
+- added ROM-independent coverage for both recovered frame-wait phases and kept
+  the full build warning-clean under C17 with warnings treated as errors;
+- preserved the scope boundary: this proves one observed VF2 2.1 startup path,
+  not a complete playable port, and unsupported branches remain rejected.
+
 ## 0.0.23 — 2026-08-02
 
 - pure-evidence release: no new recovered blocks, no new `vf2_hybrid_bridge_kind`, no `case` added to `vf2_hybrid_post_frame_bridge_execute`, and no change to the `bridge_candidate` IP list in the differential validator;

@@ -64,3 +64,26 @@ address,end,name,status,source,notes
 0x00001edc,0x0000cfdc,input_bit1_sequence_gate,recovered-observed-branch,dynamic-differential+unit,Observed zero index/countdown bit-one gate returns in seven instructions
 0x000012d8,0x0000cfe0,input_ring_poll,recovered-observed-branch,dynamic-differential+unit,Equal producer and consumer path returns minus one in five instructions
 0x00044268,0x0000cfe4,tile_runtime_gate,recovered-observed-branch,dynamic-differential+unit,Observed clear tile runtime flags return in four instructions
+0x00001abc,0x00000c90,game_input_update,recovered-observed-branch,dynamic-differential,Composes both observed input sequence gates and returns to the interrupt dispatcher
+0x00001f5c,0x00000cd4,game_state_update,recovered-observed-branch,dynamic-differential,Composes classification threshold event and meter helpers for the observed frame state
+0x0004e808,0x00000cdc,tile_controller_update,recovered-observed-branch,dynamic-differential,Runs the observed tile controller path and the recovered glyph expansion
+0x00010f08,0x00010f90,frame_timer_prefix,recovered-observed-branch,dynamic-differential,Computes frame timing state and enters the recovered four-visit wait phase
+0x00000bc0,0x00000c00,interrupt_save_prefix,recovered-control-block,dynamic-differential,Saves the observed interrupt working set and validates the runtime enable flag
+0x00000c0c,0x00000c78,interrupt_buffer_gate,recovered-observed-branch,dynamic-differential,Processes the observed interrupt buffer and geometry gate path
+0x00000c94,0x00000cd4,interrupt_input_ring,recovered-observed-branch,dynamic-differential,Runs the observed input ring poll and control-flow tail
+0x00000ce0,0x00000d20,interrupt_restore_prefix,recovered-control-block,dynamic-differential,Restores the interrupt working set up to the architectural return
+0x00010fa4,0x0000a038,frame_timer_suffix,recovered-observed-branch,dynamic-differential,Completes the changed-frame-byte timer path and returns to the main loop
+0x0004d25c,0x0004d2bc,texture_status_tail,recovered-observed-branch,dynamic-differential,Completes the final texture status text path through the shared inline thunk
+0x00000c78,0x00000c80,interrupt_player_layer,recovered-control-block,dynamic-differential,Composes player-update and video-layer procedures
+0x00000c80,0x00000c90,interrupt_game_input,recovered-observed-branch,dynamic-differential,Checks the runtime flag and executes the complete game-input update
+0x00000c90,0x00000c94,interrupt_game_state,recovered-control-block,dynamic-differential,Calls the complete observed game-state update
+0x00000cd4,0x00000ce0,interrupt_tile_sync,recovered-control-block,dynamic-differential,Composes tile runtime controller and video-input synchronization procedures
+0x0000a038,0x00009fb0,main_post_timer,recovered-control-block,dynamic-differential,Composes memory diagnostic frame counters and the branch into the main clear tail
+0x00009fb0,0x00009ff8,main_clear_prefix,recovered-observed-branch,dynamic-differential,Clears the observed main-loop globals and validates the runtime gate
+0x00009ff8,0x0000a010,main_final_cluster,recovered-control-block,dynamic-differential,Composes shadow buffer geometry scratch and frame-dispatch helpers
+0x0000a014,0x0000a030,main_geometry_prefix,recovered-control-block,dynamic-differential,Commits geometry applies the gate and advances the frame counter
+0x0000a030,0x0004bcd4,main_texture_orchestrator_call,recovered-control-block,dynamic-differential,Enters the texture orchestrator and performs its complete register-save prefix
+0x0000a034,0x00010f90,main_frame_timer_call,recovered-control-block,dynamic-differential,Enters the frame timer and executes its recovered prefix
+0x00000c00,0x00000c0c,interrupt_initial_cluster,recovered-control-block,dynamic-differential,Composes video register input latch texture upload and both nested returns
+0x00010f90,0x00000bc0,frame_wait_poll,recovered-observed-branch,dynamic-differential+unit,Executes seven polling instructions four visits and vector-12 interrupt injection
+0x00000d20,0x00010fa4,interrupt_return_wait_exit,recovered-observed-branch,dynamic-differential+unit,Returns from the interrupt records the resumed wait visit and exits on the changed frame byte

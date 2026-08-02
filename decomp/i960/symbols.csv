@@ -27,3 +27,26 @@ address,name,kind,status,notes
 0x0004d2c0,texture_status_line,function,verified,Recovered in src/recovered/texture_bridge.c:417-521
 0x0000281c,game_state_classify,function,verified,Recovered in src/recovered/texture_bridge.c:230-262
 0x000026ec,game_color_lookup,function,verified,Recovered in src/recovered/texture_bridge.c:264-357
+0x00001abc,game_input_update,function,verified,Composes both observed input sequence gates and returns to the interrupt dispatcher
+0x00001f5c,game_state_update,function,verified,Composes classification threshold event and meter helpers for the observed frame state
+0x0004e808,tile_controller_update,function,verified,Runs the observed tile controller path and the recovered glyph expansion
+0x00010f08,frame_timer_prefix,function,verified,Computes frame timing state and enters the recovered four-visit wait phase
+0x00000bc0,interrupt_save_prefix,function,verified,Saves the observed interrupt working set and validates the runtime enable flag
+0x00000c0c,interrupt_buffer_gate,function,verified,Processes the observed interrupt buffer and geometry gate path
+0x00000c94,interrupt_input_ring,function,verified,Runs the observed input ring poll and control-flow tail
+0x00000ce0,interrupt_restore_prefix,function,verified,Restores the interrupt working set up to the architectural return
+0x00010fa4,frame_timer_suffix,function,verified,Completes the changed-frame-byte timer path and returns to the main loop
+0x0004d25c,texture_status_tail,function,verified,Completes the final texture status text path through the shared inline thunk
+0x00000c78,interrupt_player_layer,function,verified,Composes player-update and video-layer procedures
+0x00000c80,interrupt_game_input,function,verified,Checks the runtime flag and executes the complete game-input update
+0x00000c90,interrupt_game_state,function,verified,Calls the complete observed game-state update
+0x00000cd4,interrupt_tile_sync,function,verified,Composes tile runtime controller and video-input synchronization procedures
+0x0000a038,main_post_timer,function,verified,Composes memory diagnostic frame counters and the branch into the main clear tail
+0x00009fb0,main_clear_prefix,function,verified,Clears the observed main-loop globals and validates the runtime gate
+0x00009ff8,main_final_cluster,function,verified,Composes shadow buffer geometry scratch and frame-dispatch helpers
+0x0000a014,main_geometry_prefix,function,verified,Commits geometry applies the gate and advances the frame counter
+0x0000a030,main_texture_orchestrator_call,function,verified,Enters the texture orchestrator and performs its complete register-save prefix
+0x0000a034,main_frame_timer_call,function,verified,Enters the frame timer and executes its recovered prefix
+0x00000c00,interrupt_initial_cluster,function,verified,Composes video register input latch texture upload and both nested returns
+0x00010f90,frame_wait_poll,function,verified,Executes seven polling instructions four visits and vector-12 interrupt injection
+0x00000d20,interrupt_return_wait_exit,function,verified,Returns from the interrupt records the resumed wait visit and exits on the changed frame byte

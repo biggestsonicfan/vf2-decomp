@@ -47,6 +47,29 @@ typedef enum vf2_hybrid_bridge_kind {
     VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP,
     VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE,
     VF2_HYBRID_BRIDGE_GAME_METER_UPDATE,
+    VF2_HYBRID_BRIDGE_GAME_INPUT_UPDATE,
+    VF2_HYBRID_BRIDGE_GAME_STATE_UPDATE,
+    VF2_HYBRID_BRIDGE_TILE_CONTROLLER_UPDATE,
+    VF2_HYBRID_BRIDGE_FRAME_TIMER_PREFIX,
+    VF2_HYBRID_BRIDGE_INTERRUPT_SAVE_PREFIX,
+    VF2_HYBRID_BRIDGE_INTERRUPT_BUFFER_GATE,
+    VF2_HYBRID_BRIDGE_INTERRUPT_INPUT_RING,
+    VF2_HYBRID_BRIDGE_INTERRUPT_RESTORE_PREFIX,
+    VF2_HYBRID_BRIDGE_FRAME_TIMER_SUFFIX,
+    VF2_HYBRID_BRIDGE_TEXTURE_STATUS_TAIL,
+    VF2_HYBRID_BRIDGE_INTERRUPT_PLAYER_LAYER,
+    VF2_HYBRID_BRIDGE_INTERRUPT_GAME_INPUT,
+    VF2_HYBRID_BRIDGE_INTERRUPT_GAME_STATE,
+    VF2_HYBRID_BRIDGE_INTERRUPT_TILE_SYNC,
+    VF2_HYBRID_BRIDGE_MAIN_POST_TIMER,
+    VF2_HYBRID_BRIDGE_MAIN_CLEAR_PREFIX,
+    VF2_HYBRID_BRIDGE_MAIN_FINAL_CLUSTER,
+    VF2_HYBRID_BRIDGE_MAIN_GEOMETRY_PREFIX,
+    VF2_HYBRID_BRIDGE_MAIN_TEXTURE_ORCHESTRATOR_CALL,
+    VF2_HYBRID_BRIDGE_MAIN_FRAME_TIMER_CALL,
+    VF2_HYBRID_BRIDGE_INTERRUPT_INITIAL_CLUSTER,
+    VF2_HYBRID_BRIDGE_FRAME_WAIT_POLL,
+    VF2_HYBRID_BRIDGE_INTERRUPT_RETURN_WAIT_EXIT,
     VF2_HYBRID_BRIDGE_SYSTEM_MEMORY_DIAGNOSTIC,
     VF2_HYBRID_BRIDGE_VIDEO_INPUT_SYNC,
     VF2_HYBRID_BRIDGE_FRAME_COUNTER_ADVANCE,
@@ -136,6 +159,17 @@ vf2_status vf2_hybrid_frame_wait_observe(
     vf2_i960_cpu *cpu,
     vf2_hybrid_frame_wait_state *state,
     vf2_hybrid_frame_wait_report *report
+);
+
+/* Recover one complete observed frame-wait phase. At 0x00010f90 this
+ * executes the polling loop through interrupt injection. At 0x00000d20 it
+ * returns from the interrupt, records the resumed wait visit and follows the
+ * observed changed-frame-byte exit to 0x00010fa4. */
+vf2_status vf2_hybrid_frame_wait_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_frame_wait_state *state,
+    vf2_hybrid_bridge_report *report
 );
 
 typedef enum vf2_hybrid_task_kind {

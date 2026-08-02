@@ -3893,6 +3893,9 @@ static int command_native_dispatch(
             const uint32_t native_ip_before = native_cpu.ip;
             const bool second_scheduler_candidate =
                 native_ip_before == UINT32_C(0x0000a010);
+            const bool frame_wait_bridge_candidate =
+                native_ip_before == UINT32_C(0x00010f90) ||
+                native_ip_before == UINT32_C(0x00000d20);
             const bool bridge_candidate =
                 native_ip_before == UINT32_C(0x0004c868) ||
                 native_ip_before == UINT32_C(0x0004c6e0) ||
@@ -3937,6 +3940,27 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x000026ec) ||
                 native_ip_before == UINT32_C(0x000028d4) ||
                 native_ip_before == UINT32_C(0x000020f0) ||
+                native_ip_before == UINT32_C(0x00001abc) ||
+                native_ip_before == UINT32_C(0x00001f5c) ||
+                native_ip_before == UINT32_C(0x0004e808) ||
+                native_ip_before == UINT32_C(0x00010f08) ||
+                native_ip_before == UINT32_C(0x00000bc0) ||
+                native_ip_before == UINT32_C(0x00000c0c) ||
+                native_ip_before == UINT32_C(0x00000c94) ||
+                native_ip_before == UINT32_C(0x00000ce0) ||
+                native_ip_before == UINT32_C(0x00010fa4) ||
+                native_ip_before == UINT32_C(0x0004d25c) ||
+                native_ip_before == UINT32_C(0x00000c78) ||
+                native_ip_before == UINT32_C(0x00000c80) ||
+                native_ip_before == UINT32_C(0x00000c90) ||
+                native_ip_before == UINT32_C(0x00000cd4) ||
+                native_ip_before == UINT32_C(0x0000a038) ||
+                native_ip_before == UINT32_C(0x00009fb0) ||
+                native_ip_before == UINT32_C(0x00009ff8) ||
+                native_ip_before == UINT32_C(0x0000a014) ||
+                native_ip_before == UINT32_C(0x0000a030) ||
+                native_ip_before == UINT32_C(0x0000a034) ||
+                native_ip_before == UINT32_C(0x00000c00) ||
                 native_ip_before == UINT32_C(0x0006dcb8) ||
                 native_ip_before == UINT32_C(0x000110f4) ||
                 native_ip_before == UINT32_C(0x000112f8) ||
@@ -3972,6 +3996,111 @@ static int command_native_dispatch(
             }
             if (original_ip_before == UINT32_C(0x00010d54)) {
                 second_scheduler_seen = true;
+            }
+
+            if (frame_wait_bridge_candidate) {
+                vf2_hybrid_bridge_report wait_bridge_report;
+                uint64_t reference_step = 0u;
+                memset(&wait_bridge_report, 0, sizeof(wait_bridge_report));
+                status = vf2_hybrid_frame_wait_execute(
+                    &native_machine,
+                    &native_cpu,
+                    &native_frame_wait,
+                    &wait_bridge_report
+                );
+                if (status != VF2_OK) {
+                    fprintf(
+                        stderr,
+                        "frame-wait bridge failed at 0x%08x: %s\n",
+                        (unsigned)native_ip_before,
+                        vf2_status_string(status)
+                    );
+                    break;
+                }
+                for (reference_step = 0u;
+                     status == VF2_OK &&
+                     reference_step <
+                         wait_bridge_report.recovered_instruction_count;
+                     ++reference_step) {
+                    vf2_hybrid_frame_wait_report original_wait_report;
+                    memset(
+                        &original_wait_report,
+                        0,
+                        sizeof(original_wait_report)
+                    );
+                    status = vf2_i960_step(
+                        &original_cpu, &original_machine, NULL
+                    );
+                    if (status == VF2_OK) {
+                        ++bridge_steps;
+                        status = vf2_hybrid_frame_wait_observe(
+                            &original_machine,
+                            &original_cpu,
+                            &original_frame_wait,
+                            &original_wait_report
+                        );
+                    }
+                    if (status == VF2_OK &&
+                        original_wait_report.interrupt_injected) {
+                        ++second_frame_interrupts;
+                    }
+                }
+                if (status == VF2_OK &&
+                    (original_frame_wait.visits !=
+                         native_frame_wait.visits ||
+                     original_frame_wait.interrupts_injected !=
+                         native_frame_wait.interrupts_injected ||
+                     original_frame_wait.visits_before_interrupt !=
+                         native_frame_wait.visits_before_interrupt)) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                }
+                memset(&diff, 0, sizeof(diff));
+                if (status == VF2_OK) {
+                    status = compare_hybrid_snapshots(
+                        &original_cpu,
+                        &original_machine,
+                        &native_cpu,
+                        &native_machine,
+                        &diff
+                    );
+                }
+                if (status == VF2_OK && !diff.equal) {
+                    fprintf(
+                        stderr,
+                        "Frame-wait block %s mismatch: %s offset=0x%zx "
+                        "expected=0x%08x actual=0x%08x bytes=%zu\n",
+                        vf2_hybrid_bridge_kind_name(wait_bridge_report.kind),
+                        diff.component,
+                        diff.first_offset,
+                        (unsigned)diff.expected_value,
+                        (unsigned)diff.actual_value,
+                        diff.differing_bytes
+                    );
+                    status = VF2_ERROR_UNSUPPORTED;
+                }
+                if (status == VF2_OK &&
+                    (original_cpu.executed_instructions !=
+                         native_cpu.executed_instructions ||
+                     original_cpu.procedure_calls !=
+                         native_cpu.procedure_calls ||
+                     original_cpu.procedure_returns !=
+                         native_cpu.procedure_returns ||
+                     original_cpu.maximum_local_frame_depth !=
+                         native_cpu.maximum_local_frame_depth)) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                }
+                if (status == VF2_OK) {
+                    bridge_recovered_instructions +=
+                        wait_bridge_report.recovered_instruction_count;
+                    bridge_recovered_calls +=
+                        wait_bridge_report.recovered_procedure_calls;
+                    bridge_recovered_returns +=
+                        wait_bridge_report.recovered_procedure_returns;
+                    ++bridge_validated_blocks;
+                    ++bridge_memory_checkpoints;
+                    ++bridge_block_counts[wait_bridge_report.kind];
+                }
+                continue;
             }
 
             if (second_scheduler_candidate) {
@@ -4131,6 +4260,48 @@ static int command_native_dispatch(
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_GAME_METER_UPDATE ||
                         bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_GAME_INPUT_UPDATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_GAME_STATE_UPDATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TILE_CONTROLLER_UPDATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_FRAME_TIMER_PREFIX ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_SAVE_PREFIX ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_BUFFER_GATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_INPUT_RING ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_RESTORE_PREFIX ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_FRAME_TIMER_SUFFIX ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_STATUS_TAIL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_PLAYER_LAYER ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_GAME_INPUT ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_GAME_STATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_TILE_SYNC ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_MAIN_POST_TIMER ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_MAIN_CLEAR_PREFIX ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_MAIN_FINAL_CLUSTER ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_MAIN_GEOMETRY_PREFIX ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_MAIN_TEXTURE_ORCHESTRATOR_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_MAIN_FRAME_TIMER_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INTERRUPT_INITIAL_CLUSTER ||
+                        bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_SYSTEM_MEMORY_DIAGNOSTIC ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_VIDEO_INPUT_SYNC ||
@@ -4256,8 +4427,10 @@ static int command_native_dispatch(
                     status = VF2_ERROR_UNSUPPORTED;
                 }
                 if (status == VF2_OK &&
-                    bridge_report.kind ==
-                        VF2_HYBRID_BRIDGE_GEOMETRY_FRAME_COMMIT) {
+                    (bridge_report.kind ==
+                         VF2_HYBRID_BRIDGE_GEOMETRY_FRAME_COMMIT ||
+                     bridge_report.kind ==
+                         VF2_HYBRID_BRIDGE_MAIN_GEOMETRY_PREFIX)) {
                     first_geometry_instruction = UINT32_C(0x00002eec);
                     first_geometry_address = UINT32_C(0x00803008);
                     first_geometry_changed_byte = UINT32_C(0x00803009);
@@ -4432,35 +4605,60 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1270617) ||
-             bridge_interpreted_instructions != UINT64_C(205) ||
-             bridge_validated_blocks != 200u ||
-             bridge_memory_checkpoints != 200u ||
-             bridge_recovered_calls != UINT64_C(309) ||
-             bridge_recovered_returns != UINT64_C(332) ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
+             bridge_recovered_instructions != UINT64_C(1270822) ||
+             bridge_interpreted_instructions != UINT64_C(0) ||
+             bridge_validated_blocks != 190u ||
+             bridge_memory_checkpoints != 190u ||
+             bridge_recovered_calls != UINT64_C(342) ||
+             bridge_recovered_returns != UINT64_C(340) ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 0u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_METER_UPDATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_SYSTEM_MEMORY_DIAGNOSTIC] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_INPUT_SYNC] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_COUNTER_ADVANCE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_PHASE_ADVANCE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_SHADOW_VERIFY] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_BUFFER_GATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_RING_POLL] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_METER_UPDATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_INPUT_UPDATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_UPDATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TILE_CONTROLLER_UPDATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_TIMER_PREFIX] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_SAVE_PREFIX] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_BUFFER_GATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_INPUT_RING] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_RESTORE_PREFIX] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_TIMER_SUFFIX] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_TAIL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_PLAYER_LAYER] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_GAME_INPUT] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_GAME_STATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_TILE_SYNC] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_MAIN_POST_TIMER] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_MAIN_CLEAR_PREFIX] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_MAIN_FINAL_CLUSTER] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_MAIN_GEOMETRY_PREFIX] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_MAIN_TEXTURE_ORCHESTRATOR_CALL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_MAIN_FRAME_TIMER_CALL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_INITIAL_CLUSTER] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_WAIT_POLL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_RETURN_WAIT_EXIT] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_SYSTEM_MEMORY_DIAGNOSTIC] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_INPUT_SYNC] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_COUNTER_ADVANCE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_PHASE_ADVANCE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_SHADOW_VERIFY] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_BUFFER_GATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_PALETTE_PAGE_UPLOAD] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_UPLOAD_DISPATCH] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_RING_POLL] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL] != 4u ||
@@ -4609,6 +4807,12 @@ static int command_native_dispatch(
                bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK]);
         printf("  frame geometry gates:             %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE]);
+        printf("  frame wait polls:                 %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_WAIT_POLL]);
+        printf("  interrupt wait exits:             %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_INTERRUPT_RETURN_WAIT_EXIT
+               ]);
         printf("  video register composes:          %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE]);
         printf("  video input latch writes:         %zu\n",
