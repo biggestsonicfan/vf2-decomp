@@ -28,6 +28,28 @@ jobs:
           gzip -dc /tmp/apply_frame205_remote.py.gz > /tmp/apply_frame205_remote.py
           test "$(sha256sum /tmp/apply_frame205_remote.py | cut -d' ' -f1)" = "9930ebf4f804ab660595925e54735ccfff38b5ea4e90449194826761b471b575"
           python /tmp/apply_frame205_remote.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/recovered/texture_bridge.c')
+          source = path.read_text()
+          source = source.replace(
+              'cpu->registers[VF2_I960_G9_REGISTER]',
+              'cpu->registers[VF2_I960_G0_REGISTER + 9u]',
+              1,
+          )
+          marker = '''static vf2_status execute_game_meter_component(
+          '''
+          prototype = '''static vf2_status execute_game_threshold_evaluate(
+              vf2_model2a *machine,
+              vf2_i960_cpu *cpu,
+              vf2_hybrid_bridge_report *report
+          );
+
+          '''
+          assert marker in source
+          source = source.replace(marker, prototype + marker, 1)
+          path.write_text(source)
+          PY
           rm -rf tools/frame205-stage
           rm .github/workflows/integrate-frame205.yml
 
