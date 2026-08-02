@@ -25,7 +25,14 @@ The public bridge test verifies the instruction count, final IP, `r3`, `r4`,
 comparison and arithmetic-control state, unchanged first two counters, and the
 single decrement of the third counter.
 
-The strict bounded bridge expectation is now 1,268,955 recovered and 1,867
-interpreted instructions across 168 recovered blocks and memory checkpoints.
-A full ROM-backed `native-second-dispatch MATCH` remains required for final
-dynamic-differential promotion.
+The warning-as-error build and all five ROM-independent orchestrator tests
+passed. The exact supported VF2 2.1 ROM set then produced:
+
+```text
+Native second-dispatch validation: MATCH
+Final CPU and memory state:         MATCH
+```
+
+The block is one of the 168 confirmed differential checkpoints and is promoted
+to `dynamic-differential+unit`. Confirmed bridge accounting is 1,268,955
+recovered and 1,867 interpreted instructions.
