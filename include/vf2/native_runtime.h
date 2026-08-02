@@ -10,6 +10,7 @@
 typedef enum vf2_native_runtime_step_kind {
     VF2_NATIVE_RUNTIME_STEP_NONE = 0,
     VF2_NATIVE_RUNTIME_STEP_BRIDGE,
+    VF2_NATIVE_RUNTIME_STEP_TASK,
     VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT,
     VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER
 } vf2_native_runtime_step_kind;
@@ -17,6 +18,7 @@ typedef enum vf2_native_runtime_step_kind {
 typedef struct vf2_native_runtime_state {
     vf2_hybrid_frame_wait_state frame_wait;
     size_t blocks_executed;
+    size_t task_bodies_executed;
     size_t frame_wait_phases;
     size_t scheduler_entries;
     uint64_t recovered_instruction_count;
@@ -27,6 +29,7 @@ typedef struct vf2_native_runtime_state {
 typedef struct vf2_native_runtime_step_report {
     vf2_native_runtime_step_kind kind;
     vf2_hybrid_bridge_kind bridge_kind;
+    vf2_hybrid_task_kind task_kind;
     uint32_t entry_address;
     uint32_t exit_address;
     uint64_t recovered_instruction_count;
@@ -39,6 +42,7 @@ typedef struct vf2_native_runtime_run_report {
     uint32_t stop_address;
     uint32_t final_address;
     size_t blocks_executed;
+    size_t task_bodies_executed;
     size_t frame_wait_phases;
     size_t scheduler_entries;
     uint64_t recovered_instruction_count;
@@ -46,6 +50,7 @@ typedef struct vf2_native_runtime_run_report {
     uint64_t recovered_procedure_returns;
     vf2_native_runtime_step_kind last_step_kind;
     vf2_hybrid_bridge_kind last_bridge_kind;
+    vf2_hybrid_task_kind last_task_kind;
     int reached_stop;
 } vf2_native_runtime_run_report;
 
