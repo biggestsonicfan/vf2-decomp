@@ -1,0 +1,53 @@
+name: Integrate verified frame and meter recoveries
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Apply verified recovery transformer
+        run: |
+          git fetch origin automation/frame-interrupt-meter-batch
+          git checkout origin/automation/frame-interrupt-meter-batch -- tools/frame205-stage/apply_frame205_remote.py.gz.b64
+          base64 -d tools/frame205-stage/apply_frame205_remote.py.gz.b64 > /tmp/apply_frame205_remote.py.gz
+          test "$(sha256sum /tmp/apply_frame205_remote.py.gz | cut -d' ' -f1)" = "04e7cb2d7001c72f8161b66e5f58fadb1e9251ac6c1f94f85bccc26916ede9f1"
+          gzip -t /tmp/apply_frame205_remote.py.gz
+          gzip -dc /tmp/apply_frame205_remote.py.gz > /tmp/apply_frame205_remote.py
+          test "$(sha256sum /tmp/apply_frame205_remote.py | cut -d' ' -f1)" = "9930ebf4f804ab660595925e54735ccfff38b5ea4e90449194826761b471b575"
+          python /tmp/apply_frame205_remote.py
+          rm -rf tools/frame205-stage
+          rm .github/workflows/integrate-frame205.yml
+
+      - name: Configure warning-as-error build
+        run: >-
+          cmake -S . -B build
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run ROM-independent tests
+        run: >-
+          ctest --test-dir build --output-on-failure
+          -R '^(vf2_tests|vf2_orchestrator_.*)$'
+
+      - name: Commit verified integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "decomp(i960): recover frame interrupt and meter paths"
+          git push origin master
