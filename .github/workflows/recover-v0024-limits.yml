@@ -1,0 +1,354 @@
+name: Recover v0.0.24 texture limits
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/recover-v0024-limits.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Integrate recovered helper
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str, label: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "include/vf2/hybrid.h",
+              "    VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP,\n"
+              "    VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY\n",
+              "    VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP,\n"
+              "    VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS,\n"
+              "    VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY\n",
+              "bridge enum",
+          )
+
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              '#include "vf2/hybrid.h"\n\n#include <limits.h>',
+              '#include "vf2/hybrid.h"\n\n'
+              '#include "vf2/analysis/orchestrator_limits.h"\n\n'
+              '#include <limits.h>',
+              "analysis include",
+          )
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              "#define VF2_GAME_COLOR_LOOKUP_ENTRY UINT32_C(0x000026ec)\n"
+              "#define VF2_TEXTURE_TREE_TABLE UINT32_C(0x0004ad78)\n",
+              "#define VF2_GAME_COLOR_LOOKUP_ENTRY UINT32_C(0x000026ec)\n"
+              "#define VF2_TEXTURE_DEFAULT_LIMITS_ENTRY UINT32_C(0x0004bfe0)\n"
+              "#define VF2_TEXTURE_TREE_TABLE UINT32_C(0x0004ad78)\n",
+              "entry constant",
+          )
+
+          helper = r'''static vf2_status execute_texture_default_limits(
+              vf2_model2a *machine,
+              vf2_i960_cpu *cpu,
+              vf2_hybrid_bridge_report *report
+          )
+          {
+              vf2_orchestrator_limits_report limits_report;
+              vf2_status status = VF2_OK;
+
+              if (cpu->local_frame_depth == 0u) {
+                  return VF2_ERROR_UNSUPPORTED;
+              }
+              memset(&limits_report, 0, sizeof(limits_report));
+              status = vf2_orchestrator_apply_default_limits(
+                  machine, &limits_report
+              );
+              if (status != VF2_OK) {
+                  return status;
+              }
+
+              cpu->executed_instructions +=
+                  limits_report.interpreted_instruction_equivalent;
+              status = vf2_i960_cpu_return_procedure(cpu, machine);
+              if (status != VF2_OK) {
+                  return status;
+              }
+
+              report->kind = VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS;
+              report->entry_address = VF2_TEXTURE_DEFAULT_LIMITS_ENTRY;
+              report->exit_address = cpu->ip;
+              report->iterations = UINT64_C(1);
+              report->changed_values = UINT64_C(2);
+              report->bytes_written = limits_report.bytes_written;
+              report->recovered_instruction_count =
+                  limits_report.interpreted_instruction_equivalent;
+              report->recovered_procedure_returns = UINT64_C(1);
+              report->cpu_poststate_applied = 1;
+              return VF2_OK;
+          }
+
+          '''
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              "vf2_status vf2_hybrid_post_frame_bridge_execute(\n",
+              helper + "vf2_status vf2_hybrid_post_frame_bridge_execute(\n",
+              "helper insertion",
+          )
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              "    case VF2_TEXTURE_ADDRESS_TABLE_ENTRY:\n"
+              "        status = execute_texture_address_table(machine, cpu, &local_report);\n",
+              "    case VF2_TEXTURE_DEFAULT_LIMITS_ENTRY:\n"
+              "        status = execute_texture_default_limits(\n"
+              "            machine, cpu, &local_report\n"
+              "        );\n"
+              "        break;\n"
+              "    case VF2_TEXTURE_ADDRESS_TABLE_ENTRY:\n"
+              "        status = execute_texture_address_table(machine, cpu, &local_report);\n",
+              "dispatcher case",
+          )
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              "    case VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP:\n"
+              "        return \"game-color-lookup\";\n"
+              "    case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY:\n",
+              "    case VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP:\n"
+              "        return \"game-color-lookup\";\n"
+              "    case VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS:\n"
+              "        return \"texture-default-limits\";\n"
+              "    case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY:\n",
+              "kind name",
+          )
+
+          replace_once(
+              "tools/vf2i960/main.c",
+              "                native_ip_before == UINT32_C(0x0004ce88) ||\n"
+              "                native_ip_before == UINT32_C(0x0004d16c) ||\n",
+              "                native_ip_before == UINT32_C(0x0004ce88) ||\n"
+              "                native_ip_before == UINT32_C(0x0004bfe0) ||\n"
+              "                native_ip_before == UINT32_C(0x0004d16c) ||\n",
+              "candidate address",
+          )
+          replace_once(
+              "tools/vf2i960/main.c",
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP ||\n"
+              "                        (bridge_validated_blocks % 128u) == 0u;\n",
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP ||\n"
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS ||\n"
+              "                        (bridge_validated_blocks % 128u) == 0u;\n",
+              "memory checkpoint",
+          )
+          replace_once(
+              "tools/vf2i960/main.c",
+              "             bridge_recovered_instructions != UINT64_C(1268752) ||\n"
+              "             bridge_interpreted_instructions != UINT64_C(2070) ||\n"
+              "             bridge_validated_blocks != 143u ||\n"
+              "             bridge_memory_checkpoints != 143u ||\n"
+              "             bridge_recovered_calls != UINT64_C(250) ||\n"
+              "             bridge_recovered_returns != UINT64_C(297) ||\n",
+              "             bridge_recovered_instructions != UINT64_C(1268774) ||\n"
+              "             bridge_interpreted_instructions != UINT64_C(2048) ||\n"
+              "             bridge_validated_blocks != 144u ||\n"
+              "             bridge_memory_checkpoints != 144u ||\n"
+              "             bridge_recovered_calls != UINT64_C(250) ||\n"
+              "             bridge_recovered_returns != UINT64_C(298) ||\n",
+              "strict totals",
+          )
+          replace_once(
+              "tools/vf2i960/main.c",
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 8u ||\n"
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY] != 1u ||\n",
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 8u ||\n"
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||\n"
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY] != 1u ||\n",
+              "strict block count",
+          )
+          replace_once(
+              "tools/vf2i960/main.c",
+              "        printf(\"  game-color lookups:               %zu\\n\",\n"
+              "               bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP]);\n"
+              "        printf(\"  second scheduler entries:         %zu\\n\",\n",
+              "        printf(\"  game-color lookups:               %zu\\n\",\n"
+              "               bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP]);\n"
+              "        printf(\"  texture default limits:           %zu\\n\",\n"
+              "               bridge_block_counts[\n"
+              "                   VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS\n"
+              "               ]);\n"
+              "        printf(\"  second scheduler entries:         %zu\\n\",\n",
+              "summary count",
+          )
+
+          replace_once(
+              "tests/analysis/test_orchestrator_limits.c",
+              '#include "vf2/analysis/orchestrator_limits.h"\n',
+              '#include "vf2/analysis/orchestrator_limits.h"\n'
+              '#include "vf2/hybrid.h"\n',
+              "test include",
+          )
+          bridge_test = r'''static void test_hybrid_bridge_poststate(void)
+          {
+              vf2_model2a machine;
+              vf2_i960_cpu cpu;
+              vf2_hybrid_bridge_report report = {0};
+              uint32_t value = 0u;
+              uint32_t index = 0u;
+              uint8_t mode = 0u;
+
+              CHECK(vf2_model2a_initialize(&machine) != 0);
+              if (machine.work_ram == NULL) {
+                  return;
+              }
+              CHECK(
+                  vf2_model2a_write_u32(
+                      &machine, VF2_ORCHESTRATOR_RUNTIME_FLAGS, 0u
+                  ) == VF2_OK
+              );
+              CHECK(
+                  vf2_model2a_write(
+                      &machine,
+                      VF2_ORCHESTRATOR_DISPLAY_MODE,
+                      &mode,
+                      sizeof(mode)
+                  ) == VF2_OK
+              );
+
+              vf2_i960_cpu_reset(
+                  &cpu, 0u, 0u, UINT32_C(0x0004bcfc)
+              );
+              for (index = 0u; index < VF2_I960_LOCAL_REGISTER_COUNT; ++index) {
+                  cpu.registers[index] = UINT32_C(0xa5000000) + index;
+              }
+              CHECK(
+                  vf2_i960_cpu_enter_procedure(
+                      &cpu,
+                      VF2_ORCHESTRATOR_LIMITS_ENTRY,
+                      UINT32_C(0x0004bd00)
+                  ) == VF2_OK
+              );
+              CHECK(
+                  vf2_hybrid_post_frame_bridge_execute(
+                      &machine, &cpu, &report
+                  ) == VF2_OK
+              );
+
+              CHECK(report.kind == VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS);
+              CHECK(report.entry_address == VF2_ORCHESTRATOR_LIMITS_ENTRY);
+              CHECK(report.exit_address == UINT32_C(0x0004bd00));
+              CHECK(report.changed_values == UINT64_C(2));
+              CHECK(report.bytes_written == 8u);
+              CHECK(report.recovered_instruction_count == UINT64_C(22));
+              CHECK(report.recovered_procedure_calls == UINT64_C(0));
+              CHECK(report.recovered_procedure_returns == UINT64_C(1));
+              CHECK(report.cpu_poststate_applied == 1);
+              CHECK(cpu.ip == UINT32_C(0x0004bd00));
+              CHECK(cpu.local_frame_depth == 0u);
+              CHECK(cpu.maximum_local_frame_depth == 1u);
+              CHECK(cpu.executed_instructions == UINT64_C(22));
+              CHECK(cpu.procedure_calls == UINT64_C(1));
+              CHECK(cpu.procedure_returns == UINT64_C(1));
+              CHECK(cpu.registers[10] == UINT32_C(0xa500000a));
+              CHECK(cpu.registers[11] == UINT32_C(0xa500000b));
+              CHECK(
+                  vf2_model2a_read_u32(
+                      &machine, VF2_ORCHESTRATOR_LIMIT_LOW, &value
+                  ) == VF2_OK
+              );
+              CHECK(value == UINT32_C(0x00003e80));
+              CHECK(
+                  vf2_model2a_read_u32(
+                      &machine, VF2_ORCHESTRATOR_LIMIT_HIGH, &value
+                  ) == VF2_OK
+              );
+              CHECK(value == UINT32_C(0x00004e20));
+
+              vf2_model2a_shutdown(&machine);
+          }
+
+          '''
+          replace_once(
+              "tests/analysis/test_orchestrator_limits.c",
+              "int main(void)\n{\n",
+              bridge_test + "int main(void)\n{\n",
+              "bridge test insertion",
+          )
+          replace_once(
+              "tests/analysis/test_orchestrator_limits.c",
+              "    test_default_branch_class();\n"
+              "    test_machine_application();\n",
+              "    test_default_branch_class();\n"
+              "    test_machine_application();\n"
+              "    test_hybrid_bridge_poststate();\n",
+              "bridge test invocation",
+          )
+
+          replace_once(
+              "decomp/i960/functions.csv",
+              "0x0004bfe0,0x0004c120,texture_default_limits_select,candidate-semantic,dynamic-trace+unit,Default observed branch writes 0x3e80 and 0x4e20; pending live differential bridge integration\n",
+              "0x0004bfe0,0x0004c120,texture_default_limits_select,recovered-observed-branch,pending-rom-differential+unit,Default observed branch integrated into the hybrid bridge; ROM-backed validation pending\n",
+              "function catalog",
+          )
+
+          note = Path("decomp/i960/notes/texture_default_limits_v0024.md")
+          note.write_text(
+              """# v0.0.24 texture default-limit recovery\n\n"
+              "## Scope\n\n"
+              "The observed default branch at `0x0004bfe0` is now connected to the\n"
+              "post-frame hybrid dispatcher. It replaces 22 interpreted i960\n"
+              "instructions with C, performs the two observed work-RAM writes and\n"
+              "models the architectural procedure return.\n\n"
+              "The accepted branch writes:\n\n"
+              "- `0x00003e80` to `0x00550004`;\n"
+              "- `0x00004e20` to `0x00550008`.\n\n"
+              "Alternate mode classes and runtime flag bit 16 remain rejected with\n"
+              "`VF2_ERROR_UNSUPPORTED`. Unsupported paths do not modify either output.\n\n"
+              "## Validation boundary\n\n"
+              "ROM-independent tests cover the pure decision, memory writes, rejected\n"
+              "branches and the complete hybrid CPU post-state, including frame\n"
+              "restoration, 22 recovered instructions and one procedure return.\n\n"
+              "The strict ROM-backed expected totals are updated to 1,268,774 recovered\n"
+              "instructions and 2,048 interpreted instructions across 144 recovered\n"
+              "blocks/checkpoints. A supported VF2 2.1 ROM set is still required to run\n"
+              "`native-second-dispatch` and turn the pending ROM differential claim into\n"
+              "a locally observed MATCH.\n"
+              """,
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build and run ROM-independent tests
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DVF2_BUILD_TESTS=ON \
+            -DVF2_WARNINGS_AS_ERRORS=ON \
+            -DVF2_ROM_DIR=/tmp/vf2-roms-not-present
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure \
+            -R '^(vf2_tests|vf2_orchestrator_limits)$'
+
+      - name: Commit recovered bridge
+        shell: bash
+        run: |
+          rm .github/workflows/recover-v0024-limits.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "decomp(i960): recover default texture limits helper"
+          git push origin master
