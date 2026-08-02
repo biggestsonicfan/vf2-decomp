@@ -1,5 +1,7 @@
 #include "vf2/hybrid.h"
 
+#include "vf2/analysis/orchestrator_limits.h"
+
 #include <limits.h>
 #include <string.h>
 
@@ -28,6 +30,7 @@
 #define VF2_TEXTURE_STATUS_LINE_ENTRY UINT32_C(0x0004d2c0)
 #define VF2_GAME_STATE_CLASSIFY_ENTRY UINT32_C(0x0000281c)
 #define VF2_GAME_COLOR_LOOKUP_ENTRY UINT32_C(0x000026ec)
+#define VF2_TEXTURE_DEFAULT_LIMITS_ENTRY UINT32_C(0x0004bfe0)
 #define VF2_TEXTURE_TREE_TABLE UINT32_C(0x0004ad78)
 #define VF2_TEXTURE_CONVERT_STATE UINT32_C(0x005500f4)
 #define VF2_TEXTURE_CONVERT_SOURCE UINT32_C(0x0055c2ec)
@@ -2548,6 +2551,46 @@ static vf2_status execute_texture_convert(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_default_limits(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_orchestrator_limits_report limits_report;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(&limits_report, 0, sizeof(limits_report));
+    status = vf2_orchestrator_apply_default_limits(
+        machine, &limits_report
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions +=
+        limits_report.interpreted_instruction_equivalent;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS;
+    report->entry_address = VF2_TEXTURE_DEFAULT_LIMITS_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(2);
+    report->bytes_written = limits_report.bytes_written;
+    report->recovered_instruction_count =
+        limits_report.interpreted_instruction_equivalent;
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 vf2_status vf2_hybrid_post_frame_bridge_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -2589,6 +2632,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         break;
     case VF2_TEXTURE_CONVERT_ENTRY:
         status = execute_texture_convert(machine, cpu, &local_report);
+        break;
+    case VF2_TEXTURE_DEFAULT_LIMITS_ENTRY:
+        status = execute_texture_default_limits(
+            machine, cpu, &local_report
+        );
         break;
     case VF2_TEXTURE_ADDRESS_TABLE_ENTRY:
         status = execute_texture_address_table(machine, cpu, &local_report);
@@ -2694,6 +2742,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "game-state-classify";
     case VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP:
         return "game-color-lookup";
+    case VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS:
+        return "texture-default-limits";
     case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY:
         return "second-scheduler-entry";
     case VF2_HYBRID_BRIDGE_NONE:

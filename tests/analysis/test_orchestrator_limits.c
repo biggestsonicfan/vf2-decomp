@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "vf2/analysis/orchestrator_limits.h"
+#include "vf2/hybrid.h"
 
 static int failures = 0;
 
@@ -178,10 +179,90 @@ static void test_machine_application(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_hybrid_bridge_poststate(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint32_t value = 0u;
+    uint32_t index = 0u;
+    uint8_t mode = 0u;
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine, VF2_ORCHESTRATOR_RUNTIME_FLAGS, 0u
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine,
+            VF2_ORCHESTRATOR_DISPLAY_MODE,
+            &mode,
+            sizeof(mode)
+        ) == VF2_OK
+    );
+
+    vf2_i960_cpu_reset(
+        &cpu, 0u, 0u, UINT32_C(0x0004bcfc)
+    );
+    for (index = 0u; index < VF2_I960_LOCAL_REGISTER_COUNT; ++index) {
+        cpu.registers[index] = UINT32_C(0xa5000000) + index;
+    }
+    CHECK(
+        vf2_i960_cpu_enter_procedure(
+            &cpu,
+            VF2_ORCHESTRATOR_LIMITS_ENTRY,
+            UINT32_C(0x0004bd00)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_hybrid_post_frame_bridge_execute(
+            &machine, &cpu, &report
+        ) == VF2_OK
+    );
+
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS);
+    CHECK(report.entry_address == VF2_ORCHESTRATOR_LIMITS_ENTRY);
+    CHECK(report.exit_address == UINT32_C(0x0004bd00));
+    CHECK(report.changed_values == UINT64_C(2));
+    CHECK(report.bytes_written == 8u);
+    CHECK(report.recovered_instruction_count == UINT64_C(22));
+    CHECK(report.recovered_procedure_calls == UINT64_C(0));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(report.cpu_poststate_applied == 1);
+    CHECK(cpu.ip == UINT32_C(0x0004bd00));
+    CHECK(cpu.local_frame_depth == 0u);
+    CHECK(cpu.maximum_local_frame_depth == 1u);
+    CHECK(cpu.executed_instructions == UINT64_C(22));
+    CHECK(cpu.procedure_calls == UINT64_C(1));
+    CHECK(cpu.procedure_returns == UINT64_C(1));
+    CHECK(cpu.registers[10] == UINT32_C(0xa500000a));
+    CHECK(cpu.registers[11] == UINT32_C(0xa500000b));
+    CHECK(
+        vf2_model2a_read_u32(
+            &machine, VF2_ORCHESTRATOR_LIMIT_LOW, &value
+        ) == VF2_OK
+    );
+    CHECK(value == UINT32_C(0x00003e80));
+    CHECK(
+        vf2_model2a_read_u32(
+            &machine, VF2_ORCHESTRATOR_LIMIT_HIGH, &value
+        ) == VF2_OK
+    );
+    CHECK(value == UINT32_C(0x00004e20));
+
+    vf2_model2a_shutdown(&machine);
+}
+
 int main(void)
 {
     test_default_branch_class();
     test_machine_application();
+    test_hybrid_bridge_poststate();
 
     if (failures != 0) {
         fprintf(stderr, "%d orchestrator-limit test(s) failed\n", failures);

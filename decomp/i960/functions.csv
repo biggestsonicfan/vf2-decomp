@@ -21,4 +21,4 @@ address,end,name,status,source,notes
 0x0004d2c0,,texture_status_line,recovered-observed-branch,dynamic-differential,v0.0.22 texture TEX/t4e status line writer
 0x0000281c,,game_state_classify,recovered-observed-branch,dynamic-differential,v0.0.22 observed game-state classifier
 0x000026ec,,game_color_lookup,recovered-observed-branch,dynamic-differential,v0.0.22 color/control lookup with 0x00010101 adjustment
-0x0004bfe0,0x0004c120,texture_default_limits_select,candidate-semantic,dynamic-trace+unit,Default observed branch writes 0x3e80 and 0x4e20; pending live differential bridge integration
+0x0004bfe0,0x0004c120,texture_default_limits_select,recovered-observed-branch,pending-rom-differential+unit,Default observed branch integrated into the hybrid bridge; ROM-backed validation pending
