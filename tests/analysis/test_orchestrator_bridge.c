@@ -162,6 +162,86 @@ static void test_loop_gate_dispatch(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_record_advance_dispatch(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint32_t pointer0 = 0u;
+    uint32_t pointer1 = 0u;
+    uint8_t count_bytes[2] = {3u, 0u};
+    uint8_t final_count[2] = {0u, 0u};
+    const uint32_t record = UINT32_C(0x00550168);
+    const uint32_t arithmetic_before = UINT32_C(0x3f001002);
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    CHECK(
+        vf2_model2a_write(
+            &machine, record + UINT32_C(2), count_bytes, sizeof(count_bytes)
+        ) == VF2_OK
+    );
+    enter_parent(&cpu, UINT32_C(0x0004bf60));
+    cpu.registers[5] = record;
+    cpu.registers[6] = 1u;
+    cpu.registers[8] = 3u;
+    cpu.registers[9] = UINT32_C(0x00551000);
+    cpu.registers[10] = UINT32_C(0x00552000);
+    cpu.arithmetic_control = arithmetic_before;
+
+    CHECK(
+        vf2_hybrid_post_frame_bridge_execute(
+            &machine, &cpu, &report
+        ) == VF2_OK
+    );
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_TEXTURE_RECORD_ADVANCE);
+    CHECK(report.entry_address == UINT32_C(0x0004bf60));
+    CHECK(report.exit_address == UINT32_C(0x0004bd24));
+    CHECK(report.iterations == UINT64_C(1));
+    CHECK(report.changed_values == UINT64_C(3));
+    CHECK(report.bytes_written == 10u);
+    CHECK(report.recovered_instruction_count == UINT64_C(12));
+    CHECK(report.recovered_procedure_calls == UINT64_C(0));
+    CHECK(report.recovered_procedure_returns == UINT64_C(0));
+    CHECK(report.cpu_poststate_applied == 1);
+    CHECK(cpu.ip == UINT32_C(0x0004bd24));
+    CHECK(cpu.local_frame_depth == 1u);
+    CHECK(cpu.executed_instructions == UINT64_C(12));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(3));
+    CHECK(cpu.registers[6] == 0u);
+    CHECK(cpu.registers[8] == 2u);
+    CHECK(cpu.registers[9] == UINT32_C(0x00551004));
+    CHECK(cpu.registers[10] == UINT32_C(0x00552004));
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
+    CHECK(
+        cpu.arithmetic_control ==
+        ((arithmetic_before & ~UINT32_C(7)) | UINT32_C(2))
+    );
+    CHECK(
+        vf2_model2a_read(
+            &machine, record + UINT32_C(2), final_count, sizeof(final_count)
+        ) == VF2_OK
+    );
+    CHECK(final_count[0] == 2u && final_count[1] == 0u);
+    CHECK(
+        vf2_model2a_read_u32(
+            &machine, record + UINT32_C(0x14), &pointer0
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_read_u32(
+            &machine, record + UINT32_C(0x18), &pointer1
+        ) == VF2_OK
+    );
+    CHECK(pointer0 == UINT32_C(0x00551004));
+    CHECK(pointer1 == UINT32_C(0x00552004));
+
+    vf2_model2a_shutdown(&machine);
+}
+
+
 static void test_counter_update_dispatch(void)
 {
     vf2_model2a machine;
@@ -258,6 +338,7 @@ int main(void)
         VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B
     );
     test_loop_gate_dispatch();
+    test_record_advance_dispatch();
     test_counter_update_dispatch();
 
     if (failures != 0) {

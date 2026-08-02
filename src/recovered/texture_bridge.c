@@ -45,6 +45,8 @@
 #define VF2_TEXTURE_RECORD_START UINT32_C(0x00550168)
 #define VF2_TEXTURE_RECORD_END UINT32_C(0x005502a8)
 #define VF2_TEXTURE_RUNTIME_FLAGS UINT32_C(0x00508000)
+#define VF2_TEXTURE_RECORD_ADVANCE_ENTRY UINT32_C(0x0004bf60)
+#define VF2_TEXTURE_RECORD_ADVANCE_EXIT UINT32_C(0x0004bd24)
 #define VF2_TEXTURE_FINAL_STATUS_ENTRY UINT32_C(0x0004bf90)
 #define VF2_TEXTURE_STATUS_WORD UINT32_C(0x0055c2f0)
 #define VF2_TEXTURE_COUNTER0 UINT32_C(0x005502c0)
@@ -2662,6 +2664,73 @@ static vf2_status execute_texture_status_dispatch_call(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_record_advance(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint16_t raw_count = 0u;
+    uint32_t count = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u || cpu->registers[6] != 1u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = read_u16(machine, cpu->registers[5] + UINT32_C(2), &raw_count);
+    if (status != VF2_OK) {
+        return status;
+    }
+    count = (uint32_t)(int32_t)(int16_t)raw_count;
+    cpu->registers[VF2_I960_G0_REGISTER] = count;
+    if ((int32_t)count <= 0 || cpu->registers[8] != count) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->registers[6] = 0u;
+    cpu->registers[8] -= UINT32_C(1);
+    cpu->registers[9] += UINT32_C(4);
+    cpu->registers[10] += UINT32_C(4);
+
+    status = write_u16(
+        machine,
+        cpu->registers[5] + UINT32_C(2),
+        (uint16_t)cpu->registers[8]
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine,
+            cpu->registers[5] + UINT32_C(0x14),
+            cpu->registers[9]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine,
+            cpu->registers[5] + UINT32_C(0x18),
+            cpu->registers[10]
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    set_equal_condition(cpu);
+    cpu->ip = VF2_TEXTURE_RECORD_ADVANCE_EXIT;
+    cpu->executed_instructions += UINT64_C(12);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_RECORD_ADVANCE;
+    report->entry_address = VF2_TEXTURE_RECORD_ADVANCE_ENTRY;
+    report->exit_address = VF2_TEXTURE_RECORD_ADVANCE_EXIT;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(3);
+    report->bytes_written = 10u;
+    report->recovered_instruction_count = UINT64_C(12);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
 static vf2_status execute_texture_final_status_call(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -3164,6 +3233,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
             machine, cpu, &local_report
         );
         break;
+    case VF2_TEXTURE_RECORD_ADVANCE_ENTRY:
+        status = execute_texture_record_advance(
+            machine, cpu, &local_report
+        );
+        break;
     case VF2_TEXTURE_FINAL_STATUS_ENTRY:
         status = execute_texture_final_status_call(
             machine, cpu, &local_report
@@ -3324,6 +3398,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-child-gate-b";
     case VF2_HYBRID_BRIDGE_TEXTURE_LOOP_GATE:
         return "texture-loop-gate";
+    case VF2_HYBRID_BRIDGE_TEXTURE_RECORD_ADVANCE:
+        return "texture-record-advance";
     case VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL:
         return "texture-final-status-call";
     case VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN:
