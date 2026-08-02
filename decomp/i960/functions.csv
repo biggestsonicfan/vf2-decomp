@@ -22,15 +22,15 @@ address,end,name,status,source,notes
 0x0000281c,,game_state_classify,recovered-observed-branch,dynamic-differential,v0.0.22 observed game-state classifier
 0x000026ec,,game_color_lookup,recovered-observed-branch,dynamic-differential,v0.0.22 color/control lookup with 0x00010101 adjustment
 0x0004bd24,0x0004d2c0,texture_status_dispatch_call,recovered-observed-branch,dynamic-trace+unit,Four observed record dispatches recover eight instructions each
-0x0004bd24,0x0004bf90,texture_status_scan_end,recovered-observed-branch,pending-rom-differential+unit,Final pass scans ten inactive records in 43 instructions through the hybrid bridge
-0x0004bebc,0x0004cb64,texture_child_zero_gate_a,recovered-observed-branch,pending-rom-differential+unit,Zero child-state path enters 0x0004cb64 in three instructions through the hybrid bridge; observed four times
-0x0004bef4,0x0004cd18,texture_child_zero_gate_b,recovered-observed-branch,pending-rom-differential+unit,Zero child-state path enters 0x0004cd18 in three instructions through the hybrid bridge; observed four times
-0x0004bf2c,0x0004bf60,texture_loop_zero_gate,recovered-observed-branch,pending-rom-differential+unit,Zero child-state loop-tail branch in two instructions through the hybrid bridge; observed four times
+0x0004bd24,0x0004bf90,texture_status_scan_end,recovered-observed-branch,dynamic-differential+unit,Final pass scans ten inactive records in 43 instructions through the hybrid bridge
+0x0004bebc,0x0004cb64,texture_child_zero_gate_a,recovered-observed-branch,dynamic-differential+unit,Zero child-state path enters 0x0004cb64 in three instructions through the hybrid bridge; observed four times
+0x0004bef4,0x0004cd18,texture_child_zero_gate_b,recovered-observed-branch,dynamic-differential+unit,Zero child-state path enters 0x0004cd18 in three instructions through the hybrid bridge; observed four times
+0x0004bf2c,0x0004bf60,texture_loop_zero_gate,recovered-observed-branch,dynamic-differential+unit,Zero child-state loop-tail branch in two instructions through the hybrid bridge; observed four times
 0x0004bf90,0x0004d25c,texture_final_status_call,recovered-observed-branch,dynamic-trace+unit,Final counter gate clears status and enters the final status helper
 0x0004bfdc,0x0004bb94,texture_body_return,recovered-control-block,dynamic-trace+unit,Architectural return from the texture body
 0x0004bb94,0x0004b8d8,texture_post_body_call,recovered-control-block,dynamic-trace+unit,Post-body call into the short maintenance helper
-0x0004bb98,0x0004bc58,texture_counter_update,recovered-observed-branch,pending-rom-differential+unit,Two zero counters are skipped and the third counter is decremented in fourteen instructions
+0x0004bb98,0x0004bc58,texture_counter_update,recovered-observed-branch,dynamic-differential+unit,Two zero counters are skipped and the third counter is decremented in fourteen instructions
 0x0004bc58,0x0000a034,texture_orchestrator_epilogue,recovered-control-block,dynamic-trace+unit,Restores 28 saved registers and returns to the main loop
 0x0004bb18,0x0004bcd4,texture_orchestrator_save_call,recovered-control-block,dynamic-trace+unit,Twenty register-save instructions plus the call into 0x0004bcd4
 0x0004bcd4,0x0004bfe0,texture_frame_gate_call,recovered-observed-branch,dynamic-trace+unit,Zero-frame-state path clears 0x0050006d and calls 0x0004bfe0
-0x0004bfe0,0x0004c120,texture_default_limits_select,recovered-observed-branch,pending-rom-differential+unit,Default observed branch integrated into the hybrid bridge; ROM-backed validation pending
+0x0004bfe0,0x0004c120,texture_default_limits_select,recovered-observed-branch,dynamic-differential+unit,Default observed branch validated by the ROM-backed native second-dispatch match
