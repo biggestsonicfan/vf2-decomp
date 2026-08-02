@@ -2,16 +2,18 @@
 
 ## Purpose
 
-`vf2_native_runtime` is the first reusable execution layer above the individual
-recovered blocks. It is deliberately independent from the ROM-backed
-differential CLI and never falls back to the Intel i960 interpreter.
+`vf2_native_runtime` is the reusable execution layer above the individual
+recovered blocks. It is independent from the ROM-backed differential CLI and
+never falls back to the Intel i960 interpreter.
 
-The runtime currently routes four accepted execution classes:
+The runtime currently routes six accepted execution classes:
 
 - ordinary post-frame recovered bridge blocks;
-- recovered task bodies, currently including the observed `fa_game_info` path;
+- recovered task bodies;
 - the two recovered frame-wait/interrupt phases;
-- the recovered second scheduler entry.
+- the recovered second scheduler entry;
+- generic second-sweep scheduler transitions; and
+- the recovered second-sweep scheduler epilogue.
 
 Unknown instruction pointers and unobserved branches return
 `VF2_ERROR_UNSUPPORTED` explicitly.
@@ -56,50 +58,82 @@ Both per-step and cumulative reports retain:
 
 - entry and exit addresses;
 - recovered bridge or task kind;
-- block and recovered-task counts;
-- frame-wait phase count;
-- scheduler-entry count;
-- recovered instruction count;
+- current and next scheduler task indices;
+- current and next registry addresses;
+- number of descriptors scanned;
+- block, task, frame-wait, scheduler-entry, transition and finish counts;
+- recovered instruction count; and
 - recovered procedure calls and returns.
 
 The cumulative state is modified only after a recovered block completes
 successfully.
 
-## Current continuous boundary
+## Complete second scheduler sweep
 
-The runtime can now compose the recovered second scheduler entry with the next
-observed task body:
+The runtime now composes the entire observed second scheduler sweep:
 
-1. scheduler call at `0x0000a010`;
-2. scan of thirteen inactive descriptors;
-3. selection of task index 13;
-4. entry into `fa_game_info` at `0x0001645c`;
-5. execution of its recovered 19-instruction observed path; and
-6. architectural return to the scheduler at `0x00010dcc`.
+1. execute `fa_game_info` at `0x0001645c`;
+2. scan task descriptors 14 through 17 and enter recurring `fa_camera` at
+   `0x0001d458`;
+3. execute the recurring camera update and return to `0x00010dcc`;
+4. enter and execute `fa_user`;
+5. skip six inactive descriptors and enter recurring `fa_sound` at
+   `0x00043abc`;
+6. execute its deterministic buffer transfer and return;
+7. enter recurring `fa_kill_osage`;
+8. enter and execute `fa_osage0` and `fa_osage1`; and
+9. account the last active task, scan the final inactive descriptor and return
+   from the scheduler to the main loop at `0x0000a014`.
 
-The next unsupported boundary is therefore no longer the second task entry. It
-is the continuation of the second scheduler sweep at `0x00010dcc`.
+The transition executor reads each registry stride from offset `+0x08`. It does
+not assume a fixed registry size and skips inactive descriptors until it reaches
+the next active task.
+
+The extension from the second `fa_game_info` entry to `0x0000a014` contains:
+
+- **14** recovered runtime blocks;
+- **566** original i960 instructions reproduced by C;
+- **12** recovered procedure calls;
+- **14** recovered procedure returns; and
+- zero native-side interpreter fallbacks.
+
+## Task variants
+
+The recurring camera path composes the existing recovered update and post-update
+blocks while preserving the live fighter cursor that differs from the first
+camera invocation.
+
+The recurring sound path copies the observed queued word into the global sound
+state, clears the source and control fields, and returns in 20 instructions.
+
+The recurring `fa_kill_osage` path shares the already recovered memory and
+register semantics but records the observed 33-instruction recurring profile,
+rather than the 36-instruction first-dispatch profile.
 
 ## Validation
 
-The ROM-independent test covers initialization, a zero-length run, a complete
-recovered system-memory diagnostic procedure, the second `fa_game_info` task
-body, explicit unsupported routing and block-budget exhaustion.
+The ROM-backed differential run compared complete CPU state, architectural
+local-register frames and all mutable Model 2 memory after each of the 14 blocks.
+Every phase reached `MATCH`.
 
-The second-task test verifies its 19 recovered instructions, one architectural
-return, registry preservation, fighter-register postconditions and return to
-`0x00010dcc`.
+ROM-independent tests cover:
 
-The runtime implementation was also exercised with the supported 36-file VF2
-2.1 ROM set against the existing differential targets. The project has 27 CTest
-targets after adding `vf2_native_runtime`, and the relevant runtime/bridge tests
-were exercised under AddressSanitizer and UndefinedBehaviorSanitizer.
+- initialization and zero-length execution;
+- a complete recovered bridge procedure;
+- second `fa_game_info` execution;
+- dynamic registry-stride scanning across inactive descriptors;
+- the second-sweep scheduler epilogue;
+- unsupported routing; and
+- block-budget exhaustion.
+
+The warning-as-error build and the six ROM-independent test targets used during
+this increment passed. The native runtime and scheduler tests were also run
+under AddressSanitizer and UndefinedBehaviorSanitizer.
 
 ## Next integration
 
-The next work item is to recover the scheduler continuation beginning at
-`0x00010dcc`, determine the next runnable descriptor in the live second sweep
-and route that transition through this same runtime API. Candidate selection and
-aggregate accounting in `vf2i960 native-second-dispatch` should then be replaced
-by `vf2_native_runtime`, ensuring that the differential harness and future
-platform executable use the same recovered execution path.
+The current continuous native boundary is the main-loop continuation at
+`0x0000a014`. The next target is to route the already recovered geometry,
+texture, frame timer and interrupt blocks through `vf2_native_runtime`, execute a
+second complete frame boundary and reach the third scheduler sweep without
+native-side interpretation.
