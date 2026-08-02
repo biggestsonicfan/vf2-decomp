@@ -3935,7 +3935,13 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0004d2c0) ||
                 native_ip_before == UINT32_C(0x0000281c) ||
                 native_ip_before == UINT32_C(0x000026ec) ||
-                native_ip_before == UINT32_C(0x000028d4);
+                native_ip_before == UINT32_C(0x000028d4) ||
+                native_ip_before == UINT32_C(0x000438ec) ||
+                native_ip_before == UINT32_C(0x0004b8d8) ||
+                native_ip_before == UINT32_C(0x0004ba80) ||
+                native_ip_before == UINT32_C(0x0004bd00) ||
+                native_ip_before == UINT32_C(0x0004bd5c) ||
+                native_ip_before == UINT32_C(0x0004be6c);
 
             if (original_cpu.ip == second_entry &&
                 native_cpu.ip == second_entry &&
@@ -4105,6 +4111,18 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_GAME_EVENT_QUEUE_WRITE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_MAINTENANCE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_UPLOAD_DISPATCH ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_ENTRY_GATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_RECORD_STATUS_SETUP ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_STREAM_HEADER_CALL ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL ||
                         bridge_report.kind ==
@@ -4363,12 +4381,12 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1270074) ||
-             bridge_interpreted_instructions != UINT64_C(748) ||
-             bridge_validated_blocks != 176u ||
-             bridge_memory_checkpoints != 176u ||
-             bridge_recovered_calls != UINT64_C(288) ||
-             bridge_recovered_returns != UINT64_C(302) ||
+             bridge_recovered_instructions != UINT64_C(1270167) ||
+             bridge_interpreted_instructions != UINT64_C(655) ||
+             bridge_validated_blocks != 188u ||
+             bridge_memory_checkpoints != 188u ||
+             bridge_recovered_calls != UINT64_C(295) ||
+             bridge_recovered_returns != UINT64_C(306) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 1u ||

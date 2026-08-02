@@ -42,6 +42,18 @@
 #define VF2_GAME_STATE_CLASSIFY_ENTRY UINT32_C(0x0000281c)
 #define VF2_GAME_COLOR_LOOKUP_ENTRY UINT32_C(0x000026ec)
 #define VF2_GAME_THRESHOLD_EVALUATE_ENTRY UINT32_C(0x000028d4)
+#define VF2_GAME_EVENT_QUEUE_WRITE_ENTRY UINT32_C(0x000438ec)
+#define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
+#define VF2_TEXTURE_MAINTENANCE_CHECK_ENTRY UINT32_C(0x0004b914)
+#define VF2_TEXTURE_UPLOAD_DISPATCH_ENTRY UINT32_C(0x0004ba80)
+#define VF2_TEXTURE_UPLOAD_DISPATCH_TARGET UINT32_C(0x00002de4)
+#define VF2_TEXTURE_UPLOAD_DISPATCH_RETURN UINT32_C(0x0004bab4)
+#define VF2_TEXTURE_ORCHESTRATOR_ENTRY_GATE UINT32_C(0x0004bd00)
+#define VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY UINT32_C(0x0004bd5c)
+#define VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT UINT32_C(0x0004bde0)
+#define VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY UINT32_C(0x0004be6c)
+#define VF2_TEXTURE_STREAM_HEADER_CALL_RETURN UINT32_C(0x0004bebc)
+#define VF2_GAME_EVENT_QUEUE_MMIO UINT32_C(0x00e80004)
 #define VF2_TEXTURE_ORCHESTRATOR_SAVE_ENTRY UINT32_C(0x0004bb18)
 #define VF2_TEXTURE_ORCHESTRATOR_BODY_ENTRY UINT32_C(0x0004bcd4)
 #define VF2_TEXTURE_ORCHESTRATOR_BODY_RETURN UINT32_C(0x0004bb94)
@@ -487,6 +499,430 @@ static vf2_status execute_game_color_lookup(
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }
+
+static vf2_status execute_game_event_queue_write(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint8_t count = 0u;
+    uint8_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[6] = VF2_GAME_EVENT_QUEUE_MMIO;
+    cpu->registers[3] = UINT32_C(33);
+    status = vf2_model2a_write_u32(
+        machine, cpu->registers[6], cpu->registers[3]
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, cpu->registers[6], cpu->registers[3]
+        );
+    }
+    cpu->registers[3] = UINT32_C(16);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00504001), &count, sizeof(count)
+        );
+    }
+    if (status != VF2_OK || count >= UINT8_C(16)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    ++count;
+    cpu->registers[5] = count;
+    status = vf2_model2a_write(
+        machine, UINT32_C(0x00504001), &count, sizeof(count)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00504003), &index, sizeof(index)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine,
+            UINT32_C(0x00504020) + (uint32_t)index * UINT32_C(4),
+            cpu->registers[VF2_I960_G0_REGISTER]
+        );
+    }
+    cpu->registers[4] = UINT32_C(15);
+    index = (uint8_t)(((uint32_t)index + UINT32_C(1)) & UINT32_C(15));
+    cpu->registers[3] = index;
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504003), &index, sizeof(index)
+        );
+    }
+    cpu->registers[3] = UINT32_C(0x00000421);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, cpu->registers[6], cpu->registers[3]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, cpu->registers[6], cpu->registers[3]
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(19));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_GAME_EVENT_QUEUE_WRITE;
+    report->entry_address = VF2_GAME_EVENT_QUEUE_WRITE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(4);
+    report->bytes_written = 22u;
+    report->recovered_instruction_count = UINT64_C(19);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_texture_maintenance(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    const uint32_t records[2] = {
+        UINT32_C(0x00550188), UINT32_C(0x005501a8)
+    };
+    const uint32_t first_values[2] = {
+        UINT32_C(0x0050083c), UINT32_C(0x00500840)
+    };
+    const uint32_t second_values[2] = {
+        UINT32_C(0x00500804), UINT32_C(0x00500808)
+    };
+    const uint32_t returns[2] = {
+        UINT32_C(0x0004b8f4), UINT32_C(0x0004b910)
+    };
+    uint32_t index = 0u;
+    uint16_t record_value = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    for (index = 0u; index < UINT32_C(2); ++index) {
+        cpu->registers[VF2_I960_G0_REGISTER] = records[index];
+        status = vf2_model2a_read_u32(
+            machine, first_values[index],
+            &cpu->registers[VF2_I960_G0_REGISTER + 1u]
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, second_values[index],
+                &cpu->registers[VF2_I960_G0_REGISTER + 2u]
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, VF2_TEXTURE_MAINTENANCE_CHECK_ENTRY, returns[index]
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->executed_instructions += UINT64_C(4);
+        status = vf2_model2a_read_u32(
+            machine,
+            cpu->registers[VF2_I960_G0_REGISTER + 2u] + UINT32_C(0x640),
+            &cpu->registers[3]
+        );
+        if (status == VF2_OK) {
+            status = read_u16(
+                machine, cpu->registers[VF2_I960_G0_REGISTER], &record_value
+            );
+        }
+        cpu->registers[4] = record_value;
+        if (status != VF2_OK || cpu->registers[3] == cpu->registers[4]) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        status = finish_recovered_procedure(machine, cpu, UINT64_C(4));
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(1));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_MAINTENANCE;
+    report->entry_address = VF2_TEXTURE_MAINTENANCE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(2);
+    report->recovered_instruction_count = UINT64_C(17);
+    report->recovered_procedure_calls = UINT64_C(2);
+    report->recovered_procedure_returns = UINT64_C(3);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_texture_upload_dispatch(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    const uint32_t addresses[3] = {
+        UINT32_C(0x005502a8),
+        UINT32_C(0x005502b0),
+        UINT32_C(0x005502b8)
+    };
+    uint32_t index = 0u;
+    uint16_t value = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    for (index = 0u; index < UINT32_C(3); ++index) {
+        cpu->registers[5] = addresses[index];
+        status = read_u16(machine, addresses[index], &value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[3] = value;
+        if (value == UINT16_C(1)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu,
+        VF2_TEXTURE_UPLOAD_DISPATCH_TARGET,
+        VF2_TEXTURE_UPLOAD_DISPATCH_RETURN
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += UINT64_C(10);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_UPLOAD_DISPATCH;
+    report->entry_address = VF2_TEXTURE_UPLOAD_DISPATCH_ENTRY;
+    report->exit_address = VF2_TEXTURE_UPLOAD_DISPATCH_TARGET;
+    report->iterations = UINT64_C(3);
+    report->recovered_instruction_count = UINT64_C(10);
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_texture_orchestrator_entry_gate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_status status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0055000c),
+        &cpu->registers[VF2_I960_G0_REGISTER]
+    );
+    if (status != VF2_OK ||
+        cpu->registers[VF2_I960_G0_REGISTER] != 0u ||
+        cpu->local_frame_depth == 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->ip = VF2_TEXTURE_STATUS_DISPATCH_ENTRY;
+    cpu->executed_instructions += UINT64_C(2);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_ENTRY_GATE;
+    report->entry_address = VF2_TEXTURE_ORCHESTRATOR_ENTRY_GATE;
+    report->exit_address = VF2_TEXTURE_STATUS_DISPATCH_ENTRY;
+    report->iterations = UINT64_C(1);
+    report->recovered_instruction_count = UINT64_C(2);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_texture_record_status_setup(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint16_t short_value = 0u;
+    uint32_t flags = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((int32_t)cpu->registers[3] >= 0) {
+        cpu->ip = VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT;
+        cpu->executed_instructions += UINT64_C(1);
+        report->kind = VF2_HYBRID_BRIDGE_TEXTURE_RECORD_STATUS_SETUP;
+        report->entry_address = VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY;
+        report->exit_address = VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT;
+        report->iterations = UINT64_C(1);
+        report->recovered_instruction_count = UINT64_C(1);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+
+    status = read_u16(
+        machine, cpu->registers[5] + UINT32_C(0x1c), &short_value
+    );
+    cpu->registers[VF2_I960_G0_REGISTER] = short_value;
+    if (status == VF2_OK) {
+        status = write_u16(machine, VF2_TEXTURE_STATUS_WORD, short_value);
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, cpu->registers[5], &short_value);
+    }
+    cpu->registers[3] = short_value;
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0230000c), &cpu->registers[4]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine,
+            cpu->registers[4] + cpu->registers[3] * UINT32_C(4),
+            &cpu->registers[10]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x02300008), &cpu->registers[9]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[10], &cpu->registers[3]
+        );
+    }
+    cpu->registers[10] += UINT32_C(4);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine,
+            cpu->registers[9] + cpu->registers[3] * UINT32_C(4),
+            &cpu->registers[9]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[9], &cpu->registers[8]
+        );
+    }
+    cpu->registers[9] += UINT32_C(4);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[5] + UINT32_C(0x10), &flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[5] + UINT32_C(0x10), &flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[5] + UINT32_C(0x10), &flags
+        );
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = flags;
+    if (status != VF2_OK ||
+        (flags & ((UINT32_C(1) << 4u) |
+                  (UINT32_C(1) << 3u) |
+                  (UINT32_C(1) << 1u))) != 0u ||
+        cpu->registers[8] == 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = write_u16(
+        machine,
+        cpu->registers[5] + UINT32_C(2),
+        (uint16_t)cpu->registers[8]
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, cpu->registers[5] + UINT32_C(0x14), cpu->registers[9]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, cpu->registers[5] + UINT32_C(0x18), cpu->registers[10]
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->ip = VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT;
+    cpu->executed_instructions += UINT64_C(22);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_RECORD_STATUS_SETUP;
+    report->entry_address = VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY;
+    report->exit_address = VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(4);
+    report->bytes_written = 12u;
+    report->recovered_instruction_count = UINT64_C(22);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_texture_stream_header_call(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(
+        machine, cpu->registers[10],
+        &cpu->registers[VF2_I960_G0_REGISTER + 3u]
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine,
+            cpu->registers[VF2_I960_G0_REGISTER + 3u],
+            &cpu->registers[3]
+        );
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] += UINT32_C(4);
+    if (status != VF2_OK || cpu->registers[3] != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_TEXTURE_HEADER_DECODE_ENTRY,
+        VF2_TEXTURE_STREAM_HEADER_CALL_RETURN
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += UINT64_C(5);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_STREAM_HEADER_CALL;
+    report->entry_address = VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY;
+    report->exit_address = VF2_TEXTURE_HEADER_DECODE_ENTRY;
+    report->iterations = UINT64_C(1);
+    report->recovered_instruction_count = UINT64_C(5);
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 
 static vf2_status execute_game_threshold_evaluate(
     vf2_model2a *machine,
@@ -4244,6 +4680,36 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
             machine, cpu, &local_report
         );
         break;
+    case VF2_GAME_EVENT_QUEUE_WRITE_ENTRY:
+        status = execute_game_event_queue_write(
+            machine, cpu, &local_report
+        );
+        break;
+    case VF2_TEXTURE_MAINTENANCE_ENTRY:
+        status = execute_texture_maintenance(
+            machine, cpu, &local_report
+        );
+        break;
+    case VF2_TEXTURE_UPLOAD_DISPATCH_ENTRY:
+        status = execute_texture_upload_dispatch(
+            machine, cpu, &local_report
+        );
+        break;
+    case VF2_TEXTURE_ORCHESTRATOR_ENTRY_GATE:
+        status = execute_texture_orchestrator_entry_gate(
+            machine, cpu, &local_report
+        );
+        break;
+    case VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY:
+        status = execute_texture_record_status_setup(
+            machine, cpu, &local_report
+        );
+        break;
+    case VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY:
+        status = execute_texture_stream_header_call(
+            machine, cpu, &local_report
+        );
+        break;
     default:
         status = VF2_ERROR_UNSUPPORTED;
         break;
@@ -4311,6 +4777,18 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "game-color-lookup";
     case VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE:
         return "game-threshold-evaluate";
+    case VF2_HYBRID_BRIDGE_GAME_EVENT_QUEUE_WRITE:
+        return "game-event-queue-write";
+    case VF2_HYBRID_BRIDGE_TEXTURE_MAINTENANCE:
+        return "texture-maintenance";
+    case VF2_HYBRID_BRIDGE_TEXTURE_UPLOAD_DISPATCH:
+        return "texture-upload-dispatch";
+    case VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_ENTRY_GATE:
+        return "texture-orchestrator-entry-gate";
+    case VF2_HYBRID_BRIDGE_TEXTURE_RECORD_STATUS_SETUP:
+        return "texture-record-status-setup";
+    case VF2_HYBRID_BRIDGE_TEXTURE_STREAM_HEADER_CALL:
+        return "texture-stream-header-call";
     case VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL:
         return "texture-orchestrator-save-call";
     case VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL:
