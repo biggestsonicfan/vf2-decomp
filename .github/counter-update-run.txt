@@ -1,1 +1,0 @@
-Trigger verified texture counter update integration.
