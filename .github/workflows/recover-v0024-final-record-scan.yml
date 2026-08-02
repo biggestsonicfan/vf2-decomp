@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           def replace_once(path: str, old: str, new: str, label: str) -> None:
               file = Path(path)
@@ -43,73 +44,9 @@ jobs:
               "scan enum",
           )
 
-          old_function = r'''static vf2_status execute_texture_status_dispatch_call(
-              vf2_model2a *machine,
-              vf2_i960_cpu *cpu,
-              vf2_hybrid_bridge_report *report
-          )
-          {
-              uint16_t active_count = 0u;
-              uint16_t status_value = 0u;
-              uint32_t runtime_flags = 0u;
-              vf2_status status = VF2_OK;
-
-              if (cpu->local_frame_depth == 0u) {
-                  return VF2_ERROR_UNSUPPORTED;
-              }
-              cpu->registers[5] = VF2_TEXTURE_RECORD_START;
-              cpu->registers[6] = VF2_TEXTURE_RECORD_END;
-              status = read_u16(
-                  machine,
-                  VF2_TEXTURE_RECORD_START + UINT32_C(2),
-                  &active_count
-              );
-              if (status == VF2_OK) {
-                  cpu->registers[3] =
-                      (uint32_t)(int32_t)(int16_t)active_count;
-                  if (cpu->registers[3] == 0u) {
-                      return VF2_ERROR_UNSUPPORTED;
-                  }
-                  status = read_u16(
-                      machine, VF2_TEXTURE_RECORD_START, &status_value
-                  );
-              }
-              if (status == VF2_OK) {
-                  cpu->registers[16] = status_value;
-                  status = vf2_model2a_read_u32(
-                      machine, VF2_TEXTURE_RUNTIME_FLAGS, &runtime_flags
-                  );
-              }
-              if (status != VF2_OK) {
-                  return status;
-              }
-              cpu->registers[15] = runtime_flags;
-              if ((runtime_flags & (UINT32_C(1) << 9u)) != 0u) {
-                  return VF2_ERROR_UNSUPPORTED;
-              }
-
-              status = vf2_i960_cpu_enter_procedure(
-                  cpu,
-                  VF2_TEXTURE_STATUS_DISPATCH_TARGET,
-                  VF2_TEXTURE_STATUS_DISPATCH_RETURN
-              );
-              if (status != VF2_OK) {
-                  return status;
-              }
-              cpu->executed_instructions += UINT64_C(8);
-
-              report->kind = VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL;
-              report->entry_address = VF2_TEXTURE_STATUS_DISPATCH_ENTRY;
-              report->exit_address = cpu->ip;
-              report->iterations = UINT64_C(1);
-              report->recovered_instruction_count = UINT64_C(8);
-              report->recovered_procedure_calls = UINT64_C(1);
-              report->cpu_poststate_applied = 1;
-              return VF2_OK;
-          }
-
-          '''
-          new_function = r'''static vf2_status execute_texture_status_dispatch_call(
+          bridge_path = Path("src/recovered/texture_bridge.c")
+          bridge = bridge_path.read_text(encoding="utf-8")
+          replacement = r'''static vf2_status execute_texture_status_dispatch_call(
               vf2_model2a *machine,
               vf2_i960_cpu *cpu,
               vf2_hybrid_bridge_report *report
@@ -210,13 +147,19 @@ jobs:
               return VF2_OK;
           }
 
-          '''
-          replace_once(
-              "src/recovered/texture_bridge.c",
-              old_function,
-              new_function,
-              "status dispatch implementation",
+          static vf2_status execute_texture_final_status_call('''
+          pattern = re.compile(
+              r"static vf2_status execute_texture_status_dispatch_call\(.*?"
+              r"static vf2_status execute_texture_final_status_call\(",
+              re.DOTALL,
           )
+          bridge, count = pattern.subn(replacement, bridge, count=1)
+          if count != 1:
+              raise SystemExit(
+                  f"status dispatch structural replacement: expected one, found {count}"
+              )
+          bridge_path.write_text(bridge, encoding="utf-8")
+
           replace_once(
               "src/recovered/texture_bridge.c",
               "    case VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL:\n"
@@ -278,8 +221,8 @@ jobs:
 
           tests = Path("tests/analysis/test_orchestrator_limits.c")
           text = tests.read_text(encoding="utf-8")
-          marker = "              CHECK(cpu.registers[16] == UINT32_C(0x1234));\n\n"
-          addition = r'''              CHECK(cpu.registers[16] == UINT32_C(0x1234));
+          marker = "    CHECK(cpu.registers[16] == UINT32_C(0x1234));\n\n"
+          addition = r'''    CHECK(cpu.registers[16] == UINT32_C(0x1234));
 
               for (index = 0u; index < 10u; ++index) {
                   halfword[0] = 0u;
