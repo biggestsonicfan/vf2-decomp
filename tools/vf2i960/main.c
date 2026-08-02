@@ -3492,7 +3492,7 @@ static int command_native_dispatch(
     uint64_t bridge_recovered_returns = 0u;
     size_t bridge_validated_blocks = 0u;
     size_t bridge_memory_checkpoints = 0u;
-    size_t bridge_block_counts[64] = {0u};
+    size_t bridge_block_counts[VF2_HYBRID_BRIDGE_COUNT] = {0u};
     uint32_t first_geometry_instruction = 0u;
     uint32_t first_geometry_address = 0u;
     uint32_t first_geometry_changed_byte = 0u;
@@ -3904,6 +3904,9 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0004ce88) ||
                 native_ip_before == UINT32_C(0x0004bb18) ||
                 native_ip_before == UINT32_C(0x0004bd24) ||
+                native_ip_before == UINT32_C(0x0004bebc) ||
+                native_ip_before == UINT32_C(0x0004bef4) ||
+                native_ip_before == UINT32_C(0x0004bf2c) ||
                 native_ip_before == UINT32_C(0x0004bf90) ||
                 native_ip_before == UINT32_C(0x0004bfdc) ||
                 native_ip_before == UINT32_C(0x0004bb94) ||
@@ -4094,6 +4097,14 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_LOOP_GATE ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL ||
                         bridge_report.kind ==
@@ -4328,11 +4339,11 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1268866) ||
-             bridge_interpreted_instructions != UINT64_C(1956) ||
-             bridge_validated_blocks != 154u ||
-             bridge_memory_checkpoints != 154u ||
-             bridge_recovered_calls != UINT64_C(258) ||
+             bridge_recovered_instructions != UINT64_C(1268941) ||
+             bridge_interpreted_instructions != UINT64_C(1881) ||
+             bridge_validated_blocks != 167u ||
+             bridge_memory_checkpoints != 167u ||
+             bridge_recovered_calls != UINT64_C(266) ||
              bridge_recovered_returns != UINT64_C(300) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
@@ -4342,6 +4353,10 @@ static int command_native_dispatch(
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL] != 4u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A] != 4u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B] != 4u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_LOOP_GATE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL] != 1u ||
@@ -4461,6 +4476,22 @@ static int command_native_dispatch(
         printf("  status dispatch/calls:             %zu\n",
                bridge_block_counts[
                    VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL
+               ]);
+        printf("  status scan endings:              %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END
+               ]);
+        printf("  child gate A calls:                %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A
+               ]);
+        printf("  child gate B calls:                %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B
+               ]);
+        printf("  loop zero gates:                   %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_LOOP_GATE
                ]);
         printf("  final status/calls:                %zu\n",
                bridge_block_counts[

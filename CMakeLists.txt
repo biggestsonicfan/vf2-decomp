@@ -139,6 +139,17 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_orchestrator_gates_tests
     )
 
+    add_executable(vf2_orchestrator_bridge_tests
+        tests/analysis/test_orchestrator_bridge.c
+    )
+    target_link_libraries(vf2_orchestrator_bridge_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_orchestrator_bridge_tests)
+
+    add_test(
+        NAME vf2_orchestrator_bridge
+        COMMAND vf2_orchestrator_bridge_tests
+    )
+
     if(VF2_ROM_DIR)
         add_test(
             NAME vf2_boot_differential

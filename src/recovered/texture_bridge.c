@@ -1,6 +1,8 @@
 #include "vf2/hybrid.h"
 
+#include "vf2/analysis/orchestrator_gates.h"
 #include "vf2/analysis/orchestrator_limits.h"
+#include "vf2/analysis/orchestrator_scan.h"
 
 #include <limits.h>
 #include <string.h>
@@ -2600,7 +2602,25 @@ static vf2_status execute_texture_status_dispatch_call(
         cpu->registers[3] =
             (uint32_t)(int32_t)(int16_t)active_count;
         if (cpu->registers[3] == 0u) {
-            return VF2_ERROR_UNSUPPORTED;
+            vf2_orchestrator_scan_report scan_report;
+            memset(&scan_report, 0, sizeof(scan_report));
+            status = vf2_orchestrator_scan_inactive_records(
+                machine, cpu, &scan_report
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            report->kind =
+                VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END;
+            report->entry_address = scan_report.entry_address;
+            report->exit_address = scan_report.exit_address;
+            report->iterations =
+                (uint64_t)scan_report.records_scanned;
+            report->recovered_instruction_count =
+                scan_report.recovered_instruction_count;
+            report->cpu_poststate_applied =
+                scan_report.cpu_poststate_applied;
+            return VF2_OK;
         }
         status = read_u16(
             machine, VF2_TEXTURE_RECORD_START, &status_value
@@ -2970,6 +2990,55 @@ static vf2_status execute_texture_default_limits(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_orchestrator_gate(
+    const vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_orchestrator_gate_report gate_report;
+    vf2_status status = VF2_OK;
+
+    memset(&gate_report, 0, sizeof(gate_report));
+    if (cpu->ip == VF2_ORCHESTRATOR_LOOP_GATE_ENTRY) {
+        status = vf2_orchestrator_apply_zero_loop_gate(
+            machine, cpu, &gate_report
+        );
+    } else {
+        status = vf2_orchestrator_enter_zero_child_gate(
+            machine, cpu, &gate_report
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    switch (gate_report.kind) {
+    case VF2_ORCHESTRATOR_GATE_CHILD_A:
+        report->kind = VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A;
+        break;
+    case VF2_ORCHESTRATOR_GATE_CHILD_B:
+        report->kind = VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B;
+        break;
+    case VF2_ORCHESTRATOR_GATE_LOOP_TAIL:
+        report->kind = VF2_HYBRID_BRIDGE_TEXTURE_LOOP_GATE;
+        break;
+    case VF2_ORCHESTRATOR_GATE_NONE:
+    default:
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    report->entry_address = gate_report.entry_address;
+    report->exit_address = gate_report.exit_address;
+    report->iterations = UINT64_C(1);
+    report->recovered_instruction_count =
+        gate_report.recovered_instruction_count;
+    report->recovered_procedure_calls =
+        gate_report.recovered_procedure_calls;
+    report->cpu_poststate_applied = gate_report.cpu_poststate_applied;
+    return VF2_OK;
+}
+
 vf2_status vf2_hybrid_post_frame_bridge_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -3011,6 +3080,13 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         break;
     case VF2_TEXTURE_CONVERT_ENTRY:
         status = execute_texture_convert(machine, cpu, &local_report);
+        break;
+    case VF2_ORCHESTRATOR_CHILD_GATE_A_ENTRY:
+    case VF2_ORCHESTRATOR_CHILD_GATE_B_ENTRY:
+    case VF2_ORCHESTRATOR_LOOP_GATE_ENTRY:
+        status = execute_texture_orchestrator_gate(
+            machine, cpu, &local_report
+        );
         break;
     case VF2_TEXTURE_STATUS_DISPATCH_ENTRY:
         status = execute_texture_status_dispatch_call(
@@ -3164,6 +3240,14 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-default-limits";
     case VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL:
         return "texture-status-dispatch-call";
+    case VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END:
+        return "texture-status-scan-end";
+    case VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_A:
+        return "texture-child-gate-a";
+    case VF2_HYBRID_BRIDGE_TEXTURE_CHILD_GATE_B:
+        return "texture-child-gate-b";
+    case VF2_HYBRID_BRIDGE_TEXTURE_LOOP_GATE:
+        return "texture-loop-gate";
     case VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL:
         return "texture-final-status-call";
     case VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN:
