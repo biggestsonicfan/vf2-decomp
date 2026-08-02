@@ -42,6 +42,10 @@
 #define VF2_GAME_STATE_CLASSIFY_ENTRY UINT32_C(0x0000281c)
 #define VF2_GAME_COLOR_LOOKUP_ENTRY UINT32_C(0x000026ec)
 #define VF2_GAME_THRESHOLD_EVALUATE_ENTRY UINT32_C(0x000028d4)
+#define VF2_GAME_METER_UPDATE_ENTRY UINT32_C(0x000020f0)
+#define VF2_GAME_METER_COMPONENT_ENTRY UINT32_C(0x00002548)
+#define VF2_GAME_METER_VALUE_ENTRY UINT32_C(0x00002640)
+#define VF2_GAME_METER_OFFSET_ENTRY UINT32_C(0x000026b0)
 #define VF2_SYSTEM_MEMORY_DIAGNOSTIC_ENTRY UINT32_C(0x0006dcb8)
 #define VF2_VIDEO_INPUT_SYNC_ENTRY UINT32_C(0x000110f4)
 #define VF2_FRAME_COUNTER_ADVANCE_ENTRY UINT32_C(0x000112f8)
@@ -49,6 +53,15 @@
 #define VF2_FRAME_SHADOW_VERIFY_ENTRY UINT32_C(0x00000530)
 #define VF2_FRAME_BUFFER_GATE_ENTRY UINT32_C(0x000110b0)
 #define VF2_FRAME_DISPATCH_TICK_ENTRY UINT32_C(0x0000a6c0)
+#define VF2_FRAME_GEOMETRY_GATE_ENTRY UINT32_C(0x0000a748)
+#define VF2_VIDEO_REGISTER_COMPOSE_ENTRY UINT32_C(0x00001064)
+#define VF2_VIDEO_INPUT_LATCH_WRITE_ENTRY UINT32_C(0x00001290)
+#define VF2_PLAYER_UPDATE_GATE_ENTRY UINT32_C(0x00024534)
+#define VF2_VIDEO_LAYER_COMMIT_ENTRY UINT32_C(0x00023f6c)
+#define VF2_INPUT_BIT0_SEQUENCE_GATE_ENTRY UINT32_C(0x00001e6c)
+#define VF2_INPUT_BIT1_SEQUENCE_GATE_ENTRY UINT32_C(0x00001edc)
+#define VF2_INPUT_RING_POLL_ENTRY UINT32_C(0x000012d8)
+#define VF2_TILE_RUNTIME_GATE_ENTRY UINT32_C(0x00044268)
 #define VF2_MEMORY_PROBE_ADDRESS UINT32_C(0x01d00000)
 #define VF2_GAME_EVENT_QUEUE_WRITE_ENTRY UINT32_C(0x000438ec)
 #define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
@@ -504,6 +517,312 @@ static vf2_status execute_game_color_lookup(
     report->recovered_instruction_count = own_instructions + classify_instructions;
     report->recovered_procedure_calls = UINT64_C(1);
     report->recovered_procedure_returns = UINT64_C(2);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+static vf2_status execute_game_threshold_evaluate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+);
+
+static vf2_status execute_game_meter_component(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t selector,
+    uint32_t structure,
+    uint32_t return_address,
+    uint32_t *meter_value,
+    uint32_t *secondary_value,
+    size_t *bytes_written
+)
+{
+    vf2_hybrid_bridge_report first_color_report;
+    vf2_hybrid_bridge_report second_color_report;
+    uint32_t first_color = 0u;
+    uint32_t second_color = 0u;
+    uint32_t restored_selector = 0u;
+    uint32_t restored_structure = 0u;
+    uint32_t low_nibble = 0u;
+    uint32_t middle_nibble = 0u;
+    uint32_t high_nibble = 0u;
+    uint32_t offset_result = 0u;
+    uint32_t component = 0u;
+    uint32_t threshold = UINT32_C(9);
+    uint32_t base = 0u;
+    uint8_t variant = 0u;
+    uint8_t byte0 = 0u;
+    uint8_t byte4 = 0u;
+    uint8_t byte5 = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(&first_color_report, 0, sizeof(first_color_report));
+    memset(&second_color_report, 0, sizeof(second_color_report));
+
+    cpu->registers[VF2_I960_G0_REGISTER] = selector;
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = structure;
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_METER_COMPONENT_ENTRY, return_address
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[3] = selector;
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_METER_VALUE_ENTRY, UINT32_C(0x00002550)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[3] = selector;
+    cpu->registers[4] = structure;
+    cpu->registers[1] += UINT32_C(4);
+    status = vf2_model2a_write_u32(
+        machine, cpu->registers[1] - UINT32_C(4), selector
+    );
+    cpu->registers[1] += UINT32_C(4);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, cpu->registers[1] - UINT32_C(4), structure
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_COLOR_LOOKUP_ENTRY, UINT32_C(0x00002664)
+    );
+    if (status == VF2_OK) {
+        status = execute_game_color_lookup(
+            machine, cpu, &first_color_report
+        );
+    }
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x00002664)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    first_color = cpu->registers[VF2_I960_G0_REGISTER];
+    low_nibble = first_color & UINT32_C(15);
+    middle_nibble = (first_color >> 8u) & UINT32_C(15);
+    high_nibble = (first_color >> 16u) & UINT32_C(15);
+
+    status = vf2_model2a_read_u32(
+        machine, cpu->registers[1] - UINT32_C(4), &restored_structure
+    );
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = restored_structure;
+        cpu->registers[1] -= UINT32_C(4);
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[1] - UINT32_C(4), &restored_selector
+        );
+    }
+    if (status != VF2_OK || restored_structure != structure ||
+        restored_selector != selector) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = restored_selector;
+    cpu->registers[1] -= UINT32_C(4);
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_METER_OFFSET_ENTRY, UINT32_C(0x00002694)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[3] = structure;
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_COLOR_LOOKUP_ENTRY, UINT32_C(0x000026b8)
+    );
+    if (status == VF2_OK) {
+        status = execute_game_color_lookup(
+            machine, cpu, &second_color_report
+        );
+    }
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x000026b8)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    second_color = cpu->registers[VF2_I960_G0_REGISTER];
+    status = vf2_model2a_read(
+        machine, structure + UINT32_C(4), &byte4, sizeof(byte4)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    {
+        const uint32_t second_low = second_color & UINT32_C(15);
+        const uint32_t second_middle =
+            (second_color >> 8u) & UINT32_C(15);
+        const uint32_t scaled = second_low * (uint32_t)byte4;
+        const uint32_t scaled_next =
+            second_low * ((uint32_t)byte4 + UINT32_C(1));
+
+        if (second_middle == UINT32_C(1)) {
+            offset_result = 0u;
+        } else if (second_middle != 0u) {
+            offset_result =
+                scaled_next / second_middle - scaled / second_middle;
+        } else {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = offset_result;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x00002694)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] =
+        offset_result + low_nibble;
+    status = vf2_model2a_read(
+        machine, structure, &byte0, sizeof(byte0)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, structure + UINT32_C(5), &byte5, sizeof(byte5)
+        );
+    }
+    if (status != VF2_OK || high_nibble == 0u || middle_nibble == 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    component = (uint32_t)byte0 / high_nibble + (uint32_t)byte5;
+    cpu->registers[VF2_I960_G0_REGISTER] = component;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x00002550)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &base
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3350), &variant, sizeof(variant)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (variant == UINT8_C(1)) {
+        threshold = UINT32_C(24);
+    }
+    if (component >= threshold) {
+        component |= UINT32_C(1) << 16u;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = component;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK || cpu->ip != return_address) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    if (meter_value != NULL) {
+        *meter_value = component;
+    }
+    if (secondary_value != NULL) {
+        *secondary_value = cpu->registers[VF2_I960_G0_REGISTER + 1u];
+    }
+    if (bytes_written != NULL) {
+        *bytes_written += sizeof(uint32_t) * 2u +
+            first_color_report.bytes_written +
+            second_color_report.bytes_written;
+    }
+    return VF2_OK;
+}
+
+static vf2_status execute_game_meter_update(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_hybrid_bridge_report threshold_report;
+    uint32_t base = 0u;
+    uint32_t flags = 0u;
+    uint32_t first_meter = 0u;
+    uint32_t second_meter = 0u;
+    uint32_t secondary = 0u;
+    uint32_t threshold = UINT32_C(9);
+    uint8_t variant = 0u;
+    size_t bytes_written = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(&threshold_report, 0, sizeof(threshold_report));
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &base
+    );
+    if (status != VF2_OK || cpu->registers[VF2_I960_G0_REGISTER + 9u] != base) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_THRESHOLD_EVALUATE_ENTRY, UINT32_C(0x000020f4)
+    );
+    if (status == VF2_OK) {
+        status = execute_game_threshold_evaluate(
+            machine, cpu, &threshold_report
+        );
+    }
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x000020f4) ||
+        cpu->registers[VF2_I960_G0_REGISTER] != 0u ||
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    bytes_written += threshold_report.bytes_written;
+
+    status = vf2_model2a_read_u32(
+        machine, base + UINT32_C(0x3320), &flags
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3350), &variant, sizeof(variant)
+        );
+    }
+    if (status != VF2_OK || (flags & UINT32_C(3)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    if (variant == UINT8_C(1)) {
+        threshold = UINT32_C(24);
+    }
+
+    status = execute_game_meter_component(
+        machine, cpu, 0u, base + UINT32_C(0x3380),
+        UINT32_C(0x000022d4), &first_meter, &secondary,
+        &bytes_written
+    );
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x000022d4)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = execute_game_meter_component(
+        machine, cpu, 1u, base + UINT32_C(0x3388),
+        UINT32_C(0x000022ec), &second_meter, &secondary,
+        &bytes_written
+    );
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x000022ec) ||
+        (first_meter & (UINT32_C(1) << 16u)) != 0u ||
+        (second_meter & (UINT32_C(1) << 16u)) != 0u ||
+        (first_meter & UINT32_C(0xffff)) +
+            (second_meter & UINT32_C(0xffff)) >= threshold) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(122));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_GAME_METER_UPDATE;
+    report->entry_address = VF2_GAME_METER_UPDATE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(2);
+    report->changed_values = UINT64_C(2);
+    report->bytes_written = bytes_written;
+    report->recovered_instruction_count = UINT64_C(389);
+    report->recovered_procedure_calls = UINT64_C(20);
+    report->recovered_procedure_returns = UINT64_C(21);
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }
@@ -995,6 +1314,455 @@ static vf2_status execute_frame_dispatch_tick(
     report->recovered_instruction_count = UINT64_C(14);
     report->recovered_procedure_calls = UINT64_C(1);
     report->recovered_procedure_returns = UINT64_C(2);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_frame_geometry_gate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint32_t flags = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500704), &flags);
+    if (status != VF2_OK || (flags & ((UINT32_C(1) << 26u) | UINT32_C(4))) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(5));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
+    report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->recovered_instruction_count = UINT64_C(5);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_video_register_compose(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint32_t old_flags = 0u;
+    uint32_t old_video = 0u;
+    uint32_t runtime_flags = 0u;
+    uint32_t callback = 0u;
+    uint32_t packed_mask = 0u;
+    uint32_t control = 0u;
+    uint32_t inverted = 0u;
+    uint32_t index = 0u;
+    uint8_t mode = 0u;
+    uint8_t raw = 0u;
+    uint8_t mapped = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = write_u16(machine, UINT32_C(0x01c00040), UINT16_C(1));
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500700), &old_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050070c), old_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500f00), &mode, 1u);
+    }
+    if (status != VF2_OK || mode == UINT8_C(1)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    for (index = 0u; index < UINT32_C(3); ++index) {
+        const uint32_t source = UINT32_C(0x01c00016) + index * UINT32_C(2);
+        status = vf2_model2a_read(machine, source, &raw, 1u);
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x00050628) + (uint32_t)raw, &mapped, 1u
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        packed_mask |= (uint32_t)mapped << (index * UINT32_C(8));
+    }
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &runtime_flags);
+    if (status != VF2_OK || (runtime_flags & (UINT32_C(1) << 14u)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    packed_mask = (~packed_mask) & UINT32_C(8);
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500710), &old_video);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500714), old_video);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500710), packed_mask);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    for (index = 0u; index < UINT32_C(3); ++index) {
+        const uint32_t source = UINT32_C(0x01c00010) + index * UINT32_C(2);
+        status = vf2_model2a_read(machine, source, &raw, 1u);
+        if (status != VF2_OK) {
+            return status;
+        }
+        control |= (uint32_t)raw << (index * UINT32_C(8));
+    }
+    status = vf2_model2a_read(machine, UINT32_C(0x01c0001c), &raw, 1u);
+    if (status != VF2_OK) {
+        return status;
+    }
+    control |= ((uint32_t)(raw & UINT8_C(15)) | UINT32_C(0xf0)) << 24u;
+    if ((control & (UINT32_C(1) << 11u)) == 0u) {
+        control &= ~(UINT32_C(1) << 10u);
+        control |= UINT32_C(1) << 11u;
+    }
+    if ((control & (UINT32_C(1) << 19u)) == 0u) {
+        control &= ~(UINT32_C(1) << 18u);
+        control |= UINT32_C(1) << 19u;
+    }
+    inverted = ~control;
+    status = vf2_model2a_write_u32(machine, UINT32_C(0x00500700), inverted);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500704), inverted & ~old_flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500708), old_flags & control
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x005001dc), &callback);
+    }
+    if (status != VF2_OK || (inverted & UINT32_C(8)) == 0u || callback != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x005001dc), UINT32_C(0x00001284)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    account_nested_procedure(cpu, UINT64_C(1), UINT64_C(1));
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(63));
+    if (status != VF2_OK) {
+        return status;
+    }
+    report->kind = VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE;
+    report->entry_address = VF2_VIDEO_REGISTER_COMPOSE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(7);
+    report->bytes_written = 30u;
+    report->recovered_instruction_count = UINT64_C(63);
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->recovered_procedure_returns = UINT64_C(2);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_video_input_latch_write(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint8_t value = 0u;
+    uint8_t mode = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read(machine, UINT32_C(0x00500718), &value, 1u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500f00), &mode, 1u);
+    }
+    if (status != VF2_OK || mode == UINT8_C(1)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = vf2_model2a_write(machine, UINT32_C(0x01c0001e), &value, 1u);
+    if (status != VF2_OK) {
+        return status;
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(7));
+    if (status != VF2_OK) {
+        return status;
+    }
+    report->kind = VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE;
+    report->entry_address = VF2_VIDEO_INPUT_LATCH_WRITE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(1);
+    report->bytes_written = 1u;
+    report->recovered_instruction_count = UINT64_C(7);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_player_update_gate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint32_t flags = 0u;
+    uint8_t state = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00503001), &state, 1u);
+    }
+    if (status != VF2_OK || (flags & (UINT32_C(1) << 14u)) != 0u || state != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(5));
+    if (status != VF2_OK) {
+        return status;
+    }
+    report->kind = VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE;
+    report->entry_address = VF2_PLAYER_UPDATE_GATE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->recovered_instruction_count = UINT64_C(5);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_video_layer_commit(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint32_t source = 0u;
+    uint32_t lookup = 0u;
+    uint32_t layer_flags = 0u;
+    uint16_t value16 = 0u;
+    uint16_t mode16 = 0u;
+    uint8_t index = 0u;
+    uint8_t frame_mode = 0u;
+    uint8_t auxiliary = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = read_u16(machine, UINT32_C(0x00503036), &value16);
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x018000bc), value16);
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, UINT32_C(0x00503038), &value16);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x018000be), value16);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &source);
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, source + UINT32_C(0x44), &value16);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0180006c), value16);
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, source + UINT32_C(0x46), &value16);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0180008c), value16);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x0050d004), &index, 1u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00026690) + (uint32_t)index * UINT32_C(4),
+            &lookup
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x01801058), lookup);
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, UINT32_C(0x00503054), &mode16);
+    }
+    if (status != VF2_OK || (mode16 & UINT16_C(3)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = write_u16(machine, UINT32_C(0x01800466), UINT16_C(0x82df));
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0180046a), UINT16_C(0x815b));
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x01801466), UINT16_C(0x82df));
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0180146a), UINT16_C(0x815b));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050304c), &layer_flags);
+    }
+    if (status != VF2_OK || (layer_flags & UINT32_C(15)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = vf2_model2a_read(machine, UINT32_C(0x0050002b), &frame_mode, 1u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500031), &auxiliary, 1u);
+    }
+    if (status != VF2_OK || frame_mode == UINT8_C(3)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(40));
+    if (status != VF2_OK) {
+        return status;
+    }
+    report->kind = VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT;
+    report->entry_address = VF2_VIDEO_LAYER_COMMIT_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(9);
+    report->bytes_written = 20u;
+    report->recovered_instruction_count = UINT64_C(40);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    (void)auxiliary;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_input_sequence_gate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t entry,
+    uint32_t index_address,
+    uint32_t countdown_address,
+    vf2_hybrid_bridge_kind kind,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint8_t index = 0u;
+    uint8_t countdown = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read(machine, index_address, &index, 1u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, countdown_address, &countdown, 1u);
+    }
+    if (status != VF2_OK || (index & UINT8_C(15)) != 0u || countdown != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(7));
+    if (status != VF2_OK) {
+        return status;
+    }
+    report->kind = kind;
+    report->entry_address = entry;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->recovered_instruction_count = UINT64_C(7);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_input_ring_poll(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint8_t producer = 0u;
+    uint8_t consumer = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read(machine, UINT32_C(0x005000fc), &producer, 1u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x005000fd), &consumer, 1u);
+    }
+    if (status != VF2_OK || producer != consumer) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(5));
+    if (status != VF2_OK) {
+        return status;
+    }
+    report->kind = VF2_HYBRID_BRIDGE_INPUT_RING_POLL;
+    report->entry_address = VF2_INPUT_RING_POLL_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(1);
+    report->recovered_instruction_count = UINT64_C(5);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
+static vf2_status execute_tile_runtime_gate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint32_t flags = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &flags);
+    if (status != VF2_OK || (flags & (UINT32_C(1) << 4u)) != 0u ||
+        (flags & (UINT32_C(1) << 2u)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(4));
+    if (status != VF2_OK) {
+        return status;
+    }
+    report->kind = VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE;
+    report->entry_address = VF2_TILE_RUNTIME_GATE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->recovered_instruction_count = UINT64_C(4);
+    report->recovered_procedure_returns = UINT64_C(1);
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }
@@ -5180,6 +5948,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
             machine, cpu, &local_report
         );
         break;
+    case VF2_GAME_METER_UPDATE_ENTRY:
+        status = execute_game_meter_update(machine, cpu, &local_report);
+        break;
     case VF2_SYSTEM_MEMORY_DIAGNOSTIC_ENTRY:
         status = execute_system_memory_diagnostic(
             machine, cpu, &local_report
@@ -5202,6 +5973,41 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         break;
     case VF2_FRAME_DISPATCH_TICK_ENTRY:
         status = execute_frame_dispatch_tick(machine, cpu, &local_report);
+        break;
+    case VF2_FRAME_GEOMETRY_GATE_ENTRY:
+        status = execute_frame_geometry_gate(machine, cpu, &local_report);
+        break;
+    case VF2_VIDEO_REGISTER_COMPOSE_ENTRY:
+        status = execute_video_register_compose(machine, cpu, &local_report);
+        break;
+    case VF2_VIDEO_INPUT_LATCH_WRITE_ENTRY:
+        status = execute_video_input_latch_write(machine, cpu, &local_report);
+        break;
+    case VF2_PLAYER_UPDATE_GATE_ENTRY:
+        status = execute_player_update_gate(machine, cpu, &local_report);
+        break;
+    case VF2_VIDEO_LAYER_COMMIT_ENTRY:
+        status = execute_video_layer_commit(machine, cpu, &local_report);
+        break;
+    case VF2_INPUT_BIT0_SEQUENCE_GATE_ENTRY:
+        status = execute_input_sequence_gate(
+            machine, cpu, VF2_INPUT_BIT0_SEQUENCE_GATE_ENTRY,
+            UINT32_C(0x00500148), UINT32_C(0x0050014a),
+            VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE, &local_report
+        );
+        break;
+    case VF2_INPUT_BIT1_SEQUENCE_GATE_ENTRY:
+        status = execute_input_sequence_gate(
+            machine, cpu, VF2_INPUT_BIT1_SEQUENCE_GATE_ENTRY,
+            UINT32_C(0x00500149), UINT32_C(0x0050014b),
+            VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE, &local_report
+        );
+        break;
+    case VF2_INPUT_RING_POLL_ENTRY:
+        status = execute_input_ring_poll(machine, cpu, &local_report);
+        break;
+    case VF2_TILE_RUNTIME_GATE_ENTRY:
+        status = execute_tile_runtime_gate(machine, cpu, &local_report);
         break;
     case VF2_GAME_EVENT_QUEUE_WRITE_ENTRY:
         status = execute_game_event_queue_write(
@@ -5300,6 +6106,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "game-color-lookup";
     case VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE:
         return "game-threshold-evaluate";
+    case VF2_HYBRID_BRIDGE_GAME_METER_UPDATE:
+        return "game-meter-update";
     case VF2_HYBRID_BRIDGE_SYSTEM_MEMORY_DIAGNOSTIC:
         return "system-memory-diagnostic";
     case VF2_HYBRID_BRIDGE_VIDEO_INPUT_SYNC:
@@ -5314,6 +6122,24 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "frame-buffer-gate";
     case VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK:
         return "frame-dispatch-tick";
+    case VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE:
+        return "frame-geometry-gate";
+    case VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE:
+        return "video-register-compose";
+    case VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE:
+        return "video-input-latch-write";
+    case VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE:
+        return "player-update-gate";
+    case VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT:
+        return "video-layer-commit";
+    case VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE:
+        return "input-bit0-sequence-gate";
+    case VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE:
+        return "input-bit1-sequence-gate";
+    case VF2_HYBRID_BRIDGE_INPUT_RING_POLL:
+        return "input-ring-poll";
+    case VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE:
+        return "tile-runtime-gate";
     case VF2_HYBRID_BRIDGE_GAME_EVENT_QUEUE_WRITE:
         return "game-event-queue-write";
     case VF2_HYBRID_BRIDGE_TEXTURE_MAINTENANCE:

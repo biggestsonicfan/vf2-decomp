@@ -54,3 +54,13 @@ address,end,name,status,source,notes
 0x0004bb18,0x0004bcd4,texture_orchestrator_save_call,recovered-control-block,dynamic-trace+unit,Twenty register-save instructions plus the call into 0x0004bcd4
 0x0004bcd4,0x0004bfe0,texture_frame_gate_call,recovered-observed-branch,dynamic-trace+unit,Zero-frame-state path clears 0x0050006d and calls 0x0004bfe0
 0x0004bfe0,0x0004c120,texture_default_limits_select,recovered-observed-branch,dynamic-differential+unit,Default observed branch validated by the ROM-backed native second-dispatch match
+0x000020f0,0x00001f98,game_meter_update,recovered-observed-branch,dynamic-differential+unit,Composes threshold and color helpers into the observed two-meter update in 389 architectural instructions
+0x0000a748,0x0000a014,frame_geometry_gate,recovered-observed-branch,dynamic-differential+unit,Observed clear geometry flags return in five instructions
+0x00001064,0x0000cfc0,video_register_compose,recovered-observed-branch,dynamic-differential+unit,Composes and commits the observed packed video register state in sixty-three instructions
+0x00001290,0x0000cfcc,video_input_latch_write,recovered-observed-branch,dynamic-differential+unit,Writes the observed input latch and returns in seven instructions
+0x00024534,0x0000cfd0,player_update_gate,recovered-observed-branch,dynamic-differential+unit,Observed clear player-update gate returns in five instructions
+0x00023f6c,0x0000cfd4,video_layer_commit,recovered-observed-branch,dynamic-differential+unit,Commits the observed layer state in forty instructions
+0x00001e6c,0x0000cfd8,input_bit0_sequence_gate,recovered-observed-branch,dynamic-differential+unit,Observed zero index/countdown bit-zero gate returns in seven instructions
+0x00001edc,0x0000cfdc,input_bit1_sequence_gate,recovered-observed-branch,dynamic-differential+unit,Observed zero index/countdown bit-one gate returns in seven instructions
+0x000012d8,0x0000cfe0,input_ring_poll,recovered-observed-branch,dynamic-differential+unit,Equal producer and consumer path returns minus one in five instructions
+0x00044268,0x0000cfe4,tile_runtime_gate,recovered-observed-branch,dynamic-differential+unit,Observed clear tile runtime flags return in four instructions

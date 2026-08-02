@@ -34,6 +34,26 @@ static void enter_parent(vf2_i960_cpu *cpu, uint32_t target)
     );
 }
 
+static void write_test_u16(
+    vf2_model2a *machine, uint32_t address, uint16_t value
+)
+{
+    const uint8_t bytes[2] = {
+        (uint8_t)(value & UINT16_C(0x00ff)),
+        (uint8_t)(value >> 8u)
+    };
+    CHECK(vf2_model2a_write(machine, address, bytes, sizeof(bytes)) == VF2_OK);
+}
+
+static uint16_t read_test_u16(
+    const vf2_model2a *machine, uint32_t address
+)
+{
+    uint8_t bytes[2] = {0u, 0u};
+    CHECK(vf2_model2a_read(machine, address, bytes, sizeof(bytes)) == VF2_OK);
+    return (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
+}
+
 static void test_inactive_scan_dispatch(void)
 {
     vf2_model2a machine;
@@ -511,6 +531,222 @@ static void test_frame_dispatch_tick(void)
     vf2_model2a_shutdown(&machine);
 }
 
+
+static void test_frame_interrupt_support_batch(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint8_t *rom = NULL;
+    uint8_t byte = 0u;
+    uint32_t value = 0u;
+    const size_t rom_size = (size_t)UINT32_C(0x00050700);
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    rom = (uint8_t *)calloc(rom_size, 1u);
+    CHECK(rom != NULL);
+    if (rom == NULL) {
+        vf2_model2a_shutdown(&machine);
+        return;
+    }
+    rom[UINT32_C(0x00026690)] = UINT8_C(0x78);
+    rom[UINT32_C(0x00026691)] = UINT8_C(0x56);
+    rom[UINT32_C(0x00026692)] = UINT8_C(0x34);
+    rom[UINT32_C(0x00026693)] = UINT8_C(0x12);
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, rom_size) == VF2_OK);
+
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500704), 0u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a748));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE);
+    CHECK(report.recovered_instruction_count == UINT64_C(5));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500700), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500710), UINT32_C(0x11223344)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005001dc), 0u) == VF2_OK);
+    byte = 0u;
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500f00), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x00001064));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE);
+    CHECK(report.recovered_instruction_count == UINT64_C(63));
+    CHECK(report.recovered_procedure_calls == UINT64_C(1));
+    CHECK(report.recovered_procedure_returns == UINT64_C(2));
+    CHECK(cpu.executed_instructions == UINT64_C(63));
+    CHECK(cpu.procedure_calls == UINT64_C(2));
+    CHECK(cpu.procedure_returns == UINT64_C(2));
+    CHECK(cpu.maximum_local_frame_depth == 2u);
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500700), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x0ff7f7ff));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500704), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x0ff7f7ff));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500708), &value) == VF2_OK);
+    CHECK(value == 0u);
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500710), &value) == VF2_OK);
+    CHECK(value == UINT32_C(8));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500714), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x11223344));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x005001dc), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x00001284));
+
+    byte = UINT8_C(3);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500718), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x00001290));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x01c0001e), &byte, 1u) == VF2_OK);
+    CHECK(byte == UINT8_C(3));
+
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068), 0u) == VF2_OK);
+    byte = 0u;
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00503001), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x00024534));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE);
+
+    write_test_u16(&machine, UINT32_C(0x00503036), UINT16_C(0x1111));
+    write_test_u16(&machine, UINT32_C(0x00503038), UINT16_C(0x2222));
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500834), UINT32_C(0x00510000)) == VF2_OK);
+    write_test_u16(&machine, UINT32_C(0x00510044), UINT16_C(0x3333));
+    write_test_u16(&machine, UINT32_C(0x00510046), UINT16_C(0x4444));
+    byte = 0u;
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050d004), &byte, 1u) == VF2_OK);
+    write_test_u16(&machine, UINT32_C(0x00503054), 0u);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050304c), 0u) == VF2_OK);
+    byte = UINT8_C(1);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002b), &byte, 1u) == VF2_OK);
+    byte = 0u;
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500031), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x00023f6c));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT);
+    CHECK(report.recovered_instruction_count == UINT64_C(40));
+    CHECK(read_test_u16(&machine, UINT32_C(0x018000bc)) == UINT16_C(0x1111));
+    CHECK(read_test_u16(&machine, UINT32_C(0x018000be)) == UINT16_C(0x2222));
+    CHECK(read_test_u16(&machine, UINT32_C(0x0180006c)) == UINT16_C(0x3333));
+    CHECK(read_test_u16(&machine, UINT32_C(0x0180008c)) == UINT16_C(0x4444));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x01801058), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x12345678));
+    CHECK(read_test_u16(&machine, UINT32_C(0x01800466)) == UINT16_C(0x82df));
+    CHECK(read_test_u16(&machine, UINT32_C(0x0180146a)) == UINT16_C(0x815b));
+
+    byte = 0u;
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500148), &byte, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050014a), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x00001e6c));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE);
+    CHECK(report.recovered_instruction_count == UINT64_C(7));
+
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500149), &byte, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050014b), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x00001edc));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE);
+
+    byte = UINT8_C(2);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x005000fc), &byte, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x005000fd), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x000012d8));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_INPUT_RING_POLL);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_MAX);
+
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000), 0u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x00044268));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE);
+    CHECK(report.recovered_instruction_count == UINT64_C(4));
+
+    vf2_model2a_shutdown(&machine);
+}
+
+
+static void test_game_meter_update(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint8_t *rom = NULL;
+    const size_t rom_size = (size_t)UINT32_C(0x00002a00);
+    const uint32_t base = VF2_WORK_RAM_BASE + UINT32_C(0x1000);
+    const uint8_t mode = 0u;
+    const uint8_t variant = 0u;
+    const uint8_t first[6] = {1u, 0u, 0u, 0u, 0u, 0u};
+    const uint8_t second[6] = {0u, 0u, 0u, 0u, 0u, 0u};
+    uint32_t stack_selector = UINT32_MAX;
+    uint32_t stack_structure = 0u;
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    rom = (uint8_t *)calloc(rom_size, 1u);
+    CHECK(rom != NULL);
+    if (rom == NULL) {
+        vf2_model2a_shutdown(&machine);
+        return;
+    }
+    rom[UINT32_C(0x000027ac)] = 0u;
+    rom[UINT32_C(0x000027ad)] = 1u;
+    rom[UINT32_C(0x000027e2)] = UINT8_C(0x10);
+    rom[UINT32_C(0x000027e6)] = UINT8_C(0x20);
+    rom[UINT32_C(0x000028b8)] = 0u;
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, rom_size) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050016c), base) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, base + UINT32_C(0x3320), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, base + UINT32_C(0x3324), &mode, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, base + UINT32_C(0x3350), &variant, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, base + UINT32_C(0x3380), first, sizeof(first)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, base + UINT32_C(0x3388), second, sizeof(second)) == VF2_OK);
+
+    enter_parent(&cpu, UINT32_C(0x000020f0));
+    cpu.registers[VF2_I960_G0_REGISTER + 9u] = base;
+    cpu.arithmetic_control = UINT32_C(0x3f001002);
+    cpu.compare_result = VF2_I960_COMPARE_EQUAL;
+
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_GAME_METER_UPDATE);
+    CHECK(report.entry_address == UINT32_C(0x000020f0));
+    CHECK(report.exit_address == UINT32_C(0x00001004));
+    CHECK(report.iterations == UINT64_C(2));
+    CHECK(report.changed_values == UINT64_C(2));
+    CHECK(report.bytes_written == 40u);
+    CHECK(report.recovered_instruction_count == UINT64_C(389));
+    CHECK(report.recovered_procedure_calls == UINT64_C(20));
+    CHECK(report.recovered_procedure_returns == UINT64_C(21));
+    CHECK(report.cpu_poststate_applied == 1);
+    CHECK(cpu.ip == UINT32_C(0x00001004));
+    CHECK(cpu.local_frame_depth == 0u);
+    CHECK(cpu.executed_instructions == UINT64_C(389));
+    CHECK(cpu.procedure_calls == UINT64_C(21));
+    CHECK(cpu.procedure_returns == UINT64_C(21));
+    CHECK(cpu.maximum_local_frame_depth == 6u);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == 0u);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 1u] == 1u);
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
+    CHECK((cpu.arithmetic_control & UINT32_C(7)) == UINT32_C(2));
+    CHECK(vf2_model2a_read_u32(&machine, VF2_WORK_RAM_BASE + UINT32_C(0x30c0), &stack_selector) == VF2_OK);
+    CHECK(vf2_model2a_read_u32(&machine, VF2_WORK_RAM_BASE + UINT32_C(0x30c4), &stack_structure) == VF2_OK);
+    CHECK(stack_selector == 1u);
+    CHECK(stack_structure == base + UINT32_C(0x3388));
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
 
 static void test_game_event_queue_write(void)
 {
@@ -1301,12 +1537,14 @@ int main(void)
     test_frame_counter_and_phase();
     test_frame_shadow_and_buffer_gate();
     test_frame_dispatch_tick();
+    test_frame_interrupt_support_batch();
     test_game_event_queue_write();
     test_texture_maintenance();
     test_texture_upload_and_entry_gate();
     test_texture_record_status_setup();
     test_texture_stream_header_call();
     test_game_threshold_evaluate();
+    test_game_meter_update();
     test_inactive_scan_dispatch();
     test_child_gate_dispatch(
         VF2_ORCHESTRATOR_CHILD_GATE_A_ENTRY,

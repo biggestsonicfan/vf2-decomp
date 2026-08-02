@@ -3936,6 +3936,7 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0000281c) ||
                 native_ip_before == UINT32_C(0x000026ec) ||
                 native_ip_before == UINT32_C(0x000028d4) ||
+                native_ip_before == UINT32_C(0x000020f0) ||
                 native_ip_before == UINT32_C(0x0006dcb8) ||
                 native_ip_before == UINT32_C(0x000110f4) ||
                 native_ip_before == UINT32_C(0x000112f8) ||
@@ -3943,6 +3944,15 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x00000530) ||
                 native_ip_before == UINT32_C(0x000110b0) ||
                 native_ip_before == UINT32_C(0x0000a6c0) ||
+                native_ip_before == UINT32_C(0x0000a748) ||
+                native_ip_before == UINT32_C(0x00001064) ||
+                native_ip_before == UINT32_C(0x00001290) ||
+                native_ip_before == UINT32_C(0x00024534) ||
+                native_ip_before == UINT32_C(0x00023f6c) ||
+                native_ip_before == UINT32_C(0x00001e6c) ||
+                native_ip_before == UINT32_C(0x00001edc) ||
+                native_ip_before == UINT32_C(0x000012d8) ||
+                native_ip_before == UINT32_C(0x00044268) ||
                 native_ip_before == UINT32_C(0x000438ec) ||
                 native_ip_before == UINT32_C(0x0004b8d8) ||
                 native_ip_before == UINT32_C(0x0004ba80) ||
@@ -4119,6 +4129,8 @@ static int command_native_dispatch(
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE ||
                         bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_GAME_METER_UPDATE ||
+                        bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_SYSTEM_MEMORY_DIAGNOSTIC ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_VIDEO_INPUT_SYNC ||
@@ -4132,6 +4144,24 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_FRAME_BUFFER_GATE ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_INPUT_RING_POLL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_GAME_EVENT_QUEUE_WRITE ||
                         bridge_report.kind ==
@@ -4402,17 +4432,18 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1270352) ||
-             bridge_interpreted_instructions != UINT64_C(470) ||
-             bridge_validated_blocks != 195u ||
-             bridge_memory_checkpoints != 195u ||
-             bridge_recovered_calls != UINT64_C(297) ||
-             bridge_recovered_returns != UINT64_C(315) ||
+             bridge_recovered_instructions != UINT64_C(1270617) ||
+             bridge_interpreted_instructions != UINT64_C(205) ||
+             bridge_validated_blocks != 200u ||
+             bridge_memory_checkpoints != 200u ||
+             bridge_recovered_calls != UINT64_C(309) ||
+             bridge_recovered_returns != UINT64_C(332) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 4u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE] != 2u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 0u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_METER_UPDATE] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_SYSTEM_MEMORY_DIAGNOSTIC] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_INPUT_SYNC] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_COUNTER_ADVANCE] != 1u ||
@@ -4420,6 +4451,15 @@ static int command_native_dispatch(
              bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_SHADOW_VERIFY] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_BUFFER_GATE] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_RING_POLL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||
@@ -4567,6 +4607,24 @@ static int command_native_dispatch(
                bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_BUFFER_GATE]);
         printf("  frame dispatch ticks:             %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK]);
+        printf("  frame geometry gates:             %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE]);
+        printf("  video register composes:          %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_REGISTER_COMPOSE]);
+        printf("  video input latch writes:         %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_INPUT_LATCH_WRITE]);
+        printf("  player update gates:              %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_PLAYER_UPDATE_GATE]);
+        printf("  video layer commits:              %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT]);
+        printf("  input bit0 sequence gates:        %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT0_SEQUENCE_GATE]);
+        printf("  input bit1 sequence gates:        %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_BIT1_SEQUENCE_GATE]);
+        printf("  input ring polls:                 %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_INPUT_RING_POLL]);
+        printf("  tile runtime gates:               %zu\n",
+               bridge_block_counts[VF2_HYBRID_BRIDGE_TILE_RUNTIME_GATE]);
         printf("  orchestrator save/calls:          %zu\n",
                bridge_block_counts[
                    VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL
