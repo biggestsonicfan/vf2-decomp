@@ -1,0 +1,409 @@
+name: Recover final texture record scan
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/recover-v0024-final-record-scan.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Integrate final record scan
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str, label: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "include/vf2/hybrid.h",
+              "    VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL,\n"
+              "    VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL,\n",
+              "    VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL,\n"
+              "    VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END,\n"
+              "    VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL,\n",
+              "scan enum",
+          )
+
+          old_function = r'''static vf2_status execute_texture_status_dispatch_call(
+              vf2_model2a *machine,
+              vf2_i960_cpu *cpu,
+              vf2_hybrid_bridge_report *report
+          )
+          {
+              uint16_t active_count = 0u;
+              uint16_t status_value = 0u;
+              uint32_t runtime_flags = 0u;
+              vf2_status status = VF2_OK;
+
+              if (cpu->local_frame_depth == 0u) {
+                  return VF2_ERROR_UNSUPPORTED;
+              }
+              cpu->registers[5] = VF2_TEXTURE_RECORD_START;
+              cpu->registers[6] = VF2_TEXTURE_RECORD_END;
+              status = read_u16(
+                  machine,
+                  VF2_TEXTURE_RECORD_START + UINT32_C(2),
+                  &active_count
+              );
+              if (status == VF2_OK) {
+                  cpu->registers[3] =
+                      (uint32_t)(int32_t)(int16_t)active_count;
+                  if (cpu->registers[3] == 0u) {
+                      return VF2_ERROR_UNSUPPORTED;
+                  }
+                  status = read_u16(
+                      machine, VF2_TEXTURE_RECORD_START, &status_value
+                  );
+              }
+              if (status == VF2_OK) {
+                  cpu->registers[16] = status_value;
+                  status = vf2_model2a_read_u32(
+                      machine, VF2_TEXTURE_RUNTIME_FLAGS, &runtime_flags
+                  );
+              }
+              if (status != VF2_OK) {
+                  return status;
+              }
+              cpu->registers[15] = runtime_flags;
+              if ((runtime_flags & (UINT32_C(1) << 9u)) != 0u) {
+                  return VF2_ERROR_UNSUPPORTED;
+              }
+
+              status = vf2_i960_cpu_enter_procedure(
+                  cpu,
+                  VF2_TEXTURE_STATUS_DISPATCH_TARGET,
+                  VF2_TEXTURE_STATUS_DISPATCH_RETURN
+              );
+              if (status != VF2_OK) {
+                  return status;
+              }
+              cpu->executed_instructions += UINT64_C(8);
+
+              report->kind = VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL;
+              report->entry_address = VF2_TEXTURE_STATUS_DISPATCH_ENTRY;
+              report->exit_address = cpu->ip;
+              report->iterations = UINT64_C(1);
+              report->recovered_instruction_count = UINT64_C(8);
+              report->recovered_procedure_calls = UINT64_C(1);
+              report->cpu_poststate_applied = 1;
+              return VF2_OK;
+          }
+
+          '''
+          new_function = r'''static vf2_status execute_texture_status_dispatch_call(
+              vf2_model2a *machine,
+              vf2_i960_cpu *cpu,
+              vf2_hybrid_bridge_report *report
+          )
+          {
+              uint16_t active_count = 0u;
+              uint16_t status_value = 0u;
+              uint32_t runtime_flags = 0u;
+              size_t descriptors_scanned = 0u;
+              vf2_status status = VF2_OK;
+
+              if (cpu->local_frame_depth == 0u) {
+                  return VF2_ERROR_UNSUPPORTED;
+              }
+              cpu->registers[5] = VF2_TEXTURE_RECORD_START;
+              cpu->registers[6] = VF2_TEXTURE_RECORD_END;
+              status = read_u16(
+                  machine,
+                  cpu->registers[5] + UINT32_C(2),
+                  &active_count
+              );
+              if (status != VF2_OK) {
+                  return status;
+              }
+              cpu->registers[3] =
+                  (uint32_t)(int32_t)(int16_t)active_count;
+
+              if (cpu->registers[3] == 0u) {
+                  while (cpu->registers[5] < cpu->registers[6]) {
+                      if (descriptors_scanned != 0u) {
+                          status = read_u16(
+                              machine,
+                              cpu->registers[5] + UINT32_C(2),
+                              &active_count
+                          );
+                          if (status != VF2_OK) {
+                              return status;
+                          }
+                          cpu->registers[3] =
+                              (uint32_t)(int32_t)(int16_t)active_count;
+                          if (cpu->registers[3] != 0u) {
+                              return VF2_ERROR_UNSUPPORTED;
+                          }
+                      }
+                      cpu->registers[5] += UINT32_C(0x20);
+                      ++descriptors_scanned;
+                  }
+                  if (descriptors_scanned != 10u ||
+                      cpu->registers[5] != VF2_TEXTURE_RECORD_END) {
+                      return VF2_ERROR_UNSUPPORTED;
+                  }
+                  cpu->ip = VF2_TEXTURE_FINAL_STATUS_ENTRY;
+                  cpu->executed_instructions += UINT64_C(43);
+
+                  report->kind = VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END;
+                  report->entry_address = VF2_TEXTURE_STATUS_DISPATCH_ENTRY;
+                  report->exit_address = cpu->ip;
+                  report->iterations = descriptors_scanned;
+                  report->recovered_instruction_count = UINT64_C(43);
+                  report->cpu_poststate_applied = 1;
+                  return VF2_OK;
+              }
+
+              status = read_u16(
+                  machine, VF2_TEXTURE_RECORD_START, &status_value
+              );
+              if (status == VF2_OK) {
+                  cpu->registers[16] = status_value;
+                  status = vf2_model2a_read_u32(
+                      machine, VF2_TEXTURE_RUNTIME_FLAGS, &runtime_flags
+                  );
+              }
+              if (status != VF2_OK) {
+                  return status;
+              }
+              cpu->registers[15] = runtime_flags;
+              if ((runtime_flags & (UINT32_C(1) << 9u)) != 0u) {
+                  return VF2_ERROR_UNSUPPORTED;
+              }
+
+              status = vf2_i960_cpu_enter_procedure(
+                  cpu,
+                  VF2_TEXTURE_STATUS_DISPATCH_TARGET,
+                  VF2_TEXTURE_STATUS_DISPATCH_RETURN
+              );
+              if (status != VF2_OK) {
+                  return status;
+              }
+              cpu->executed_instructions += UINT64_C(8);
+
+              report->kind = VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL;
+              report->entry_address = VF2_TEXTURE_STATUS_DISPATCH_ENTRY;
+              report->exit_address = cpu->ip;
+              report->iterations = UINT64_C(1);
+              report->recovered_instruction_count = UINT64_C(8);
+              report->recovered_procedure_calls = UINT64_C(1);
+              report->cpu_poststate_applied = 1;
+              return VF2_OK;
+          }
+
+          '''
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              old_function,
+              new_function,
+              "status dispatch implementation",
+          )
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              "    case VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL:\n"
+              "        return \"texture-status-dispatch-call\";\n"
+              "    case VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL:\n",
+              "    case VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL:\n"
+              "        return \"texture-status-dispatch-call\";\n"
+              "    case VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END:\n"
+              "        return \"texture-status-scan-end\";\n"
+              "    case VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL:\n",
+              "scan kind name",
+          )
+
+          replace_once(
+              "tools/vf2i960/main.c",
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL ||\n"
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL ||\n",
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL ||\n"
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END ||\n"
+              "                        bridge_report.kind ==\n"
+              "                            VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL ||\n",
+              "scan checkpoint",
+          )
+          replace_once(
+              "tools/vf2i960/main.c",
+              "             bridge_recovered_instructions != UINT64_C(1268866) ||\n"
+              "             bridge_interpreted_instructions != UINT64_C(1956) ||\n"
+              "             bridge_validated_blocks != 154u ||\n"
+              "             bridge_memory_checkpoints != 154u ||\n",
+              "             bridge_recovered_instructions != UINT64_C(1268909) ||\n"
+              "             bridge_interpreted_instructions != UINT64_C(1913) ||\n"
+              "             bridge_validated_blocks != 155u ||\n"
+              "             bridge_memory_checkpoints != 155u ||\n",
+              "strict totals",
+          )
+          replace_once(
+              "tools/vf2i960/main.c",
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL] != 4u ||\n"
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL] != 1u ||\n",
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_DISPATCH_CALL] != 4u ||\n"
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END] != 1u ||\n"
+              "             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL] != 1u ||\n",
+              "strict scan count",
+          )
+          replace_once(
+              "tools/vf2i960/main.c",
+              "        printf(\"  final status/calls:                %zu\\n\",\n",
+              "        printf(\"  status scan endings:              %zu\\n\",\n"
+              "               bridge_block_counts[\n"
+              "                   VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END\n"
+              "               ]);\n"
+              "        printf(\"  final status/calls:                %zu\\n\",\n",
+              "scan summary",
+          )
+
+          tests = Path("tests/analysis/test_orchestrator_limits.c")
+          text = tests.read_text(encoding="utf-8")
+          marker = "              CHECK(cpu.registers[16] == UINT32_C(0x1234));\n\n"
+          addition = r'''              CHECK(cpu.registers[16] == UINT32_C(0x1234));
+
+              for (index = 0u; index < 10u; ++index) {
+                  halfword[0] = 0u;
+                  halfword[1] = 0u;
+                  CHECK(
+                      vf2_model2a_write(
+                          &machine,
+                          UINT32_C(0x0055016a) + index * UINT32_C(0x20),
+                          halfword,
+                          sizeof(halfword)
+                      ) == VF2_OK
+                  );
+              }
+              vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00001100));
+              cpu.registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x3000);
+              CHECK(
+                  vf2_i960_cpu_enter_procedure(
+                      &cpu, UINT32_C(0x0004bd24), UINT32_C(0x00001104)
+                  ) == VF2_OK
+              );
+              report = (vf2_hybrid_bridge_report){0};
+              CHECK(
+                  vf2_hybrid_post_frame_bridge_execute(
+                      &machine, &cpu, &report
+                  ) == VF2_OK
+              );
+              CHECK(
+                  report.kind == VF2_HYBRID_BRIDGE_TEXTURE_STATUS_SCAN_END
+              );
+              CHECK(report.exit_address == UINT32_C(0x0004bf90));
+              CHECK(report.iterations == UINT64_C(10));
+              CHECK(report.recovered_instruction_count == UINT64_C(43));
+              CHECK(report.recovered_procedure_calls == UINT64_C(0));
+              CHECK(cpu.ip == UINT32_C(0x0004bf90));
+              CHECK(cpu.local_frame_depth == 1u);
+              CHECK(cpu.executed_instructions == UINT64_C(43));
+              CHECK(cpu.procedure_calls == UINT64_C(1));
+              CHECK(cpu.registers[3] == 0u);
+              CHECK(cpu.registers[5] == UINT32_C(0x005502a8));
+              CHECK(cpu.registers[6] == UINT32_C(0x005502a8));
+
+'''
+          if text.count(marker) != 1:
+              raise SystemExit("scan test marker not unique")
+          tests.write_text(text.replace(marker, addition, 1), encoding="utf-8")
+
+          functions = Path("decomp/i960/functions.csv")
+          catalog = functions.read_text(encoding="utf-8")
+          anchor = (
+              "0x0004bd24,0x0004d2c0,texture_status_dispatch_call,"
+              "recovered-observed-branch,dynamic-trace+unit,"
+              "Four observed record dispatches recover eight instructions each\n"
+          )
+          addition = (
+              anchor +
+              "0x0004bd24,0x0004bf90,texture_status_scan_end,"
+              "recovered-observed-branch,dynamic-trace+unit,"
+              "Final pass scans ten inactive records and branches to final status\n"
+          )
+          if catalog.count(anchor) != 1:
+              raise SystemExit("function scan anchor not unique")
+          functions.write_text(
+              catalog.replace(anchor, addition, 1), encoding="utf-8"
+          )
+
+          note = '''# v0.0.24 texture orchestrator recovery
+
+## Recovered observed blocks
+
+The hybrid bridge now replaces these observed texture-orchestrator segments
+with C:
+
+- `0x0004bb18`: 21-instruction register-save and body call;
+- `0x0004bcd4`: 5-instruction zero-frame gate and helper call;
+- `0x0004bfe0`: 22-instruction default-limit selection;
+- `0x0004bd24`: four 8-instruction active-record dispatches;
+- `0x0004bd24`: one 43-instruction final inactive-record scan;
+- `0x0004bf90`: 11-instruction final status gate and call;
+- `0x0004bfdc`: one-instruction body return;
+- `0x0004bb94`: one-instruction post-body call;
+- `0x0004bc58`: 21-instruction register restore and final return.
+
+These blocks account for 157 recovered instructions in the observed
+orchestrator path. Unsupported branch classes continue to return
+`VF2_ERROR_UNSUPPORTED` rather than guessing.
+
+## Expected strict totals
+
+The ROM-backed validator now expects:
+
+- 1,270,822 bridge instructions in total;
+- 1,268,909 recovered instructions;
+- 1,913 interpreted instructions;
+- 155 recovered blocks and memory checkpoints;
+- 258 recovered procedure calls;
+- 300 recovered procedure returns.
+
+The warning-as-error build and ROM-independent tests validate the C semantics
+and architectural frame transitions. A supported VF2 2.1 ROM set is still
+required to run `native-second-dispatch` and confirm the updated totals as a
+full live differential MATCH.
+'''
+          Path("decomp/i960/notes/texture_default_limits_v0024.md").write_text(
+              note, encoding="utf-8"
+          )
+          PY
+
+      - name: Build and run ROM-independent tests
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DVF2_BUILD_TESTS=ON \
+            -DVF2_WARNINGS_AS_ERRORS=ON \
+            -DVF2_ROM_DIR=/tmp/vf2-roms-not-present
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure \
+            -R '^(vf2_tests|vf2_orchestrator_limits)$'
+
+      - name: Commit final record scan
+        shell: bash
+        run: |
+          rm .github/workflows/recover-v0024-final-record-scan.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "decomp(i960): recover final texture record scan"
+          git push origin master
