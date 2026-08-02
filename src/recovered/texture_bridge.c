@@ -56,6 +56,8 @@
 #define VF2_TEXTURE_POST_BODY_CALL_ENTRY UINT32_C(0x0004bb94)
 #define VF2_TEXTURE_POST_BODY_CALL_TARGET UINT32_C(0x0004b8d8)
 #define VF2_TEXTURE_POST_BODY_CALL_RETURN UINT32_C(0x0004bb98)
+#define VF2_TEXTURE_COUNTER_UPDATE_ENTRY UINT32_C(0x0004bb98)
+#define VF2_TEXTURE_COUNTER_UPDATE_EXIT UINT32_C(0x0004bc58)
 #define VF2_TEXTURE_ORCHESTRATOR_EPILOGUE_ENTRY UINT32_C(0x0004bc58)
 #define VF2_TEXTURE_TREE_TABLE UINT32_C(0x0004ad78)
 #define VF2_TEXTURE_CONVERT_STATE UINT32_C(0x005500f4)
@@ -2796,6 +2798,75 @@ static vf2_status execute_texture_post_body_call(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_counter_update(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint32_t counter0 = 0u;
+    uint32_t counter1 = 0u;
+    uint32_t counter2 = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->registers[3] = VF2_TEXTURE_COUNTER0;
+    status = vf2_model2a_read_u32(machine, VF2_TEXTURE_COUNTER0, &counter0);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[4] = counter0 - UINT32_C(1);
+    if (counter0 != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->registers[3] = VF2_TEXTURE_COUNTER1;
+    status = vf2_model2a_read_u32(machine, VF2_TEXTURE_COUNTER1, &counter1);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[4] = counter1 - UINT32_C(1);
+    if (counter1 != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->registers[3] = VF2_TEXTURE_COUNTER2;
+    status = vf2_model2a_read_u32(machine, VF2_TEXTURE_COUNTER2, &counter2);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (counter2 <= UINT32_C(1)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[4] = counter2 - UINT32_C(1);
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+    cpu->compare_result = VF2_I960_COMPARE_LESS;
+    status = vf2_model2a_write_u32(
+        machine, VF2_TEXTURE_COUNTER2, cpu->registers[4]
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->ip = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
+    cpu->executed_instructions += UINT64_C(14);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE;
+    report->entry_address = VF2_TEXTURE_COUNTER_UPDATE_ENTRY;
+    report->exit_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
+    report->iterations = UINT64_C(3);
+    report->changed_values = UINT64_C(1);
+    report->bytes_written = 4u;
+    report->recovered_instruction_count = UINT64_C(14);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
 static vf2_status execute_texture_orchestrator_epilogue(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -3108,6 +3179,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
             cpu, &local_report
         );
         break;
+    case VF2_TEXTURE_COUNTER_UPDATE_ENTRY:
+        status = execute_texture_counter_update(
+            machine, cpu, &local_report
+        );
+        break;
     case VF2_TEXTURE_ORCHESTRATOR_EPILOGUE_ENTRY:
         status = execute_texture_orchestrator_epilogue(
             machine, cpu, &local_report
@@ -3254,6 +3330,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-body-return";
     case VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL:
         return "texture-post-body-call";
+    case VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE:
+        return "texture-counter-update";
     case VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE:
         return "texture-orchestrator-epilogue";
     case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY:

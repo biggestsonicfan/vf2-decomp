@@ -29,6 +29,7 @@ address,end,name,status,source,notes
 0x0004bf90,0x0004d25c,texture_final_status_call,recovered-observed-branch,dynamic-trace+unit,Final counter gate clears status and enters the final status helper
 0x0004bfdc,0x0004bb94,texture_body_return,recovered-control-block,dynamic-trace+unit,Architectural return from the texture body
 0x0004bb94,0x0004b8d8,texture_post_body_call,recovered-control-block,dynamic-trace+unit,Post-body call into the short maintenance helper
+0x0004bb98,0x0004bc58,texture_counter_update,recovered-observed-branch,pending-rom-differential+unit,Two zero counters are skipped and the third counter is decremented in fourteen instructions
 0x0004bc58,0x0000a034,texture_orchestrator_epilogue,recovered-control-block,dynamic-trace+unit,Restores 28 saved registers and returns to the main loop
 0x0004bb18,0x0004bcd4,texture_orchestrator_save_call,recovered-control-block,dynamic-trace+unit,Twenty register-save instructions plus the call into 0x0004bcd4
 0x0004bcd4,0x0004bfe0,texture_frame_gate_call,recovered-observed-branch,dynamic-trace+unit,Zero-frame-state path clears 0x0050006d and calls 0x0004bfe0

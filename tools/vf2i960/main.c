@@ -3910,6 +3910,7 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0004bf90) ||
                 native_ip_before == UINT32_C(0x0004bfdc) ||
                 native_ip_before == UINT32_C(0x0004bb94) ||
+                native_ip_before == UINT32_C(0x0004bb98) ||
                 native_ip_before == UINT32_C(0x0004bc58) ||
                 native_ip_before == UINT32_C(0x0004bcd4) ||
                 native_ip_before == UINT32_C(0x0004bfe0) ||
@@ -4111,6 +4112,8 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE ||
                         (bridge_validated_blocks % 128u) == 0u;
@@ -4339,10 +4342,10 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1268941) ||
-             bridge_interpreted_instructions != UINT64_C(1881) ||
-             bridge_validated_blocks != 167u ||
-             bridge_memory_checkpoints != 167u ||
+             bridge_recovered_instructions != UINT64_C(1268955) ||
+             bridge_interpreted_instructions != UINT64_C(1867) ||
+             bridge_validated_blocks != 168u ||
+             bridge_memory_checkpoints != 168u ||
              bridge_recovered_calls != UINT64_C(266) ||
              bridge_recovered_returns != UINT64_C(300) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
@@ -4360,6 +4363,7 @@ static int command_native_dispatch(
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_BODY_RETURN] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY] != 1u ||
              first_geometry_instruction != UINT32_C(0x00002eec) ||
@@ -4504,6 +4508,10 @@ static int command_native_dispatch(
         printf("  post-body calls:                   %zu\n",
                bridge_block_counts[
                    VF2_HYBRID_BRIDGE_TEXTURE_POST_BODY_CALL
+               ]);
+        printf("  counter updates:                   %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE
                ]);
         printf("  orchestrator epilogues:            %zu\n",
                bridge_block_counts[
