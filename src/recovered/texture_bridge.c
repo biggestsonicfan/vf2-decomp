@@ -30,7 +30,13 @@
 #define VF2_TEXTURE_STATUS_LINE_ENTRY UINT32_C(0x0004d2c0)
 #define VF2_GAME_STATE_CLASSIFY_ENTRY UINT32_C(0x0000281c)
 #define VF2_GAME_COLOR_LOOKUP_ENTRY UINT32_C(0x000026ec)
+#define VF2_TEXTURE_ORCHESTRATOR_SAVE_ENTRY UINT32_C(0x0004bb18)
+#define VF2_TEXTURE_ORCHESTRATOR_BODY_ENTRY UINT32_C(0x0004bcd4)
+#define VF2_TEXTURE_ORCHESTRATOR_BODY_RETURN UINT32_C(0x0004bb94)
+#define VF2_TEXTURE_FRAME_GATE_ENTRY UINT32_C(0x0004bcd4)
+#define VF2_TEXTURE_FRAME_GATE_LATCH UINT32_C(0x0050006d)
 #define VF2_TEXTURE_DEFAULT_LIMITS_ENTRY UINT32_C(0x0004bfe0)
+#define VF2_TEXTURE_DEFAULT_LIMITS_RETURN UINT32_C(0x0004bd00)
 #define VF2_TEXTURE_TREE_TABLE UINT32_C(0x0004ad78)
 #define VF2_TEXTURE_CONVERT_STATE UINT32_C(0x005500f4)
 #define VF2_TEXTURE_CONVERT_SOURCE UINT32_C(0x0055c2ec)
@@ -2551,6 +2557,112 @@ static vf2_status execute_texture_convert(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_orchestrator_save_call(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    const uint32_t stack_start = cpu->registers[1];
+    uint32_t register_index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    for (register_index = 3u; register_index <= 30u;
+         ++register_index) {
+        status = vf2_model2a_write_u32(
+            machine,
+            stack_start + (register_index - 3u) * UINT32_C(4),
+            cpu->registers[register_index]
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+
+    cpu->registers[1] = stack_start + UINT32_C(112);
+    status = vf2_i960_cpu_enter_procedure(
+        cpu,
+        VF2_TEXTURE_ORCHESTRATOR_BODY_ENTRY,
+        VF2_TEXTURE_ORCHESTRATOR_BODY_RETURN
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += UINT64_C(21);
+
+    report->kind =
+        VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL;
+    report->entry_address = VF2_TEXTURE_ORCHESTRATOR_SAVE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(28);
+    report->bytes_written = 112u;
+    report->recovered_instruction_count = UINT64_C(21);
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+static vf2_status execute_texture_frame_gate_call(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint8_t frame_state = 0u;
+    const uint8_t latch_value = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read(
+        machine,
+        VF2_FRAME_STATE,
+        &frame_state,
+        sizeof(frame_state)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (frame_state != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->registers[16] = 0u;
+    status = vf2_model2a_write(
+        machine,
+        VF2_TEXTURE_FRAME_GATE_LATCH,
+        &latch_value,
+        sizeof(latch_value)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu,
+        VF2_TEXTURE_DEFAULT_LIMITS_ENTRY,
+        VF2_TEXTURE_DEFAULT_LIMITS_RETURN
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += UINT64_C(5);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL;
+    report->entry_address = VF2_TEXTURE_FRAME_GATE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(1);
+    report->bytes_written = 1u;
+    report->recovered_instruction_count = UINT64_C(5);
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 static vf2_status execute_texture_default_limits(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -2632,6 +2744,16 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         break;
     case VF2_TEXTURE_CONVERT_ENTRY:
         status = execute_texture_convert(machine, cpu, &local_report);
+        break;
+    case VF2_TEXTURE_ORCHESTRATOR_SAVE_ENTRY:
+        status = execute_texture_orchestrator_save_call(
+            machine, cpu, &local_report
+        );
+        break;
+    case VF2_TEXTURE_FRAME_GATE_ENTRY:
+        status = execute_texture_frame_gate_call(
+            machine, cpu, &local_report
+        );
         break;
     case VF2_TEXTURE_DEFAULT_LIMITS_ENTRY:
         status = execute_texture_default_limits(
@@ -2742,6 +2864,10 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "game-state-classify";
     case VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP:
         return "game-color-lookup";
+    case VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL:
+        return "texture-orchestrator-save-call";
+    case VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL:
+        return "texture-frame-gate-call";
     case VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS:
         return "texture-default-limits";
     case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY:

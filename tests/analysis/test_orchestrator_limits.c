@@ -179,6 +179,118 @@ static void test_machine_application(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_orchestrator_prefix_bridges(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    const uint32_t stack_start = VF2_WORK_RAM_BASE + UINT32_C(0x2000);
+    uint32_t expected[28];
+    uint32_t value = 0u;
+    uint32_t index = 0u;
+    uint8_t frame_state = 0u;
+    uint8_t latch = UINT8_C(0xff);
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00001000));
+    cpu.registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x1000);
+    CHECK(
+        vf2_i960_cpu_enter_procedure(
+            &cpu,
+            UINT32_C(0x0004bb18),
+            UINT32_C(0x00001004)
+        ) == VF2_OK
+    );
+    cpu.registers[1] = stack_start;
+    for (index = 3u; index <= 30u; ++index) {
+        expected[index - 3u] = UINT32_C(0x31000000) + index;
+        cpu.registers[index] = expected[index - 3u];
+    }
+
+    CHECK(
+        vf2_hybrid_post_frame_bridge_execute(
+            &machine, &cpu, &report
+        ) == VF2_OK
+    );
+    CHECK(
+        report.kind ==
+        VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL
+    );
+    CHECK(report.entry_address == UINT32_C(0x0004bb18));
+    CHECK(report.exit_address == UINT32_C(0x0004bcd4));
+    CHECK(report.iterations == UINT64_C(28));
+    CHECK(report.bytes_written == 112u);
+    CHECK(report.recovered_instruction_count == UINT64_C(21));
+    CHECK(report.recovered_procedure_calls == UINT64_C(1));
+    CHECK(cpu.ip == UINT32_C(0x0004bcd4));
+    CHECK(cpu.local_frame_depth == 2u);
+    CHECK(cpu.maximum_local_frame_depth == 2u);
+    CHECK(cpu.executed_instructions == UINT64_C(21));
+    CHECK(cpu.procedure_calls == UINT64_C(2));
+    for (index = 0u; index < 28u; ++index) {
+        CHECK(
+            vf2_model2a_read_u32(
+                &machine,
+                stack_start + index * UINT32_C(4),
+                &value
+            ) == VF2_OK
+        );
+        CHECK(value == expected[index]);
+    }
+
+    CHECK(
+        vf2_model2a_write(
+            &machine,
+            VF2_ORCHESTRATOR_DISPLAY_MODE - UINT32_C(0x2b),
+            &frame_state,
+            sizeof(frame_state)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine,
+            UINT32_C(0x0050006d),
+            &latch,
+            sizeof(latch)
+        ) == VF2_OK
+    );
+    report = (vf2_hybrid_bridge_report){0};
+    CHECK(
+        vf2_hybrid_post_frame_bridge_execute(
+            &machine, &cpu, &report
+        ) == VF2_OK
+    );
+    CHECK(
+        report.kind == VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL
+    );
+    CHECK(report.entry_address == UINT32_C(0x0004bcd4));
+    CHECK(report.exit_address == UINT32_C(0x0004bfe0));
+    CHECK(report.bytes_written == 1u);
+    CHECK(report.recovered_instruction_count == UINT64_C(5));
+    CHECK(report.recovered_procedure_calls == UINT64_C(1));
+    CHECK(cpu.ip == UINT32_C(0x0004bfe0));
+    CHECK(cpu.local_frame_depth == 3u);
+    CHECK(cpu.maximum_local_frame_depth == 3u);
+    CHECK(cpu.executed_instructions == UINT64_C(26));
+    CHECK(cpu.procedure_calls == UINT64_C(3));
+    CHECK(cpu.registers[16] == 0u);
+    CHECK(
+        vf2_model2a_read(
+            &machine,
+            UINT32_C(0x0050006d),
+            &latch,
+            sizeof(latch)
+        ) == VF2_OK
+    );
+    CHECK(latch == 0u);
+
+    vf2_model2a_shutdown(&machine);
+}
+
 static void test_hybrid_bridge_poststate(void)
 {
     vf2_model2a machine;
@@ -262,6 +374,7 @@ int main(void)
 {
     test_default_branch_class();
     test_machine_application();
+    test_orchestrator_prefix_bridges();
     test_hybrid_bridge_poststate();
 
     if (failures != 0) {

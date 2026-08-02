@@ -3902,6 +3902,8 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x0004c4d4) ||
                 native_ip_before == UINT32_C(0x0004c928) ||
                 native_ip_before == UINT32_C(0x0004ce88) ||
+                native_ip_before == UINT32_C(0x0004bb18) ||
+                native_ip_before == UINT32_C(0x0004bcd4) ||
                 native_ip_before == UINT32_C(0x0004bfe0) ||
                 native_ip_before == UINT32_C(0x0004d16c) ||
                 native_ip_before == UINT32_C(0x00007fc0) ||
@@ -4079,6 +4081,10 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS ||
                         (bridge_validated_blocks % 128u) == 0u;
@@ -4307,16 +4313,18 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1268774) ||
-             bridge_interpreted_instructions != UINT64_C(2048) ||
-             bridge_validated_blocks != 144u ||
-             bridge_memory_checkpoints != 144u ||
-             bridge_recovered_calls != UINT64_C(250) ||
+             bridge_recovered_instructions != UINT64_C(1268800) ||
+             bridge_interpreted_instructions != UINT64_C(2022) ||
+             bridge_validated_blocks != 146u ||
+             bridge_memory_checkpoints != 146u ||
+             bridge_recovered_calls != UINT64_C(252) ||
              bridge_recovered_returns != UINT64_C(298) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 3u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 8u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY] != 1u ||
              first_geometry_instruction != UINT32_C(0x00002eec) ||
@@ -4418,6 +4426,14 @@ static int command_native_dispatch(
                bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY]);
         printf("  game-color lookups:               %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP]);
+        printf("  orchestrator save/calls:          %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL
+               ]);
+        printf("  frame gate/calls:                 %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL
+               ]);
         printf("  texture default limits:           %zu\n",
                bridge_block_counts[
                    VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS
