@@ -162,6 +162,17 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_native_runtime_tests
     )
 
+    add_executable(vf2_native_scheduler_tests
+        tests/recovered/test_native_scheduler.c
+    )
+    target_link_libraries(vf2_native_scheduler_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_native_scheduler_tests)
+
+    add_test(
+        NAME vf2_native_scheduler
+        COMMAND vf2_native_scheduler_tests
+    )
+
     if(VF2_ROM_DIR)
         add_test(
             NAME vf2_boot_differential
