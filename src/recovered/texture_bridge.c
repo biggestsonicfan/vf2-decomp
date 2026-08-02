@@ -15,6 +15,9 @@
 #define VF2_TEXTURE_WORD_RUN_EXIT UINT32_C(0x0004ccf8)
 #define VF2_TEXTURE_SYMBOL_TABLE_ENTRY UINT32_C(0x0004c3f0)
 #define VF2_TEXTURE_PAIR_TABLE_ENTRY UINT32_C(0x0004c4d4)
+#define VF2_TEXTURE_TREE_DISPATCH_ENTRY UINT32_C(0x0004c544)
+#define VF2_TEXTURE_TREE_DISPATCH_EXIT UINT32_C(0x0004c6e0)
+#define VF2_TEXTURE_TREE_RETURN UINT32_C(0x0004c5dc)
 #define VF2_TEXTURE_TREE_ENTRY UINT32_C(0x0004c928)
 #define VF2_TEXTURE_CONVERT_ENTRY UINT32_C(0x0004ce88)
 #define VF2_TEXTURE_ADDRESS_TABLE_ENTRY UINT32_C(0x0004d16c)
@@ -2531,6 +2534,154 @@ static vf2_status execute_texture_tree(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_tree_dispatch(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_hybrid_bridge_report tree_report;
+    const uint32_t stack_start = cpu->registers[1];
+    const uint32_t saved_registers[] = {
+        3u,
+        4u, 5u, 6u, 7u,
+        8u, 9u, 10u, 11u,
+        12u, 13u, 14u, 15u,
+        16u, 17u, 18u, 19u,
+        20u, 21u, 22u, 23u,
+        24u, 25u, 26u, 27u,
+        28u, 29u, 30u
+    };
+    uint32_t index = 0u;
+    uint32_t flags = 0u;
+    uint32_t table_index = 0u;
+    uint32_t value = 0u;
+    uint16_t width = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u ||
+        stack_start > UINT32_MAX - UINT32_C(112)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(&tree_report, 0, sizeof(tree_report));
+    for (index = 0u;
+         index < sizeof(saved_registers) / sizeof(saved_registers[0]);
+         ++index) {
+        status = vf2_model2a_write_u32(
+            machine,
+            stack_start + index * UINT32_C(4),
+            cpu->registers[saved_registers[index]]
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+    cpu->registers[1] = stack_start + UINT32_C(112);
+    cpu->registers[26] = UINT32_C(0x00545000);
+    cpu->registers[25] = UINT32_C(256);
+    cpu->registers[30] = 0u;
+    cpu->registers[29] = UINT32_C(0x0055c344);
+    cpu->registers[28] = 0u;
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_TEXTURE_TREE_ENTRY, VF2_TEXTURE_TREE_RETURN
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += UINT64_C(26);
+    status = execute_texture_tree(machine, cpu, &tree_report);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (cpu->ip != VF2_TEXTURE_TREE_RETURN ||
+        cpu->registers[1] != stack_start + UINT32_C(112)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    for (index = 0u;
+         index < sizeof(saved_registers) / sizeof(saved_registers[0]);
+         ++index) {
+        status = vf2_model2a_read_u32(
+            machine,
+            stack_start + index * UINT32_C(4),
+            &value
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[saved_registers[index]] = value;
+    }
+    cpu->registers[1] = stack_start;
+    status = vf2_model2a_read_u32(
+        machine, VF2_TEXTURE_ACTIVE_FLAGS, &flags
+    );
+    if (status != VF2_OK || (flags & (UINT32_C(1) << 1u)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->registers[16] = flags;
+    cpu->registers[11] = UINT32_C(0x005502f0);
+    cpu->registers[8] = 0u;
+    cpu->registers[7] = 0u;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0055c33c), &cpu->registers[6]
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0055c340), &cpu->registers[26]
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[5] = UINT32_C(0x00545000);
+    cpu->registers[10] = UINT32_C(0x0055c2ef);
+    cpu->registers[9] = UINT32_C(0x0055c2ee);
+    cpu->registers[12] = cpu->registers[6] >= UINT32_C(32)
+        ? UINT32_MAX
+        : (UINT32_C(1) << cpu->registers[6]) - UINT32_C(1);
+    table_index = cpu->registers[13] & UINT32_C(0xff);
+    cpu->registers[16] = table_index;
+    status = vf2_model2a_read_u32(
+        machine,
+        cpu->registers[5] + table_index * UINT32_C(8),
+        &cpu->registers[20]
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine,
+            cpu->registers[5] + table_index * UINT32_C(8) + UINT32_C(4),
+            &cpu->registers[21]
+        );
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, UINT32_C(0x0055c320), &width);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[30] = width;
+    cpu->ip = VF2_TEXTURE_TREE_DISPATCH_EXIT;
+    cpu->executed_instructions += UINT64_C(37);
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_TREE_DISPATCH;
+    report->entry_address = VF2_TEXTURE_TREE_DISPATCH_ENTRY;
+    report->exit_address = VF2_TEXTURE_TREE_DISPATCH_EXIT;
+    report->iterations = tree_report.iterations;
+    report->changed_values = tree_report.changed_values;
+    report->bytes_written = 112u + tree_report.bytes_written;
+    report->max_recursion_depth = tree_report.max_recursion_depth;
+    report->recovered_instruction_count =
+        UINT64_C(63) + tree_report.recovered_instruction_count;
+    report->recovered_procedure_calls =
+        UINT64_C(1) + tree_report.recovered_procedure_calls;
+    report->recovered_procedure_returns =
+        tree_report.recovered_procedure_returns;
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+
 static vf2_status execute_texture_convert(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -3575,6 +3726,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
             machine, cpu, &local_report
         );
         break;
+    case VF2_TEXTURE_TREE_DISPATCH_ENTRY:
+        status = execute_texture_tree_dispatch(
+            machine, cpu, &local_report
+        );
+        break;
     case VF2_TEXTURE_TREE_ENTRY:
         status = execute_texture_tree(machine, cpu, &local_report);
         break;
@@ -3718,6 +3874,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-symbol-table-build";
     case VF2_HYBRID_BRIDGE_TEXTURE_PAIR_TABLE_BUILD:
         return "texture-pair-table-build";
+    case VF2_HYBRID_BRIDGE_TEXTURE_TREE_DISPATCH:
+        return "texture-tree-dispatch";
     case VF2_HYBRID_BRIDGE_TEXTURE_TREE_EXPAND:
         return "texture-tree-expand";
     case VF2_HYBRID_BRIDGE_TEXTURE_COLOR_CONVERT:

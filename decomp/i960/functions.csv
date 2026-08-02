@@ -24,6 +24,7 @@ address,end,name,status,source,notes
 0x0004bd24,0x0004d2c0,texture_status_dispatch_call,recovered-observed-branch,dynamic-trace+unit,Four observed record dispatches recover eight instructions each
 0x0004bde0,0x0004d16c,texture_active_prepare_call,recovered-observed-branch,dynamic-differential+unit,Loads the active record and coordinate table state then enters the address-table helper in twenty-two instructions; observed four times
 0x0004c180,0x0004c3f0,texture_header_decode,recovered-observed-branch,dynamic-differential+unit,Decodes the bit-packed texture header and prepares the symbol-table builder in 120 instructions; observed four times
+0x0004c544,0x0004c6e0,texture_tree_dispatch,recovered-observed-branch,dynamic-differential+unit,Saves the wrapper frame, expands the decode tree and prepares the byte decoder; sixty-three wrapper instructions plus the recovered tree; observed four times
 0x0004bd24,0x0004bf90,texture_status_scan_end,recovered-observed-branch,dynamic-differential+unit,Final pass scans ten inactive records in 43 instructions through the hybrid bridge
 0x0004bebc,0x0004cb64,texture_child_zero_gate_a,recovered-observed-branch,dynamic-differential+unit,Zero child-state path enters 0x0004cb64 in three instructions through the hybrid bridge; observed four times
 0x0004bef4,0x0004cd18,texture_child_zero_gate_b,recovered-observed-branch,dynamic-differential+unit,Zero child-state path enters 0x0004cd18 in three instructions through the hybrid bridge; observed four times
