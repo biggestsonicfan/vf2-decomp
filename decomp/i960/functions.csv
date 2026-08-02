@@ -21,6 +21,7 @@ address,end,name,status,source,notes
 0x0004d2c0,,texture_status_line,recovered-observed-branch,dynamic-differential,v0.0.22 texture TEX/t4e status line writer
 0x0000281c,,game_state_classify,recovered-observed-branch,dynamic-differential,v0.0.22 observed game-state classifier
 0x000026ec,,game_color_lookup,recovered-observed-branch,dynamic-differential,v0.0.22 color/control lookup with 0x00010101 adjustment
+0x000028d4,0x00002a10,game_threshold_evaluate,recovered-observed-branch,dynamic-differential+unit,Combines two color lookups and a game-state classification into the observed below-nine threshold result; observed twice
 0x0004bd24,0x0004d2c0,texture_status_dispatch_call,recovered-observed-branch,dynamic-trace+unit,Four observed record dispatches recover eight instructions each
 0x0004bde0,0x0004d16c,texture_active_prepare_call,recovered-observed-branch,dynamic-differential+unit,Loads the active record and coordinate table state then enters the address-table helper in twenty-two instructions; observed four times
 0x0004c180,0x0004c3f0,texture_header_decode,recovered-observed-branch,dynamic-differential+unit,Decodes the bit-packed texture header and prepares the symbol-table builder in 120 instructions; observed four times

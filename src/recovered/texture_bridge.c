@@ -41,6 +41,7 @@
 #define VF2_TEXTURE_STATUS_LINE_ENTRY UINT32_C(0x0004d2c0)
 #define VF2_GAME_STATE_CLASSIFY_ENTRY UINT32_C(0x0000281c)
 #define VF2_GAME_COLOR_LOOKUP_ENTRY UINT32_C(0x000026ec)
+#define VF2_GAME_THRESHOLD_EVALUATE_ENTRY UINT32_C(0x000028d4)
 #define VF2_TEXTURE_ORCHESTRATOR_SAVE_ENTRY UINT32_C(0x0004bb18)
 #define VF2_TEXTURE_ORCHESTRATOR_BODY_ENTRY UINT32_C(0x0004bcd4)
 #define VF2_TEXTURE_ORCHESTRATOR_BODY_RETURN UINT32_C(0x0004bb94)
@@ -486,6 +487,167 @@ static vf2_status execute_game_color_lookup(
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }
+
+static vf2_status execute_game_threshold_evaluate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_hybrid_bridge_report color0_report;
+    vf2_hybrid_bridge_report color1_report;
+    vf2_hybrid_bridge_report classify_report;
+    uint32_t base = 0u;
+    uint32_t flags = 0u;
+    uint32_t color0 = 0u;
+    uint32_t color1 = 0u;
+    uint32_t quotient0 = 0u;
+    uint32_t quotient1 = 0u;
+    uint8_t mode = 0u;
+    uint8_t variant = 0u;
+    uint8_t numerator0 = 0u;
+    uint8_t numerator1 = 0u;
+    uint8_t offset0 = 0u;
+    uint8_t offset1 = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(&color0_report, 0, sizeof(color0_report));
+    memset(&color1_report, 0, sizeof(color1_report));
+    memset(&classify_report, 0, sizeof(classify_report));
+
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &base
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3324), &mode, sizeof(mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3350), &variant, sizeof(variant)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3380), &numerator0,
+            sizeof(numerator0)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3388), &numerator1,
+            sizeof(numerator1)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3385), &offset0, sizeof(offset0)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x338d), &offset1, sizeof(offset1)
+        );
+    }
+    if (status != VF2_OK || mode == UINT8_C(25) || variant == UINT8_C(1)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    cpu->registers[11] = UINT32_C(9);
+    cpu->registers[16] = 0u;
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_COLOR_LOOKUP_ENTRY, UINT32_C(0x00002938)
+    );
+    if (status == VF2_OK) {
+        status = execute_game_color_lookup(
+            machine, cpu, &color0_report
+        );
+    }
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x00002938)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    color0 = cpu->registers[16];
+
+    cpu->registers[16] = 1u;
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_COLOR_LOOKUP_ENTRY, UINT32_C(0x00002944)
+    );
+    if (status == VF2_OK) {
+        status = execute_game_color_lookup(
+            machine, cpu, &color1_report
+        );
+    }
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x00002944)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    color1 = cpu->registers[16];
+    color0 = (color0 << 8u) >> 24u;
+    color1 = (color1 << 8u) >> 24u;
+    if (color0 == 0u || color1 == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_GAME_STATE_CLASSIFY_ENTRY, UINT32_C(0x0000295c)
+    );
+    if (status == VF2_OK) {
+        status = execute_game_state_classify(
+            machine, cpu, &classify_report
+        );
+    }
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000295c) ||
+        cpu->registers[16] == UINT32_C(2) ||
+        cpu->registers[16] == UINT32_C(3)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = vf2_model2a_read_u32(
+        machine, base + UINT32_C(0x3320), &flags
+    );
+    if (status != VF2_OK || (flags & (UINT32_C(1) << 1u)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    quotient0 = (uint32_t)numerator0 / color0;
+    quotient1 = (uint32_t)numerator1 / color1;
+    if (quotient0 + (uint32_t)offset0 + quotient1 +
+            (uint32_t)offset1 >= UINT32_C(9)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[16] = 0u;
+    cpu->registers[17] = 0u;
+    set_equal_condition(cpu);
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(38));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE;
+    report->entry_address = VF2_GAME_THRESHOLD_EVALUATE_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->changed_values = UINT64_C(2);
+    report->bytes_written =
+        color0_report.bytes_written + color1_report.bytes_written;
+    report->recovered_instruction_count =
+        UINT64_C(38) + color0_report.recovered_instruction_count +
+        color1_report.recovered_instruction_count +
+        classify_report.recovered_instruction_count;
+    report->recovered_procedure_calls =
+        UINT64_C(3) + color0_report.recovered_procedure_calls +
+        color1_report.recovered_procedure_calls +
+        classify_report.recovered_procedure_calls;
+    report->recovered_procedure_returns =
+        UINT64_C(1) + color0_report.recovered_procedure_returns +
+        color1_report.recovered_procedure_returns +
+        classify_report.recovered_procedure_returns;
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 
 static vf2_status execute_inline_text_thunk(
     vf2_model2a *machine,
@@ -4077,6 +4239,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     case VF2_GAME_COLOR_LOOKUP_ENTRY:
         status = execute_game_color_lookup(machine, cpu, &local_report);
         break;
+    case VF2_GAME_THRESHOLD_EVALUATE_ENTRY:
+        status = execute_game_threshold_evaluate(
+            machine, cpu, &local_report
+        );
+        break;
     default:
         status = VF2_ERROR_UNSUPPORTED;
         break;
@@ -4142,6 +4309,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "game-state-classify";
     case VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP:
         return "game-color-lookup";
+    case VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE:
+        return "game-threshold-evaluate";
     case VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL:
         return "texture-orchestrator-save-call";
     case VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL:

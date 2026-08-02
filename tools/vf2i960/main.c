@@ -3934,7 +3934,8 @@ static int command_native_dispatch(
                 native_ip_before == UINT32_C(0x00009444) ||
                 native_ip_before == UINT32_C(0x0004d2c0) ||
                 native_ip_before == UINT32_C(0x0000281c) ||
-                native_ip_before == UINT32_C(0x000026ec);
+                native_ip_before == UINT32_C(0x000026ec) ||
+                native_ip_before == UINT32_C(0x000028d4);
 
             if (original_cpu.ip == second_entry &&
                 native_cpu.ip == second_entry &&
@@ -4102,6 +4103,8 @@ static int command_native_dispatch(
                             VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP ||
+                        bridge_report.kind ==
+                            VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE ||
                         bridge_report.kind ==
                             VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL ||
                         bridge_report.kind ==
@@ -4360,16 +4363,17 @@ static int command_native_dispatch(
         }
         if (status == VF2_OK &&
             (bridge_steps != UINT64_C(1270822) ||
-             bridge_recovered_instructions != UINT64_C(1269998) ||
-             bridge_interpreted_instructions != UINT64_C(824) ||
-             bridge_validated_blocks != 180u ||
-             bridge_memory_checkpoints != 180u ||
-             bridge_recovered_calls != UINT64_C(282) ||
-             bridge_recovered_returns != UINT64_C(300) ||
+             bridge_recovered_instructions != UINT64_C(1270074) ||
+             bridge_interpreted_instructions != UINT64_C(748) ||
+             bridge_validated_blocks != 176u ||
+             bridge_memory_checkpoints != 176u ||
+             bridge_recovered_calls != UINT64_C(288) ||
+             bridge_recovered_returns != UINT64_C(302) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 3u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 8u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP] != 4u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE] != 2u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_FRAME_GATE_CALL] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS] != 1u ||
@@ -4497,6 +4501,10 @@ static int command_native_dispatch(
                bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY]);
         printf("  game-color lookups:               %zu\n",
                bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_COLOR_LOOKUP]);
+        printf("  game threshold evaluations:       %zu\n",
+               bridge_block_counts[
+                   VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE
+               ]);
         printf("  orchestrator save/calls:          %zu\n",
                bridge_block_counts[
                    VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_SAVE_CALL

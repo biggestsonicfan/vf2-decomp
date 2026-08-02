@@ -289,6 +289,119 @@ static void test_header_decode_dispatch(void)
 }
 
 
+static void test_game_threshold_evaluate(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint8_t *rom = NULL;
+    const size_t rom_size = (size_t)UINT32_C(0x00002a00);
+    const uint32_t base = VF2_WORK_RAM_BASE + UINT32_C(0x1000);
+    const uint8_t mode = 0u;
+    const uint8_t variant = 0u;
+    const uint8_t numerator0 = UINT8_C(4);
+    const uint8_t numerator1 = UINT8_C(6);
+    const uint8_t offset0 = UINT8_C(1);
+    const uint8_t offset1 = UINT8_C(1);
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    rom = (uint8_t *)calloc(rom_size, 1u);
+    CHECK(rom != NULL);
+    if (rom == NULL) {
+        vf2_model2a_shutdown(&machine);
+        return;
+    }
+    rom[UINT32_C(0x000027ac)] = 0u;
+    rom[UINT32_C(0x000027ad)] = 1u;
+    rom[UINT32_C(0x000027e0)] = 0u;
+    rom[UINT32_C(0x000027e1)] = 0u;
+    rom[UINT32_C(0x000027e2)] = UINT8_C(0x10);
+    rom[UINT32_C(0x000027e3)] = 0u;
+    rom[UINT32_C(0x000027e4)] = 0u;
+    rom[UINT32_C(0x000027e5)] = 0u;
+    rom[UINT32_C(0x000027e6)] = UINT8_C(0x20);
+    rom[UINT32_C(0x000027e7)] = 0u;
+    rom[UINT32_C(0x000028b8)] = 0u;
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, rom_size) == VF2_OK);
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine, UINT32_C(0x0050016c), base
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write_u32(
+            &machine, base + UINT32_C(0x3320), 0u
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine, base + UINT32_C(0x3324), &mode, sizeof(mode)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine, base + UINT32_C(0x3350), &variant,
+            sizeof(variant)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine, base + UINT32_C(0x3380), &numerator0,
+            sizeof(numerator0)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine, base + UINT32_C(0x3388), &numerator1,
+            sizeof(numerator1)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine, base + UINT32_C(0x3385), &offset0,
+            sizeof(offset0)
+        ) == VF2_OK
+    );
+    CHECK(
+        vf2_model2a_write(
+            &machine, base + UINT32_C(0x338d), &offset1,
+            sizeof(offset1)
+        ) == VF2_OK
+    );
+
+    enter_parent(&cpu, UINT32_C(0x000028d4));
+    CHECK(
+        vf2_hybrid_post_frame_bridge_execute(
+            &machine, &cpu, &report
+        ) == VF2_OK
+    );
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_GAME_THRESHOLD_EVALUATE);
+    CHECK(report.entry_address == UINT32_C(0x000028d4));
+    CHECK(report.exit_address == UINT32_C(0x00001004));
+    CHECK(report.iterations == UINT64_C(1));
+    CHECK(report.changed_values == UINT64_C(2));
+    CHECK(report.bytes_written == 8u);
+    CHECK(report.recovered_instruction_count == UINT64_C(125));
+    CHECK(report.recovered_procedure_calls == UINT64_C(5));
+    CHECK(report.recovered_procedure_returns == UINT64_C(6));
+    CHECK(report.cpu_poststate_applied == 1);
+    CHECK(cpu.ip == UINT32_C(0x00001004));
+    CHECK(cpu.local_frame_depth == 0u);
+    CHECK(cpu.executed_instructions == UINT64_C(125));
+    CHECK(cpu.procedure_calls == UINT64_C(6));
+    CHECK(cpu.procedure_returns == UINT64_C(6));
+    CHECK(cpu.registers[16] == 0u);
+    CHECK(cpu.registers[17] == 0u);
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
+
 static void test_active_prepare_dispatch(void)
 {
     vf2_model2a machine;
@@ -786,6 +899,7 @@ static void test_counter_update_dispatch(void)
 
 int main(void)
 {
+    test_game_threshold_evaluate();
     test_inactive_scan_dispatch();
     test_child_gate_dispatch(
         VF2_ORCHESTRATOR_CHILD_GATE_A_ENTRY,
