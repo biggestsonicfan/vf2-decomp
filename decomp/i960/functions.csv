@@ -22,6 +22,12 @@ address,end,name,status,source,notes
 0x0000281c,,game_state_classify,recovered-observed-branch,dynamic-differential,v0.0.22 observed game-state classifier
 0x000026ec,,game_color_lookup,recovered-observed-branch,dynamic-differential,v0.0.22 color/control lookup with 0x00010101 adjustment
 0x000028d4,0x00002a10,game_threshold_evaluate,recovered-observed-branch,dynamic-differential+unit,Combines two color lookups and a game-state classification into the observed below-nine threshold result; observed twice
+0x000438ec,0x00002020,game_event_queue_write,recovered-observed-branch,dynamic-differential+unit,Queues the observed game event and returns in nineteen instructions
+0x0004b8d8,0x0004bb98,texture_maintenance,recovered-observed-branch,dynamic-differential+unit,Performs two texture-record consistency checks and returns in seventeen instructions
+0x0004ba80,0x00002de4,texture_upload_dispatch,recovered-observed-branch,dynamic-differential+unit,Checks three upload sentinels and enters palette upload in ten instructions
+0x0004bd00,0x0004bd24,texture_orchestrator_entry_gate,recovered-observed-branch,dynamic-differential+unit,Zero orchestrator state enters the record loop in two instructions
+0x0004bd5c,0x0004bde0,texture_record_status_setup,recovered-observed-branch,dynamic-differential+unit,Handles the direct branch and active record setup paths across four visits
+0x0004be6c,0x0004c180,texture_stream_header_call,recovered-observed-branch,dynamic-differential+unit,Loads the encoded stream and enters the header decoder in five instructions; observed four times
 0x0004bd24,0x0004d2c0,texture_status_dispatch_call,recovered-observed-branch,dynamic-trace+unit,Four observed record dispatches recover eight instructions each
 0x0004bde0,0x0004d16c,texture_active_prepare_call,recovered-observed-branch,dynamic-differential+unit,Loads the active record and coordinate table state then enters the address-table helper in twenty-two instructions; observed four times
 0x0004c180,0x0004c3f0,texture_header_decode,recovered-observed-branch,dynamic-differential+unit,Decodes the bit-packed texture header and prepares the symbol-table builder in 120 instructions; observed four times
