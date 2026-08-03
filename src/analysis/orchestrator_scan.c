@@ -2,8 +2,6 @@
 
 #include <string.h>
 
-#define VF2_I960_CONDITION_MASK UINT32_C(7)
-#define VF2_I960_CONDITION_EQUAL UINT32_C(2)
 #define VF2_ORCHESTRATOR_SCAN_INSTRUCTIONS UINT64_C(43)
 
 static vf2_status read_u16(
@@ -24,14 +22,6 @@ static vf2_status read_u16(
     }
     *value = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
     return VF2_OK;
-}
-
-static void set_equal_condition(vf2_i960_cpu *cpu)
-{
-    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-    cpu->arithmetic_control =
-        (cpu->arithmetic_control & ~VF2_I960_CONDITION_MASK) |
-        VF2_I960_CONDITION_EQUAL;
 }
 
 vf2_status vf2_orchestrator_scan_inactive_records(
@@ -90,7 +80,9 @@ vf2_status vf2_orchestrator_scan_inactive_records(
         return VF2_ERROR_UNSUPPORTED;
     }
 
-    set_equal_condition(cpu);
+    /* The original loop uses COBR compare-and-branch instructions. Those
+     * branches do not update the architectural condition state, so preserve
+     * the caller's arithmetic-control condition bits and compare_result. */
     cpu->ip = VF2_ORCHESTRATOR_RECORD_SCAN_EXIT;
     cpu->executed_instructions += VF2_ORCHESTRATOR_SCAN_INSTRUCTIONS;
 
