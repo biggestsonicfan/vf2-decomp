@@ -110,6 +110,53 @@ static void test_zero_length_match(void)
     shutdown_pair(&reference_machine, &native_machine);
 }
 
+static void test_initial_memory_mismatch(void)
+{
+    vf2_model2a reference_machine;
+    vf2_model2a native_machine;
+    vf2_i960_cpu reference_cpu;
+    vf2_i960_cpu native_cpu;
+    vf2_native_runtime_state native_state;
+    vf2_native_differential_report report;
+
+    CHECK(initialize_pair(&reference_machine, &native_machine));
+    if (reference_machine.work_ram == NULL || native_machine.work_ram == NULL) {
+        return;
+    }
+
+    vf2_i960_cpu_reset(&reference_cpu, 0u, 0u, UINT32_C(0x1000));
+    native_cpu = reference_cpu;
+    CHECK(
+        vf2_model2a_write_u32(
+            &reference_machine,
+            VF2_WORK_RAM_BASE + UINT32_C(0x20),
+            UINT32_C(0x11223344)
+        ) == VF2_OK
+    );
+    CHECK(vf2_native_runtime_initialize(&native_state, 4u) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+
+    CHECK(
+        vf2_native_differential_run_until(
+            &reference_machine,
+            &reference_cpu,
+            &native_machine,
+            &native_cpu,
+            &native_state,
+            UINT32_C(0x1000),
+            0u,
+            &report
+        ) == VF2_ERROR_UNSUPPORTED
+    );
+    CHECK(report.reached_stop == 0);
+    CHECK(report.blocks_compared == 0u);
+    CHECK(!report.diff.equal);
+    CHECK(strcmp(report.diff.component, "work-ram") == 0);
+    CHECK(report.diff.first_offset == 0x20u);
+
+    shutdown_pair(&reference_machine, &native_machine);
+}
+
 static void test_initial_ip_mismatch(void)
 {
     vf2_model2a reference_machine;
@@ -240,6 +287,7 @@ int main(void)
 {
     test_invalid_arguments();
     test_zero_length_match();
+    test_initial_memory_mismatch();
     test_initial_ip_mismatch();
     test_budget_exhaustion_is_explicit();
     test_native_unsupported_path_is_reported();
