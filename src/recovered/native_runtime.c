@@ -591,28 +591,40 @@ vf2_status vf2_native_runtime_step(
                 bridge_report.recovered_procedure_returns;
         }
     } else if (cpu->ip == VF2_NATIVE_SECOND_SCHEDULER_ENTRY) {
-        vf2_hybrid_second_scheduler_report scheduler_report;
-        memset(&scheduler_report, 0, sizeof(scheduler_report));
-        status = vf2_hybrid_second_scheduler_enter(
-            machine, cpu, &scheduler_report
-        );
-        if (status == VF2_OK) {
-            local_report.kind = VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER;
-            local_report.bridge_kind =
-                VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY;
+        if (state->scheduler_entries != 0u) {
+            /* The recovered second-sweep entry pins the observed second-sweep
+             * task selection (descriptor index 13, runtime flags, FP and r1
+             * values). Reusing it for a third-or-later sweep would silently
+             * mis-execute; report a distinct step kind and fail explicitly
+             * until the third-sweep recovery is supplied. */
+            ++state->third_scheduler_attempts;
+            local_report.kind = VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER;
             local_report.exit_address = cpu->ip;
-            local_report.next_task_index =
-                scheduler_report.selected_task_index;
-            local_report.next_registry_address =
-                scheduler_report.selected_registry_address;
-            local_report.descriptors_scanned =
-                scheduler_report.descriptors_scanned;
-            local_report.recovered_instruction_count =
-                scheduler_report.recovered_instruction_count;
-            local_report.recovered_procedure_calls =
-                scheduler_report.recovered_procedure_calls;
-            local_report.recovered_procedure_returns =
-                scheduler_report.recovered_procedure_returns;
+            status = VF2_ERROR_UNSUPPORTED;
+        } else {
+            vf2_hybrid_second_scheduler_report scheduler_report;
+            memset(&scheduler_report, 0, sizeof(scheduler_report));
+            status = vf2_hybrid_second_scheduler_enter(
+                machine, cpu, &scheduler_report
+            );
+            if (status == VF2_OK) {
+                local_report.kind = VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER;
+                local_report.bridge_kind =
+                    VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY;
+                local_report.exit_address = cpu->ip;
+                local_report.next_task_index =
+                    scheduler_report.selected_task_index;
+                local_report.next_registry_address =
+                    scheduler_report.selected_registry_address;
+                local_report.descriptors_scanned =
+                    scheduler_report.descriptors_scanned;
+                local_report.recovered_instruction_count =
+                    scheduler_report.recovered_instruction_count;
+                local_report.recovered_procedure_calls =
+                    scheduler_report.recovered_procedure_calls;
+                local_report.recovered_procedure_returns =
+                    scheduler_report.recovered_procedure_returns;
+            }
         }
     } else if (cpu->ip == VF2_NATIVE_SCHEDULER_RETURN &&
                cpu->registers[29] == UINT32_C(0x00516180)) {
@@ -719,6 +731,13 @@ vf2_status vf2_native_runtime_run_until(
         status = vf2_native_runtime_step(
             machine, cpu, state, &step_report
         );
+        /* Surface the last attempted step kind, even on failure, so the
+         * run report can identify which recovered block rejected an
+         * unsupported transition (for example, a third-scheduler attempt). */
+        local_report.last_step_kind = step_report.kind;
+        local_report.last_bridge_kind = step_report.bridge_kind;
+        local_report.last_task_kind = step_report.task_kind;
+        local_report.final_address = cpu->ip;
         if (status != VF2_OK) {
             break;
         }
@@ -747,12 +766,11 @@ vf2_status vf2_native_runtime_run_until(
             step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH
         ) {
             ++local_report.scheduler_finishes;
+        } else if (
+            step_report.kind == VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER
+        ) {
+            ++local_report.third_scheduler_attempts;
         }
-
-        local_report.last_step_kind = step_report.kind;
-        local_report.last_bridge_kind = step_report.bridge_kind;
-        local_report.last_task_kind = step_report.task_kind;
-        local_report.final_address = cpu->ip;
     }
 
     if (status == VF2_OK && cpu->ip == stop_address) {
@@ -760,6 +778,10 @@ vf2_status vf2_native_runtime_run_until(
     } else if (status == VF2_OK) {
         status = VF2_ERROR_UNSUPPORTED;
     }
+    /* Surface the cumulative third-scheduler attempt count even when the
+     * loop broke before reaching the per-step counter. This keeps
+     * diagnostics about an unsupported third sweep visible to run callers. */
+    local_report.third_scheduler_attempts = state->third_scheduler_attempts;
     local_report.final_address = cpu->ip;
     if (report != NULL) {
         *report = local_report;
@@ -786,6 +808,8 @@ const char *vf2_native_runtime_step_kind_name(
         return "scheduler-transition";
     case VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH:
         return "scheduler-finish";
+    case VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER:
+        return "third-scheduler";
     default:
         return "unknown";
     }

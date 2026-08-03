@@ -16,7 +16,11 @@ The runtime currently routes six accepted execution classes:
 - the recovered second-sweep scheduler epilogue.
 
 Unknown instruction pointers and unobserved branches return
-`VF2_ERROR_UNSUPPORTED` explicitly.
+`VF2_ERROR_UNSUPPORTED` explicitly. A second hit of the main-loop scheduler
+call site `0x0000a010` after the second sweep has been accounted is reported
+as the distinct `VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER` step kind and
+rejected with `VF2_ERROR_UNSUPPORTED` until ROM-backed evidence for the third
+sweep is supplied.
 
 ## API
 

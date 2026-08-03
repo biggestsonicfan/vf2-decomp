@@ -60,6 +60,14 @@ static void test_initialize_and_names(void)
             "task"
         ) == 0
     );
+    CHECK(
+        strcmp(
+            vf2_native_runtime_step_kind_name(
+                VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER
+            ),
+            "third-scheduler"
+        ) == 0
+    );
 }
 
 static void test_zero_length_run(void)
@@ -391,6 +399,77 @@ static void test_multi_frame_run(void)
     free(rom);
 }
 
+static void test_third_scheduler_attempt_is_unsupported(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state state;
+    vf2_native_runtime_step_report step_report;
+    vf2_native_runtime_run_report run_report;
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+
+    /* Stand the CPU exactly at the recovered main-loop scheduler call site
+     * (0x0000a010), matching the architectural preconditions required by
+     * vf2_hybrid_second_scheduler_enter for the second sweep. The state
+     * already records one accepted second-sweep entry, simulating the
+     * end-of-frame re-hit of the same call site that should launch a third
+     * sweep. The recovered second-sweep code is hard-bound to the observed
+     * second-sweep task selection, so the runtime must decline explicitly. */
+    vf2_i960_cpu_reset(
+        &cpu,
+        0u,
+        UINT32_C(0x005ff410),
+        UINT32_C(0x0000a010)
+    );
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
+    state.scheduler_entries = 1u;
+
+    memset(&step_report, 0xff, sizeof(step_report));
+    CHECK(
+        vf2_native_runtime_step(
+            &machine,
+            &cpu,
+            &state,
+            &step_report
+        ) == VF2_ERROR_UNSUPPORTED
+    );
+    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER);
+    CHECK(step_report.entry_address == UINT32_C(0x0000a010));
+    CHECK(step_report.exit_address == UINT32_C(0x0000a010));
+    CHECK(step_report.recovered_instruction_count == UINT64_C(0));
+    CHECK(state.third_scheduler_attempts == 1u);
+    /* Unsupported steps must not advance any recovered accounting. */
+    CHECK(state.blocks_executed == 0u);
+    CHECK(state.recovered_instruction_count == UINT64_C(0));
+    CHECK(state.scheduler_entries == 1u);
+
+    /* The same observation must surface through run_until's report. */
+    memset(&run_report, 0xff, sizeof(run_report));
+    CHECK(
+        vf2_native_runtime_run_until(
+            &machine,
+            &cpu,
+            &state,
+            UINT32_C(0x00000000),
+            4u,
+            &run_report
+        ) == VF2_ERROR_UNSUPPORTED
+    );
+    CHECK(run_report.reached_stop == 0);
+    CHECK(run_report.blocks_executed == 0u);
+    CHECK(run_report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER);
+    CHECK(run_report.third_scheduler_attempts == 2u);
+    CHECK(run_report.final_address == UINT32_C(0x0000a010));
+
+    vf2_model2a_shutdown(&machine);
+}
+
 int main(void)
 {
     test_initialize_and_names();
@@ -399,6 +478,7 @@ int main(void)
     test_second_game_info_task_run();
     test_budget_and_unsupported_are_explicit();
     test_multi_frame_run();
+    test_third_scheduler_attempt_is_unsupported();
 
     if (failures != 0) {
         fprintf(stderr, "%d native-runtime test(s) failed\n", failures);

@@ -14,7 +14,14 @@ typedef enum vf2_native_runtime_step_kind {
     VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT,
     VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER,
     VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION,
-    VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH
+    VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH,
+    /* Identifies a third-or-later scheduler sweep reached at the main-loop
+     * call site 0x0000a010 after the second sweep has already been accounted.
+     * The recovered second-sweep entry requires the observed second-sweep
+     * task selection and is not reused for later sweeps; the runtime therefore
+     * reports this step kind and returns VF2_ERROR_UNSUPPORTED until ROM-backed
+     * evidence for the third sweep is supplied. */
+    VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER
 } vf2_native_runtime_step_kind;
 
 typedef struct vf2_native_runtime_state {
@@ -25,6 +32,11 @@ typedef struct vf2_native_runtime_state {
     size_t scheduler_entries;
     size_t scheduler_transitions;
     size_t scheduler_finishes;
+    /* Number of times the runtime reached the main-loop scheduler call site
+     * 0x0000a010 after the second sweep had already been accounted. Always
+     * zero on the recovered paths until the third-sweep recovery is filled
+     * in. Distinct from scheduler_entries which counts accepted entries. */
+    size_t third_scheduler_attempts;
     uint64_t recovered_instruction_count;
     uint64_t recovered_procedure_calls;
     uint64_t recovered_procedure_returns;
@@ -56,6 +68,7 @@ typedef struct vf2_native_runtime_run_report {
     size_t scheduler_entries;
     size_t scheduler_transitions;
     size_t scheduler_finishes;
+    size_t third_scheduler_attempts;
     uint64_t recovered_instruction_count;
     uint64_t recovered_procedure_calls;
     uint64_t recovered_procedure_returns;

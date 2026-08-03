@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- added scaffolding for the v0.1.0 repeated-frame target: a new
+  `VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER` step kind, a `third_scheduler_attempts`
+  counter on both `vf2_native_runtime_state` and
+  `vf2_native_runtime_run_report`, and an explicit dispatcher branch at the
+  main-loop scheduler call site `0x0000a010` that returns
+  `VF2_ERROR_UNSUPPORTED` when the second scheduler sweep has already been
+  accounted for, instead of silently re-running the recovered second-sweep
+  entry against an unobserved third-sweep task selection;
+- kept all previously recovered paths unchanged: the second-sweep entry still
+  runs when `state->scheduler_entries == 0`, every accumulator is preserved,
+  and unsupported steps never advance recovered accounting;
+- surfaced the last attempted step kind and the cumulative third-scheduler
+  attempt count in `vf2_native_runtime_run_report` so unsupported third sweeps
+  are diagnosable from a single `run_until` call;
+- added a ROM-independent test in `tests/recovered/test_native_runtime.c`
+  that proves a second hit at `0x0000a010` after the second sweep is rejected
+  with `VF2_ERROR_UNSUPPORTED`, reports `THIRD_SCHEDULER`, and does not advance
+  recovered counters;
+- made `build.ps1` forward `-DVF2_ROM_DIR=$Repo\roms\vf2` by default on `cfg`,
+  `build` and `asan` so ROM-backed CTest targets are registered without
+  per-invocation configuration;
+- set `MSYSTEM=UCRT64` in `build.ps1` before invoking MSYS2 UCRT64 GCC, so the
+  compiler does not silently exit non-zero from a non-MSYS2 PowerShell session.
+
 ## 0.0.24 — 2026-08-02
 
 - completed recovery of the accepted post-scheduler second-dispatch path: all
