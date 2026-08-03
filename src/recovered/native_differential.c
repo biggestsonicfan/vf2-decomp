@@ -91,13 +91,91 @@ static void record_initial_ip_mismatch(
     report->diff.actual_value = native_ip;
 }
 
-vf2_status vf2_native_differential_run_until(
+static void record_frame_wait_state_mismatch(
+    vf2_native_differential_report *report,
+    const vf2_hybrid_frame_wait_state *reference_state,
+    const vf2_hybrid_frame_wait_state *native_state
+)
+{
+    const size_t reference_values[] = {
+        reference_state->visits,
+        reference_state->visits_before_interrupt,
+        reference_state->interrupts_injected
+    };
+    const size_t native_values[] = {
+        native_state->visits,
+        native_state->visits_before_interrupt,
+        native_state->interrupts_injected
+    };
+    size_t index = 0u;
+
+    report->diff.equal = true;
+    report->diff.differing_bytes = 0u;
+    for (index = 0u;
+         index < sizeof(reference_values) / sizeof(reference_values[0]);
+         ++index) {
+        if (reference_values[index] != native_values[index]) {
+            if (report->diff.equal) {
+                report->diff.equal = false;
+                (void)strcpy(
+                    report->diff.component,
+                    "frame-wait-state"
+                );
+                report->diff.first_offset = index;
+                report->diff.expected_value =
+                    (uint32_t)reference_values[index];
+                report->diff.actual_value =
+                    (uint32_t)native_values[index];
+            }
+            ++report->diff.differing_bytes;
+        }
+    }
+}
+
+static vf2_status advance_reference_block(
+    vf2_model2a *reference_machine,
+    vf2_i960_cpu *reference_cpu,
+    const vf2_native_runtime_step_report *step_report,
+    const vf2_hybrid_frame_wait_state *frame_wait_before,
+    vf2_hybrid_frame_wait_state *frame_wait_after
+)
+{
+    uint64_t reference_step = 0u;
+    vf2_status status = VF2_OK;
+
+    *frame_wait_after = *frame_wait_before;
+    for (reference_step = 0u;
+         status == VF2_OK &&
+         reference_step < step_report->recovered_instruction_count;
+         ++reference_step) {
+        status = vf2_i960_step(
+            reference_cpu,
+            reference_machine,
+            NULL
+        );
+        if (status == VF2_OK &&
+            step_report->kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT) {
+            vf2_hybrid_frame_wait_report wait_report;
+            memset(&wait_report, 0, sizeof(wait_report));
+            status = vf2_hybrid_frame_wait_observe(
+                reference_machine,
+                reference_cpu,
+                frame_wait_after,
+                &wait_report
+            );
+        }
+    }
+    return status;
+}
+
+vf2_status vf2_native_differential_run_until_after(
     vf2_model2a *reference_machine,
     vf2_i960_cpu *reference_cpu,
     vf2_model2a *native_machine,
     vf2_i960_cpu *native_cpu,
     vf2_native_runtime_state *native_state,
     uint32_t stop_address,
+    size_t minimum_blocks,
     size_t max_blocks,
     vf2_native_differential_report *report
 )
@@ -109,7 +187,7 @@ vf2_status vf2_native_differential_run_until(
 
     if (reference_machine == NULL || reference_cpu == NULL ||
         native_machine == NULL || native_cpu == NULL ||
-        native_state == NULL) {
+        native_state == NULL || minimum_blocks > max_blocks) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
@@ -118,6 +196,7 @@ vf2_status vf2_native_differential_run_until(
     local_report.stop_address = stop_address;
     local_report.final_reference_address = reference_cpu->ip;
     local_report.final_native_address = native_cpu->ip;
+    local_report.minimum_blocks = minimum_blocks;
     local_report.diff.equal = true;
 
     vf2_i960_snapshot_init(&reference_snapshot);
@@ -148,12 +227,15 @@ vf2_status vf2_native_differential_run_until(
     }
 
     while (status == VF2_OK &&
-           native_cpu->ip != stop_address &&
+           (native_cpu->ip != stop_address ||
+            local_report.blocks_compared < minimum_blocks) &&
            local_report.blocks_compared < max_blocks) {
         vf2_native_runtime_step_report step_report;
         const uint64_t reference_instruction_start =
             reference_cpu->executed_instructions;
-        uint64_t reference_step = 0u;
+        const vf2_hybrid_frame_wait_state frame_wait_before =
+            native_state->frame_wait;
+        vf2_hybrid_frame_wait_state reference_frame_wait;
 
         if (reference_cpu->ip != native_cpu->ip) {
             record_initial_ip_mismatch(
@@ -181,16 +263,13 @@ vf2_status vf2_native_differential_run_until(
             break;
         }
 
-        for (reference_step = 0u;
-             status == VF2_OK &&
-             reference_step < step_report.recovered_instruction_count;
-             ++reference_step) {
-            status = vf2_i960_step(
-                reference_cpu,
-                reference_machine,
-                NULL
-            );
-        }
+        status = advance_reference_block(
+            reference_machine,
+            reference_cpu,
+            &step_report,
+            &frame_wait_before,
+            &reference_frame_wait
+        );
 
         local_report.reference_instructions_executed +=
             reference_cpu->executed_instructions -
@@ -206,6 +285,17 @@ vf2_status vf2_native_differential_run_until(
             step_report.recovered_instruction_count) {
             status = VF2_ERROR_UNSUPPORTED;
             break;
+        }
+        if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT) {
+            record_frame_wait_state_mismatch(
+                &local_report,
+                &reference_frame_wait,
+                &native_state->frame_wait
+            );
+            if (!local_report.diff.equal) {
+                status = VF2_ERROR_UNSUPPORTED;
+                break;
+            }
         }
 
         memset(&local_report.diff, 0, sizeof(local_report.diff));
@@ -231,7 +321,8 @@ vf2_status vf2_native_differential_run_until(
 
     if (status == VF2_OK &&
         reference_cpu->ip == stop_address &&
-        native_cpu->ip == stop_address) {
+        native_cpu->ip == stop_address &&
+        local_report.blocks_compared >= minimum_blocks) {
         local_report.reached_stop = 1;
     } else if (status == VF2_OK) {
         status = VF2_ERROR_UNSUPPORTED;
@@ -246,4 +337,28 @@ vf2_status vf2_native_differential_run_until(
     vf2_i960_snapshot_destroy(&reference_snapshot);
     vf2_i960_snapshot_destroy(&native_snapshot);
     return status;
+}
+
+vf2_status vf2_native_differential_run_until(
+    vf2_model2a *reference_machine,
+    vf2_i960_cpu *reference_cpu,
+    vf2_model2a *native_machine,
+    vf2_i960_cpu *native_cpu,
+    vf2_native_runtime_state *native_state,
+    uint32_t stop_address,
+    size_t max_blocks,
+    vf2_native_differential_report *report
+)
+{
+    return vf2_native_differential_run_until_after(
+        reference_machine,
+        reference_cpu,
+        native_machine,
+        native_cpu,
+        native_state,
+        stop_address,
+        0u,
+        max_blocks,
+        report
+    );
 }
