@@ -195,8 +195,8 @@ static void test_stride_scanning_transition(void)
     CHECK(report.recovered_procedure_returns == UINT64_C(0));
     CHECK(cpu.ip == UINT32_C(0x0001d458));
     CHECK(cpu.local_frame_depth == 2u);
-    CHECK(cpu.registers[10] == current_scratch + UINT32_C(0x80));
-    CHECK(cpu.registers[11] == UINT32_C(17));
+    CHECK(cpu.local_frames[1].registers[10] == current_scratch + UINT32_C(0x80));
+    CHECK(cpu.local_frames[1].registers[11] == UINT32_C(17));
     CHECK(cpu.registers[29] == next_registry);
     CHECK(state.scheduler_transitions == 1u);
     CHECK(state.recovered_instruction_count == UINT64_C(77));

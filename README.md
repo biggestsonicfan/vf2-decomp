@@ -8,6 +8,14 @@ contains ROM validation and reconstruction tools, a structured Intel i960
 analyzer, a bounded semantic executor used for differential validation, and the
 first game/runtime functions recovered in portable C.
 
+## v0.0.25 milestone
+
+The project is currently in the consolidation phase (**v0.0.25**), focusing on:
+- **Consolidating project status and roadmap**, resolving document inconsistencies;
+- **Mapping known unobserved/uncovered branches** of the scheduler and task routines into `docs/UNCOVERED_BRANCHES.md` to guide future differential validation;
+- **Refactoring the recovered post-frame bridge** into modular, named subsystem files (texture, video, geometry, input, match), keeping the codebase highly maintainable;
+- **Implementing robust multi-frame runtime unit tests** that simulate frame waiting and external interrupt flows across multiple frames.
+
 ## v0.0.24 milestone
 
 The accepted startup path from the end of the first scheduler sweep through the

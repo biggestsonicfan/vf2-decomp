@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     vf2_decomp
-    VERSION 0.0.24
+    VERSION 0.0.25
     DESCRIPTION "Clean-room, non-matching C decompilation project for Virtua Fighter 2 Version 2.1"
     LANGUAGES C
 )
@@ -56,6 +56,11 @@ add_library(vf2_core STATIC
     src/recovered/frame_wait.c
     src/recovered/native_runtime.c
     src/recovered/texture_bridge.c
+    src/recovered/texture_bridge_texture.c
+    src/recovered/texture_bridge_video.c
+    src/recovered/texture_bridge_geometry.c
+    src/recovered/texture_bridge_input.c
+    src/recovered/texture_bridge_match.c
     src/recovered/boot/boot_stage1.c
     src/recovered/boot/boot_stage2.c
     src/recovered/boot/memory_init.c

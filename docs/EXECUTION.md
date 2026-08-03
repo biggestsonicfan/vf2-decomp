@@ -374,3 +374,29 @@ hold, which keeps it provably non-behavior-changing relative to v0.0.22.
 The default CSV path is
 `decomp/i960/notes/texture_orchestrator_v0023.csv`. Observations are recorded
 as evidence only -- no source file reads the CSV.
+
+
+## v0.0.24 zero-interpreted second dispatch
+
+This release achieves 0 interpreted instructions in the post-frame bridge! The accepted startup path from the end of the first scheduler sweep through the second entry into `fa_game_info` now executes entirely as recovered C.
+
+```text
+Recovered bridge instructions:      1270822
+Interpreted bridge instructions:           0
+Recovered bridge blocks:                 190
+Recovered bridge calls/returns:       342/340
+Final CPU and memory state:             MATCH
+```
+
+```bash
+build/vf2i960 native-second-dispatch /path/to/vf2
+```
+
+
+## v0.0.25 consolidation phase
+
+The consolidation phase focuses on:
+- Updating all project-wide version, status, and roadmap documents to be fully consistent and accurate;
+- Reorganizing and modularizing the single-file post-frame bridge (`src/recovered/texture_bridge.c`) into named subsystems: `texture`, `video`, `geometry`, `input`, `match`;
+- Mapping unobserved/uncovered branches to `docs/UNCOVERED_BRANCHES.md`;
+- Adding multi-frame unit tests validating repeat frame execution and interrupt handling.

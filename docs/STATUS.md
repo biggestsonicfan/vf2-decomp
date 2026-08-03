@@ -74,7 +74,7 @@ configured, the project now defines 28 CTest targets.
 
 ## Next acceptance target: v0.1.0
 
-The next target is a bounded repeated-frame native runtime:
+After consolidating status, roadmaps, subsystem modularity, and multi-frame tests in **v0.0.25**, the next target is a bounded repeated-frame native runtime in **v0.1.0**:
 
 1. continue from main-loop address `0x0000a014` through the recovered geometry,
    texture and frame-timer blocks;

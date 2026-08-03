@@ -222,7 +222,14 @@
 - added 566 recovered instructions across 14 blocks and returned to the main
   loop at `0x0000a014`.
 
-## v0.1.0 — repeated-frame native runtime — in progress
+## v0.0.25 — consolidação — complete
+
+- updated project status, version, and roadmap to fix document inconsistencies;
+- mapped all known unobserved/uncovered branches of the scheduler and tasks to `docs/UNCOVERED_BRANCHES.md`;
+- refactored the post-frame bridge in `src/recovered/texture_bridge.c` into modular subsystems (`texture`, `video`, `geometry`, `input`, `match`);
+- added a multi-frame execution and interrupt test to `tests/recovered/test_native_runtime.c`.
+
+## v0.1.0 — repeated-frame native runtime
 
 - route main-loop, geometry, texture, frame timer and interrupt blocks through
   `vf2_native_runtime`;

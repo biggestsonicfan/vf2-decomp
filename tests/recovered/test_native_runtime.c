@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "vf2/native_runtime.h"
@@ -292,6 +293,104 @@ static void test_budget_and_unsupported_are_explicit(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_multi_frame_run(void)
+{
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state state;
+    vf2_native_runtime_step_report step_report;
+    uint8_t flag = 0u;
+
+    rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE);
+    CHECK(rom != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+
+    CHECK(
+        vf2_model2a_attach_main_rom(
+            &machine,
+            rom,
+            VF2_MAIN_ROM_SIZE
+        ) == VF2_OK
+    );
+
+    /* Point Processor Control Block and Interrupt Table and Stack Pointer */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005ff410) + 20u, UINT32_C(0x005ff000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005ff410) + 24u, UINT32_C(0x005ff500)) == VF2_OK);
+    /* Point vector 12 to VF2_NATIVE_INTERRUPT_RETURN_ENTRY = 0x00000d20 directly */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005ff000) + 36u + 16u, UINT32_C(0x00000d20)) == VF2_OK);
+
+    /* Initialize CPU at frame wait entry */
+    vf2_i960_cpu_reset(&cpu, 0u, UINT32_C(0x005ff410), UINT32_C(0x00010f90));
+    cpu.registers[1] = UINT32_C(0x00501000);
+    cpu.registers[31] = UINT32_C(0x00500000);
+
+    /* Write 0 to frame counter */
+    flag = 0u;
+    CHECK(
+        vf2_model2a_write(
+            &machine,
+            UINT32_C(0x00500000),
+            &flag,
+            sizeof(flag)
+        ) == VF2_OK
+    );
+
+    /* Initialize native runtime with 2 visits before interrupt */
+    CHECK(vf2_native_runtime_initialize(&state, 2u) == VF2_OK);
+
+    /* Step 1: Execute frame wait poll, visits = 1, continues */
+    memset(&step_report, 0, sizeof(step_report));
+    CHECK(
+        vf2_native_runtime_step(
+            &machine,
+            &cpu,
+            &state,
+            &step_report
+        ) == VF2_OK
+    );
+    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT);
+    CHECK(state.frame_wait_phases == 1u);
+    CHECK(state.frame_wait.visits == 0u); // reset back to 0 because 2 >= 2 and it raised interrupt!
+    CHECK(state.frame_wait.interrupts_injected == 1u);
+    CHECK(cpu.ip == UINT32_C(0x00000d20)); // Interrupted and jumped to the vector 12 handler
+    CHECK(cpu.local_frame_depth == 1u);
+
+    /* Change frame byte value at 0x500000 to exit the wait on return */
+    flag = 1u;
+    CHECK(
+        vf2_model2a_write(
+            &machine,
+            UINT32_C(0x00500000),
+            &flag,
+            sizeof(flag)
+        ) == VF2_OK
+    );
+
+    /* Step 2: Execute vector 12 interrupt handler and return from interrupt */
+    memset(&step_report, 0, sizeof(step_report));
+    CHECK(
+        vf2_native_runtime_step(
+            &machine,
+            &cpu,
+            &state,
+            &step_report
+        ) == VF2_OK
+    );
+    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT);
+    CHECK(state.frame_wait_phases == 2u);
+    CHECK(state.frame_wait.visits == 1u);
+    CHECK(cpu.ip == UINT32_C(0x00010fa4)); // Succeeded interrupt return and frame exit!
+    CHECK(cpu.local_frame_depth == 0u);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 int main(void)
 {
     test_initialize_and_names();
@@ -299,6 +398,7 @@ int main(void)
     test_single_bridge_run();
     test_second_game_info_task_run();
     test_budget_and_unsupported_are_explicit();
+    test_multi_frame_run();
 
     if (failures != 0) {
         fprintf(stderr, "%d native-runtime test(s) failed\n", failures);
