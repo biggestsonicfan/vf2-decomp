@@ -15,6 +15,7 @@
 #include "vf2/hash.h"
 #include "vf2/hybrid.h"
 #include "vf2/model2a.h"
+#include "vf2/native_differential.h"
 #include "vf2/recovered.h"
 #include "vf2/status.h"
 #include "vf2/version.h"
@@ -50,6 +51,7 @@ static void usage(const char *program)
         "  %s hybrid-first-dispatch <rom-directory>\n"
         "  %s native-first-dispatch <rom-directory>\n"
         "  %s native-second-dispatch <rom-directory>\n"
+        "  %s native-third-dispatch <rom-directory>\n"
         "  %s compare-texture-bridge <rom-directory>\n"
         "  %s compare-post-frame-bridge <rom-directory>\n"
         "  %s compare-geometry-boundary <rom-directory>\n"
@@ -59,6 +61,7 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program,
         program,
         program,
         program,
@@ -3460,6 +3463,7 @@ static int command_hybrid_first_dispatch(const char *rom_directory)
 static int command_native_dispatch_ex(
     const char *rom_directory,
     bool continue_to_second_dispatch,
+    bool native_third_dispatch,
     bool observe_third_sweep
 )
 {
@@ -4953,6 +4957,117 @@ static int command_native_dispatch_ex(
         }
     }
 
+    if (status == VF2_OK && native_third_dispatch) {
+        const uint32_t third_entry = plan.runnable_entry_points[0];
+        const uint32_t third_registry = plan.runnable_registry_addresses[0];
+        vf2_native_runtime_state runtime_state;
+        vf2_native_differential_report third_report;
+
+        stage = "native-third-dispatch";
+        memset(&runtime_state, 0, sizeof(runtime_state));
+        memset(&third_report, 0, sizeof(third_report));
+        status = vf2_native_runtime_initialize(&runtime_state, 4u);
+        if (status == VF2_OK) {
+            status = vf2_native_differential_run_until_after(
+                &original_machine,
+                &original_cpu,
+                &native_machine,
+                &native_cpu,
+                &runtime_state,
+                third_entry,
+                1u,
+                4096u,
+                &third_report
+            );
+        }
+        if (status == VF2_OK &&
+            (third_report.blocks_compared != 42u ||
+             third_report.reference_instructions_executed != UINT64_C(55237) ||
+             third_report.native_recovered_instructions != UINT64_C(55237) ||
+             original_cpu.registers[29] != third_registry ||
+             native_cpu.registers[29] != third_registry)) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+
+        if (status != VF2_OK) {
+            fprintf(
+                stderr,
+                "Native third-dispatch validation failed during %s: %s\n",
+                stage,
+                vf2_status_string(status)
+            );
+            fprintf(
+                stderr,
+                "Reference/native IP: 0x%08x/0x%08x blocks=%zu "
+                "instructions=%llu/%llu\n",
+                (unsigned)third_report.final_reference_address,
+                (unsigned)third_report.final_native_address,
+                third_report.blocks_compared,
+                (unsigned long long)
+                    third_report.reference_instructions_executed,
+                (unsigned long long)
+                    third_report.native_recovered_instructions
+            );
+            fprintf(
+                stderr,
+                "Last native step: %s entry=0x%08x exit=0x%08x "
+                "bridge=%s task=%s\n",
+                vf2_native_runtime_step_kind_name(
+                    third_report.last_step.kind
+                ),
+                (unsigned)third_report.last_step.entry_address,
+                (unsigned)third_report.last_step.exit_address,
+                vf2_hybrid_bridge_kind_name(
+                    third_report.last_step.bridge_kind
+                ),
+                vf2_hybrid_task_kind_name(
+                    third_report.last_step.task_kind
+                )
+            );
+            if (!third_report.diff.equal &&
+                third_report.diff.component[0] != '\0') {
+                fprintf(
+                    stderr,
+                    "Difference: %s offset=0x%zx expected=0x%08x "
+                    "actual=0x%08x bytes=%zu\n",
+                    third_report.diff.component,
+                    third_report.diff.first_offset,
+                    (unsigned)third_report.diff.expected_value,
+                    (unsigned)third_report.diff.actual_value,
+                    third_report.diff.differing_bytes
+                );
+            }
+        } else {
+            printf("\nNative third-dispatch validation: MATCH\n");
+            printf("Repeated-frame blocks compared:     %zu\n",
+                   third_report.blocks_compared);
+            printf("Repeated-frame instructions:        %llu\n",
+                   (unsigned long long)
+                       third_report.native_recovered_instructions);
+            printf("Reference instructions compared:    %llu\n",
+                   (unsigned long long)
+                       third_report.reference_instructions_executed);
+            printf("Repeated scheduler entries:         %zu\n",
+                   runtime_state.scheduler_entries);
+            printf("Repeated scheduler transitions:     %zu\n",
+                   runtime_state.scheduler_transitions);
+            printf("Repeated scheduler finishes:        %zu\n",
+                   runtime_state.scheduler_finishes);
+            printf("Repeated frame-wait phases:         %zu\n",
+                   runtime_state.frame_wait_phases);
+            printf("Third task entry:                   0x%08x\n",
+                   (unsigned)native_cpu.ip);
+            printf("Third registry:                     0x%08x\n",
+                   (unsigned)native_cpu.registers[29]);
+            printf("Continuous recovered instructions:  %llu\n",
+                   (unsigned long long)(
+                       bridge_steps +
+                       third_report.native_recovered_instructions
+                   ));
+            printf("Final CPU and memory state:         MATCH\n");
+        }
+    }
+
     if (status == VF2_OK && observe_third_sweep) {
         /* Evidence-gathering mode: step the reference i960 forward from the
          * strict-validated boundary at the second fa_game_info task entry,
@@ -5159,17 +5274,22 @@ static int command_native_dispatch_ex(
 
 static int command_native_first_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, false, false);
+    return command_native_dispatch_ex(rom_directory, false, false, false);
 }
 
 static int command_native_second_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, false);
+    return command_native_dispatch_ex(rom_directory, true, false, false);
+}
+
+static int command_native_third_dispatch(const char *rom_directory)
+{
+    return command_native_dispatch_ex(rom_directory, true, true, false);
 }
 
 static int command_native_observe_third_sweep(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, true);
+    return command_native_dispatch_ex(rom_directory, true, false, true);
 }
 
 static const char *orchestrator_trace_default_path(void)
@@ -5200,7 +5320,9 @@ static int command_trace_orchestrator(
     g_orchestrator_trace_file = trace_file;
     g_orchestrator_trace_step = 0u;
 
-    dispatch_result = command_native_dispatch_ex(rom_directory, true, false);
+    dispatch_result = command_native_dispatch_ex(
+        rom_directory, true, false, false
+    );
 
     g_orchestrator_trace_file = NULL;
     g_orchestrator_trace_step = 0u;
@@ -5359,6 +5481,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "native-second-dispatch") == 0 && argc == 3) {
         return command_native_second_dispatch(argv[2]);
+    }
+    if (strcmp(argv[1], "native-third-dispatch") == 0 && argc == 3) {
+        return command_native_third_dispatch(argv[2]);
     }
     if (strcmp(argv[1], "compare-texture-bridge") == 0 && argc == 3) {
         return command_native_second_dispatch(argv[2]);

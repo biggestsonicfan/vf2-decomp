@@ -111,6 +111,7 @@ build/vf2i960 compare-camera-viewport /path/to/vf2
 build/vf2i960 hybrid-first-dispatch /path/to/vf2
 build/vf2i960 native-first-dispatch /path/to/vf2
 build/vf2i960 native-second-dispatch /path/to/vf2
+build/vf2i960 native-third-dispatch /path/to/vf2
 build/vf2i960 compare-texture-bridge /path/to/vf2
 build/vf2i960 compare-post-frame-bridge /path/to/vf2
 build/vf2i960 compare-geometry-boundary /path/to/vf2

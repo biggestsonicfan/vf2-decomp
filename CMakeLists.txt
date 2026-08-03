@@ -275,6 +275,10 @@ if(VF2_BUILD_TESTS)
             COMMAND vf2i960 native-second-dispatch "${VF2_ROM_DIR}"
         )
         add_test(
+            NAME vf2_native_third_dispatch
+            COMMAND vf2i960 native-third-dispatch "${VF2_ROM_DIR}"
+        )
+        add_test(
             NAME vf2_texture_bridge_differential
             COMMAND vf2i960 compare-texture-bridge "${VF2_ROM_DIR}"
         )
@@ -304,7 +308,8 @@ if(VF2_BUILD_TESTS)
             vf2_first_dispatch_recoveries vf2_camera_classifier_differential
             vf2_camera_viewport_differential vf2_hybrid_first_dispatch
             vf2_native_first_dispatch vf2_native_second_dispatch
-            vf2_texture_bridge_differential vf2_post_frame_bridge_differential
+            vf2_native_third_dispatch vf2_texture_bridge_differential
+            vf2_post_frame_bridge_differential
             vf2_geometry_boundary_differential
             vf2_second_scheduler_entry_differential
             vf2_game_geometry_helpers_differential
