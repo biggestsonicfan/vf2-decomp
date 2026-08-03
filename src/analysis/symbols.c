@@ -71,7 +71,9 @@ static vf2_status apply_file(
     if (file == NULL) {
         return VF2_OK;
     }
-    (void)fgets(line, sizeof(line), file);
+    if (fgets(line, sizeof(line), file) == NULL) {
+        return fclose(file) == 0 ? VF2_OK : VF2_ERROR_IO;
+    }
     while (fgets(line, sizeof(line), file) != NULL) {
         char *columns[8] = {0};
         size_t count = 0u;
