@@ -4,7 +4,7 @@
 
 | Component | State |
 |---|---|
-| Repository and warning-as-error C17 build | Complete |
+| Repository and warning-as-error C17 build | Configured |
 | Supported ROM validation | 36/36 files |
 | Accepted startup/post-frame bridge | Recovered C |
 | Post-frame bridge instructions | 1,270,822 / 1,270,822 recovered |
@@ -17,7 +17,9 @@
 | Second-sweep extension | 566 instructions, 14 blocks, 12/14 calls/returns |
 | Current continuous native boundary | Main loop `0x0000a014` |
 | Reusable native runtime dispatcher | Implemented |
-| Third scheduler sweep / repeated frame proof | Reference evidence captured (scheduler selection stable across sweeps); `frame_geometry_gate` bit-26/bit-2 branch pending recovery |
+| Reusable native/reference differential lockstep | Implemented; ROM-backed third-dispatch integration pending |
+| Third scheduler sweep evidence | Scheduler selection stable across four observed sweeps |
+| Repeated-frame geometry busy branch | Observed retry and alternate-return paths recovered |
 | TGP protocol and renderer | Not recovered |
 | Motorola 68000 / SCSP audio | Not recovered |
 | Window, input and production platform backend | Not implemented |
@@ -30,7 +32,7 @@ The zero-interpreted bridge result covers one exact Virtua Fighter 2 Version
 post-frame texture, gameplay, video, interrupt and main-loop work to the second
 entry into `fa_game_info`.
 
-The reusable native runtime now continues through the complete observed second
+The reusable native runtime continues through the complete observed second
 scheduler sweep. It executes:
 
 - second `fa_game_info`;
@@ -49,11 +51,11 @@ The reference i960 executor remains active only as a differential oracle in the
 ROM-backed validation commands. It does not produce state on the native side for
 accepted recovered paths.
 
-This result does not yet prove another complete frame, the third scheduler
+This result does not yet prove another complete frame, the full third scheduler
 sweep, alternate gameplay states, rendering, TGP behavior or audio. Unsupported
 paths fail explicitly rather than silently invoking the interpreter.
 
-## Native runtime layer
+## Native runtime and differential layers
 
 `include/vf2/native_runtime.h` and `src/recovered/native_runtime.c` provide the
 recovered execution layer outside the developer CLI. It can:
@@ -68,59 +70,58 @@ recovered execution layer outside the developer CLI. It can:
   accounting; and
 - report unsupported addresses and budget exhaustion without fallback.
 
-Dedicated ROM-independent tests cover the runtime runner plus scheduler stride
-scanning and the second-sweep epilogue. With the supported ROM directory
-configured, the project now defines 28 CTest targets.
+`include/vf2/native_differential.h` and
+`src/recovered/native_differential.c` add a reusable lockstep validator. For
+each accepted native block it advances the reference i960 by exactly the
+reported recovered instruction count, captures both complete CPU/memory
+snapshots and requires an exact match before continuing. The native side never
+falls back to interpreted execution.
+
+The CMake configuration defines eight ROM-independent CTest targets. When the
+supported ROM directory exists, it adds 22 ROM-backed targets for a total of
+30. ROM-backed tests are no longer registered merely because a default ROM path
+string is non-empty. GitHub Actions configuration covers GCC and Clang Release
+builds plus Clang AddressSanitizer/UndefinedBehaviorSanitizer builds; completed
+remote check results must still be observed before claiming the new commits are
+validated.
 
 ## Next acceptance target: v0.1.0
 
-After consolidating status, roadmaps, subsystem modularity, and multi-frame tests in **v0.0.25**, the next target is a bounded repeated-frame native runtime in **v0.1.0**:
+After consolidating status, roadmaps, subsystem modularity and multi-frame tests
+in **v0.0.25**, the next target is a bounded repeated-frame native runtime in
+**v0.1.0**:
 
 1. continue from main-loop address `0x0000a014` through the recovered geometry,
    texture and frame-timer blocks;
 2. execute another vector-12 frame interrupt and architectural return;
 3. re-enter the scheduler for a third sweep;
-4. make the differential CLI consume `vf2_native_runtime` instead of maintaining
-   a separate candidate router;
+4. make `vf2i960 native-third-dispatch` drive the recovered side through
+   `vf2_native_differential_run_until` rather than a private candidate router;
 5. preserve all 29 task contexts across repeated scheduler cycles;
 6. prove the repeated-frame run with complete CPU and mutable-memory comparison;
 7. keep interpreter fallback at zero for every accepted block.
 
-A new `vf2i960 observe-third-sweep <rom-directory>` developer command runs the
-existing strict v0.0.24 second-dispatch validator, then continues the reference
-i960 forward through subsequent scheduler sweeps while manually injecting
-vector-12 interrupts at the frame-wait poll loop. Across four observed sweep
-visits, the reference i960 always reaches the scheduler call site `0x0000a010`
-with the exact architectural preconditions that
-`vf2_hybrid_second_scheduler_enter` already validates (`frame_depth == 0`,
-`fp == 0x005ff500`, `r1 == 0x005ff580`, `ready_flags == 0x80004400`,
+`vf2i960 observe-third-sweep <rom-directory>` runs the strict second-dispatch
+validator, then continues the reference i960 through subsequent scheduler
+sweeps while manually injecting vector-12 interrupts at the frame-wait poll
+loop. Across four observed visits, the reference always reaches the scheduler
+call site `0x0000a010` with the architectural preconditions validated by
+`vf2_hybrid_second_scheduler_enter` (`frame_depth == 0`, `fp == 0x005ff500`,
+`r1 == 0x005ff580`, `ready_flags == 0x80004400`,
 `runtime_flags == 0x00008a00`, `task_count == 29`, both timers parked at
-`0x000fffff`) and always selects descriptor index 13 (`fa_game_info`,
-`0x0001645c`, registry `0x00515200`). The recovered second-sweep entry is
-therefore provably generic for repeated scheduler sweeps, so the v0.1.0 blocker
-is no longer the scheduler scan.
+`0x000fffff`) and selects descriptor index 13 (`fa_game_info`, `0x0001645c`,
+registry `0x00515200`). The scheduler scan is therefore no longer the blocker.
 
-The `0x0000a75c` busy subpath in `frame_geometry_gate` is recovered for the two
-observed transitions through `0x0000a748 -> 0x0000a800`: the `0x0050002a != 17`
-retry-write (8 instructions, 1 byte) and the `0x005000a6 != 0` alt-return
-(7 instructions). Both are covered by the ROM-independent
-`test_frame_geometry_gate_busy_paths` unit test. The deep reset subpath at
-`0x0000a784` (calls to `0x00008ef0` and `0x0006116c` followed by an
-unconditional branch to `0x000000b0`) remains unsupported because no live
-sweep reaches `0x005000a6 == 0`.
+The `0x0000a75c` busy subpath in `frame_geometry_gate` is recovered for both
+observed transitions through `0x0000a748 -> 0x0000a800`: the
+`0x0050002a != 17` retry-write and the `0x005000a6 != 0` alternate return. The
+unobserved deep-reset subpath at `0x0000a784` remains explicitly unsupported.
 
-The recovered native runtime no longer refuses a third-or-later scheduler
-sweep: the runtime guard that reported `VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER`
-is removed, and the existing `vf2_hybrid_second_scheduler_enter` recovery is
-dispatched for every visit to the main-loop call site `0x0000a010`. Reference
-i960 evidence gathered via `vf2i960 observe-third-sweep` confirmed the
-architectural preconditions (`fp == 0x005ff500`, `r1 == 0x005ff580`,
-`frame_depth == 0`, `ready_flags == 0x80004400`, `runtime_flags == 0x00008a00`,
-`task_count == 29`, both timers parked at `0x000fffff`) and the live task
-selection (descriptor index 13, `fa_game_info`, `0x0001645c`,
-registry `0x00515200`) are identical across the four observed sweeps. The
-remaining v0.1.0 step is a full native third-sweep differential run with
-complete CPU and mutable-memory comparison.
+The remaining acceptance work is to expose a ROM-backed
+`native-third-dispatch` command that starts from the already validated second
+`fa_game_info` boundary, executes at least one native block before applying the
+same-address stop condition, and uses the reusable differential runner to find
+and recover the first true repeated-frame divergence.
 
-See `docs/NATIVE_RUNTIME.md` for the API, measured second-sweep sequence and
-current integration boundary.
+See `docs/NATIVE_RUNTIME.md` and `docs/NATIVE_DIFFERENTIAL.md` for the APIs and
+current integration boundaries.
