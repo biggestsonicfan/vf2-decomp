@@ -8,13 +8,34 @@ contains ROM validation and reconstruction tools, a structured Intel i960
 analyzer, a bounded semantic executor used for differential validation, and the
 first game/runtime functions recovered in portable C.
 
+## v0.1.0 repeated-frame acceptance
+
+The supported Version 2.1 ROM set now validates a continuous recovered path from
+the completed first scheduler sweep through the third scheduler entry.
+`vf2i960 native-third-dispatch` reaches the third `fa_game_info` task with:
+
+- 42 repeated-frame differential blocks;
+- 55,239 instructions on both the native and reference sides;
+- 1,326,061 continuous recovered instructions including the original
+  post-frame bridge;
+- complete CPU, local-frame, execution-counter and mutable-memory equality; and
+- **zero interpreted instructions** on the native side.
+
+The repeated corridor includes another frame interrupt/return, persistent task
+contexts, texture/video/game/tile repeated paths and the large phase-16 frame
+dispatch handler. This acceptance does **not** make the project playable: TGP
+rendering, broader gameplay states, audio, input and a production platform
+backend remain on the unchanged roadmap.
+
 ## v0.0.25 milestone
 
-The project is currently in the consolidation phase (**v0.0.25**), focusing on:
-- **Consolidating project status and roadmap**, resolving document inconsistencies;
-- **Mapping known unobserved/uncovered branches** of the scheduler and task routines into `docs/UNCOVERED_BRANCHES.md` to guide future differential validation;
-- **Refactoring the recovered post-frame bridge** into modular, named subsystem files (texture, video, geometry, input, match), keeping the codebase highly maintainable;
-- **Implementing robust multi-frame runtime unit tests** that simulate frame waiting and external interrupt flows across multiple frames.
+v0.0.25 completed the consolidation work that prepared this acceptance:
+- consolidated project status and roadmap documents;
+- mapped known unobserved/uncovered scheduler and task branches in
+  `docs/UNCOVERED_BRANCHES.md`;
+- split the recovered post-frame bridge into modular texture, video, geometry,
+  input and match subsystems; and
+- added multi-frame runtime tests for frame waiting and external interrupts.
 
 ## v0.0.24 milestone
 
