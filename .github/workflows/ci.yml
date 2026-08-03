@@ -7,9 +7,33 @@ on:
     branches: [master]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  patch-native-third:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ci/native-third-dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ci/native-third-dispatch
+          fetch-depth: 0
+      - name: Apply exact integration
+        run: python .github/apply-native-third-patch.py
+      - name: Commit verification branch
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tools/vf2i960/main.c CMakeLists.txt README.md
+          git commit -m "runtime: add native third-dispatch command"
+          git push origin HEAD:ci/native-third-dispatch
+
   build:
     name: ${{ matrix.compiler }} release
     runs-on: ubuntu-latest
