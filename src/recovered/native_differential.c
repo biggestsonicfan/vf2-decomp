@@ -2,6 +2,46 @@
 
 #include <string.h>
 
+static void compare_execution_counters(
+    const vf2_i960_cpu *reference_cpu,
+    const vf2_i960_cpu *native_cpu,
+    vf2_i960_snapshot_diff *diff
+)
+{
+    const uint64_t reference_values[] = {
+        reference_cpu->executed_instructions,
+        reference_cpu->procedure_calls,
+        reference_cpu->procedure_returns,
+        reference_cpu->interrupt_entries,
+        reference_cpu->interrupt_returns,
+        (uint64_t)reference_cpu->maximum_local_frame_depth
+    };
+    const uint64_t native_values[] = {
+        native_cpu->executed_instructions,
+        native_cpu->procedure_calls,
+        native_cpu->procedure_returns,
+        native_cpu->interrupt_entries,
+        native_cpu->interrupt_returns,
+        (uint64_t)native_cpu->maximum_local_frame_depth
+    };
+    size_t index = 0u;
+
+    for (index = 0u;
+         index < sizeof(reference_values) / sizeof(reference_values[0]);
+         ++index) {
+        if (reference_values[index] != native_values[index]) {
+            if (diff->equal) {
+                diff->equal = false;
+                (void)strcpy(diff->component, "cpu-counters");
+                diff->first_offset = index;
+                diff->expected_value = (uint32_t)reference_values[index];
+                diff->actual_value = (uint32_t)native_values[index];
+            }
+            ++diff->differing_bytes;
+        }
+    }
+}
+
 static vf2_status compare_complete_state(
     const vf2_model2a *reference_machine,
     const vf2_i960_cpu *reference_cpu,
@@ -30,6 +70,9 @@ static vf2_status compare_complete_state(
             native_snapshot,
             diff
         );
+    }
+    if (status == VF2_OK && diff->equal) {
+        compare_execution_counters(reference_cpu, native_cpu, diff);
     }
     return status;
 }
