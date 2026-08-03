@@ -79,12 +79,16 @@ native runtime state and delegates the repeated-frame corridor to
 `vf2_native_differential_run_until_after`.
 
 The command reports the first unsupported native block or first exact CPU,
-counter, frame-event or mutable-memory difference. Its strict acceptance guards
-expect the evidence-backed repeated corridor to return to the third
+counter, frame-event or mutable-memory difference. The supported 36-file ROM
+set has now validated the complete accepted corridor: it returned to the third
 `fa_game_info` entry after 42 compared blocks and 55,239 instructions on both
-sides. These values remain rejection criteria until the command is run with the
-supported proprietary ROM set; GitHub Actions cannot execute the ROM-backed
-test.
+sides. CPU state, local frames, execution counters, mirrored frame-event state
+and every mutable Model 2 memory region matched at each checkpoint. The native
+side used no interpreter fallback.
+
+GitHub Actions cannot contain or execute the proprietary ROM set, so CI covers
+the ROM-independent contracts while the ROM-backed acceptance is reproduced
+with `vf2i960 native-third-dispatch <rom-directory>`.
 
 ## Tests
 
