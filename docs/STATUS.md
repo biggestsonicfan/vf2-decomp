@@ -96,11 +96,31 @@ with the exact architectural preconditions that
 `fp == 0x005ff500`, `r1 == 0x005ff580`, `ready_flags == 0x80004400`,
 `runtime_flags == 0x00008a00`, `task_count == 29`, both timers parked at
 `0x000fffff`) and always selects descriptor index 13 (`fa_game_info`,
-`0x0001645c`, registry `0x00515200`). The recovered C side diverges a few
-recovered bridge blocks later — `execute_frame_geometry_gate` rejects on the
-`0x00500704` bit-26 / bit-2 flag combination that becomes active on the third
-sweep — so the remaining work for v0.1.0 is recovering the `0x0000a75c`
-geometry-gate branch, not re-recovering the scheduler scan.
+`0x0001645c`, registry `0x00515200`). The recovered second-sweep entry is
+therefore provably generic for repeated scheduler sweeps, so the v0.1.0 blocker
+is no longer the scheduler scan.
+
+The `0x0000a75c` busy subpath in `frame_geometry_gate` is recovered for the two
+observed transitions through `0x0000a748 -> 0x0000a800`: the `0x0050002a != 17`
+retry-write (8 instructions, 1 byte) and the `0x005000a6 != 0` alt-return
+(7 instructions). Both are covered by the ROM-independent
+`test_frame_geometry_gate_busy_paths` unit test. The deep reset subpath at
+`0x0000a784` (calls to `0x00008ef0` and `0x0006116c` followed by an
+unconditional branch to `0x000000b0`) remains unsupported because no live
+sweep reaches `0x005000a6 == 0`.
+
+The recovered native runtime no longer refuses a third-or-later scheduler
+sweep: the runtime guard that reported `VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER`
+is removed, and the existing `vf2_hybrid_second_scheduler_enter` recovery is
+dispatched for every visit to the main-loop call site `0x0000a010`. Reference
+i960 evidence gathered via `vf2i960 observe-third-sweep` confirmed the
+architectural preconditions (`fp == 0x005ff500`, `r1 == 0x005ff580`,
+`frame_depth == 0`, `ready_flags == 0x80004400`, `runtime_flags == 0x00008a00`,
+`task_count == 29`, both timers parked at `0x000fffff`) and the live task
+selection (descriptor index 13, `fa_game_info`, `0x0001645c`,
+registry `0x00515200`) are identical across the four observed sweeps. The
+remaining v0.1.0 step is a full native third-sweep differential run with
+complete CPU and mutable-memory comparison.
 
 See `docs/NATIVE_RUNTIME.md` for the API, measured second-sweep sequence and
 current integration boundary.

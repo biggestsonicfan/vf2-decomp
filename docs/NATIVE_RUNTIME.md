@@ -17,10 +17,11 @@ The runtime currently routes six accepted execution classes:
 
 Unknown instruction pointers and unobserved branches return
 `VF2_ERROR_UNSUPPORTED` explicitly. A second hit of the main-loop scheduler
-call site `0x0000a010` after the second sweep has been accounted is reported
-as the distinct `VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER` step kind and
-rejected with `VF2_ERROR_UNSUPPORTED` until ROM-backed evidence for the third
-sweep is supplied.
+call site `0x0000a010` after the second sweep has been accounted dispatches
+the same `vf2_hybrid_second_scheduler_enter` recovery: the recovered scheduler
+scan is generic across sweeps, and `vf2i960 observe-third-sweep` confirmed the
+architectural preconditions and task selection are identical for repeated
+sweeps.
 
 ## API
 

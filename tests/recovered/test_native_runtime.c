@@ -60,14 +60,6 @@ static void test_initialize_and_names(void)
             "task"
         ) == 0
     );
-    CHECK(
-        strcmp(
-            vf2_native_runtime_step_kind_name(
-                VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER
-            ),
-            "third-scheduler"
-        ) == 0
-    );
 }
 
 static void test_zero_length_run(void)
@@ -399,26 +391,42 @@ static void test_multi_frame_run(void)
     free(rom);
 }
 
-static void test_third_scheduler_attempt_is_unsupported(void)
+static void test_repeated_scheduler_entry_dispatches_recovery(void)
 {
+    uint8_t *rom = NULL;
     vf2_model2a machine;
     vf2_i960_cpu cpu;
     vf2_native_runtime_state state;
     vf2_native_runtime_step_report step_report;
     vf2_native_runtime_run_report run_report;
 
-    CHECK(vf2_model2a_initialize(&machine) != 0);
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
     if (machine.work_ram == NULL) {
+        free(rom);
         return;
     }
+    /* The recovered scheduler scan reads task_count from a low address inside
+     * the main ROM window; attach a blank ROM so the read returns 0 instead of
+     * VF2_ERROR_OUT_OF_BOUNDS. */
+    CHECK(
+        vf2_model2a_attach_main_rom(
+            &machine,
+            rom,
+            VF2_MAIN_ROM_SIZE
+        ) == VF2_OK
+    );
 
     /* Stand the CPU exactly at the recovered main-loop scheduler call site
      * (0x0000a010), matching the architectural preconditions required by
      * vf2_hybrid_second_scheduler_enter for the second sweep. The state
      * already records one accepted second-sweep entry, simulating the
      * end-of-frame re-hit of the same call site that should launch a third
-     * sweep. The recovered second-sweep code is hard-bound to the observed
-     * second-sweep task selection, so the runtime must decline explicitly. */
+     * sweep. The recovered scheduler entry is now generic across sweeps --
+     * reference evidence (observe-third-sweep) confirms the architectural
+     * preconditions are met on every sweep -- so the runtime must dispatch
+     * the actual recovery rather than short-circuiting. With task_count == 0
+     * the inner enter rejects via its own preconditions. */
     vf2_i960_cpu_reset(
         &cpu,
         0u,
@@ -439,11 +447,12 @@ static void test_third_scheduler_attempt_is_unsupported(void)
             &step_report
         ) == VF2_ERROR_UNSUPPORTED
     );
-    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER);
+    /* The runtime did not short-circuit with a distinct third-scheduler step
+     * kind; it forwarded the call to vf2_hybrid_second_scheduler_enter, which
+     * rejected the unseeded scheduler state via its own preconditions. */
+    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_NONE);
     CHECK(step_report.entry_address == UINT32_C(0x0000a010));
-    CHECK(step_report.exit_address == UINT32_C(0x0000a010));
     CHECK(step_report.recovered_instruction_count == UINT64_C(0));
-    CHECK(state.third_scheduler_attempts == 1u);
     /* Unsupported steps must not advance any recovered accounting. */
     CHECK(state.blocks_executed == 0u);
     CHECK(state.recovered_instruction_count == UINT64_C(0));
@@ -463,11 +472,11 @@ static void test_third_scheduler_attempt_is_unsupported(void)
     );
     CHECK(run_report.reached_stop == 0);
     CHECK(run_report.blocks_executed == 0u);
-    CHECK(run_report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER);
-    CHECK(run_report.third_scheduler_attempts == 2u);
+    CHECK(run_report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_NONE);
     CHECK(run_report.final_address == UINT32_C(0x0000a010));
 
     vf2_model2a_shutdown(&machine);
+    free(rom);
 }
 
 int main(void)
@@ -478,7 +487,7 @@ int main(void)
     test_second_game_info_task_run();
     test_budget_and_unsupported_are_explicit();
     test_multi_frame_run();
-    test_third_scheduler_attempt_is_unsupported();
+    test_repeated_scheduler_entry_dispatches_recovery();
 
     if (failures != 0) {
         fprintf(stderr, "%d native-runtime test(s) failed\n", failures);

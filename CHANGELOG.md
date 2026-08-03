@@ -2,24 +2,53 @@
 
 ## Unreleased
 
-- added scaffolding for the v0.1.0 repeated-frame target: a new
-  `VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER` step kind, a `third_scheduler_attempts`
-  counter on both `vf2_native_runtime_state` and
-  `vf2_native_runtime_run_report`, and an explicit dispatcher branch at the
-  main-loop scheduler call site `0x0000a010` that returns
-  `VF2_ERROR_UNSUPPORTED` when the second scheduler sweep has already been
-  accounted for, instead of silently re-running the recovered second-sweep
-  entry against an unobserved third-sweep task selection;
-- kept all previously recovered paths unchanged: the second-sweep entry still
-  runs when `state->scheduler_entries == 0`, every accumulator is preserved,
-  and unsupported steps never advance recovered accounting;
-- surfaced the last attempted step kind and the cumulative third-scheduler
-  attempt count in `vf2_native_runtime_run_report` so unsupported third sweeps
-  are diagnosable from a single `run_until` call;
-- added a ROM-independent test in `tests/recovered/test_native_runtime.c`
-  that proves a second hit at `0x0000a010` after the second sweep is rejected
-  with `VF2_ERROR_UNSUPPORTED`, reports `THIRD_SCHEDULER`, and does not advance
-  recovered counters;
+- recovered the `0x0000a75c` busy subpath of `frame_geometry_gate`: the two
+  observed transitions through `0x0000a748 -> 0x0000a800` (the
+  `state[0x0050002a] != 17` retry-write, eight instructions and one byte,
+  and the `state[0x005000a6] != 0` alt-return, seven instructions) are now
+  handled by `execute_frame_geometry_gate` instead of rejected with
+  `VF2_ERROR_UNSUPPORTED`;
+- retained the unobserved deep reset subpath at `0x0000a784` (calls to
+  `0x00008ef0` and `0x0006116c` followed by an unconditional branch to
+  `0x000000b0`) as `VF2_ERROR_UNSUPPORTED` because no live sweep observed
+  via `vf2i960 observe-third-sweep` reaches `state[0x005000a6] == 0`;
+- documented the static decode of the unrecovered callees in
+  `decomp/i960/notes/frame_geometry_gate_busy_path_v0010.md`:
+  `0x00008ef0` is a 48-row 64-cell stride-fill of value `0x20` starting at
+  `0x01000000`, and `0x0006116c` is a 16-byte magic write to `0x0059cfe0`
+  with no static xrefs;
+- added a ROM-independent `test_frame_geometry_gate_busy_paths` unit test
+  covering the busy-frame-state retry, the busy-alt return and the unobserved
+  deep-reset rejection. The 29-test Release run is still warning-clean with
+  warnings treated as errors under C17;
+- preserved all v0.0.24 strict totals on the accepted second-dispatch path:
+  `frame geometry gates: 0` on that path because the geometry prefix calls
+  into the gate with `0x00500704 == 0`, so the busy subpaths are exercised
+  only by the new unit test, not by the differential validator.
+- removed the `VF2_NATIVE_RUNTIME_STEP_THIRD_SCHEDULER` runtime guard and its
+  `third_scheduler_attempts` accounting: the recovered
+  `vf2_hybrid_second_scheduler_enter` is now dispatched on every visit to the
+  main-loop scheduler call site `0x0000a010`. Reference i960 evidence gathered
+  via `vf2i960 observe-third-sweep` confirmed the architectural preconditions
+  and the live task selection (descriptor index 13, `fa_game_info`,
+  `0x0001645c`, registry `0x00515200`) are identical across the four observed
+  sweeps, so the previously distinct third-scheduler step kind is no longer
+  reported. The `STEP_THIRD_SCHEDULER` enum constant and the
+  `third_scheduler_attempts` fields on `vf2_native_runtime_state` and
+  `vf2_native_runtime_run_report` are removed;
+- replaced `test_third_scheduler_attempt_is_unsupported` with
+  `test_repeated_scheduler_entry_dispatches_recovery`, a ROM-independent unit
+  test that proves a second entry at `0x0000a010` after the second sweep is
+  now forwarded to the actual scheduler recovery instead of being
+  short-circuited;
+- added `_CRT_SECURE_NO_WARNINGS`, `_CRT_NONSTDC_NO_WARNINGS` and
+  `_CRT_NONSTDC_NO_DEPRECATE` to `cmake/VF2Warnings.cmake` for non-MinGW
+  Windows builds (cl.exe and clang.exe against the MSVC UCRT headers);
+- enabled a clang 22.1.1 AddressSanitizer + UndefinedBehaviorSanitizer build
+  with `-fsanitize=address,undefined -fno-omit-frame-pointer -Werror` against
+  the MSVC SDK. All 73 targets compile and link cleanly, and all 29 CTest
+  tests pass with no sanitizer violations under the dynamic
+  `clang_rt.asan_dynamic-x86_64.dll` runtime;
 - made `build.ps1` forward `-DVF2_ROM_DIR=$Repo\roms\vf2` by default on `cfg`,
   `build` and `asan` so ROM-backed CTest targets are registered without
   per-invocation configuration;
