@@ -2,10 +2,10 @@
 
 ## Purpose
 
-`vf2_native_differential_run_until` is the reusable validation layer between
-recovered C execution and the reference i960 executor. It removes the need for
-each developer command to maintain its own list of recoverable instruction
-pointers and its own block-by-block comparison loop.
+The native differential API is the reusable validation layer between recovered
+C execution and the reference i960 executor. It removes the need for each
+developer command to maintain its own list of recoverable instruction pointers
+and its own block-by-block comparison loop.
 
 The API is declared in `include/vf2/native_differential.h` and implemented in
 `src/recovered/native_differential.c`.
@@ -23,46 +23,68 @@ For every accepted native block, the runner:
 
 1. records the `vf2_native_runtime_step_report`;
 2. advances the reference i960 by exactly the recovered instruction count;
-3. verifies that the reference instruction counter advanced by that count;
-4. captures complete snapshots of both CPUs and all mutable Model 2 memory;
-5. compares the snapshots; and
-6. continues only when the states are identical.
+3. mirrors deterministic host-side frame-wait and vector-12 events when the
+   native block represents a frame-wait phase;
+4. verifies that reference and native frame-event states agree;
+5. verifies that the reference instruction counter advanced by the reported
+   recovered count;
+6. captures complete snapshots of both CPUs and all mutable Model 2 memory;
+7. compares architectural execution counters that are not serialized by the
+   snapshot format; and
+8. continues only when every compared state is identical.
 
 A native unsupported path, reference execution failure, CPU or memory mismatch,
-or block-budget exhaustion returns immediately with a partial
-`vf2_native_differential_report`. The report preserves the last native step,
-final addresses, cumulative instruction counts and the first snapshot
-difference.
+frame-event mismatch or block-budget exhaustion returns immediately with a
+partial `vf2_native_differential_report`. The report preserves the last native
+step, final addresses, cumulative instruction counts, minimum-block policy and
+the first difference.
 
-## Why this advances v0.1.0
+## Stop policies
 
-The existing `vf2i960 native-second-dispatch` path contains a large private
-candidate router and comparison loop. The v0.1.0 acceptance target instead
-requires the production `vf2_native_runtime` dispatcher to drive the recovered
-side through another complete frame and scheduler sweep.
+`vf2_native_differential_run_until` retains the ordinary run-until contract. If
+the CPU already points at the stop address, the call succeeds without executing
+a block.
 
-The new runner provides that missing reusable primitive. The next integration
-step is to initialize synchronized reference/native snapshots at the validated
-second `fa_game_info` entry, then invoke:
+`vf2_native_differential_run_until_after` additionally accepts
+`minimum_blocks`. The stop address is successful only after at least that many
+native blocks have been executed and compared. `minimum_blocks` must not exceed
+`max_blocks`.
+
+This distinction is necessary for repeated scheduler cycles because the second
+and third sweep boundaries are both `fa_game_info` at `0x0001645c`:
 
 ```c
-vf2_native_differential_run_until(
+vf2_native_differential_run_until_after(
     &reference_machine,
     &reference_cpu,
     &native_machine,
     &native_cpu,
     &native_state,
     UINT32_C(0x0001645c),
+    1u,
     repeated_frame_block_budget,
     &report
 );
 ```
 
-The stop address alone is not sufficient because the starting address is also
-`0x0001645c`; the command must first execute the current task body or expose a
-minimum-block/stop-occurrence policy. That integration detail should be solved
-in the CLI wrapper rather than by weakening the runner's zero-length-run
-contract.
+The minimum of one block prevents an accidental zero-length success while
+preserving the simpler API's useful zero-length behavior.
+
+## `native-third-dispatch`
+
+`vf2i960 native-third-dispatch <rom-directory>` first executes the already
+validated startup, first sweep, post-frame bridge and second task-entry path.
+At the synchronized second `fa_game_info` boundary, it creates a persistent
+native runtime state and delegates the repeated-frame corridor to
+`vf2_native_differential_run_until_after`.
+
+The command reports the first unsupported native block or first exact CPU,
+counter, frame-event or mutable-memory difference. Its strict acceptance guards
+expect the evidence-backed repeated corridor to return to the third
+`fa_game_info` entry after 42 compared blocks and 55,237 instructions on both
+sides. These values remain rejection criteria until the command is run with the
+supported proprietary ROM set; GitHub Actions cannot execute the ROM-backed
+test.
 
 ## Tests
 
@@ -70,10 +92,14 @@ contract.
 
 - invalid arguments;
 - a synchronized zero-length run;
+- enforcement of a same-address minimum-block stop;
+- rejection when `minimum_blocks > max_blocks`;
+- initial mutable-memory divergence;
+- initial architectural-counter divergence;
 - initial instruction-pointer divergence;
 - explicit block-budget exhaustion; and
 - propagation of an unsupported native runtime address.
 
-ROM-backed positive lockstep coverage belongs in the forthcoming
-`native-third-dispatch` command, where the full supported ROM state is
-available.
+CMake registers `vf2_native_third_dispatch` only when the configured supported
+ROM directory exists. The ROM-independent API and failure-contract tests run in
+GCC, Clang, ASan, UBSan and LeakSanitizer CI.
