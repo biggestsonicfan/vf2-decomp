@@ -263,6 +263,10 @@ if(VF2_BUILD_TESTS)
             NAME vf2_game_geometry_helpers_differential
             COMMAND vf2i960 compare-game-geometry-helpers "${VF2_ROM_DIR}"
         )
+        add_test(
+            NAME vf2_third_sweep_observation
+            COMMAND vf2i960 observe-third-sweep "${VF2_ROM_DIR}"
+        )
         set_tests_properties(
             vf2_runtime_checkpoint vf2_runtime_events vf2_timer_irq_differential
             vf2_scheduler_dispatch vf2_task_recoveries_differential vf2_task_profile
@@ -273,6 +277,7 @@ if(VF2_BUILD_TESTS)
             vf2_geometry_boundary_differential
             vf2_second_scheduler_entry_differential
             vf2_game_geometry_helpers_differential
+            vf2_third_sweep_observation
             PROPERTIES TIMEOUT 180
         )
     endif()

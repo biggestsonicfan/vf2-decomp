@@ -49,6 +49,7 @@ The post-frame bridge executes massive loops to decode texture bitstreams and su
 - **Texture Upload Pipeline**: Large/alternate texture page formats, dynamic palette uploads, and texture cache updates.
 - **Geometry Registers**: Write patterns to geometry registers `0x1008`, `0x2008`, and `0x3008` besides the initial ring-pointer commits.
 - **TGP microcode & protocol**: TGP commands, vector transformations, clipping, 3D projection, and rendering pipelines are represented as empty placeholders.
+- **Third-sweep `frame_geometry_gate` bit-26/bit-2 branch** at `0x0000a75c`: At the third scheduler sweep the recovered gate hits a flag combination in `0x00500704` that is not yet handled by `execute_frame_geometry_gate` (which only takes the skip-to-`0x0000a800` path). Reference i960 evidence gathered via `vf2i960 observe-third-sweep` confirms the scheduler selection itself (descriptor index 13, `fa_game_info`, registry `0x00515200`) is identical to the second sweep across repeated frames, so the work outstanding for v0.1.0 is to recover the `0x0000a75c` cluster, not to re-recover the scheduler scan.
 
 ---
 

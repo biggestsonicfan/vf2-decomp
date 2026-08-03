@@ -17,7 +17,7 @@
 | Second-sweep extension | 566 instructions, 14 blocks, 12/14 calls/returns |
 | Current continuous native boundary | Main loop `0x0000a014` |
 | Reusable native runtime dispatcher | Implemented |
-| Third scheduler sweep / repeated frame proof | Not yet recovered |
+| Third scheduler sweep / repeated frame proof | Reference evidence captured (scheduler selection stable across sweeps); `frame_geometry_gate` bit-26/bit-2 branch pending recovery |
 | TGP protocol and renderer | Not recovered |
 | Motorola 68000 / SCSP audio | Not recovered |
 | Window, input and production platform backend | Not implemented |
@@ -85,6 +85,22 @@ After consolidating status, roadmaps, subsystem modularity, and multi-frame test
 5. preserve all 29 task contexts across repeated scheduler cycles;
 6. prove the repeated-frame run with complete CPU and mutable-memory comparison;
 7. keep interpreter fallback at zero for every accepted block.
+
+A new `vf2i960 observe-third-sweep <rom-directory>` developer command runs the
+existing strict v0.0.24 second-dispatch validator, then continues the reference
+i960 forward through subsequent scheduler sweeps while manually injecting
+vector-12 interrupts at the frame-wait poll loop. Across four observed sweep
+visits, the reference i960 always reaches the scheduler call site `0x0000a010`
+with the exact architectural preconditions that
+`vf2_hybrid_second_scheduler_enter` already validates (`frame_depth == 0`,
+`fp == 0x005ff500`, `r1 == 0x005ff580`, `ready_flags == 0x80004400`,
+`runtime_flags == 0x00008a00`, `task_count == 29`, both timers parked at
+`0x000fffff`) and always selects descriptor index 13 (`fa_game_info`,
+`0x0001645c`, registry `0x00515200`). The recovered C side diverges a few
+recovered bridge blocks later — `execute_frame_geometry_gate` rejects on the
+`0x00500704` bit-26 / bit-2 flag combination that becomes active on the third
+sweep — so the remaining work for v0.1.0 is recovering the `0x0000a75c`
+geometry-gate branch, not re-recovering the scheduler scan.
 
 See `docs/NATIVE_RUNTIME.md` for the API, measured second-sweep sequence and
 current integration boundary.

@@ -25,6 +25,29 @@
   per-invocation configuration;
 - set `MSYSTEM=UCRT64` in `build.ps1` before invoking MSYS2 UCRT64 GCC, so the
   compiler does not silently exit non-zero from a non-MSYS2 PowerShell session.
+- added a `vf2i960 observe-third-sweep <rom-directory>` developer command and
+  associated CTest target `vf2_third_sweep_observation` (test 29) that runs
+  the strict v0.0.24 second-dispatch validator and then continues the reference
+  i960 forward through subsequent scheduler sweeps while manually injecting
+  vector-12 interrupts at the frame-wait poll loop;
+- confirmed through four observed sweep visits that the reference i960 always
+  reaches the main-loop scheduler call site `0x0000a010` with the exact
+  architectural preconditions `vf2_hybrid_second_scheduler_enter` already
+  validates (`frame_depth == 0`, `fp == 0x005ff500`, `r1 == 0x005ff580`,
+  `ready_flags == 0x80004400`, `runtime_flags == 0x00008a00`,
+  `task_count == 29`, both timers parked at `0x000fffff`) and always selects
+  task descriptor index 13 (`fa_game_info`, `0x0001645c`,
+  registry `0x00515200`); the recovered second-sweep scheduler entry is
+  therefore provably generic for repeated scheduler sweeps, so the v0.1.0
+  blocker is no longer the scheduler scan;
+- recorded per-sweep evidence that the `0x0000a75c` busy path on
+  `frame_geometry_gate` (gate at `0x0000a748`, flag source `0x00500704`)
+  fires on the third scheduler sweep due to `(flags & 0x04000004)` becoming
+  non-zero (`0x0ff7f7ff`); the busy path runs through `0x0000a778`, calls
+  `0x00008ef0` and `0x0006116c`, then jumps to `0x000000b0`, and is the
+  v0.1.0 recovery target rather than the scheduler scan;
+- documented the third-sweep evidence in `docs/STATUS.md` and
+  `docs/UNCOVERED_BRANCHES.md`.
 
 ## 0.0.24 — 2026-08-02
 

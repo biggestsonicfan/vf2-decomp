@@ -55,9 +55,11 @@ static void usage(const char *program)
         "  %s compare-geometry-boundary <rom-directory>\n"
         "  %s compare-second-scheduler-entry <rom-directory>\n"
         "  %s compare-game-geometry-helpers <rom-directory>\n"
+        "  %s observe-third-sweep <rom-directory>\n"
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program,
         program,
         program,
         program,
@@ -3455,9 +3457,10 @@ static int command_hybrid_first_dispatch(const char *rom_directory)
 }
 
 
-static int command_native_dispatch(
+static int command_native_dispatch_ex(
     const char *rom_directory,
-    bool continue_to_second_dispatch
+    bool continue_to_second_dispatch,
+    bool observe_third_sweep
 )
 {
     uint8_t *image = NULL;
@@ -4950,6 +4953,198 @@ static int command_native_dispatch(
         }
     }
 
+    if (status == VF2_OK && observe_third_sweep) {
+        /* Evidence-gathering mode: step the reference i960 forward from the
+         * strict-validated boundary at the second fa_game_info task entry,
+         * manually injecting vector-12 interrupts at the frame-wait poll IPs
+         * (mirroring what the recovered frame-wait code does internally) so
+         * the reference can cross each subsequent frame boundary. Each visit
+         * to the main-loop scheduler call site 0x0000a010 is recorded along
+         * with the task selection the scheduler scan makes there. The
+         * recovered C side is intentionally NOT advanced here; the native
+         * runtime refuses to proceed past the third scheduler call site
+         * until evidence from this observation is folded back into a
+         * recovered third-sweep entry. */
+        uint64_t budget = UINT64_C(12000000);
+        uint32_t sweep_index = 1u;
+        uint32_t sweep_visits = 0u;
+        uint32_t observe_frame_wait_visits = 0u;
+        uint32_t interrupts_injected = 0u;
+        uint32_t prev_ip = original_cpu.ip;
+
+        printf("\nThird-sweep observation (reference i960 only):\n");
+        printf("  start IP=0x%08x instructions=%llu\n",
+                (unsigned)original_cpu.ip,
+                (unsigned long long)original_cpu.executed_instructions);
+        printf("  watching for visits to 0x0000a010 ...\n");
+
+        while (status == VF2_OK && budget > 0u) {
+            const uint32_t ip_before = original_cpu.ip;
+            const uint32_t fp_before = original_cpu.registers[VF2_I960_FP_REGISTER];
+            const uint32_t r1_before = original_cpu.registers[1];
+            const uint32_t depth_before = original_cpu.local_frame_depth;
+            status = vf2_i960_step(&original_cpu, &original_machine, NULL);
+            if (status != VF2_OK) {
+                break;
+            }
+            --budget;
+            prev_ip = ip_before;
+
+            if (ip_before == UINT32_C(0x0000a748)) {
+                uint32_t gate_flags = 0u;
+                uint8_t gate_state = 0u;
+                uint8_t gate_alt = 0u;
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00500704), &gate_flags);
+                (void)vf2_model2a_read(&original_machine, UINT32_C(0x0050002a), &gate_state, sizeof(gate_state));
+                (void)vf2_model2a_read(&original_machine, UINT32_C(0x005000a6), &gate_alt, sizeof(gate_alt));
+                printf(
+                    "  >> frame_geometry_gate visit ins=%llu ip_after=0x%08x flags=0x%08x state[0x0050002a]=%u alt[0x005000a6]=%u\n",
+                    (unsigned long long)original_cpu.executed_instructions,
+                    (unsigned)original_cpu.ip,
+                    (unsigned)gate_flags, (unsigned)gate_state, (unsigned)gate_alt
+                );
+            }
+
+            if (ip_before == UINT32_C(0x0000a010)) {
+                uint32_t selected_index = 0u;
+                uint32_t selected_entry = 0u;
+                uint32_t selected_registry = 0u;
+                uint32_t registry_iter = UINT32_C(0x00510000);
+                uint32_t max_scan = 64u;
+                uint32_t scan = 0u;
+                uint32_t ready_flags_obs = 0u;
+                uint32_t runtime_flags_obs = 0u;
+                uint32_t task_count_obs = 0u;
+                uint32_t timer1_obs = 0u;
+                uint32_t timer2_obs = 0u;
+
+                printf(
+                    "  #%u visit-AT 0x0000a010 ins=%llu\n",
+                    sweep_index,
+                    (unsigned long long)original_cpu.executed_instructions
+                );
+                printf(
+                    "    cpu BEFORE call: ip=0x%08x fp=0x%08x r1=0x%08x frame_depth=%u\n",
+                    (unsigned)ip_before,
+                    (unsigned)fp_before,
+                    (unsigned)r1_before,
+                    depth_before
+                );
+
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00500068), &ready_flags_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00508000), &runtime_flags_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00011d94), &task_count_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00f00000) + 4u, &timer1_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00f00000) + 8u, &timer2_obs);
+
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00500068), &ready_flags_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00508000), &runtime_flags_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00011d94), &task_count_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00f00000) + 4u, &timer1_obs);
+                (void)vf2_model2a_read_u32(&original_machine, UINT32_C(0x00f00000) + 8u, &timer2_obs);
+                printf(
+                    "    ready_flags=0x%08x runtime_flags=0x%08x task_count=%u timer1=0x%08x timer2=0x%08x\n",
+                    (unsigned)ready_flags_obs, (unsigned)runtime_flags_obs,
+                    task_count_obs, (unsigned)timer1_obs, (unsigned)timer2_obs
+                );
+
+                for (scan = 0u; scan < max_scan && status == VF2_OK; ++scan) {
+                    uint32_t flags = 0u;
+                    uint32_t stack_size = 0u;
+                    status = vf2_model2a_read_u32(
+                        &original_machine, registry_iter, &flags
+                    );
+                    if (status != VF2_OK) {
+                        break;
+                    }
+                    if ((flags & UINT32_C(0x80000000)) != 0u) {
+                        status = vf2_model2a_read_u32(
+                            &original_machine,
+                            registry_iter + UINT32_C(0x0c),
+                            &selected_entry
+                        );
+                        if (status == VF2_OK) {
+                            selected_index = scan;
+                            selected_registry = registry_iter;
+                        }
+                        break;
+                    }
+                    status = vf2_model2a_read_u32(
+                        &original_machine,
+                        registry_iter + UINT32_C(0x08),
+                        &stack_size
+                    );
+                    if (status != VF2_OK || stack_size == 0u ||
+                        (stack_size & UINT32_C(0x1f)) != 0u) {
+                        if (status == VF2_OK) {
+                            status = VF2_ERROR_UNSUPPORTED;
+                        }
+                        break;
+                    }
+                    registry_iter += stack_size;
+                }
+                if (status == VF2_OK) {
+                    printf(
+                        "    sweep #%u selected task index=%u entry=0x%08x registry=0x%08x\n",
+                        sweep_index, selected_index,
+                        (unsigned)selected_entry,
+                        (unsigned)selected_registry
+                    );
+                } else {
+                    fprintf(
+                        stderr,
+                        "  sweep #%u registry scan failed: %s\n",
+                        sweep_index, vf2_status_string(status)
+                    );
+                }
+                ++sweep_index;
+                ++sweep_visits;
+                if (sweep_visits >= 4u) {
+                    break;
+                }
+                continue;
+            }
+
+            if (ip_before == UINT32_C(0x00010f98) ||
+                ip_before == UINT32_C(0x00010f90)) {
+                const uint8_t changed = 1u;
+                ++observe_frame_wait_visits;
+                status = vf2_model2a_write(
+                    &original_machine, UINT32_C(0x00500000),
+                    &changed, sizeof(changed)
+                );
+                if (status == VF2_OK &&
+                    (observe_frame_wait_visits % 4u) == 0u) {
+                    status = vf2_model2a_raise_interrupt(
+                        &original_machine, UINT32_C(1) << 0u
+                    );
+                    if (status == VF2_OK) {
+                        status = vf2_i960_cpu_enter_interrupt(
+                            &original_cpu, &original_machine, 12u, 1u
+                        );
+                    }
+                    if (status == VF2_OK) {
+                        ++interrupts_injected;
+                    }
+                }
+            }
+        }
+        if (status == VF2_OK) {
+            printf(
+                "  observation halted after %u sweep visits / %u frame waits / %u interrupts, final IP=0x%08x\n",
+                sweep_visits, observe_frame_wait_visits, interrupts_injected,
+                (unsigned)original_cpu.ip
+            );
+        } else {
+            fprintf(
+                stderr,
+                "  observation aborted: %s at IP=0x%08x (prev=0x%08x)\n",
+                vf2_status_string(status), (unsigned)original_cpu.ip,
+                (unsigned)prev_ip
+            );
+        }
+    }
+
     vf2_i960_snapshot_destroy(&entry_snapshot);
     vf2_task_catalog_destroy(&catalog);
     if (native_machine.work_ram != NULL) {
@@ -4964,12 +5159,17 @@ static int command_native_dispatch(
 
 static int command_native_first_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch(rom_directory, false);
+    return command_native_dispatch_ex(rom_directory, false, false);
 }
 
 static int command_native_second_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch(rom_directory, true);
+    return command_native_dispatch_ex(rom_directory, true, false);
+}
+
+static int command_native_observe_third_sweep(const char *rom_directory)
+{
+    return command_native_dispatch_ex(rom_directory, true, true);
 }
 
 static const char *orchestrator_trace_default_path(void)
@@ -5000,7 +5200,7 @@ static int command_trace_orchestrator(
     g_orchestrator_trace_file = trace_file;
     g_orchestrator_trace_step = 0u;
 
-    dispatch_result = command_native_dispatch(rom_directory, true);
+    dispatch_result = command_native_dispatch_ex(rom_directory, true, false);
 
     g_orchestrator_trace_file = NULL;
     g_orchestrator_trace_step = 0u;
@@ -5174,6 +5374,10 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "compare-game-geometry-helpers") == 0 && argc == 3) {
         return command_native_second_dispatch(argv[2]);
+    }
+
+    if (strcmp(argv[1], "observe-third-sweep") == 0 && argc == 3) {
+        return command_native_observe_third_sweep(argv[2]);
     }
 
     if (strcmp(argv[1], "trace-orchestrator") == 0 &&
