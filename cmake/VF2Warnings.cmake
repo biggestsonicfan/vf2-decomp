@@ -1,4 +1,12 @@
 function(vf2_set_project_warnings target_name)
+    if(WIN32 AND NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_definitions(${target_name} PRIVATE
+            _CRT_SECURE_NO_WARNINGS
+            _CRT_NONSTDC_NO_WARNINGS
+            _CRT_NONSTDC_NO_DEPRECATE
+        )
+    endif()
+
     if(MSVC)
         target_compile_options(${target_name} PRIVATE /W4 /permissive-)
         if(VF2_WARNINGS_AS_ERRORS)

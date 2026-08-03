@@ -22,7 +22,7 @@ static vf2_status read_u16(
     if (status != VF2_OK) {
         return status;
     }
-    *value = (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u);
+    *value = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
     return VF2_OK;
 }
 
