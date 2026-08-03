@@ -7,28 +7,107 @@ vf2_status execute_frame_geometry_gate(
 )
 {
     uint32_t flags = 0u;
+    uint8_t frame_state = 0u;
+    uint8_t alt_byte = 0u;
     vf2_status status = VF2_OK;
 
     if (cpu->local_frame_depth == 0u) {
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00500704), &flags);
-    if (status != VF2_OK || (flags & ((UINT32_C(1) << 26u) | UINT32_C(4))) != 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-    status = finish_recovered_procedure(machine, cpu, UINT64_C(5));
     if (status != VF2_OK) {
         return status;
     }
 
-    report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
-    report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
-    report->exit_address = cpu->ip;
-    report->iterations = UINT64_C(1);
-    report->recovered_instruction_count = UINT64_C(5);
-    report->recovered_procedure_returns = UINT64_C(1);
-    report->cpu_poststate_applied = 1;
-    return VF2_OK;
+    if ((flags & ((UINT32_C(1) << 26u) | UINT32_C(4))) == 0u) {
+        /* Clear-flags path: ld, bbs(26,fail), bbs(2,fail), b 0x0000a800, ret.
+         * The five-instruction count is the verified v0.0.20 boundary. */
+        status = finish_recovered_procedure(machine, cpu, UINT64_C(5));
+        if (status != VF2_OK) {
+            return status;
+        }
+        report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
+        report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = UINT64_C(1);
+        report->recovered_instruction_count = UINT64_C(5);
+        report->recovered_procedure_returns = UINT64_C(1);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+
+    /* Busy path observed on the third scheduler sweep via 0x0000a010. The
+     * reference i960 reads 0x0050002a after the bit-26/bit-2 branch. The
+     * observed live values are 1 (sweep #1) and 17 (sweep #2); sweep #3 and
+     * #4 fall through the gate with flags=0. Only the value 17 forwards to
+     * the alt-byte check at 0x0000a778; any other value writes 16 into the
+     * state byte and returns through 0x0000a800. */
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x0050002a), &frame_state, sizeof(frame_state)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (frame_state != UINT8_C(17)) {
+        /* ld, bbs(26,taken), ldob, cmpobe(fail), mov 16, stib, b 0x0000a800,
+         * ret = 8 instructions. */
+        frame_state = UINT8_C(16);
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x0050002a), &frame_state, sizeof(frame_state)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = finish_recovered_procedure(machine, cpu, UINT64_C(8));
+        if (status != VF2_OK) {
+            return status;
+        }
+        report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
+        report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = UINT64_C(1);
+        report->changed_values = UINT64_C(1);
+        report->bytes_written = sizeof(frame_state);
+        report->recovered_instruction_count = UINT64_C(8);
+        report->recovered_procedure_returns = UINT64_C(1);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+
+    /* frame_state == 17 forwards to 0x0000a778 which reads 0x005000a6 and
+     * returns through 0x0000a800 when the alt byte is non-zero. The observed
+     * third-sweep live values for 0x005000a6 are all 255, so the deep reset
+     * call sequence (calls to 0x00008ef0 and 0x0006116c followed by an
+     * unconditional branch to the reset entry 0x000000b0) never executes on
+     * the observed path and remains unsupported. */
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x005000a6), &alt_byte, sizeof(alt_byte)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (alt_byte != 0u) {
+        /* ld, bbs(26,taken), ldob, cmpobe(17,taken), ldob, cmpobne(0,taken),
+         * ret = 7 instructions. */
+        status = finish_recovered_procedure(machine, cpu, UINT64_C(7));
+        if (status != VF2_OK) {
+            return status;
+        }
+        report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
+        report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = UINT64_C(1);
+        report->recovered_instruction_count = UINT64_C(7);
+        report->recovered_procedure_returns = UINT64_C(1);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+
+    /* alt_byte == 0 forwards the unobserved deep reset sequence at 0x0000a784
+     * that zeroes 0x00500700/0x00500704/0x00500708/0x0050070c, writes 0 to
+     * 0x00e80004, calls 0x00008ef0 and 0x0006116c and branches (does not
+     * return) to 0x000000b0. No live evidence covers this state. */
+    return VF2_ERROR_UNSUPPORTED;
 }
 
 vf2_status execute_geometry_frame_commit(

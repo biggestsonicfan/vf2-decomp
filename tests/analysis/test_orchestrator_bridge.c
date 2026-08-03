@@ -675,6 +675,93 @@ static void test_frame_interrupt_support_batch(void)
 }
 
 
+static void test_frame_geometry_gate_busy_paths(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint8_t byte = 0u;
+    const size_t rom_size = (size_t)UINT32_C(0x0000a800);
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    /* No ROM bytes are read on the busy paths: 0x0000a748 -> 0x0000a800 only
+     * touches work RAM at 0x00500704/0x0050002a/0x005000a6. A tiny blank ROM
+     * of the maximum reachable address keeps the dispatcher's IP check happy
+     * without introducing a region-decode dependency. */
+    {
+        uint8_t *const rom = (uint8_t *)calloc(rom_size, 1u);
+        CHECK(rom != NULL);
+        if (rom == NULL) {
+            vf2_model2a_shutdown(&machine);
+            return;
+        }
+        CHECK(vf2_model2a_attach_main_rom(&machine, rom, rom_size) == VF2_OK);
+    }
+
+    /* Third-sweep busy subpath observed with flags=0x0ff7f7ff and the
+     * frame-state byte at 0x0050002a still below the retry threshold of 17.
+     * The recovered gate must write 16 to 0x0050002a and return through the
+     * architectural link. */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500704), UINT32_C(0x0ff7f7ff)) == VF2_OK);
+    byte = UINT8_C(1);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a748));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE);
+    CHECK(report.recovered_instruction_count == UINT64_C(8));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(report.changed_values == UINT64_C(1));
+    CHECK(report.bytes_written == 1u);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x0050002a), &byte, 1u) == VF2_OK);
+    CHECK(byte == UINT8_C(16));
+    CHECK(cpu.ip == UINT32_C(0x00001004));
+
+    /* The reference frame_geometry_gate clears the recovered-C procedural
+     * frame on each enter_parent call, so we use a fresh parent frame for
+     * the second case. With frame_state == 17 and a non-zero alt byte the
+     * gate returns through 0x0000a800 after the cmpobne-taken branch
+     * without touching memory. This matches the recovered second-sweep
+     * evidence where 0x005000a6 == 255. */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500704), UINT32_C(0x0ff7f7ff)) == VF2_OK);
+    byte = UINT8_C(17);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &byte, 1u) == VF2_OK);
+    byte = UINT8_C(255);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x005000a6), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a748));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE);
+    CHECK(report.recovered_instruction_count == UINT64_C(7));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(report.changed_values == UINT64_C(0));
+    CHECK(report.bytes_written == 0u);
+    CHECK(cpu.ip == UINT32_C(0x00001004));
+    /* Neither of the busy-frame state bytes changed during this visit. */
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x0050002a), &byte, 1u) == VF2_OK);
+    CHECK(byte == UINT8_C(17));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x005000a6), &byte, 1u) == VF2_OK);
+    CHECK(byte == UINT8_C(255));
+
+    /* alt_byte == 0 forwards the unobserved deep reset sequence at
+     * 0x0000a784 (calls to 0x00008ef0 and 0x0006116c followed by an
+     * unconditional branch to 0x000000b0). The recovered gate rejects it. */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500704), UINT32_C(0x0ff7f7ff)) == VF2_OK);
+    byte = UINT8_C(17);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &byte, 1u) == VF2_OK);
+    byte = 0u;
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x005000a6), &byte, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a748));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_ERROR_UNSUPPORTED);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_NONE);
+
+    vf2_model2a_shutdown(&machine);
+}
+
+
 static void test_game_meter_update(void)
 {
     vf2_model2a machine;
@@ -1538,6 +1625,7 @@ int main(void)
     test_frame_shadow_and_buffer_gate();
     test_frame_dispatch_tick();
     test_frame_interrupt_support_batch();
+    test_frame_geometry_gate_busy_paths();
     test_game_event_queue_write();
     test_texture_maintenance();
     test_texture_upload_and_entry_gate();
