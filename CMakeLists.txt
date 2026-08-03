@@ -55,6 +55,7 @@ add_library(vf2_core STATIC
     src/recovered/hybrid.c
     src/recovered/frame_wait.c
     src/recovered/native_runtime.c
+    src/recovered/native_differential.c
     src/recovered/texture_bridge.c
     src/recovered/texture_bridge_texture.c
     src/recovered/texture_bridge_video.c
@@ -167,6 +168,17 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_native_runtime_tests
     )
 
+    add_executable(vf2_native_differential_tests
+        tests/recovered/test_native_differential.c
+    )
+    target_link_libraries(vf2_native_differential_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_native_differential_tests)
+
+    add_test(
+        NAME vf2_native_differential
+        COMMAND vf2_native_differential_tests
+    )
+
     add_executable(vf2_native_scheduler_tests
         tests/recovered/test_native_scheduler.c
     )
@@ -178,7 +190,7 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_native_scheduler_tests
     )
 
-    if(VF2_ROM_DIR)
+    if(EXISTS "${VF2_ROM_DIR}")
         add_test(
             NAME vf2_boot_differential
             COMMAND vf2i960 compare-boot "${VF2_ROM_DIR}"
