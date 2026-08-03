@@ -146,9 +146,28 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_orchestrator_gates_tests
     )
 
+    add_library(vf2_test_owned_main_rom OBJECT
+        tests/support/owned_main_rom.c
+    )
+    target_include_directories(vf2_test_owned_main_rom PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    vf2_set_project_warnings(vf2_test_owned_main_rom)
+
     add_executable(vf2_orchestrator_bridge_tests
         tests/analysis/test_orchestrator_bridge.c
+        $<TARGET_OBJECTS:vf2_test_owned_main_rom>
     )
+    if(MSVC)
+        target_compile_options(vf2_orchestrator_bridge_tests PRIVATE
+            "/FI${CMAKE_CURRENT_SOURCE_DIR}/tests/support/owned_main_rom.h"
+        )
+    else()
+        target_compile_options(vf2_orchestrator_bridge_tests PRIVATE
+            -include
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/owned_main_rom.h"
+        )
+    endif()
     target_link_libraries(vf2_orchestrator_bridge_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_orchestrator_bridge_tests)
 
