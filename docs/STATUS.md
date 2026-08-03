@@ -4,21 +4,22 @@
 
 | Component | State |
 |---|---|
-| Repository and warning-as-error C17 build | Configured |
+| Repository and warning-as-error C17 build | Validated in GCC and Clang CI |
 | Supported ROM validation | 36/36 files |
 | Accepted startup/post-frame bridge | Recovered C |
 | Post-frame bridge instructions | 1,270,822 / 1,270,822 recovered |
 | Native-side interpreted instructions on accepted paths | 0 |
 | Original bridge CPU/memory checkpoints | 190 |
 | Original bridge recovered procedure calls/returns | 342 / 340 |
-| Frame wait and vector-12 interrupt | Recovered and validated |
+| Frame wait and vector-12 interrupt | Recovered and validated through second dispatch |
 | Second scheduler entry | Recovered and validated |
 | Complete observed second scheduler sweep | Recovered and validated |
 | Second-sweep extension | 566 instructions, 14 blocks, 12/14 calls/returns |
-| Current continuous native boundary | Main loop `0x0000a014` |
+| Current ROM-proven continuous native boundary | Main loop `0x0000a014` |
 | Reusable native runtime dispatcher | Implemented |
-| Reusable native/reference differential lockstep | Implemented; ROM-backed third-dispatch integration pending |
-| Third scheduler sweep evidence | Scheduler selection stable across four observed sweeps |
+| Reusable native/reference differential lockstep | Implemented, including same-address stops and frame-event mirroring |
+| `vf2i960 native-third-dispatch` | Implemented; ROM-backed execution pending |
+| Third scheduler sweep evidence | Scheduler selection stable across four observed reference sweeps |
 | Repeated-frame geometry busy branch | Observed retry and alternate-return paths recovered |
 | TGP protocol and renderer | Not recovered |
 | Motorola 68000 / SCSP audio | Not recovered |
@@ -51,9 +52,12 @@ The reference i960 executor remains active only as a differential oracle in the
 ROM-backed validation commands. It does not produce state on the native side for
 accepted recovered paths.
 
-This result does not yet prove another complete frame, the full third scheduler
-sweep, alternate gameplay states, rendering, TGP behavior or audio. Unsupported
-paths fail explicitly rather than silently invoking the interpreter.
+This result does not yet claim another complete ROM-backed frame or the full
+third scheduler sweep. The command for that acceptance run now exists, but the
+proprietary ROM set is intentionally absent from GitHub Actions. Alternate
+gameplay states, rendering, TGP behavior and audio also remain outside the
+proven scope. Unsupported paths fail explicitly rather than silently invoking
+the interpreter.
 
 ## Native runtime and differential layers
 
@@ -71,41 +75,53 @@ recovered execution layer outside the developer CLI. It can:
 - report unsupported addresses and budget exhaustion without fallback.
 
 `include/vf2/native_differential.h` and
-`src/recovered/native_differential.c` add a reusable lockstep validator. For
-each accepted native block it advances the reference i960 by exactly the
-reported recovered instruction count, captures both complete CPU/memory
+`src/recovered/native_differential.c` provide the reusable lockstep validator.
+For each accepted native block it advances the reference i960 by exactly the
+reported recovered instruction count, mirrors the deterministic frame-wait and
+vector-12 host events on the reference side, captures complete CPU/memory
 snapshots and requires an exact match before continuing. The native side never
 falls back to interpreted execution.
 
+`vf2_native_differential_run_until_after` adds a minimum-block condition to the
+normal stop-address contract. It allows repeated cycles that begin and end at
+the same `fa_game_info` entry while preserving the original zero-length behavior
+of `vf2_native_differential_run_until`.
+
 The CMake configuration defines eight ROM-independent CTest targets. When the
-supported ROM directory exists, it adds 22 ROM-backed targets for a total of
-30. ROM-backed tests are no longer registered merely because a default ROM path
-string is non-empty. GitHub Actions configuration covers GCC and Clang Release
-builds plus Clang AddressSanitizer/UndefinedBehaviorSanitizer builds; completed
-remote check results must still be observed before claiming the new commits are
-validated.
+supported ROM directory exists, it adds 23 ROM-backed targets for a total of
+31, including `vf2_native_third_dispatch`. ROM-backed tests are not registered
+merely because a default ROM path string is non-empty. GitHub Actions validates
+GCC and Clang Release builds plus Clang AddressSanitizer,
+UndefinedBehaviorSanitizer and LeakSanitizer builds.
 
 ## Next acceptance target: v0.1.0
 
 After consolidating status, roadmaps, subsystem modularity and multi-frame tests
-in **v0.0.25**, the next target is a bounded repeated-frame native runtime in
-**v0.1.0**:
+in **v0.0.25**, the next target remains a bounded repeated-frame native runtime
+in **v0.1.0**:
 
-1. continue from main-loop address `0x0000a014` through the recovered geometry,
-   texture and frame-timer blocks;
-2. execute another vector-12 frame interrupt and architectural return;
-3. re-enter the scheduler for a third sweep;
-4. make `vf2i960 native-third-dispatch` drive the recovered side through
-   `vf2_native_differential_run_until` rather than a private candidate router;
-5. preserve all 29 task contexts across repeated scheduler cycles;
-6. prove the repeated-frame run with complete CPU and mutable-memory comparison;
-7. keep interpreter fallback at zero for every accepted block.
+1. run `vf2i960 native-third-dispatch <rom-directory>` from the already
+   validated second `fa_game_info` boundary;
+2. execute the recovered main-loop, geometry, texture and frame-timer blocks;
+3. mirror another vector-12 frame interrupt and architectural return on the
+   reference and native sides;
+4. re-enter the scheduler for a third sweep;
+5. preserve all 29 task contexts across the repeated cycle;
+6. require complete CPU, execution-counter and mutable-memory equality after
+   every recovered block; and
+7. keep interpreter fallback at zero for every accepted native block.
 
-`vf2i960 observe-third-sweep <rom-directory>` runs the strict second-dispatch
-validator, then continues the reference i960 through subsequent scheduler
-sweeps while manually injecting vector-12 interrupts at the frame-wait poll
-loop. Across four observed visits, the reference always reaches the scheduler
-call site `0x0000a010` with the architectural preconditions validated by
+The command now uses `vf2_native_differential_run_until_after` with a minimum of
+one block because both its start and destination are `fa_game_info` at
+`0x0001645c`. Its strict acceptance profile expects the recovered repeated-frame
+corridor to reach the third task entry after 42 compared blocks and 55,237
+instructions. Those totals are encoded as rejection guards, not claimed as a
+new ROM-backed result until the command is executed against the supported ROM
+set.
+
+`vf2i960 observe-third-sweep <rom-directory>` remains the evidence-gathering
+fallback. Across four observed reference visits, it reaches scheduler call site
+`0x0000a010` with the architectural preconditions validated by
 `vf2_hybrid_second_scheduler_enter` (`frame_depth == 0`, `fp == 0x005ff500`,
 `r1 == 0x005ff580`, `ready_flags == 0x80004400`,
 `runtime_flags == 0x00008a00`, `task_count == 29`, both timers parked at
@@ -116,12 +132,6 @@ The `0x0000a75c` busy subpath in `frame_geometry_gate` is recovered for both
 observed transitions through `0x0000a748 -> 0x0000a800`: the
 `0x0050002a != 17` retry-write and the `0x005000a6 != 0` alternate return. The
 unobserved deep-reset subpath at `0x0000a784` remains explicitly unsupported.
-
-The remaining acceptance work is to expose a ROM-backed
-`native-third-dispatch` command that starts from the already validated second
-`fa_game_info` boundary, executes at least one native block before applying the
-same-address stop condition, and uses the reusable differential runner to find
-and recover the first true repeated-frame divergence.
 
 See `docs/NATIVE_RUNTIME.md` and `docs/NATIVE_DIFFERENTIAL.md` for the APIs and
 current integration boundaries.
