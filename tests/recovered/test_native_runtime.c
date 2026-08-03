@@ -479,6 +479,168 @@ static void test_repeated_scheduler_entry_dispatches_recovery(void)
     free(rom);
 }
 
+
+static void seed_kill_osage_task(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t order_flags
+)
+{
+    const uint32_t osage0 = UINT32_C(0x00515f00);
+    const uint32_t osage1 = UINT32_C(0x00516180);
+
+    CHECK(vf2_model2a_write_u32(machine, UINT32_C(0x00500868), osage0) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(machine, UINT32_C(0x0050086c), osage1) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(machine, UINT32_C(0x00500020), order_flags) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(machine, VF2_TIMER_BASE + UINT32_C(0x0c), UINT32_C(0x0007a120)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(machine, osage0, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(machine, osage0 + UINT32_C(0x0c), UINT32_C(0x000640f4)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(machine, osage1, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(machine, osage1 + UINT32_C(0x0c), UINT32_C(0x000640f4)) == VF2_OK);
+
+    vf2_i960_cpu_reset(cpu, 0u, 0u, UINT32_C(0x00010d54));
+    cpu->registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x3000);
+    cpu->registers[29] = UINT32_C(0x00515e80);
+    CHECK(
+        vf2_i960_cpu_enter_procedure(
+            cpu,
+            UINT32_C(0x000657dc),
+            UINT32_C(0x00010dcc)
+        ) == VF2_OK
+    );
+}
+
+static void test_recurring_kill_osage_order_accounting(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state state;
+    vf2_native_runtime_step_report report;
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+
+    seed_kill_osage_task(&machine, &cpu, UINT32_C(1));
+    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
+    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_TASK);
+    CHECK(report.task_kind == VF2_HYBRID_TASK_KILL_OSAGE);
+    CHECK(report.recovered_instruction_count == UINT64_C(33));
+    CHECK(report.recovered_procedure_calls == UINT64_C(2));
+    CHECK(report.recovered_procedure_returns == UINT64_C(3));
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+
+    seed_kill_osage_task(&machine, &cpu, UINT32_C(2));
+    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
+    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_TASK);
+    CHECK(report.task_kind == VF2_HYBRID_TASK_KILL_OSAGE);
+    CHECK(report.recovered_instruction_count == UINT64_C(36));
+    CHECK(report.recovered_procedure_calls == UINT64_C(2));
+    CHECK(report.recovered_procedure_returns == UINT64_C(3));
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+
+    vf2_model2a_shutdown(&machine);
+}
+
+static void write_le32(uint8_t *bytes, size_t offset, uint32_t value)
+{
+    bytes[offset] = (uint8_t)value;
+    bytes[offset + 1u] = (uint8_t)(value >> 8u);
+    bytes[offset + 2u] = (uint8_t)(value >> 16u);
+    bytes[offset + 3u] = (uint8_t)(value >> 24u);
+}
+
+static void test_scheduler_finishes_after_early_last_active_task(void)
+{
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state state;
+    vf2_native_runtime_step_report report;
+    uint32_t value = 0u;
+    const uint32_t registry25 = UINT32_C(0x00515e80);
+    const uint32_t registry26 = UINT32_C(0x00515f00);
+    const uint32_t registry27 = UINT32_C(0x00516180);
+    const uint32_t registry28 = UINT32_C(0x00516400);
+    const uint32_t end_registry = UINT32_C(0x00516480);
+    const uint32_t scratch25 = UINT32_C(0x0050c320);
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (rom == NULL || machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+    write_le32(rom, UINT32_C(0x00011d94), UINT32_C(29));
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) == VF2_OK);
+
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000), UINT32_C(1) << 9u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00f00004), UINT32_C(0x000fffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00f00008), UINT32_C(0x000fffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry25 + UINT32_C(0x38), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry25 + UINT32_C(8), UINT32_C(0x80)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry26, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry26 + UINT32_C(8), UINT32_C(0x280)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry27, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry27 + UINT32_C(8), UINT32_C(0x280)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry28, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry28 + UINT32_C(8), UINT32_C(0x80)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, scratch25 + UINT32_C(8), UINT32_C(2)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, scratch25 + UINT32_C(0x10), UINT32_C(9)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, scratch25 + UINT32_C(0x20) + UINT32_C(0x10), UINT32_C(9)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, scratch25 + UINT32_C(0x40) + UINT32_C(0x10), UINT32_C(9)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, scratch25 + UINT32_C(0x60) + UINT32_C(0x10), UINT32_C(9)) == VF2_OK);
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x0000a010));
+    cpu.registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x3000);
+    CHECK(
+        vf2_i960_cpu_enter_procedure(
+            &cpu,
+            UINT32_C(0x00010dcc),
+            UINT32_C(0x0000a014)
+        ) == VF2_OK
+    );
+    cpu.registers[10] = scratch25;
+    cpu.registers[11] = UINT32_C(25);
+    cpu.registers[29] = registry25;
+
+    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
+    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH);
+    CHECK(report.current_task_index == 25u);
+    CHECK(report.next_task_index == 29u);
+    CHECK(report.descriptors_scanned == 4u);
+    CHECK(report.current_registry_address == registry25);
+    CHECK(report.next_registry_address == end_registry);
+    CHECK(report.recovered_instruction_count == UINT64_C(72));
+    CHECK(report.recovered_procedure_calls == UINT64_C(0));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(cpu.ip == UINT32_C(0x0000a014));
+    CHECK(cpu.registers[29] == end_registry);
+    CHECK(state.scheduler_finishes == 1u);
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500038), &value) == VF2_OK);
+    CHECK(value == UINT32_C(28));
+    CHECK(vf2_model2a_read_u32(&machine, scratch25 + UINT32_C(8), &value) == VF2_OK);
+    CHECK(value == UINT32_C(3));
+    CHECK(vf2_model2a_read_u32(&machine, scratch25 + UINT32_C(0x10), &value) == VF2_OK);
+    CHECK(value == 0u);
+    CHECK(vf2_model2a_read_u32(&machine, scratch25 + UINT32_C(0x20) + UINT32_C(0x10), &value) == VF2_OK);
+    CHECK(value == 0u);
+    CHECK(vf2_model2a_read_u32(&machine, scratch25 + UINT32_C(0x40) + UINT32_C(0x10), &value) == VF2_OK);
+    CHECK(value == 0u);
+    CHECK(vf2_model2a_read_u32(&machine, scratch25 + UINT32_C(0x60) + UINT32_C(0x10), &value) == VF2_OK);
+    CHECK(value == 0u);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 int main(void)
 {
     test_initialize_and_names();
@@ -488,6 +650,8 @@ int main(void)
     test_budget_and_unsupported_are_explicit();
     test_multi_frame_run();
     test_repeated_scheduler_entry_dispatches_recovery();
+    test_recurring_kill_osage_order_accounting();
+    test_scheduler_finishes_after_early_last_active_task();
 
     if (failures != 0) {
         fprintf(stderr, "%d native-runtime test(s) failed\n", failures);

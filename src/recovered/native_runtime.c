@@ -488,8 +488,49 @@ static vf2_status execute_second_sweep_scheduler_transition(
         );
     }
 
-    if (status != VF2_OK || scanned == 0u || next_entry == 0u) {
+    if (status != VF2_OK || scanned == 0u) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    if (next_entry == 0u) {
+        uint32_t end_stride = 0u;
+        uint32_t end_registry = 0u;
+        const size_t descriptors_to_end = scanned + 1u;
+        const uint64_t finish_instructions =
+            (uint64_t)descriptors_to_end * UINT64_C(16) + UINT64_C(8);
+
+        status = vf2_model2a_read_u32(
+            machine, next_registry + UINT32_C(8), &end_stride
+        );
+        if (status != VF2_OK || end_stride == 0u ||
+            next_index + 1u != task_count) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        end_registry = next_registry + end_stride;
+
+        cpu->registers[29] = end_registry;
+        cpu->arithmetic_control &= ~UINT32_C(7);
+        cpu->compare_result = VF2_I960_COMPARE_GREATER;
+        cpu->executed_instructions += finish_instructions - UINT64_C(1);
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
+        }
+        if (status != VF2_OK || cpu->ip != VF2_NATIVE_MAIN_AFTER_SCHEDULER) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+
+        report->kind = VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH;
+        report->exit_address = cpu->ip;
+        report->current_task_index = current_index;
+        report->next_task_index = task_count;
+        report->descriptors_scanned = descriptors_to_end;
+        report->current_registry_address = current_registry;
+        report->next_registry_address = end_registry;
+        report->recovered_instruction_count = finish_instructions;
+        report->recovered_procedure_calls = UINT64_C(0);
+        report->recovered_procedure_returns = UINT64_C(1);
+        return VF2_OK;
     }
 
     cpu->registers[3] = task_count;
@@ -637,15 +678,27 @@ vf2_status vf2_native_runtime_step(
         const int recurring_kill =
             cpu->ip == VF2_NATIVE_KILL_OSAGE_TASK_ENTRY &&
             cpu->registers[29] == UINT32_C(0x00515e80);
+        uint32_t kill_order_flags = 0u;
+        int recurring_kill_skips_swap = 0;
         vf2_hybrid_task_report task_report;
         memset(&task_report, 0, sizeof(task_report));
-        status = vf2_hybrid_first_dispatch_task_execute(
-            machine, cpu, cpu->registers[29], &task_report
-        );
+        if (recurring_kill) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00500020), &kill_order_flags
+            );
+            recurring_kill_skips_swap =
+                status == VF2_OK && (kill_order_flags & UINT32_C(1)) != 0u;
+        }
+        if (status == VF2_OK) {
+            status = vf2_hybrid_first_dispatch_task_execute(
+                machine, cpu, cpu->registers[29], &task_report
+            );
+        }
 
-        /* The recurring kill-osage path skips three first-dispatch setup
-         * instructions but has identical memory and register postconditions. */
-        if (status == VF2_OK && recurring_kill) {
+        /* fa_kill_osage swaps its two record pointers with three mov
+         * instructions when order bit 0 is clear. Only the recurring path
+         * with bit 0 set skips those instructions. */
+        if (status == VF2_OK && recurring_kill_skips_swap) {
             if (cpu->executed_instructions < UINT64_C(3) ||
                 task_report.recovered_instruction_count < UINT64_C(3)) {
                 status = VF2_ERROR_UNSUPPORTED;
