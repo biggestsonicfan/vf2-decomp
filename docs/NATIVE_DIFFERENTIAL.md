@@ -81,7 +81,7 @@ native runtime state and delegates the repeated-frame corridor to
 The command reports the first unsupported native block or first exact CPU,
 counter, frame-event or mutable-memory difference. Its strict acceptance guards
 expect the evidence-backed repeated corridor to return to the third
-`fa_game_info` entry after 42 compared blocks and 55,237 instructions on both
+`fa_game_info` entry after 42 compared blocks and 55,239 instructions on both
 sides. These values remain rejection criteria until the command is run with the
 supported proprietary ROM set; GitHub Actions cannot execute the ROM-backed
 test.

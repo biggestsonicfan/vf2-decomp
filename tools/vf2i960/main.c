@@ -4982,8 +4982,8 @@ static int command_native_dispatch_ex(
         }
         if (status == VF2_OK &&
             (third_report.blocks_compared != 42u ||
-             third_report.reference_instructions_executed != UINT64_C(55237) ||
-             third_report.native_recovered_instructions != UINT64_C(55237) ||
+             third_report.reference_instructions_executed != UINT64_C(55239) ||
+             third_report.native_recovered_instructions != UINT64_C(55239) ||
              original_cpu.registers[29] != third_registry ||
              native_cpu.registers[29] != third_registry)) {
             status = VF2_ERROR_UNSUPPORTED;

@@ -2595,6 +2595,10 @@ vf2_status execute_texture_final_status_call(
     uint32_t counter1 = 0u;
     uint32_t counter2 = 0u;
     uint32_t runtime_flags = 0u;
+    uint64_t instructions = UINT64_C(4);
+    uint64_t changed_values = UINT64_C(1);
+    size_t bytes_written = 2u;
+    size_t counters_read = 1u;
     vf2_status status = VF2_OK;
 
     if (cpu->local_frame_depth == 0u) {
@@ -2607,59 +2611,82 @@ vf2_status execute_texture_final_status_call(
             machine, VF2_TEXTURE_COUNTER0, &counter0
         );
     }
-    if (status == VF2_OK) {
-        cpu->registers[14] = counter0;
-        if (counter0 != 0u) {
-            return VF2_ERROR_UNSUPPORTED;
-        }
-        status = vf2_model2a_read_u32(
-            machine, VF2_TEXTURE_COUNTER1, &counter1
-        );
-    }
-    if (status == VF2_OK) {
-        cpu->registers[14] = counter1;
-        if (counter1 != 0u) {
-            return VF2_ERROR_UNSUPPORTED;
-        }
-        status = vf2_model2a_read_u32(
-            machine, VF2_TEXTURE_COUNTER2, &counter2
-        );
-    }
-    if (status == VF2_OK) {
-        cpu->registers[14] = counter2;
-        if (counter2 == 0u) {
-            return VF2_ERROR_UNSUPPORTED;
-        }
-        status = vf2_model2a_read_u32(
-            machine, VF2_TEXTURE_RUNTIME_FLAGS, &runtime_flags
-        );
-    }
     if (status != VF2_OK) {
         return status;
     }
-    cpu->registers[15] = runtime_flags;
-    if ((runtime_flags & (UINT32_C(1) << 9u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
+
+    cpu->registers[14] = counter0;
+    if (counter0 == 0u) {
+        status = vf2_model2a_read_u32(
+            machine, VF2_TEXTURE_COUNTER1, &counter1
+        );
+        instructions += UINT64_C(2);
+        ++counters_read;
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[14] = counter1;
+        if (counter1 == 0u) {
+            status = vf2_model2a_read_u32(
+                machine, VF2_TEXTURE_COUNTER2, &counter2
+            );
+            instructions += UINT64_C(2);
+            ++counters_read;
+            if (status != VF2_OK) {
+                return status;
+            }
+            cpu->registers[14] = counter2;
+            if (counter2 == 0u) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00550000), 0u
+                );
+                instructions += UINT64_C(2);
+                ++changed_values;
+                bytes_written += 4u;
+                if (status != VF2_OK) {
+                    return status;
+                }
+            }
+        }
     }
 
-    status = vf2_i960_cpu_enter_procedure(
-        cpu,
-        VF2_TEXTURE_FINAL_STATUS_TARGET,
-        VF2_TEXTURE_FINAL_STATUS_RETURN
+    status = vf2_model2a_read_u32(
+        machine, VF2_TEXTURE_RUNTIME_FLAGS, &runtime_flags
     );
     if (status != VF2_OK) {
         return status;
     }
-    cpu->executed_instructions += UINT64_C(11);
+    cpu->registers[15] = runtime_flags;
+    instructions += UINT64_C(2);
+
+    if ((runtime_flags & (UINT32_C(1) << 9u)) != 0u) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status != VF2_OK) {
+            return status;
+        }
+        ++instructions;
+        report->recovered_procedure_returns = UINT64_C(1);
+    } else {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu,
+            VF2_TEXTURE_FINAL_STATUS_TARGET,
+            VF2_TEXTURE_FINAL_STATUS_RETURN
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        ++instructions;
+        report->recovered_procedure_calls = UINT64_C(1);
+    }
+    cpu->executed_instructions += instructions;
 
     report->kind = VF2_HYBRID_BRIDGE_TEXTURE_FINAL_STATUS_CALL;
     report->entry_address = VF2_TEXTURE_FINAL_STATUS_ENTRY;
     report->exit_address = cpu->ip;
-    report->iterations = UINT64_C(1);
-    report->changed_values = UINT64_C(1);
-    report->bytes_written = 2u;
-    report->recovered_instruction_count = UINT64_C(11);
-    report->recovered_procedure_calls = UINT64_C(1);
+    report->iterations = counters_read;
+    report->changed_values = changed_values;
+    report->bytes_written = bytes_written;
+    report->recovered_instruction_count = instructions;
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }

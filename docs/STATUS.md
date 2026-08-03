@@ -114,7 +114,7 @@ in **v0.1.0**:
 The command now uses `vf2_native_differential_run_until_after` with a minimum of
 one block because both its start and destination are `fa_game_info` at
 `0x0001645c`. Its strict acceptance profile expects the recovered repeated-frame
-corridor to reach the third task entry after 42 compared blocks and 55,237
+corridor to reach the third task entry after 42 compared blocks and 55,239
 instructions. Those totals are encoded as rejection guards, not claimed as a
 new ROM-backed result until the command is executed against the supported ROM
 set.
