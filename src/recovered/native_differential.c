@@ -88,6 +88,21 @@ vf2_status vf2_native_differential_run_until(
         );
         status = VF2_ERROR_UNSUPPORTED;
     }
+    if (status == VF2_OK) {
+        memset(&local_report.diff, 0, sizeof(local_report.diff));
+        status = compare_complete_state(
+            reference_machine,
+            reference_cpu,
+            native_machine,
+            native_cpu,
+            &reference_snapshot,
+            &native_snapshot,
+            &local_report.diff
+        );
+    }
+    if (status == VF2_OK && !local_report.diff.equal) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
 
     while (status == VF2_OK &&
            native_cpu->ip != stop_address &&
