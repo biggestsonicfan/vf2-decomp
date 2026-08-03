@@ -68,6 +68,8 @@ static void test_complete_inactive_scan(void)
         write_record_count(&machine, index, 0u);
     }
     enter_scan(&cpu);
+    cpu.compare_result = VF2_I960_COMPARE_LESS;
+    cpu.arithmetic_control = UINT32_C(0x3f001004);
 
     CHECK(
         vf2_orchestrator_scan_inactive_records(
@@ -89,8 +91,8 @@ static void test_complete_inactive_scan(void)
     CHECK(cpu.registers[3] == 0u);
     CHECK(cpu.registers[5] == VF2_ORCHESTRATOR_RECORD_END);
     CHECK(cpu.registers[6] == VF2_ORCHESTRATOR_RECORD_END);
-    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
-    CHECK((cpu.arithmetic_control & UINT32_C(7)) == UINT32_C(2));
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_LESS);
+    CHECK(cpu.arithmetic_control == UINT32_C(0x3f001004));
 
     vf2_model2a_shutdown(&machine);
 }
