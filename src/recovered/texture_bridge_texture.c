@@ -187,6 +187,75 @@ vf2_status execute_texture_maintenance(
     return VF2_OK;
 }
 
+static vf2_status execute_pending_texture_palette_upload(
+    vf2_model2a *machine
+)
+{
+    const uint32_t source_base = UINT32_C(0x0210b3e0);
+    const uint32_t destination_base = UINT32_C(0x01811c60);
+    const uint32_t translation_bases[3] = {
+        UINT32_C(0x00544000),
+        UINT32_C(0x00544200),
+        UINT32_C(0x00544400)
+    };
+    const uint32_t destination_plane_offsets[3] = {
+        UINT32_C(0),
+        UINT32_C(0x00004000),
+        UINT32_C(0x00008000)
+    };
+    uint32_t row = 0u;
+    uint32_t plane = 0u;
+    uint32_t column = 0u;
+
+    if (machine == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    for (row = 0u; row < UINT32_C(7); ++row) {
+        const uint32_t row_source =
+            source_base + row * UINT32_C(0x60);
+        const uint32_t row_destination =
+            destination_base + row * UINT32_C(0x200);
+
+        for (plane = 0u; plane < UINT32_C(3); ++plane) {
+            const uint32_t plane_source =
+                row_source + plane * UINT32_C(0x20);
+            const uint32_t plane_destination =
+                row_destination + destination_plane_offsets[plane];
+
+            for (column = 0u; column < UINT32_C(16); ++column) {
+                uint16_t source_index = 0u;
+                uint16_t translated_color = 0u;
+                vf2_status status = read_u16(
+                    machine,
+                    plane_source + column * UINT32_C(2),
+                    &source_index
+                );
+
+                if (status == VF2_OK) {
+                    status = read_u16(
+                        machine,
+                        translation_bases[plane] +
+                            (uint32_t)source_index * UINT32_C(2),
+                        &translated_color
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = write_u16(
+                        machine,
+                        plane_destination + column * UINT32_C(2),
+                        translated_color
+                    );
+                }
+                if (status != VF2_OK) {
+                    return status;
+                }
+            }
+        }
+    }
+    return VF2_OK;
+}
+
 vf2_status execute_texture_upload_dispatch(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -199,6 +268,7 @@ vf2_status execute_texture_upload_dispatch(
         UINT32_C(0x005502b8)
     };
     uint32_t index = 0u;
+    uint32_t pending_index = UINT32_C(3);
     uint16_t value = 0u;
     vf2_status status = VF2_OK;
 
@@ -213,9 +283,62 @@ vf2_status execute_texture_upload_dispatch(
         }
         cpu->registers[3] = value;
         if (value == UINT16_C(1)) {
-            return VF2_ERROR_UNSUPPORTED;
+            pending_index = index;
+            break;
         }
     }
+
+    if (pending_index < UINT32_C(3)) {
+        uint16_t argument0 = 0u;
+        uint16_t argument1 = 0u;
+
+        if (pending_index != UINT32_C(2)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = read_u16(
+            machine, addresses[pending_index] + UINT32_C(2), &argument0
+        );
+        if (status == VF2_OK) {
+            status = read_u16(
+                machine, addresses[pending_index] + UINT32_C(4), &argument1
+            );
+        }
+        if (status != VF2_OK || argument0 != 0u ||
+            argument1 != UINT16_C(0x000b)) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        status = write_u16(machine, addresses[pending_index], 0u);
+        if (status == VF2_OK) {
+            status = execute_pending_texture_palette_upload(machine);
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x10);
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(6);
+        cpu->registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(0x02109700);
+        account_nested_procedure(cpu, UINT64_C(2), UINT64_C(2));
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->executed_instructions += UINT64_C(2035);
+
+        report->kind = VF2_HYBRID_BRIDGE_TEXTURE_UPLOAD_DISPATCH;
+        report->entry_address = VF2_TEXTURE_UPLOAD_DISPATCH_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = UINT64_C(125);
+        report->changed_values = UINT64_C(337);
+        report->bytes_written = 674u;
+        report->recovered_instruction_count = UINT64_C(2035);
+        report->recovered_procedure_calls = UINT64_C(2);
+        report->recovered_procedure_returns = UINT64_C(3);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+
     status = vf2_i960_cpu_enter_procedure(
         cpu,
         VF2_TEXTURE_UPLOAD_DISPATCH_TARGET,
@@ -2788,7 +2911,136 @@ vf2_status execute_texture_counter_update(
     if (status != VF2_OK) {
         return status;
     }
-    if (counter2 <= UINT32_C(1)) {
+    if (counter2 == UINT32_C(1)) {
+        uint32_t argument0 = 0u;
+        uint32_t argument1 = 0u;
+        uint32_t argument2 = 0u;
+        uint16_t status_word = 0u;
+        uint32_t helper_stack = 0u;
+
+        cpu->registers[4] = 0u;
+        set_equal_condition(cpu);
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_COUNTER2, 0u
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, VF2_TEXTURE_COUNTER2 + UINT32_C(4), &argument0
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, VF2_TEXTURE_COUNTER2 + UINT32_C(8), &argument1
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, VF2_TEXTURE_COUNTER2 + UINT32_C(12), &argument2
+            );
+        }
+        if (status == VF2_OK) {
+            status = read_u16(machine, VF2_TEXTURE_STATUS_WORD, &status_word);
+        }
+        if (status != VF2_OK || argument0 > UINT32_C(0x56) ||
+            status_word >= UINT16_C(1)) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+
+        cpu->registers[VF2_I960_G0_REGISTER] = argument0;
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = argument2;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x0004b44c), VF2_TEXTURE_COUNTER_UPDATE_EXIT
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        helper_stack = cpu->registers[1];
+        status = vf2_model2a_write_u32(machine, helper_stack, argument1);
+        if (status != VF2_OK) {
+            return status;
+        }
+
+        cpu->registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(1);
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(0x00550288);
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00550000), UINT32_C(1)
+        );
+        if (status == VF2_OK) {
+            status = write_u16(
+                machine, UINT32_C(0x00550288), (uint16_t)argument0
+            );
+        }
+        if (status == VF2_OK) {
+            status = write_u16(
+                machine, UINT32_C(0x0055028a), UINT16_MAX
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x00550298), 0u
+            );
+        }
+        if (status == VF2_OK) {
+            status = write_u16(
+                machine, UINT32_C(0x005502a4), UINT16_C(1)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x0055000c), 0u
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x00550080), 0u
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x005500f4), 0u
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(0x005502b8);
+        status = write_u16(
+            machine, UINT32_C(0x005502b8), UINT16_C(1)
+        );
+        if (status == VF2_OK) {
+            status = write_u16(
+                machine, UINT32_C(0x005502bc), (uint16_t)argument1
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+
+        account_nested_procedure(cpu, UINT64_C(2), UINT64_C(2));
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status != VF2_OK || cpu->ip != VF2_TEXTURE_COUNTER_UPDATE_EXIT) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        cpu->executed_instructions += UINT64_C(55);
+
+        report->kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE;
+        report->entry_address = VF2_TEXTURE_COUNTER_UPDATE_ENTRY;
+        report->exit_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
+        report->iterations = UINT64_C(3);
+        report->changed_values = UINT64_C(12);
+        report->bytes_written = 38u;
+        report->recovered_instruction_count = UINT64_C(55);
+        report->recovered_procedure_calls = UINT64_C(3);
+        report->recovered_procedure_returns = UINT64_C(3);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+    if (counter2 == 0u) {
         return VF2_ERROR_UNSUPPORTED;
     }
     cpu->registers[4] = counter2 - UINT32_C(1);

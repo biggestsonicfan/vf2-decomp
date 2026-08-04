@@ -2779,8 +2779,29 @@ vf2_status execute_interrupt_initial_cluster(
             machine, cpu, &dispatch_report
         );
     }
-    if (status != VF2_OK || cpu->ip != VF2_PALETTE_PAGE_UPLOAD_ENTRY) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (cpu->ip == UINT32_C(0x00000c0c)) {
+        cpu->executed_instructions += UINT64_C(3);
+        report->kind = VF2_HYBRID_BRIDGE_INTERRUPT_INITIAL_CLUSTER;
+        report->entry_address = VF2_INTERRUPT_INITIAL_CLUSTER_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = dispatch_report.iterations;
+        report->bytes_written =
+            compose_report.bytes_written + latch_report.bytes_written +
+            dispatch_report.bytes_written;
+        report->recovered_instruction_count =
+            cpu->executed_instructions - start_instructions;
+        report->recovered_procedure_calls =
+            cpu->procedure_calls - start_calls;
+        report->recovered_procedure_returns =
+            cpu->procedure_returns - start_returns;
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+    if (cpu->ip != VF2_PALETTE_PAGE_UPLOAD_ENTRY) {
+        return VF2_ERROR_UNSUPPORTED;
     }
     status = execute_palette_page_upload(machine, cpu, &upload_report);
     if (status != VF2_OK || cpu->ip != UINT32_C(0x0004bab4)) {
