@@ -34,8 +34,11 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    printf("vf2-decomp bootstrap v%s\n", VF2_VERSION_STRING);
-    printf("This release is an analysis scaffold, not a playable port.\n\n");
+    printf("vf2-decomp v%s\n", VF2_VERSION_STRING);
+    printf(
+        "This release validates a repeated-frame recovered native runtime "
+        "corridor; it is not yet a playable port.\n\n"
+    );
 
     status = vf2_romset_verify(rom_directory, NULL, &summary);
     if (status != VF2_OK) {
@@ -97,7 +100,11 @@ int main(int argc, char **argv)
     printf("SAT:     0x%08x\n", (unsigned)recovered.system_address_table);
     printf("PRCB:    0x%08x\n", (unsigned)recovered.initial_prcb);
     printf("Entry:   0x%08x\n", (unsigned)recovered.initial_entry);
-    printf("\nNext milestone: decompose the post-frame bridge between scheduler passes.\n");
+    printf("\nCurrent milestone: repeated-frame native runtime through third dispatch.\n");
+    printf(
+        "Next milestone: recover game subsystems and extend execution beyond "
+        "the third scheduler entry.\n"
+    );
 
     free(maincpu);
     return EXIT_SUCCESS;
