@@ -222,30 +222,47 @@
 - added 566 recovered instructions across 14 blocks and returned to the main
   loop at `0x0000a014`.
 
-## v0.0.25 — consolidação — complete
+## v0.0.25 — consolidation — complete
 
 - updated project status, version, and roadmap to fix document inconsistencies;
 - mapped all known unobserved/uncovered branches of the scheduler and tasks to `docs/UNCOVERED_BRANCHES.md`;
 - refactored the post-frame bridge in `src/recovered/texture_bridge.c` into modular subsystems (`texture`, `video`, `geometry`, `input`, `match`);
 - added a multi-frame execution and interrupt test to `tests/recovered/test_native_runtime.c`.
 
-## v0.1.0 — repeated-frame native runtime
+## v0.1.0 — repeated-frame native runtime — complete
 
-- route main-loop, geometry, texture, frame timer and interrupt blocks through
+- routed main-loop, geometry, texture, frame timer and interrupt blocks through
   `vf2_native_runtime`;
-- execute another complete frame boundary and vector-12 interrupt;
-- reach and validate the third scheduler sweep;
-- preserve all 29 task contexts across repeated cycles;
-- make the differential CLI and future platform executable consume the same
-  runtime dispatcher;
-- keep native-side interpreter fallback at zero.
+- executed another complete frame boundary and vector-12 interrupt;
+- reached and differentially validated the third scheduler sweep entry;
+- preserved all 29 task contexts across repeated cycles;
+- made the differential CLI and platform-facing runtime consume the same
+  dispatcher;
+- retained zero native-side interpreter fallback;
+- accepted 42 repeated-frame differential blocks and 55,239 instructions;
+- reached 1,326,061 continuous recovered instructions.
+
+## v0.1.1 — repeated-corridor hardening — complete
+
+- handled dynamic late-sweep scheduling when the final active task changes;
+- preserved recurring `fa_kill_osage` instruction accounting for both order-bit
+  paths;
+- recovered the observed expiring texture-counter transition;
+- recovered the pending palette translation/upload path;
+- kept unsupported texture variants explicit rather than falling back to the
+  i960 interpreter;
+- aligned build, public version, executable output and project documentation.
 
 ## v0.2.0 — game subsystems
 
+- extend continuous native execution through the complete third scheduler sweep
+  and subsequent repeated frames;
 - fighter and object structures;
 - camera, collision, animation and sound tasks;
 - input and match-state logic;
-- evidence-backed types for major `fa_*` states.
+- evidence-backed types for major `fa_*` states;
+- replace observed-path special cases with reusable subsystem state machines as
+  evidence becomes available.
 
 ## v0.3.0 — geometry path
 
