@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     vf2_decomp
-    VERSION 0.0.25
+    VERSION 0.1.1
     DESCRIPTION "Clean-room, non-matching C decompilation project for Virtua Fighter 2 Version 2.1"
     LANGUAGES C
 )
