@@ -1,8 +1,8 @@
-# Mapping of Uncovered and Unobserved Branches (v0.1.2)
+# Mapping of Uncovered and Unobserved Branches (v0.1.3)
 
 This document catalogs major unobserved execution paths and unrecovered
 subsystems in Virtua Fighter 2 Version 2.1. The accepted clean-room corridor now
-runs through the fourth `fa_game_info` entry, but it remains one evidence-backed
+runs through the fifth `fa_game_info` entry, but it remains one evidence-backed
 sequence rather than a complete game implementation. Unsupported paths return
 `VF2_ERROR_UNSUPPORTED` instead of falling back to i960 interpretation.
 
@@ -19,7 +19,7 @@ handles the observed changing final active task. Still uncovered:
 
 ## 2. Gameplay (`fa_game_info` and related gates)
 
-The fourth-dispatch corridor now includes active input/state selector fast paths,
+The accepted corridor includes active input/state selector fast paths,
 the player-update bit-14 exit and their observed sequence gates. Still missing:
 
 - character and arena selection;
@@ -38,10 +38,12 @@ remain unsupported.
 
 ## 4. Texture, video and geometry bridge
 
-The observed texture expiration and pending palette upload are recovered, and
-video-layer rejection now preflights inputs before writes. Still uncovered:
+The observed texture expiration, pending palette upload and first non-zero
+five-level stream expansion are recovered. Video-layer rejection preflights
+inputs before writes. Still uncovered:
 
 - alternate texture records, page formats, palette arguments and cache states;
+- other stream headers, dimensions, timer states and mip layouts;
 - compressed-stream corruption and invalid symbol/pair indexes;
 - geometry ring-register patterns outside the accepted sequence;
 - TGP command protocol, transforms, clipping, projection and rasterization; and

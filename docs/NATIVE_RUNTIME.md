@@ -34,54 +34,54 @@ Repeated cycles begin and end at the same `fa_game_info` address. The native
 differential layer therefore exposes a minimum-block stop contract so the
 current address is not mistaken for completion of another cycle.
 
-## Accepted fourth-dispatch corridor
+## Accepted fifth-dispatch corridor
 
-The v0.1.2 runtime composes:
+The v0.1.3 runtime composes:
 
-1. the complete observed second scheduler sweep;
-2. its geometry, texture, game, tile, timer and interrupt/frame-wait path;
-3. the third scheduler entry;
-4. the complete observed third scheduler sweep;
-5. the next geometry, input, game-state, diagnostic and frame-dispatch paths;
-6. another four-visit frame wait and vector-12 interrupt; and
-7. the fourth `fa_game_info` entry at `0x0001645c`.
+1. the complete observed second and third scheduler sweeps accepted previously;
+2. the fourth scheduler entry;
+3. the complete observed fourth scheduler sweep;
+4. a large texture-orchestrator interval with a non-zero compressed stream;
+5. the next geometry, game, timer, interrupt and frame-wait paths; and
+6. the fifth `fa_game_info` entry at `0x0001645c`.
 
 The strict command is:
 
 ```sh
-vf2i960 native-fourth-dispatch /path/to/vf2
+vf2i960 native-fifth-dispatch /path/to/vf2
 ```
 
 It requires exactly:
 
-- **78** repeated-frame differential blocks;
-- **58,869** reference and recovered-native instructions;
-- **1,329,691** continuous recovered instructions including the historical
+- **830** repeated-frame differential blocks;
+- **7,402,741** reference and recovered-native instructions;
+- **8,673,563** continuous recovered instructions including the historical
   bridge; and
 - zero native-side interpreter fallbacks.
 
-`native-third-dispatch` remains a separate regression contract at 42 blocks and
-55,239 instructions.
+`native-third-dispatch` and `native-fourth-dispatch` remain separate regression
+contracts at 42 / 55,239 and 78 / 58,869 respectively.
 
-## Newly accepted variants
+## Newly accepted texture interval
 
-The fourth-dispatch extension recovers evidence-bounded branches for:
+The fourth sweep exposes the first observed non-zero stream at `0x0004be6c`.
+The recovered C path validates the header and timer preconditions, expands five
+mipmap levels and reproduces the measured CPU and memory poststate:
 
-- the player-update gate when runtime bit 14 is set;
-- non-zero game input/state selector masks;
-- memory-diagnostic frame modes 16 and 17;
-- the frame-counter active-selector return; and
-- frame dispatcher selector 17 with non-zero phase state, bit-7-clear phase
-  index and the observed clear gameplay-mask combination.
+- **35,059** instructions;
+- two nested procedure calls and two returns;
+- **43,648** source bytes consumed;
+- **87,296** texture bytes written; and
+- 5 levels with decreasing 128, 64, 32, 16 and 8 row counts.
 
-The phase-17 path preserves the live player pointers and measured procedure,
-return, stack and condition-code poststate. Deeper phase-17 variants remain
-unsupported.
+Each 16-byte source group is copied to the destination and followed by four
+32-bit values containing the upper half of each source word. Destination rows
+use the observed `0x800` stride. Header variants, malformed dimensions and
+unobserved timer states remain explicitly unsupported.
 
-The interrupt player-layer composes nested CPU updates against a candidate and
-commits only on success. The video layer preflights its complete observed input
-state before writes so a rejected mode does not partially change video or
-palette memory. ROM-independent tests cover both rejection properties.
+The same corridor also recovers a texture-record scan with nine inactive
+records before the live record, the no-pending stream resume gate and the
+zero-counter completion path.
 
 ## Accounting and validation
 
@@ -95,14 +95,15 @@ reported native instruction count, mirrors deterministic host frame events and
 compares complete CPU state, local frames and all mutable Model 2 memory after
 every block.
 
-The current CMake configuration exposes 8 ROM-independent and 24 ROM-backed
-tests. All 32 passed against the supported ROM set, and the ROM-independent
-suite passed under ASan, UBSan and LeakSanitizer.
+The current CMake configuration exposes 8 ROM-independent and 25 ROM-backed
+tests. All 33 pass against the supported ROM set, and the ROM-independent suite
+passes under ASan, UBSan and LeakSanitizer.
 
 ## Next integration
 
-The current native boundary is the fourth `fa_game_info` entry. The next target
-is the complete fourth scheduler sweep and the first unsupported state reached
-after it. Each new branch should retain an exact differential contract and a
-synthetic state regression where practical before broader fighter, object,
-match, animation, collision and input types are introduced.
+The current native boundary is the fifth `fa_game_info` entry. The next target
+is the complete fifth scheduler sweep and the first unsupported state after it,
+followed by longer endurance runs. Each new branch should retain an exact
+differential contract and a synthetic state regression where practical before
+broader fighter, object, match, animation, collision and input types are
+introduced.

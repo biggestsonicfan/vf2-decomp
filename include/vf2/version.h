@@ -3,7 +3,7 @@
 
 #define VF2_VERSION_MAJOR 0
 #define VF2_VERSION_MINOR 1
-#define VF2_VERSION_PATCH 2
-#define VF2_VERSION_STRING "0.1.2"
+#define VF2_VERSION_PATCH 3
+#define VF2_VERSION_STRING "0.1.3"
 
 #endif

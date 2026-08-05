@@ -330,6 +330,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
             machine, cpu, &local_report
         );
         break;
+    case VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY:
+        status = execute_texture_stream_resume_gate(
+            machine, cpu, &local_report
+        );
+        break;
     default:
         status = VF2_ERROR_UNSUPPORTED;
         break;

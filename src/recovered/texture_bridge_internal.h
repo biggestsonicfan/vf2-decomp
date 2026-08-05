@@ -96,6 +96,9 @@
 #define VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY UINT32_C(0x0004bd5c)
 #define VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT UINT32_C(0x0004bde0)
 #define VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY UINT32_C(0x0004be6c)
+#define VF2_TEXTURE_STREAM_EXPAND_ENTRY UINT32_C(0x0004c9dc)
+#define VF2_TEXTURE_STREAM_EXPAND_RETURN UINT32_C(0x0004be80)
+#define VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY UINT32_C(0x0004be80)
 #define VF2_TEXTURE_STREAM_HEADER_CALL_RETURN UINT32_C(0x0004bebc)
 #define VF2_GAME_EVENT_QUEUE_MMIO UINT32_C(0x00e80004)
 #define VF2_TEXTURE_ORCHESTRATOR_SAVE_ENTRY UINT32_C(0x0004bb18)
@@ -251,6 +254,7 @@ vf2_status execute_texture_upload_dispatch(vf2_model2a *machine, vf2_i960_cpu *c
 vf2_status execute_texture_orchestrator_entry_gate(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_texture_record_status_setup(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_texture_stream_header_call(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
+vf2_status execute_texture_stream_resume_gate(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_texture_convert_loop(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_texture_convert_post(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_timer_wait_update(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);

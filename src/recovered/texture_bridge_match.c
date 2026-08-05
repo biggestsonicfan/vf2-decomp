@@ -554,9 +554,13 @@ vf2_status execute_system_memory_diagnostic(
         return status;
     }
     if (frame_mode == UINT8_C(16) || frame_mode == UINT8_C(17)) {
+        const uint64_t instructions = frame_mode == UINT8_C(17)
+            ? UINT64_C(67)
+            : UINT64_C(66);
+
         set_equal_condition(cpu);
         account_nested_procedure(cpu, UINT64_C(1), UINT64_C(1));
-        status = finish_recovered_procedure(machine, cpu, UINT64_C(66));
+        status = finish_recovered_procedure(machine, cpu, instructions);
         if (status != VF2_OK) {
             return status;
         }
@@ -565,7 +569,7 @@ vf2_status execute_system_memory_diagnostic(
         report->exit_address = cpu->ip;
         report->iterations = UINT64_C(4);
         report->bytes_written = 16u;
-        report->recovered_instruction_count = UINT64_C(66);
+        report->recovered_instruction_count = instructions;
         report->recovered_procedure_calls = UINT64_C(1);
         report->recovered_procedure_returns = UINT64_C(2);
         report->cpu_poststate_applied = 1;

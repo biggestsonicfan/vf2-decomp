@@ -268,9 +268,23 @@
   branches and preflighted video-layer inputs before writes;
 - added ROM-independent regressions and a twenty-fourth ROM-backed CTest target.
 
+## v0.1.3 — fifth-dispatch acceptance — complete
+
+- recovered the complete observed fourth scheduler sweep and subsequent frame
+  boundary;
+- added `vf2i960 native-fifth-dispatch` with an exact 830-block / 7,402,741-
+  instruction differential contract;
+- reached 8,673,563 continuous recovered instructions with zero native-side
+  interpreter fallback;
+- recovered the first observed non-zero texture stream and five mipmap levels;
+- accepted leading inactive texture records, the no-pending resume gate and the
+  zero-counter completion path;
+- distinguished the mode-17 diagnostic instruction profile from mode 16;
+- added synthetic regressions and a twenty-fifth ROM-backed CTest target.
+
 ## v0.2.0 — game subsystems
 
-- extend continuous native execution through the complete fourth scheduler sweep,
+- extend continuous native execution through the complete fifth scheduler sweep,
   subsequent state transitions and long-running repeated frames;
 - fighter and object structures;
 - camera, collision, animation and sound tasks;

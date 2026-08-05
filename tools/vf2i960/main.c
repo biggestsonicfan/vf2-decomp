@@ -53,6 +53,7 @@ static void usage(const char *program)
         "  %s native-second-dispatch <rom-directory>\n"
         "  %s native-third-dispatch <rom-directory>\n"
         "  %s native-fourth-dispatch <rom-directory>\n"
+        "  %s native-fifth-dispatch <rom-directory>\n"
         "  %s compare-texture-bridge <rom-directory>\n"
         "  %s compare-post-frame-bridge <rom-directory>\n"
         "  %s compare-geometry-boundary <rom-directory>\n"
@@ -62,6 +63,7 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program,
         program,
         program,
         program,
@@ -3467,6 +3469,7 @@ static int command_native_dispatch_ex(
     bool continue_to_second_dispatch,
     bool native_third_dispatch,
     bool native_fourth_dispatch,
+    bool native_fifth_dispatch,
     bool observe_third_sweep
 )
 {
@@ -4961,23 +4964,32 @@ static int command_native_dispatch_ex(
     }
 
     if (status == VF2_OK &&
-        (native_third_dispatch || native_fourth_dispatch)) {
+        (native_third_dispatch || native_fourth_dispatch ||
+         native_fifth_dispatch)) {
         const uint32_t repeated_entry = plan.runnable_entry_points[0];
         const uint32_t repeated_registry = plan.runnable_registry_addresses[0];
-        const size_t minimum_blocks = native_fourth_dispatch ? 43u : 1u;
-        const size_t expected_blocks = native_fourth_dispatch ? 78u : 42u;
-        const uint64_t expected_instructions = native_fourth_dispatch
-            ? UINT64_C(58869)
-            : UINT64_C(55239);
-        const char *dispatch_label = native_fourth_dispatch
-            ? "fourth"
-            : "third";
+        const size_t minimum_blocks = native_fifth_dispatch
+            ? 79u
+            : (native_fourth_dispatch ? 43u : 1u);
+        const size_t expected_blocks = native_fifth_dispatch
+            ? 830u
+            : (native_fourth_dispatch ? 78u : 42u);
+        const uint64_t expected_instructions = native_fifth_dispatch
+            ? UINT64_C(7402741)
+            : (native_fourth_dispatch
+                ? UINT64_C(58869)
+                : UINT64_C(55239));
+        const char *dispatch_label = native_fifth_dispatch
+            ? "fifth"
+            : (native_fourth_dispatch ? "fourth" : "third");
         vf2_native_runtime_state runtime_state;
         vf2_native_differential_report third_report;
 
-        stage = native_fourth_dispatch
-            ? "native-fourth-dispatch"
-            : "native-third-dispatch";
+        stage = native_fifth_dispatch
+            ? "native-fifth-dispatch"
+            : (native_fourth_dispatch
+                ? "native-fourth-dispatch"
+                : "native-third-dispatch");
         memset(&runtime_state, 0, sizeof(runtime_state));
         memset(&third_report, 0, sizeof(third_report));
         status = vf2_native_runtime_initialize(&runtime_state, 4u);
@@ -5072,10 +5084,14 @@ static int command_native_dispatch_ex(
             printf("Repeated frame-wait phases:         %zu\n",
                    runtime_state.frame_wait_phases);
             printf("%s task entry:                   0x%08x\n",
-                   native_fourth_dispatch ? "Fourth" : "Third",
+                   native_fifth_dispatch
+                       ? "Fifth"
+                       : (native_fourth_dispatch ? "Fourth" : "Third"),
                    (unsigned)native_cpu.ip);
             printf("%s registry:                     0x%08x\n",
-                   native_fourth_dispatch ? "Fourth" : "Third",
+                   native_fifth_dispatch
+                       ? "Fifth"
+                       : (native_fourth_dispatch ? "Fourth" : "Third"),
                    (unsigned)native_cpu.registers[29]);
             printf("Continuous recovered instructions:  %llu\n",
                    (unsigned long long)(
@@ -5292,27 +5308,36 @@ static int command_native_dispatch_ex(
 
 static int command_native_first_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, false, false, false, false);
+    return command_native_dispatch_ex(rom_directory, false, false, false, false, false);
 }
 
 static int command_native_second_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, false, false, false);
+    return command_native_dispatch_ex(rom_directory, true, false, false, false, false);
 }
 
 static int command_native_third_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, true, false, false);
+    return command_native_dispatch_ex(rom_directory, true, true, false, false, false);
 }
 
 static int command_native_fourth_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, false, true, false);
+    return command_native_dispatch_ex(
+        rom_directory, true, false, true, false, false
+    );
+}
+
+static int command_native_fifth_dispatch(const char *rom_directory)
+{
+    return command_native_dispatch_ex(
+        rom_directory, true, false, false, true, false
+    );
 }
 
 static int command_native_observe_third_sweep(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, false, false, true);
+    return command_native_dispatch_ex(rom_directory, true, false, false, false, true);
 }
 
 static const char *orchestrator_trace_default_path(void)
@@ -5344,7 +5369,7 @@ static int command_trace_orchestrator(
     g_orchestrator_trace_step = 0u;
 
     dispatch_result = command_native_dispatch_ex(
-        rom_directory, true, false, false, false
+        rom_directory, true, false, false, false, false
     );
 
     g_orchestrator_trace_file = NULL;
@@ -5510,6 +5535,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "native-fourth-dispatch") == 0 && argc == 3) {
         return command_native_fourth_dispatch(argv[2]);
+    }
+    if (strcmp(argv[1], "native-fifth-dispatch") == 0 && argc == 3) {
+        return command_native_fifth_dispatch(argv[2]);
     }
     if (strcmp(argv[1], "compare-texture-bridge") == 0 && argc == 3) {
         return command_native_second_dispatch(argv[2]);

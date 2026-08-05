@@ -8,6 +8,25 @@ contains ROM validation and reconstruction tools, a structured Intel i960
 analyzer, a bounded semantic executor used for differential validation, and the
 first game/runtime functions recovered in portable C.
 
+## v0.1.3 fifth-dispatch acceptance
+
+The recovered native runtime now crosses the complete observed fourth scheduler
+sweep and the next frame boundary. `vf2i960 native-fifth-dispatch` reaches the
+fifth `fa_game_info` entry with:
+
+- 830 repeated-frame differential blocks;
+- 7,402,741 instructions on both native and reference sides;
+- 8,673,563 continuous recovered instructions including the historical bridge;
+- complete CPU, local-frame, execution-counter, frame-event and mutable-memory
+  equality at every checkpoint; and
+- **zero interpreted instructions** on the native side.
+
+The extension recovers the observed non-zero texture stream: a 35,059-
+instruction five-level mip expansion consuming 43,648 source bytes and writing
+87,296 texture bytes. It also accepts leading inactive texture records before a
+live record, the zero-counter texture path and the distinct mode-17 diagnostic
+instruction profile.
+
 ## v0.1.2 fourth-dispatch acceptance
 
 The recovered native runtime now crosses the complete observed third scheduler
@@ -169,6 +188,7 @@ build/vf2i960 native-first-dispatch /path/to/vf2
 build/vf2i960 native-second-dispatch /path/to/vf2
 build/vf2i960 native-third-dispatch /path/to/vf2
 build/vf2i960 native-fourth-dispatch /path/to/vf2
+build/vf2i960 native-fifth-dispatch /path/to/vf2
 build/vf2i960 compare-texture-bridge /path/to/vf2
 build/vf2i960 compare-post-frame-bridge /path/to/vf2
 build/vf2i960 compare-geometry-boundary /path/to/vf2
