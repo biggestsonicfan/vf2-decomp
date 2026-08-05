@@ -1,6 +1,6 @@
 # Status
 
-## Current master
+## Current master — v0.1.1
 
 | Component | State |
 |---|---|
@@ -16,6 +16,8 @@
 | Frame wait and vector-12 interrupt | Recovered and validated through third dispatch |
 | Second scheduler entry and complete second sweep | Recovered and validated |
 | Third scheduler entry | Recovered and ROM-validated |
+| Dynamic late-sweep scheduler finish | Recovered and unit-tested |
+| Expiring texture counter and pending palette upload | Recovered for the observed path |
 | Current ROM-proven continuous native boundary | Third `fa_game_info` at `0x0001645c` |
 | Reusable native runtime dispatcher | Implemented |
 | Reusable native/reference differential lockstep | Implemented, including same-address stops and frame-event mirroring |
@@ -28,14 +30,14 @@
 
 ## Proven scope
 
-The accepted native path now runs continuously from the completed first
-scheduler sweep through the original post-frame bridge, the complete observed
-second scheduler sweep, another frame boundary and the third scheduler entry.
-The native side reaches the third `fa_game_info` task at `0x0001645c` without
+The accepted native path runs continuously from the completed first scheduler
+sweep through the original post-frame bridge, the complete observed second
+scheduler sweep, another frame boundary and the third scheduler entry. The
+native side reaches the third `fa_game_info` task at `0x0001645c` without
 executing i960 instructions.
 
 The original startup/post-frame bridge contributes 1,270,822 recovered
-instructions. The newly validated repeated-frame corridor contributes 55,239
+instructions. The validated repeated-frame corridor contributes 55,239
 instructions across 42 native differential blocks, for a continuous recovered
 total of 1,326,061 instructions.
 
@@ -53,6 +55,12 @@ The repeated corridor includes:
   diagnostic text copies; and
 - scheduler re-entry selecting descriptor 13 (`fa_game_info`).
 
+The v0.1.1 hardening increment additionally covers the observed dynamic
+late-sweep scheduler finish, both recurring `fa_kill_osage` order-bit accounting
+profiles, an expiring texture-counter transition and its pending palette upload.
+These paths remain evidence-bounded: unknown texture variants and unobserved
+state combinations still fail explicitly.
+
 The supported 36-file ROM set was executed with:
 
 ```sh
@@ -66,8 +74,8 @@ every accepted block and at the third task entry.
 
 The reference i960 executor remains active only as a differential oracle in
 ROM-backed validation commands. It does not produce state on the native side.
-Unsupported or unobserved paths still fail explicitly rather than silently
-falling back to interpretation.
+Unsupported or unobserved paths fail explicitly rather than silently falling
+back to interpretation.
 
 This result proves one evidence-backed repeated-frame corridor and third
 scheduler entry. It does not yet prove alternate gameplay states, a complete
@@ -82,6 +90,7 @@ recovered execution layer outside the developer CLI. It can:
 - route bridge, task, frame-wait/interrupt and scheduler blocks;
 - scan task registries using their live stride fields;
 - skip inactive descriptors and enter the next active task;
+- finish a sweep even when the final active task changes;
 - execute the complete observed second scheduler sweep;
 - cross the proven repeated-frame phase and enter the third scheduler cycle;
 - run until a requested instruction boundary with a block budget;
@@ -106,16 +115,22 @@ supported ROM directory exists, it adds 23 ROM-backed targets for a total of
 31, including `vf2_native_third_dispatch`. GitHub Actions validates GCC and
 Clang Release builds plus Clang AddressSanitizer, UndefinedBehaviorSanitizer and
 LeakSanitizer builds. The proprietary ROM set is not stored in the repository or
-GitHub Actions; the ROM-backed acceptance was executed locally against the
-supported set.
+GitHub Actions; ROM-backed acceptance is executed locally against the supported
+set.
 
 ## Roadmap position
 
-The bounded repeated-frame native-runtime acceptance described by the unchanged
-v0.1.0 roadmap is now proven for the observed path. The next roadmap stage is
-v0.2.0 game subsystems: evidence-backed fighter/object structures, camera,
-collision, animation, input and match-state logic. Rendering, TGP protocol,
-audio and platform work remain later roadmap stages.
+v0.1.0 completed repeated-frame native-runtime acceptance, and v0.1.1 hardened
+the first dynamic scheduler and texture-expiration cases discovered immediately
+after that acceptance. The active roadmap stage is now v0.2.0 game subsystems.
+
+The immediate execution target is the complete third scheduler sweep followed
+by another frame boundary. Each newly observed unsupported branch should be
+recovered behind the same native runtime API and accepted through differential
+CPU and mutable-memory comparison before broader fighter, match, input,
+animation and collision types are introduced.
+
+Rendering, TGP protocol, audio and platform work remain later roadmap stages.
 
 See `docs/ROADMAP.md`, `docs/NATIVE_RUNTIME.md` and
 `docs/NATIVE_DIFFERENTIAL.md` for the roadmap and execution APIs.
