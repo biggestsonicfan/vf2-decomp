@@ -344,6 +344,8 @@ vf2_status execute_game_input_update(
     uint32_t saved_g9 = cpu->registers[VF2_I960_G0_REGISTER + 9u];
     uint32_t base = 0u;
     uint32_t input_flags = 0u;
+    uint64_t own_instruction_count = UINT64_C(9);
+    size_t bytes_written = 0u;
     vf2_status status = VF2_OK;
 
     if (cpu->local_frame_depth == 0u) {
@@ -352,41 +354,58 @@ vf2_status execute_game_input_update(
     memset(&bit0_report, 0, sizeof(bit0_report));
     memset(&bit1_report, 0, sizeof(bit1_report));
 
-    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &runtime_flags);
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050002c), &selector_mask);
-    }
-    if (status != VF2_OK ||
-        (runtime_flags & (UINT32_C(1) << 31u)) == 0u ||
-        (selector_mask & UINT32_C(0x00030000)) != 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-
-    cpu->registers[1] += UINT32_C(4);
-    status = vf2_model2a_write_u32(
-        machine, cpu->registers[1] - UINT32_C(4), saved_g9
-    );
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &base);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500708), &input_flags);
-    }
-    if (status != VF2_OK || (input_flags & UINT32_C(3)) != 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-    cpu->registers[VF2_I960_G0_REGISTER + 9u] = base;
-    cpu->registers[3] = UINT32_C(0xff);
-    cpu->registers[8] = input_flags;
-
     status = vf2_model2a_read_u32(
-        machine, cpu->registers[1] - UINT32_C(4),
-        &cpu->registers[VF2_I960_G0_REGISTER + 9u]
+        machine, UINT32_C(0x00500068), &runtime_flags
     );
-    cpu->registers[1] -= UINT32_C(4);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050002c), &selector_mask
+        );
+    }
     if (status != VF2_OK ||
-        cpu->registers[VF2_I960_G0_REGISTER + 9u] != saved_g9) {
+        (runtime_flags & (UINT32_C(1) << 31u)) == 0u) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    cpu->registers[15] = selector_mask & UINT32_C(0x00030000);
+    cpu->registers[14] = UINT32_C(0x00030000);
+
+    /* A non-zero selector mask takes the cmpobne at 0x00001adc and skips the
+     * long meter/input body, continuing directly with both sequence gates. */
+    if ((selector_mask & UINT32_C(0x00030000)) == 0u) {
+        own_instruction_count = UINT64_C(18);
+        bytes_written = sizeof(uint32_t);
+
+        cpu->registers[1] += UINT32_C(4);
+        status = vf2_model2a_write_u32(
+            machine, cpu->registers[1] - UINT32_C(4), saved_g9
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x0050016c), &base
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00500708), &input_flags
+            );
+        }
+        if (status != VF2_OK || (input_flags & UINT32_C(3)) != 0u) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER + 9u] = base;
+        cpu->registers[3] = UINT32_C(0xff);
+        cpu->registers[8] = input_flags;
+
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[1] - UINT32_C(4),
+            &cpu->registers[VF2_I960_G0_REGISTER + 9u]
+        );
+        cpu->registers[1] -= UINT32_C(4);
+        if (status != VF2_OK ||
+            cpu->registers[VF2_I960_G0_REGISTER + 9u] != saved_g9) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
     }
 
     status = vf2_i960_cpu_enter_procedure(
@@ -417,7 +436,9 @@ vf2_status execute_game_input_update(
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    status = finish_recovered_procedure(machine, cpu, UINT64_C(18));
+    status = finish_recovered_procedure(
+        machine, cpu, own_instruction_count
+    );
     if (status != VF2_OK) {
         return status;
     }
@@ -425,7 +446,7 @@ vf2_status execute_game_input_update(
     report->entry_address = VF2_GAME_INPUT_UPDATE_ENTRY;
     report->exit_address = cpu->ip;
     report->iterations = UINT64_C(2);
-    report->bytes_written = sizeof(uint32_t);
+    report->bytes_written = bytes_written;
     report->recovered_instruction_count =
         cpu->executed_instructions - start_instructions;
     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;

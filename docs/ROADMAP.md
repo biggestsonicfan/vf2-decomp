@@ -253,10 +253,25 @@
   i960 interpreter;
 - aligned build, public version, executable output and project documentation.
 
+## v0.1.2 — fourth-dispatch acceptance — complete
+
+- recovered the complete observed third scheduler sweep and subsequent frame
+  boundary;
+- added `vf2i960 native-fourth-dispatch` with an exact 78-block / 58,869-
+  instruction differential contract;
+- reached 1,329,691 continuous recovered instructions with zero native-side
+  interpreter fallback;
+- recovered active-selector fast paths in player, game-input, game-state,
+  memory-diagnostic and frame-counter gates;
+- recovered the observed phase-17 frame-dispatch path;
+- made the interrupt player-layer CPU composition transactional on rejected
+  branches and preflighted video-layer inputs before writes;
+- added ROM-independent regressions and a twenty-fourth ROM-backed CTest target.
+
 ## v0.2.0 — game subsystems
 
-- extend continuous native execution through the complete third scheduler sweep
-  and subsequent repeated frames;
+- extend continuous native execution through the complete fourth scheduler sweep,
+  subsequent state transitions and long-running repeated frames;
 - fighter and object structures;
 - camera, collision, animation and sound tasks;
 - input and match-state logic;

@@ -1,62 +1,69 @@
-# Mapping of Uncovered and Unobserved Branches (v0.0.25)
+# Mapping of Uncovered and Unobserved Branches (v0.1.2)
 
-This document catalogs major unobserved execution paths, untested branches, and unrecovered subsystems across Virtua Fighter 2 (Version 2.1). The current clean-room decompilation covers only the single observed differential "boot-to-second-dispatch" startup corridor. All other paths return `VF2_ERROR_UNSUPPORTED` and remain out of scope for the current milestones.
+This document catalogs major unobserved execution paths and unrecovered
+subsystems in Virtua Fighter 2 Version 2.1. The accepted clean-room corridor now
+runs through the fourth `fa_game_info` entry, but it remains one evidence-backed
+sequence rather than a complete game implementation. Unsupported paths return
+`VF2_ERROR_UNSUPPORTED` instead of falling back to i960 interpretation.
 
----
+## 1. Scheduler and task execution
 
-## 1. Scheduler and Task Execution Layer
+Recovered scanning uses live registry strides, skips inactive descriptors and
+handles the observed changing final active task. Still uncovered:
 
-The scheduler scan currently skips inactive task descriptors and runs active ones on a strict, predetermined path.
+- dynamic task creation and deletion;
+- abnormal task exits and error paths;
+- corrupt or structurally different task registries;
+- alternate priorities, preemption and interrupt-driven scheduling orders; and
+- scheduler/task combinations not reached by the accepted repeated corridor.
 
-### Uncovered Branches
-- **Dynamic Task Creation/Deletion**: Branches where new tasks are allocated or existing tasks are unregistered dynamically (unobserved in the startup sequence).
-- **Abnormal Task Exits**: Paths where tasks return error codes or unexpected results. Currently, tasks are assumed to complete cleanly.
-- **Varying Task Registries**: Task descriptors with stride and size mismatches or corrupt fields.
-- **Task Scheduling Priorities**: Different priority order scans or preemptive interrupts not yet modeled.
+## 2. Gameplay (`fa_game_info` and related gates)
 
----
+The fourth-dispatch corridor now includes active input/state selector fast paths,
+the player-update bit-14 exit and their observed sequence gates. Still missing:
 
-## 2. Gameplay Subsystems (`fa_game_info`)
+- character and arena selection;
+- the complete match state machine, timeout and game-over transitions;
+- fighter physics, hitboxes, hurtboxes, collision, damage and combos;
+- ring-out and arena-boundary handling;
+- CPU opponent decision logic; and
+- evidence-backed portable fighter/object structures above raw addresses.
 
-The recovered game info routines in `src/game/game.c` are skeletons representing the initial startup and frame count increments.
+## 3. Camera
 
-### Uncovered Branches
-- **Fighter Selection**: Different characters chosen by players (unobserved; the startup path bypasses character select).
-- **Match State Machine**: Selection of different battle arenas, timeout conditions, and game-over transitions.
-- **Fight Logic**: Hurtboxes, hitboxes, fighter physics, collisions, damage calculations, and combo state transitions.
-- **Ring-Out / Physics Bounds**: Detection of fighters crossing the physical arena boundary.
-- **AI Routines**: CPU opponent decision-making branches.
+The startup and recurring camera corridor plus the validated optional viewport
+construction paths are recovered. Unobserved movement-dependent tracking,
+knockdown/throw cameras, alternate presets, zoom and mode-table transitions
+remain unsupported.
 
----
+## 4. Texture, video and geometry bridge
 
-## 3. Camera Subsystems (`fa_camera`)
+The observed texture expiration and pending palette upload are recovered, and
+video-layer rejection now preflights inputs before writes. Still uncovered:
 
-`fa_camera` is currently split into a startup initialization prefix and a recurring update.
+- alternate texture records, page formats, palette arguments and cache states;
+- compressed-stream corruption and invalid symbol/pair indexes;
+- geometry ring-register patterns outside the accepted sequence;
+- TGP command protocol, transforms, clipping, projection and rasterization; and
+- production rendering output.
 
-### Uncovered Branches
-- **Viewport Construction Branches**: The input-bit-3 viewport construction block is currently skipped based on startup input flags `0x0006`. Branch paths for alternate cameras, zoom-ins, or panning are completely unobserved.
-- **Active Fighter Tracking**: Alternate update branches triggered by fighter movements, knockdowns, and throws.
-- **Camera Presets**: The 125-entry palette conversion and mode transitions in the mode table at `0x0006e2e4`.
+The observed phase-17 dispatcher path is accepted when phase state is non-zero,
+phase-index bit 7 is clear and gameplay mask `0x0c00110c` is clear. Phase state
+zero, alternate phase-index flags and non-zero gameplay-mask subpaths remain
+unsupported. The deep geometry reset path through `0x00008ef0`, `0x0006116c`
+and `0x000000b0` is also still unobserved.
 
----
+## 5. Audio and platform
 
-## 4. Post-Frame Hardware and Rendering Bridge
+Only the accepted deterministic sound-task buffer behavior is recovered. The
+Motorola 68000 sound-command protocol, SCSP-compatible audio backend, native
+windowing, gamepad mappings, frame pacing and production platform integration
+remain unimplemented.
 
-The post-frame bridge executes massive loops to decode texture bitstreams and submit geometry command buffers.
+## 6. Transactional rejection coverage
 
-### Uncovered Branches
-- **Bitstream Decoding Errors**: Compressed bitstream corruption branches, out-of-bounds symbol/pair indexing during decompression.
-- **Texture Upload Pipeline**: Large/alternate texture page formats, dynamic palette uploads, and texture cache updates.
-- **Geometry Registers**: Write patterns to geometry registers `0x1008`, `0x2008`, and `0x3008` besides the initial ring-pointer commits.
-- **TGP microcode & protocol**: TGP commands, vector transformations, clipping, 3D projection, and rendering pipelines are represented as empty placeholders.
-- **Third-sweep `frame_geometry_gate` bit-26/bit-2 branch** at `0x0000a75c`: At the third scheduler sweep the recovered gate hits a flag combination in `0x00500704` that is now recovered for the two observed transitions (`0x0050002a != 17` writes 16 and returns; `0x005000a6 != 0` returns). The unobserved deep reset subpath at `0x0000a784` (calls to `0x00008ef0` and `0x0006116c` and an unconditional branch to `0x000000b0`) is still rejected with `VF2_ERROR_UNSUPPORTED` because no live sweep reaches `0x005000a6 == 0`. Reference i960 evidence gathered via `vf2i960 observe-third-sweep` confirms the scheduler selection itself (descriptor index 13, `fa_game_info`, registry `0x00515200`) is identical to the second sweep across repeated frames.
-
----
-
-## 5. Sound and Platform Backends (`fa_sound`, `platform_null`)
-
-Audio handling via Motorola 68000 SCSP and user interaction are not yet implemented.
-
-### Uncovered Branches
-- **Sound commands**: Any command other than the initial startup/buffer transfer is unsupported.
-- **Platform Interaction**: Inputs, window resizing, Gamepad mappings, screen configurations, and frame pacing.
+The player interrupt composite now preserves CPU state when a nested player
+branch is rejected, and video input validation occurs before writes. Other
+large composite blocks have not yet been proven globally transactional for every
+unsupported subpath; additional candidate-state or rollback boundaries should
+be introduced as new rejection cases are observed.

@@ -1,28 +1,22 @@
 # Status
 
-## Current master — v0.1.1
+## Current master — v0.1.2
 
 | Component | State |
 |---|---|
-| Repository and warning-as-error C17 build | Validated in GCC and Clang CI |
+| Repository and warning-as-error C17 build | Validated locally; GCC/Clang CI configured |
 | Supported ROM validation | 36/36 files |
 | Accepted startup/post-frame bridge | Recovered C |
 | Post-frame bridge instructions | 1,270,822 / 1,270,822 recovered |
-| Repeated-frame corridor | 55,239 instructions across 42 differential blocks |
-| Continuous recovered instructions | 1,326,061 |
+| Repeated-frame corridor | 58,869 instructions across 78 differential blocks |
+| Continuous recovered instructions | 1,329,691 |
 | Native-side interpreted instructions on accepted paths | 0 |
-| Original bridge CPU/memory checkpoints | 190 |
-| Original bridge recovered procedure calls/returns | 342 / 340 |
-| Frame wait and vector-12 interrupt | Recovered and validated through third dispatch |
-| Second scheduler entry and complete second sweep | Recovered and validated |
-| Third scheduler entry | Recovered and ROM-validated |
-| Dynamic late-sweep scheduler finish | Recovered and unit-tested |
-| Expiring texture counter and pending palette upload | Recovered for the observed path |
-| Current ROM-proven continuous native boundary | Third `fa_game_info` at `0x0001645c` |
-| Reusable native runtime dispatcher | Implemented |
-| Reusable native/reference differential lockstep | Implemented, including same-address stops and frame-event mirroring |
-| `vf2i960 native-third-dispatch` | ROM-backed `MATCH`: 42 blocks / 55,239 instructions |
-| Repeated-frame phase-16 handler | Recovered, including tile clears, pattern replication, event queue and diagnostic text |
+| Second and third scheduler sweeps | Completely recovered for the observed corridor |
+| Fourth scheduler entry | Recovered and ROM-validated |
+| Current ROM-proven native boundary | Fourth `fa_game_info` at `0x0001645c` |
+| `vf2i960 native-third-dispatch` | `MATCH`: 42 blocks / 55,239 instructions |
+| `vf2i960 native-fourth-dispatch` | `MATCH`: 78 blocks / 58,869 instructions |
+| ROM-independent / ROM-backed CTest targets | 8 / 24, 32 total |
 | TGP protocol and renderer | Not recovered |
 | Motorola 68000 / SCSP audio | Not recovered |
 | Window, input and production platform backend | Not implemented |
@@ -30,107 +24,71 @@
 
 ## Proven scope
 
-The accepted native path runs continuously from the completed first scheduler
-sweep through the original post-frame bridge, the complete observed second
-scheduler sweep, another frame boundary and the third scheduler entry. The
-native side reaches the third `fa_game_info` task at `0x0001645c` without
-executing i960 instructions.
+The native path now runs continuously from the completed first scheduler sweep
+through the original 1,270,822-instruction post-frame bridge, the complete
+observed second and third scheduler sweeps, two repeated frame boundaries and
+the fourth scheduler entry. The fourth `fa_game_info` task is reached at
+`0x0001645c`, registry `0x00515200`, without native-side i960 interpretation.
 
-The original startup/post-frame bridge contributes 1,270,822 recovered
-instructions. The validated repeated-frame corridor contributes 55,239
-instructions across 42 native differential blocks, for a continuous recovered
-total of 1,326,061 instructions.
+The v0.1.2 differential contract is:
 
-The repeated corridor includes:
+- 78 compared repeated-frame blocks;
+- 58,869 reference instructions and 58,869 recovered native instructions;
+- 1,329,691 continuous recovered instructions including the historical bridge;
+- two repeated scheduler entries and finishes;
+- nine repeated scheduler transitions;
+- four frame-wait phases; and
+- exact CPU, architectural local-frame, execution-counter, frame-event and all
+  mutable Model 2 memory equality at every checkpoint.
 
-- the complete observed second scheduler sweep and all 29 persistent task
-  contexts;
-- the repeated texture final-status zero-counter path;
-- persistent video callback composition;
-- the repeated game-state meter-only path;
-- the tile-controller no-update path;
-- vector-12 frame interrupt handling and architectural return;
-- the phase-16 frame dispatcher at `0x00010a0c`, including event-queue writes,
-  two 64 x 48 tile clears, tile-pattern replication, palette setup and
-  diagnostic text copies; and
-- scheduler re-entry selecting descriptor 13 (`fa_game_info`).
+The extension beyond v0.1.1 includes the observed:
 
-The v0.1.1 hardening increment additionally covers the observed dynamic
-late-sweep scheduler finish, both recurring `fa_kill_osage` order-bit accounting
-profiles, an expiring texture-counter transition and its pending palette upload.
-These paths remain evidence-bounded: unknown texture variants and unobserved
-state combinations still fail explicitly.
+- player-update bit-14 immediate-return branch;
+- active selector path in `game_input_update`, followed by both sequence gates;
+- active selector immediate-return path in `game_state_update`;
+- frame-mode 16/17 memory-diagnostic return after the memory probe;
+- active-selector fast return in the frame counter;
+- phase-17 frame dispatcher and its simple player setup helper path; and
+- late-sweep task and texture-expiration cases already hardened in v0.1.1.
 
-The supported 36-file ROM set was executed with:
+The player-layer composite now executes nested CPU changes against a candidate
+state and commits only after both recovered children succeed. The video-layer
+commit reads and validates all observed inputs before its first write. These are
+specific atomicity protections for the recovered rejection points, not a claim
+that every runtime block is globally transactional.
+
+Run the strict acceptance with:
 
 ```sh
-vf2i960 native-third-dispatch /path/to/vf2
+vf2i960 native-fourth-dispatch /path/to/vf2
 ```
 
-The command reached `MATCH` after 42 compared blocks and 55,239 instructions on
-both the reference and native sides. Complete CPU state, local frames,
-execution counters, frame-event state and all mutable Model 2 memory matched at
-every accepted block and at the third task entry.
+The older `native-third-dispatch` contract remains unchanged at 42 blocks and
+55,239 instructions.
 
-The reference i960 executor remains active only as a differential oracle in
-ROM-backed validation commands. It does not produce state on the native side.
-Unsupported or unobserved paths fail explicitly rather than silently falling
-back to interpretation.
+## Validation
 
-This result proves one evidence-backed repeated-frame corridor and third
-scheduler entry. It does not yet prove alternate gameplay states, a complete
-third scheduler sweep, TGP rendering, audio or a playable platform frontend.
+The exact supported 36-file ROM set passed all 32 configured CTest targets:
+8 ROM-independent tests and 24 ROM-backed differential/observation tests. The
+ROM-independent suite also passed under AddressSanitizer, UndefinedBehaviorSanitizer
+and LeakSanitizer.
 
-## Native runtime and differential layers
+Public CI cannot contain the proprietary ROM set, so GitHub Actions covers the
+warning-as-error GCC/Clang builds and sanitizers while strict ROM-backed
+acceptance is run locally against legally obtained files.
 
-`include/vf2/native_runtime.h` and `src/recovered/native_runtime.c` provide the
-recovered execution layer outside the developer CLI. It can:
-
-- execute one accepted recovered block;
-- route bridge, task, frame-wait/interrupt and scheduler blocks;
-- scan task registries using their live stride fields;
-- skip inactive descriptors and enter the next active task;
-- finish a sweep even when the final active task changes;
-- execute the complete observed second scheduler sweep;
-- cross the proven repeated-frame phase and enter the third scheduler cycle;
-- run until a requested instruction boundary with a block budget;
-- retain cumulative block, task, scheduler, instruction, call and return
-  accounting; and
-- report unsupported addresses and budget exhaustion without fallback.
-
-`include/vf2/native_differential.h` and
-`src/recovered/native_differential.c` provide the reusable lockstep validator.
-For each accepted native block it advances the reference i960 by exactly the
-reported recovered instruction count, mirrors deterministic frame-wait and
-vector-12 host events, captures complete CPU/memory snapshots and requires an
-exact match before continuing.
-
-`vf2_native_differential_run_until_after` adds a minimum-block condition to the
-normal stop-address contract. It allows repeated cycles that begin and end at
-the same `fa_game_info` entry while preserving the original zero-length behavior
-of `vf2_native_differential_run_until`.
-
-The CMake configuration defines eight ROM-independent CTest targets. When the
-supported ROM directory exists, it adds 23 ROM-backed targets for a total of
-31, including `vf2_native_third_dispatch`. GitHub Actions validates GCC and
-Clang Release builds plus Clang AddressSanitizer, UndefinedBehaviorSanitizer and
-LeakSanitizer builds. The proprietary ROM set is not stored in the repository or
-GitHub Actions; ROM-backed acceptance is executed locally against the supported
-set.
+The reference i960 executor remains a differential oracle only. It advances by
+the exact instruction count reported by each recovered block and never supplies
+state to the native side. Unknown addresses and unobserved branches continue to
+return `VF2_ERROR_UNSUPPORTED`.
 
 ## Roadmap position
 
-v0.1.0 completed repeated-frame native-runtime acceptance, and v0.1.1 hardened
-the first dynamic scheduler and texture-expiration cases discovered immediately
-after that acceptance. The active roadmap stage is now v0.2.0 game subsystems.
+v0.1.2 completes the first full extension from the third scheduler entry to the
+fourth. The active stage remains v0.2.0 game subsystems. The immediate execution
+target is the complete fourth scheduler sweep and the next genuinely new state
+transition, followed by longer multi-frame endurance runs.
 
-The immediate execution target is the complete third scheduler sweep followed
-by another frame boundary. Each newly observed unsupported branch should be
-recovered behind the same native runtime API and accepted through differential
-CPU and mutable-memory comparison before broader fighter, match, input,
-animation and collision types are introduced.
-
-Rendering, TGP protocol, audio and platform work remain later roadmap stages.
-
-See `docs/ROADMAP.md`, `docs/NATIVE_RUNTIME.md` and
-`docs/NATIVE_DIFFERENTIAL.md` for the roadmap and execution APIs.
+Broader fighter/object types, match logic, animation, collision and input remain
+the central v0.2.0 work. TGP rendering, 68000/SCSP audio and a production
+platform backend remain later milestones.

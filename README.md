@@ -8,6 +8,25 @@ contains ROM validation and reconstruction tools, a structured Intel i960
 analyzer, a bounded semantic executor used for differential validation, and the
 first game/runtime functions recovered in portable C.
 
+## v0.1.2 fourth-dispatch acceptance
+
+The recovered native runtime now crosses the complete observed third scheduler
+sweep and another frame boundary. `vf2i960 native-fourth-dispatch` reaches the
+fourth `fa_game_info` entry with:
+
+- 78 repeated-frame differential blocks;
+- 58,869 instructions on both native and reference sides;
+- 1,329,691 continuous recovered instructions including the original bridge;
+- complete CPU, local-frame, execution-counter, frame-event and mutable-memory
+  equality; and
+- **zero interpreted instructions** on the native side.
+
+The extension recovers the observed player-update bit-14 fast exit, active game
+input/state selector paths, frame modes 16/17 in the memory diagnostic, the
+active frame-counter selector exit and the observed phase-17 dispatcher path.
+Rejected player/video variants now preserve caller CPU state and avoid partial
+video-memory writes for the covered rejection points.
+
 ## v0.1.1 repeated-corridor hardening
 
 After the v0.1.0 repeated-frame acceptance, the runtime was hardened for the
@@ -149,6 +168,7 @@ build/vf2i960 hybrid-first-dispatch /path/to/vf2
 build/vf2i960 native-first-dispatch /path/to/vf2
 build/vf2i960 native-second-dispatch /path/to/vf2
 build/vf2i960 native-third-dispatch /path/to/vf2
+build/vf2i960 native-fourth-dispatch /path/to/vf2
 build/vf2i960 compare-texture-bridge /path/to/vf2
 build/vf2i960 compare-post-frame-bridge /path/to/vf2
 build/vf2i960 compare-geometry-boundary /path/to/vf2

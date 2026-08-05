@@ -193,7 +193,10 @@ vf2_status execute_video_layer_commit(
     uint32_t source = 0u;
     uint32_t lookup = 0u;
     uint32_t layer_flags = 0u;
-    uint16_t value16 = 0u;
+    uint16_t palette_value0 = 0u;
+    uint16_t palette_value1 = 0u;
+    uint16_t source_value0 = 0u;
+    uint16_t source_value1 = 0u;
     uint16_t mode16 = 0u;
     uint8_t index = 0u;
     uint8_t frame_mode = 0u;
@@ -203,76 +206,121 @@ vf2_status execute_video_layer_commit(
     if (cpu->local_frame_depth == 0u) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    status = read_u16(machine, UINT32_C(0x00503036), &value16);
+
+    /* Read and validate the complete observed input state before the first
+     * write. Unsupported variants therefore leave video/palette memory intact. */
+    status = read_u16(
+        machine, UINT32_C(0x00503036), &palette_value0
+    );
     if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x018000bc), value16);
-    }
-    if (status == VF2_OK) {
-        status = read_u16(machine, UINT32_C(0x00503038), &value16);
-    }
-    if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x018000be), value16);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &source);
-    }
-    if (status == VF2_OK) {
-        status = read_u16(machine, source + UINT32_C(0x44), &value16);
-    }
-    if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x0180006c), value16);
-    }
-    if (status == VF2_OK) {
-        status = read_u16(machine, source + UINT32_C(0x46), &value16);
-    }
-    if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x0180008c), value16);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read(machine, UINT32_C(0x0050d004), &index, 1u);
+        status = read_u16(
+            machine, UINT32_C(0x00503038), &palette_value1
+        );
     }
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
-            machine, UINT32_C(0x00026690) + (uint32_t)index * UINT32_C(4),
+            machine, UINT32_C(0x00500834), &source
+        );
+    }
+    if (status == VF2_OK) {
+        status = read_u16(
+            machine, source + UINT32_C(0x44), &source_value0
+        );
+    }
+    if (status == VF2_OK) {
+        status = read_u16(
+            machine, source + UINT32_C(0x46), &source_value1
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x0050d004), &index, 1u
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine,
+            UINT32_C(0x00026690) + (uint32_t)index * UINT32_C(4),
             &lookup
         );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x01801058), lookup);
-    }
-    if (status == VF2_OK) {
         status = read_u16(machine, UINT32_C(0x00503054), &mode16);
     }
-    if (status != VF2_OK || (mode16 & UINT16_C(3)) != 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-    status = write_u16(machine, UINT32_C(0x01800466), UINT16_C(0x82df));
     if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x0180046a), UINT16_C(0x815b));
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050304c), &layer_flags
+        );
     }
     if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x01801466), UINT16_C(0x82df));
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x0050002b), &frame_mode, 1u
+        );
     }
     if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x0180146a), UINT16_C(0x815b));
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00500031), &auxiliary, 1u
+        );
     }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050304c), &layer_flags);
-    }
-    if (status != VF2_OK || (layer_flags & UINT32_C(15)) != 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-    status = vf2_model2a_read(machine, UINT32_C(0x0050002b), &frame_mode, 1u);
-    if (status == VF2_OK) {
-        status = vf2_model2a_read(machine, UINT32_C(0x00500031), &auxiliary, 1u);
-    }
-    if (status != VF2_OK || frame_mode == UINT8_C(3)) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-    status = finish_recovered_procedure(machine, cpu, UINT64_C(40));
     if (status != VF2_OK) {
         return status;
     }
+    if ((mode16 & UINT16_C(3)) != 0u ||
+        (layer_flags & UINT32_C(15)) != 0u ||
+        frame_mode == UINT8_C(3)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = write_u16(
+        machine, UINT32_C(0x018000bc), palette_value0
+    );
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x018000be), palette_value1
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x0180006c), source_value0
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x0180008c), source_value1
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x01801058), lookup
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x01800466), UINT16_C(0x82df)
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x0180046a), UINT16_C(0x815b)
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x01801466), UINT16_C(0x82df)
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x0180146a), UINT16_C(0x815b)
+        );
+    }
+    if (status == VF2_OK) {
+        status = finish_recovered_procedure(machine, cpu, UINT64_C(40));
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
     report->kind = VF2_HYBRID_BRIDGE_VIDEO_LAYER_COMMIT;
     report->entry_address = VF2_VIDEO_LAYER_COMMIT_ENTRY;
     report->exit_address = cpu->ip;
