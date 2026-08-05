@@ -8,9 +8,24 @@ contains ROM validation and reconstruction tools, a structured Intel i960
 analyzer, a bounded semantic executor used for differential validation, and the
 first game/runtime functions recovered in portable C.
 
+## v0.1.1 repeated-corridor hardening
+
+After the v0.1.0 repeated-frame acceptance, the runtime was hardened for the
+first dynamic states exposed by continued execution:
+
+- scheduler completion when the final active task changes late in a sweep;
+- both observed recurring `fa_kill_osage` order-bit instruction profiles;
+- expiration of the observed texture counter and creation of its pending upload;
+- the observed seven-row, three-plane palette translation/upload path; and
+- aligned CMake, public header, executable and documentation versioning.
+
+Unsupported texture variants and unobserved state combinations still fail with
+`VF2_ERROR_UNSUPPORTED`; the native runtime never silently falls back to the
+i960 interpreter.
+
 ## v0.1.0 repeated-frame acceptance
 
-The supported Version 2.1 ROM set now validates a continuous recovered path from
+The supported Version 2.1 ROM set validates a continuous recovered path from
 the completed first scheduler sweep through the third scheduler entry.
 `vf2i960 native-third-dispatch` reaches the third `fa_game_info` task with:
 
@@ -25,11 +40,12 @@ The repeated corridor includes another frame interrupt/return, persistent task
 contexts, texture/video/game/tile repeated paths and the large phase-16 frame
 dispatch handler. This acceptance does **not** make the project playable: TGP
 rendering, broader gameplay states, audio, input and a production platform
-backend remain on the unchanged roadmap.
+backend remain on the roadmap.
 
 ## v0.0.25 milestone
 
 v0.0.25 completed the consolidation work that prepared this acceptance:
+
 - consolidated project status and roadmap documents;
 - mapped known unobserved/uncovered scheduler and task branches in
   `docs/UNCOVERED_BRANCHES.md`;
@@ -40,9 +56,9 @@ v0.0.25 completed the consolidation work that prepared this acceptance:
 ## v0.0.24 milestone
 
 The accepted startup path from the end of the first scheduler sweep through the
-second entry into `fa_game_info` now executes entirely as recovered C. The
-reference i960 interpreter is still advanced in the differential validator, but
-it is no longer used to produce any CPU or Model 2 state on the native side.
+second entry into `fa_game_info` executes entirely as recovered C. The reference
+i960 interpreter is still advanced in the differential validator, but it is no
+longer used to produce any CPU or Model 2 state on the native side.
 
 The strict ROM-backed bridge totals are:
 
@@ -156,9 +172,9 @@ fa_osage1         18 instructions, 0 calls
 The task paths, scheduler transitions and camera recovery boundaries are
 documented in `docs/FIRST_DISPATCH_TASKS.md`, `docs/HYBRID_EXECUTION.md`,
 `decomp/i960/notes/camera_initialization.md`,
-`decomp/i960/notes/camera_recurring_update.md` and
-`decomp/i960/notes/camera_viewport.md` and
-`decomp/i960/notes/post_frame_texture_bridge.md` and
+`decomp/i960/notes/camera_recurring_update.md`,
+`decomp/i960/notes/camera_viewport.md`,
+`decomp/i960/notes/post_frame_texture_bridge.md`,
 `decomp/i960/notes/geometry_bridge_v0020.md` and
 `decomp/i960/notes/second_scheduler_entry_v0021.md`.
 
