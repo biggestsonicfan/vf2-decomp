@@ -2,8 +2,8 @@
 #define VF2_VERSION_H
 
 #define VF2_VERSION_MAJOR 0
-#define VF2_VERSION_MINOR 0
-#define VF2_VERSION_PATCH 24
-#define VF2_VERSION_STRING "0.0.24"
+#define VF2_VERSION_MINOR 1
+#define VF2_VERSION_PATCH 1
+#define VF2_VERSION_STRING "0.1.1"
 
 #endif
