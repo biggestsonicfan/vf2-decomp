@@ -362,3 +362,89 @@ vf2_status vf2_native_differential_run_until(
         report
     );
 }
+
+vf2_status vf2_native_differential_run_cycles(
+    vf2_model2a *reference_machine,
+    vf2_i960_cpu *reference_cpu,
+    vf2_model2a *native_machine,
+    vf2_i960_cpu *native_cpu,
+    vf2_native_runtime_state *native_state,
+    uint32_t repeated_address,
+    size_t cycle_count,
+    size_t minimum_blocks_per_cycle,
+    size_t max_blocks_per_cycle,
+    vf2_native_differential_cycles_report *report
+)
+{
+    vf2_native_differential_cycles_report local_report;
+    vf2_status status = VF2_OK;
+    size_t cycle = 0u;
+
+    if (reference_machine == NULL || reference_cpu == NULL ||
+        native_machine == NULL || native_cpu == NULL ||
+        native_state == NULL ||
+        minimum_blocks_per_cycle > max_blocks_per_cycle ||
+        (cycle_count != 0u && minimum_blocks_per_cycle == 0u)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    memset(&local_report, 0, sizeof(local_report));
+    local_report.repeated_address = repeated_address;
+    local_report.requested_cycles = cycle_count;
+    local_report.final_reference_address = reference_cpu->ip;
+    local_report.final_native_address = native_cpu->ip;
+
+    if (cycle_count == 0u) {
+        status = vf2_native_differential_run_until(
+            reference_machine,
+            reference_cpu,
+            native_machine,
+            native_cpu,
+            native_state,
+            repeated_address,
+            0u,
+            &local_report.last_cycle
+        );
+    }
+
+    for (cycle = 0u;
+         status == VF2_OK && cycle < cycle_count;
+         ++cycle) {
+        vf2_native_differential_report cycle_report;
+
+        memset(&cycle_report, 0, sizeof(cycle_report));
+        status = vf2_native_differential_run_until_after(
+            reference_machine,
+            reference_cpu,
+            native_machine,
+            native_cpu,
+            native_state,
+            repeated_address,
+            minimum_blocks_per_cycle,
+            max_blocks_per_cycle,
+            &cycle_report
+        );
+
+        local_report.blocks_compared += cycle_report.blocks_compared;
+        local_report.reference_instructions_executed +=
+            cycle_report.reference_instructions_executed;
+        local_report.native_recovered_instructions +=
+            cycle_report.native_recovered_instructions;
+        local_report.last_cycle = cycle_report;
+
+        if (status == VF2_OK) {
+            ++local_report.completed_cycles;
+        }
+    }
+
+    local_report.final_reference_address = reference_cpu->ip;
+    local_report.final_native_address = native_cpu->ip;
+    if (status == VF2_OK &&
+        local_report.completed_cycles == cycle_count) {
+        local_report.completed = 1;
+    }
+    if (report != NULL) {
+        *report = local_report;
+    }
+    return status;
+}
