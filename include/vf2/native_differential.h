@@ -22,6 +22,19 @@ typedef struct vf2_native_differential_report {
     int reached_stop;
 } vf2_native_differential_report;
 
+typedef struct vf2_native_differential_cycles_report {
+    uint32_t repeated_address;
+    uint32_t final_reference_address;
+    uint32_t final_native_address;
+    size_t requested_cycles;
+    size_t completed_cycles;
+    size_t blocks_compared;
+    uint64_t reference_instructions_executed;
+    uint64_t native_recovered_instructions;
+    vf2_native_differential_report last_cycle;
+    int completed;
+} vf2_native_differential_cycles_report;
+
 /* Execute the recovered native runtime and the reference i960 in lockstep.
  * Both sides must enter with identical architectural and mutable-memory state.
  * For every accepted native block, the reference processor executes exactly
@@ -58,6 +71,27 @@ vf2_status vf2_native_differential_run_until_after(
     size_t minimum_blocks,
     size_t max_blocks,
     vf2_native_differential_report *report
+);
+
+/* Repeatedly execute the lockstep differential runtime back to the same
+ * address. Every non-zero cycle must compare at least
+ * minimum_blocks_per_cycle blocks, preventing an immediate success when both
+ * CPUs already enter at repeated_address. The accumulated report includes the
+ * partial final cycle when execution fails.
+ *
+ * A zero-cycle request validates that both machines already match at
+ * repeated_address without advancing either side. */
+vf2_status vf2_native_differential_run_cycles(
+    vf2_model2a *reference_machine,
+    vf2_i960_cpu *reference_cpu,
+    vf2_model2a *native_machine,
+    vf2_i960_cpu *native_cpu,
+    vf2_native_runtime_state *native_state,
+    uint32_t repeated_address,
+    size_t cycle_count,
+    size_t minimum_blocks_per_cycle,
+    size_t max_blocks_per_cycle,
+    vf2_native_differential_cycles_report *report
 );
 
 #endif
