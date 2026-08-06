@@ -17,11 +17,27 @@
 | `vf2i960 native-third-dispatch` | `MATCH`: 42 blocks / 55,239 instructions |
 | `vf2i960 native-fourth-dispatch` | `MATCH`: 78 blocks / 58,869 instructions |
 | `vf2i960 native-fifth-dispatch` | `MATCH`: 830 blocks / 7,402,741 instructions |
+| Repeated-cycle differential API | Implemented; CLI/endurance integration pending |
 | ROM-independent / ROM-backed CTest targets | 8 / 25, 33 total |
 | TGP protocol and renderer | Not recovered |
 | Motorola 68000 / SCSP audio | Not recovered |
 | Window, input and production platform backend | Not implemented |
 | Playable port | No |
+
+## Development head after v0.1.3 acceptance
+
+The differential layer now exposes `vf2_native_differential_run_cycles`, which
+runs any requested number of complete lockstep cycles back to the same task
+entry. Each non-zero cycle enforces a minimum block count, preventing an
+immediate false success when the start and destination addresses are identical.
+The aggregate report preserves completed-cycle, block and instruction totals as
+well as the partial final cycle when an unsupported state or mismatch is found.
+
+This infrastructure is the foundation for a future `native-sixth-dispatch`
+contract and a repeated-frame endurance command. It does not move the current
+ROM-proven boundary by itself: the accepted boundary remains the fifth
+`fa_game_info` entry until the complete fifth sweep has been observed, recovered
+and validated against the supported ROM set.
 
 ## Proven scope
 
