@@ -16,9 +16,11 @@ typedef struct vf2_cycles_options {
     const char *snapshot_path;
     const char *runtime_state_path;
     const char *failure_prefix;
+    const char *output_snapshot_path;
     size_t cycle_count;
     size_t minimum_blocks;
     size_t maximum_blocks;
+    int boundary_probe;
 } vf2_cycles_options;
 
 static void print_usage(const char *program)
@@ -28,6 +30,7 @@ static void print_usage(const char *program)
         "vf2cycles v%s\n"
         "Usage: %s --rom-dir <directory> --snapshot <file> "
         "[--state <file>] [--failure-prefix <path>] "
+        "[--output-snapshot <file>] [--boundary-probe] "
         "[--cycles <count>] [--min-blocks <count>] "
         "[--max-blocks <count>]\n",
         VF2_VERSION_STRING,
@@ -86,6 +89,11 @@ static int parse_options(
         } else if (strcmp(argument, "--failure-prefix") == 0 &&
                    index + 1 < argc) {
             options->failure_prefix = argv[++index];
+        } else if (strcmp(argument, "--output-snapshot") == 0 &&
+                   index + 1 < argc) {
+            options->output_snapshot_path = argv[++index];
+        } else if (strcmp(argument, "--boundary-probe") == 0) {
+            options->boundary_probe = 1;
         } else if (strcmp(argument, "--cycles") == 0 &&
                    index + 1 < argc) {
             if (!parse_size(argv[++index], &options->cycle_count)) {
@@ -485,6 +493,53 @@ static vf2_status save_failure_checkpoint(
     return status;
 }
 
+static vf2_status save_success_checkpoint(
+    const char *snapshot_path,
+    const vf2_i960_cpu *cpu,
+    const vf2_model2a *machine,
+    const vf2_native_runtime_state *runtime_state
+)
+{
+    vf2_i960_snapshot checkpoint;
+    char *state_path = NULL;
+    vf2_status status = VF2_OK;
+
+    if (snapshot_path == NULL || cpu == NULL || machine == NULL ||
+        runtime_state == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    vf2_i960_snapshot_init(&checkpoint);
+    state_path = append_suffix(snapshot_path, ".runtime");
+    if (state_path == NULL) {
+        status = VF2_ERROR_OUT_OF_MEMORY;
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_capture(&checkpoint, cpu, machine);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_write_file(&checkpoint, snapshot_path);
+    }
+    if (status == VF2_OK) {
+        status = vf2_native_runtime_state_write_file(
+            runtime_state, state_path
+        );
+    }
+    if (status == VF2_OK) {
+        printf("Output checkpoint snapshot:          %s\n", snapshot_path);
+        printf("Output checkpoint runtime:           %s\n", state_path);
+    } else {
+        (void)remove(snapshot_path);
+        if (state_path != NULL) {
+            (void)remove(state_path);
+        }
+    }
+
+    free(state_path);
+    vf2_i960_snapshot_destroy(&checkpoint);
+    return status;
+}
+
 int main(int argc, char **argv)
 {
     vf2_cycles_options options;
@@ -605,7 +660,34 @@ int main(int argc, char **argv)
         );
     }
     if (status == VF2_OK) {
-        if (options.failure_prefix == NULL) {
+        if (options.boundary_probe) {
+            printf("Differential mode:                  cycle-boundary probe\n");
+            run_status = vf2_native_differential_probe_cycles(
+                &reference_machine,
+                &reference_cpu,
+                &native_machine,
+                &native_cpu,
+                &runtime_state,
+                snapshot.cpu.ip,
+                options.cycle_count,
+                options.minimum_blocks,
+                options.maximum_blocks,
+                &report
+            );
+            if (run_status != VF2_OK && options.failure_prefix != NULL) {
+                const vf2_status capture_status = vf2_i960_snapshot_capture(
+                    &last_match_snapshot,
+                    &native_cpu,
+                    &native_machine
+                );
+                if (capture_status == VF2_OK) {
+                    last_match_state = runtime_state;
+                } else {
+                    status = capture_status;
+                }
+            }
+        } else if (options.failure_prefix == NULL) {
+            printf("Differential mode:                  strict per-block\n");
             run_status = vf2_native_differential_run_cycles(
                 &reference_machine,
                 &reference_cpu,
@@ -619,6 +701,7 @@ int main(int argc, char **argv)
                 &report
             );
         } else {
+            printf("Differential mode:                  strict checkpointed\n");
             run_status = run_cycles_with_checkpoints(
                 &reference_machine,
                 &reference_cpu,
@@ -634,7 +717,9 @@ int main(int argc, char **argv)
                 &report
             );
         }
-        status = run_status;
+        if (status == VF2_OK) {
+            status = run_status;
+        }
     }
 
     print_report(&report, &runtime_state);
@@ -646,6 +731,24 @@ int main(int argc, char **argv)
             "Endurance stopped: %s\n",
             vf2_status_string(status)
         );
+    }
+
+    if (run_status == VF2_OK && status == VF2_OK &&
+        options.output_snapshot_path != NULL) {
+        const vf2_status checkpoint_status = save_success_checkpoint(
+            options.output_snapshot_path,
+            &native_cpu,
+            &native_machine,
+            &runtime_state
+        );
+        if (checkpoint_status != VF2_OK) {
+            fprintf(
+                stderr,
+                "Could not write output checkpoint: %s\n",
+                vf2_status_string(checkpoint_status)
+            );
+            status = checkpoint_status;
+        }
     }
 
     if (run_status != VF2_OK && options.failure_prefix != NULL &&

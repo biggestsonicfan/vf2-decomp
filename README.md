@@ -276,4 +276,29 @@ successful run never interprets instructions on the native side.
 
 A ROM-backed endurance run from the fifth-dispatch checkpoint has now completed
 1,000 additional repeated-address cycles (36,000 blocks / 1,582,507 recovered
-instructions) with exact differential state equality.
+instructions) with exact per-block differential state equality.
+
+For longer scouting runs, `--boundary-probe` keeps the same recovered-native and
+reference instruction-count lockstep but defers the expensive complete snapshot
+comparison until the repeated address closes each cycle. If a probe fails, both
+machines and the runtime sidecar are restored to the exact start of that cycle,
+so the same checkpoint can be replayed immediately with the strict per-block
+runner. Successful probe cycles prove cycle-boundary equality only; they do not
+replace the strict acceptance contract.
+
+```sh
+build/vf2cycles \
+  --rom-dir /path/to/vf2 \
+  --snapshot fifth-dispatch.vf2snap \
+  --cycles 1000 \
+  --boundary-probe \
+  --failure-prefix boundary-failure \
+  --output-snapshot next-boundary.vf2snap
+```
+
+`--output-snapshot` writes both the requested `.vf2snap` and its `.runtime`
+sidecar after a successful run, allowing long endurance work to resume without
+replaying earlier accepted cycles. Using the verified ROM set, boundary probes
+have reached scheduler entry / frame IRQ 16,384 with complete cycle-end CPU,
+counter, local-frame and mutable-memory equality. The stricter published
+per-block corridor remains the 1,000-cycle result above.

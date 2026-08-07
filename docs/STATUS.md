@@ -17,8 +17,8 @@
 | `vf2i960 native-third-dispatch` | `MATCH`: 42 blocks / 55,239 instructions |
 | `vf2i960 native-fourth-dispatch` | `MATCH`: 78 blocks / 58,869 instructions |
 | `vf2i960 native-fifth-dispatch` | `MATCH`: 830 blocks / 7,402,741 instructions |
-| Repeated-cycle differential API | Implemented; CLI/endurance integration pending |
-| ROM-independent / ROM-backed CTest targets | 8 / 25, 33 total |
+| Repeated-cycle differential API | Strict per-block + cycle-boundary probe + resumable checkpoints |
+| ROM-independent / ROM-backed CTest targets | 11 / 25, 36 total |
 | TGP protocol and renderer | Not recovered |
 | Motorola 68000 / SCSP audio | Not recovered |
 | Window, input and production platform backend | Not implemented |
@@ -33,11 +33,10 @@ immediate false success when the start and destination addresses are identical.
 The aggregate report preserves completed-cycle, block and instruction totals as
 well as the partial final cycle when an unsupported state or mismatch is found.
 
-This infrastructure is the foundation for a future `native-sixth-dispatch`
-contract and a repeated-frame endurance command. It does not move the current
-ROM-proven boundary by itself: the accepted boundary remains the fifth
-`fa_game_info` entry until the complete fifth sweep has been observed, recovered
-and validated against the supported ROM set.
+This infrastructure now backs both the strict repeated-frame endurance command
+and the faster cycle-boundary probe. It does not move the strict ROM-proven
+per-block boundary by itself: probe-only cycles are scouting evidence until the
+corresponding interval is replayed under the strict differential contract.
 
 ## Proven scope
 
@@ -136,8 +135,22 @@ That endurance run exposed and fixed two previously unobserved periodic paths:
   `(frame_counter & 31) == 0` path, skips the previous-minimum load/comparison
   exactly like the ROM, and accounts the 21-instruction path.
 
-`vf2cycles` keeps pre-block failure snapshots only when `--failure-prefix` is
-requested; ordinary endurance uses the lower-overhead repeated-cycle runner.
-The next target is no longer an artificial sixth-dispatch milestone, but the
-first state-dependent branch that actually fails beyond this 1,000-cycle
-corridor.
+`vf2cycles` now also exposes `--boundary-probe` for long-horizon scouting. The
+reference executor still advances by the recovered instruction count of every
+native block and frame-wait host state is checked when it changes, but complete
+CPU/mutable-memory snapshots are compared only when the repeated address closes
+the cycle. A failed probe restores both machines and the runtime sidecar to the
+exact beginning of the failing cycle, ready for strict per-block replay.
+`--output-snapshot` persists a successful boundary plus its `.runtime` sidecar,
+so long probes can resume without replaying earlier cycles.
+
+Using the verified ROM set, cycle-boundary probing reached scheduler entry and
+frame IRQ 16,384 with complete cycle-end state equality. This does **not** extend
+the strict per-block acceptance claim beyond the published 1,000-cycle corridor.
+It does show that passive repeated-frame execution has settled into a stable
+state: the observed mode remains `0x00020000`, phase state/index remain
+`0xff`/`0x0b`, and gameplay flags remain zero. The next high-value v0.2.0 target
+is therefore controlled evidence collection for state transitions (match,
+selection, fighter/object and alternate phase paths), followed by strict replay
+and recovery of each newly reached branch, rather than unbounded passive
+endurance in the same attractor.
