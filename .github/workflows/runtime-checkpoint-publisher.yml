@@ -1,0 +1,31 @@
+name: Temporary runtime checkpoint publisher
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'automation/runtime-state-checkpoints'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout current master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: work
+          fetch-depth: 0
+
+      - name: Checkout validation source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: source
+
+      - name: Validate and publish
+        run: bash source/automation/publish_runtime_state_checkpoints.sh work source
