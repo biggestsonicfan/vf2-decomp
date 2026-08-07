@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- recovered the phase-17 gameplay bit-13 (`0x00002000`) step-back branch in
+  `0x00058fe0`: controlled ROM-backed differential execution from the exact
+  pre-`main-final-cluster` checkpoint proved the 49-instruction `11 -> 10`
+  path, the `0 -> 11` wrap variant accounts one additional instruction, the
+  old/new phase targets receive 16-bit `0x8020`/`0x801c` markers through the
+  ROM's double-indirect table, and the enclosing `main-final-cluster` plus a
+  complete 36-block scheduler cycle now match the reference i960 exactly;
+- added ROM-independent phase-17 tests for both ordinary decrement and zero
+  wraparound while retaining `0x08001008`, `0x04000104`, phase-state-zero and
+  phase-index-bit-7 paths as fail-closed `VF2_ERROR_UNSUPPORTED`;
 - added `vf2_native_differential_probe_cycles` and `vf2cycles --boundary-probe` for long-horizon repeated-frame scouting: reference and native execution remain instruction-count locked per recovered block, frame-wait host state is checked on each wait block, complete CPU/mutable-memory state is compared at cycle boundaries, and any failing cycle restores both machines plus native runtime state to its exact start for strict replay;
 - added `vf2cycles --output-snapshot <file>` to persist successful endurance boundaries together with the versioned `.runtime` sidecar, allowing long ROM-backed probes to resume without replaying earlier cycles;
 - added ROM-independent coverage for the zero-cycle probe contract and retained the existing strict per-block runner unchanged as the acceptance path;

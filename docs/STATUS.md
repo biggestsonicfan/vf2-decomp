@@ -149,8 +149,20 @@ frame IRQ 16,384 with complete cycle-end state equality. This does **not** exten
 the strict per-block acceptance claim beyond the published 1,000-cycle corridor.
 It does show that passive repeated-frame execution has settled into a stable
 state: the observed mode remains `0x00020000`, phase state/index remain
-`0xff`/`0x0b`, and gameplay flags remain zero. The next high-value v0.2.0 target
-is therefore controlled evidence collection for state transitions (match,
-selection, fighter/object and alternate phase paths), followed by strict replay
-and recovery of each newly reached branch, rather than unbounded passive
-endurance in the same attractor.
+`0xff`/`0x0b`, and gameplay flags remain zero.
+
+The first controlled transition has now been recovered. Injecting gameplay
+bit 13 (`0x00002000`) at the exact pre-`main-final-cluster` boundary exposed the
+phase-17 step-back branch in `0x00058fe0`. The reference i960 decrements phase
+index `11 -> 10`, writes `0x8020` to the previous double-indirect phase target
+and `0x801c` to the new target, and executes 49 frame-dispatch instructions.
+The recovered C now reproduces that path (including `0 -> 11` wraparound), and
+strict differential replay matches both the 281-instruction enclosing
+`main-final-cluster` and the complete following 36-block scheduler cycle. This
+is controlled state-transition evidence, not a claim that passive natural
+execution reaches the branch.
+
+The next high-value v0.2.0 target remains controlled evidence collection for
+additional match, selection, fighter/object and alternate phase paths, followed
+by strict replay and recovery of each newly reached branch, rather than
+unbounded passive endurance in the same attractor.

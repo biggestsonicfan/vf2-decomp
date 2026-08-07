@@ -54,6 +54,17 @@ static uint16_t read_test_u16(
     return (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
 }
 
+static void write_rom_u32(uint8_t *rom, uint32_t address, uint32_t value)
+{
+    rom[address] = (uint8_t)(value & UINT32_C(0xff));
+    rom[address + UINT32_C(1)] =
+        (uint8_t)((value >> 8u) & UINT32_C(0xff));
+    rom[address + UINT32_C(2)] =
+        (uint8_t)((value >> 16u) & UINT32_C(0xff));
+    rom[address + UINT32_C(3)] =
+        (uint8_t)((value >> 24u) & UINT32_C(0xff));
+}
+
 static void test_inactive_scan_dispatch(void)
 {
     vf2_model2a machine;
@@ -543,7 +554,7 @@ static void test_frame_dispatch_tick(void)
     uint8_t *rom = NULL;
     uint8_t selector = 1u;
     uint32_t value = 0u;
-    const size_t rom_size = (size_t)UINT32_C(0x0000a800);
+    const size_t rom_size = (size_t)UINT32_C(0x00080000);
 
     CHECK(vf2_model2a_initialize(&machine) != 0);
     if (machine.work_ram == NULL) {
@@ -561,6 +572,24 @@ static void test_frame_dispatch_tick(void)
     rom[UINT32_C(0x0000a73d)] = UINT8_C(0x0b);
     rom[UINT32_C(0x0000a73e)] = UINT8_C(0x01);
     rom[UINT32_C(0x0000a73f)] = UINT8_C(0x00);
+    write_rom_u32(
+        rom, UINT32_C(0x0005ff04), UINT32_C(0x00078000)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x0005fefc), UINT32_C(0x00078004)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x00078000), UINT32_C(0x010014b0)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x00078004), UINT32_C(0x01001330)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x0005feac), UINT32_C(0x00078008)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x00078008), UINT32_C(0x01001230)
+    );
     CHECK(vf2_model2a_attach_main_rom(&machine, rom, rom_size) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000), 0u) == VF2_OK);
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &selector, 1u) == VF2_OK);
@@ -622,6 +651,107 @@ static void test_frame_dispatch_tick(void)
         CHECK(value == UINT32_C(0x00020000));
         CHECK(vf2_model2a_read_u32(&machine, saved_g4_address, &value) == VF2_OK);
         CHECK(value == UINT32_C(0x12345678));
+    }
+
+    {
+        uint8_t phase_index = UINT8_C(0x0b);
+        uint8_t phase_state = UINT8_C(0xff);
+        uint8_t resulting_phase_index = 0u;
+
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a4), &phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a6), &phase_state, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write_u32(
+                &machine, UINT32_C(0x00500704), UINT32_C(0x00002000)
+            ) == VF2_OK
+        );
+        write_test_u16(&machine, UINT32_C(0x010014ac), UINT16_C(0x801c));
+        write_test_u16(&machine, UINT32_C(0x0100132c), UINT16_C(0x0020));
+        enter_parent(&cpu, UINT32_C(0x0000a6c0));
+        cpu.registers[VF2_I960_G0_REGISTER + 4u] = UINT32_C(0x12345678);
+        memset(&report, 0, sizeof(report));
+
+        CHECK(
+            vf2_hybrid_post_frame_bridge_execute(
+                &machine, &cpu, &report
+            ) == VF2_OK
+        );
+        CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK);
+        CHECK(report.recovered_instruction_count == UINT64_C(49));
+        CHECK(report.recovered_procedure_calls == UINT64_C(2));
+        CHECK(report.recovered_procedure_returns == UINT64_C(3));
+        CHECK(report.changed_values == UINT64_C(7));
+        CHECK(report.bytes_written == 14u);
+        CHECK(cpu.executed_instructions == UINT64_C(49));
+        CHECK(cpu.procedure_calls == UINT64_C(3));
+        CHECK(cpu.procedure_returns == UINT64_C(3));
+        CHECK(cpu.maximum_local_frame_depth == 3u);
+        CHECK(cpu.registers[VF2_I960_G0_REGISTER + 4u] == UINT32_C(0x12345678));
+        CHECK(cpu.registers[VF2_I960_G0_REGISTER + 7u] == UINT32_C(0x00511000));
+        CHECK(cpu.registers[VF2_I960_G0_REGISTER + 8u] == UINT32_C(0x00512000));
+        CHECK(cpu.registers[VF2_I960_G0_REGISTER + 9u] == UINT32_C(0x0100132c));
+        CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
+        CHECK(
+            vf2_model2a_read(
+                &machine, UINT32_C(0x005000a4),
+                &resulting_phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(resulting_phase_index == UINT8_C(10));
+        CHECK(read_test_u16(&machine, UINT32_C(0x010014ac)) == UINT16_C(0x8020));
+        CHECK(read_test_u16(&machine, UINT32_C(0x0100132c)) == UINT16_C(0x801c));
+    }
+
+    {
+        uint8_t phase_index = 0u;
+        uint8_t phase_state = UINT8_C(0xff);
+        uint8_t resulting_phase_index = 0u;
+
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a4), &phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a6), &phase_state, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write_u32(
+                &machine, UINT32_C(0x00500704), UINT32_C(0x00002000)
+            ) == VF2_OK
+        );
+        write_test_u16(&machine, UINT32_C(0x0100122c), UINT16_C(0x801c));
+        write_test_u16(&machine, UINT32_C(0x010014ac), UINT16_C(0x0020));
+        enter_parent(&cpu, UINT32_C(0x0000a6c0));
+        memset(&report, 0, sizeof(report));
+
+        CHECK(
+            vf2_hybrid_post_frame_bridge_execute(
+                &machine, &cpu, &report
+            ) == VF2_OK
+        );
+        CHECK(report.recovered_instruction_count == UINT64_C(50));
+        CHECK(cpu.executed_instructions == UINT64_C(50));
+        CHECK(cpu.registers[VF2_I960_G0_REGISTER + 9u] == UINT32_C(0x010014ac));
+        CHECK(
+            vf2_model2a_read(
+                &machine, UINT32_C(0x005000a4),
+                &resulting_phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(resulting_phase_index == UINT8_C(11));
+        CHECK(read_test_u16(&machine, UINT32_C(0x0100122c)) == UINT16_C(0x8020));
+        CHECK(read_test_u16(&machine, UINT32_C(0x010014ac)) == UINT16_C(0x801c));
     }
 
     vf2_model2a_shutdown(&machine);

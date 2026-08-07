@@ -302,3 +302,11 @@ replaying earlier accepted cycles. Using the verified ROM set, boundary probes
 have reached scheduler entry / frame IRQ 16,384 with complete cycle-end CPU,
 counter, local-frame and mutable-memory equality. The stricter published
 per-block corridor remains the 1,000-cycle result above.
+
+Controlled state-transition probing has also recovered the phase-17 gameplay
+bit-13 (`0x00002000`) step-back branch. From an exact pre-`main-final-cluster`
+checkpoint, the reference path decrements phase index `11 -> 10`, updates the
+old/new phase target markers to `0x8020`/`0x801c`, and strict differential
+replay now matches the enclosing 281-instruction cluster and the complete
+following 36-block cycle. This is targeted branch evidence rather than an
+extension of the passive endurance claim.
