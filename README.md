@@ -303,10 +303,11 @@ have reached scheduler entry / frame IRQ 16,384 with complete cycle-end CPU,
 counter, local-frame and mutable-memory equality. The stricter published
 per-block corridor remains the 1,000-cycle result above.
 
-Controlled state-transition probing has also recovered the phase-17 gameplay
-bit-13 (`0x00002000`) step-back branch. From an exact pre-`main-final-cluster`
-checkpoint, the reference path decrements phase index `11 -> 10`, updates the
-old/new phase target markers to `0x8020`/`0x801c`, and strict differential
-replay now matches the enclosing 281-instruction cluster and the complete
-following 36-block cycle. This is targeted branch evidence rather than an
-extension of the passive endurance claim.
+Controlled state-transition probing has also recovered both phase-17 navigation
+directions. Gameplay bit 13 (`0x00002000`) steps backward (`11 -> 10`, with
+`0 -> 11` wrap), while mask `0x08001008` steps forward (`10 -> 11`, with
+`11 -> 0` wrap). Both update the old/new double-indirect phase target markers to
+`0x8020`/`0x801c`; strict differential replay matches the enclosing 281/282-
+instruction `main-final-cluster` variants and their complete following 36-block
+cycles. This is targeted branch evidence rather than an extension of the
+passive endurance claim.

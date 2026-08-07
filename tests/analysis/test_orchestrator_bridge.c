@@ -754,6 +754,96 @@ static void test_frame_dispatch_tick(void)
         CHECK(read_test_u16(&machine, UINT32_C(0x010014ac)) == UINT16_C(0x801c));
     }
 
+    {
+        uint8_t phase_index = UINT8_C(11);
+        uint8_t phase_state = UINT8_C(0xff);
+        uint8_t resulting_phase_index = UINT8_C(0xff);
+
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a4), &phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a6), &phase_state, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write_u32(
+                &machine, UINT32_C(0x00500704), UINT32_C(0x00000008)
+            ) == VF2_OK
+        );
+        write_test_u16(&machine, UINT32_C(0x010014ac), UINT16_C(0x801c));
+        write_test_u16(&machine, UINT32_C(0x0100122c), UINT16_C(0x0020));
+        enter_parent(&cpu, UINT32_C(0x0000a6c0));
+        memset(&report, 0, sizeof(report));
+
+        CHECK(
+            vf2_hybrid_post_frame_bridge_execute(
+                &machine, &cpu, &report
+            ) == VF2_OK
+        );
+        CHECK(report.recovered_instruction_count == UINT64_C(50));
+        CHECK(report.changed_values == UINT64_C(7));
+        CHECK(report.bytes_written == 14u);
+        CHECK(cpu.executed_instructions == UINT64_C(50));
+        CHECK(cpu.registers[VF2_I960_G0_REGISTER + 9u] == UINT32_C(0x0100122c));
+        CHECK(
+            vf2_model2a_read(
+                &machine, UINT32_C(0x005000a4),
+                &resulting_phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(resulting_phase_index == UINT8_C(0));
+        CHECK(read_test_u16(&machine, UINT32_C(0x010014ac)) == UINT16_C(0x8020));
+        CHECK(read_test_u16(&machine, UINT32_C(0x0100122c)) == UINT16_C(0x801c));
+    }
+
+    {
+        uint8_t phase_index = UINT8_C(10);
+        uint8_t phase_state = UINT8_C(0xff);
+        uint8_t resulting_phase_index = 0u;
+
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a4), &phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write(
+                &machine, UINT32_C(0x005000a6), &phase_state, 1u
+            ) == VF2_OK
+        );
+        CHECK(
+            vf2_model2a_write_u32(
+                &machine, UINT32_C(0x00500704), UINT32_C(0x08003000)
+            ) == VF2_OK
+        );
+        write_test_u16(&machine, UINT32_C(0x0100132c), UINT16_C(0x801c));
+        write_test_u16(&machine, UINT32_C(0x010014ac), UINT16_C(0x0020));
+        enter_parent(&cpu, UINT32_C(0x0000a6c0));
+        memset(&report, 0, sizeof(report));
+
+        CHECK(
+            vf2_hybrid_post_frame_bridge_execute(
+                &machine, &cpu, &report
+            ) == VF2_OK
+        );
+        CHECK(report.recovered_instruction_count == UINT64_C(49));
+        CHECK(cpu.executed_instructions == UINT64_C(49));
+        CHECK(cpu.registers[VF2_I960_G0_REGISTER + 9u] == UINT32_C(0x010014ac));
+        CHECK(
+            vf2_model2a_read(
+                &machine, UINT32_C(0x005000a4),
+                &resulting_phase_index, 1u
+            ) == VF2_OK
+        );
+        CHECK(resulting_phase_index == UINT8_C(11));
+        CHECK(read_test_u16(&machine, UINT32_C(0x0100132c)) == UINT16_C(0x8020));
+        CHECK(read_test_u16(&machine, UINT32_C(0x010014ac)) == UINT16_C(0x801c));
+    }
+
     vf2_model2a_shutdown(&machine);
 }
 

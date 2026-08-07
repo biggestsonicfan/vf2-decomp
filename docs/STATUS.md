@@ -151,16 +151,20 @@ It does show that passive repeated-frame execution has settled into a stable
 state: the observed mode remains `0x00020000`, phase state/index remain
 `0xff`/`0x0b`, and gameplay flags remain zero.
 
-The first controlled transition has now been recovered. Injecting gameplay
-bit 13 (`0x00002000`) at the exact pre-`main-final-cluster` boundary exposed the
-phase-17 step-back branch in `0x00058fe0`. The reference i960 decrements phase
-index `11 -> 10`, writes `0x8020` to the previous double-indirect phase target
-and `0x801c` to the new target, and executes 49 frame-dispatch instructions.
-The recovered C now reproduces that path (including `0 -> 11` wraparound), and
-strict differential replay matches both the 281-instruction enclosing
-`main-final-cluster` and the complete following 36-block scheduler cycle. This
-is controlled state-transition evidence, not a claim that passive natural
-execution reaches the branch.
+Controlled phase-navigation transitions are now recovered in both directions.
+Injecting gameplay bit 13 (`0x00002000`) at the exact pre-`main-final-cluster`
+boundary exposes the phase-17 step-back branch in `0x00058fe0`: the reference
+i960 decrements phase index `11 -> 10`, writes `0x8020` to the previous
+double-indirect phase target and `0x801c` to the new target, and executes 49
+frame-dispatch instructions. The `0 -> 11` wrap variant takes 50 instructions.
+Injecting a forward-mask bit from `0x08001008` proves the symmetric direction:
+`11 -> 0` wraps in 50 instructions and ordinary `10 -> 11` takes 49, with the
+forward path taking ROM-accurate priority if bit 13 is also set. Strict replay
+now matches the enclosing 281-instruction step-back and 282-instruction forward
+`main-final-cluster` variants plus their complete following 36-block scheduler
+cycles (2,185 and 2,186 instructions respectively). This is controlled
+state-transition evidence, not a claim that passive natural execution reaches
+these branches.
 
 The next high-value v0.2.0 target remains controlled evidence collection for
 additional match, selection, fighter/object and alternate phase paths, followed

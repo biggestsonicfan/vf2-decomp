@@ -50,14 +50,15 @@ inputs before writes. Still uncovered:
 - production rendering output.
 
 The observed phase-17 dispatcher path is accepted when phase state is non-zero
-and phase-index bit 7 is clear. The previously unobserved gameplay bit-13
-(`0x00002000`) step-back path is now recovered from controlled ROM-backed
-differential evidence: it marks the old phase target with `0x8020`, decrements
-the phase index with `0 -> 11` wraparound, and marks the new target with
-`0x801c`. The two independent gameplay masks `0x08001008` and `0x04000104`,
-phase state zero, and phase-index bit-7 indirect dispatch remain unsupported.
-The deep geometry reset path through `0x00008ef0`, `0x0006116c` and
-`0x000000b0` is also still unobserved.
+and phase-index bit 7 is clear. Controlled ROM-backed differential evidence now
+recovers both phase-navigation directions in `0x00058fe0`: gameplay mask
+`0x08001008` advances the index with `11 -> 0` wraparound, while bit 13
+(`0x00002000`) decrements it with `0 -> 11` wraparound. Both mark the old
+double-indirect phase target with `0x8020` and the new target with `0x801c`, and
+the forward mask has ROM-accurate priority when both conditions are present.
+The independent gameplay mask `0x04000104`, phase state zero, and phase-index
+bit-7 indirect dispatch remain unsupported. The deep geometry reset path through
+`0x00008ef0`, `0x0006116c` and `0x000000b0` is also still unobserved.
 
 ## 5. Audio and platform
 

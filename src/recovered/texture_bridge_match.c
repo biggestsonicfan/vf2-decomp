@@ -1440,7 +1440,9 @@ static vf2_status execute_frame_phase17(
     uint8_t phase_index = 0u;
     uint8_t next_phase_index = 0u;
     uint8_t phase_state = 0u;
+    int phase_step_forward = 0;
     int phase_step_back = 0;
+    int phase_step = 0;
     uint64_t recovered_instructions = UINT64_C(36);
     vf2_status status = VF2_OK;
 
@@ -1460,12 +1462,21 @@ static vf2_status execute_frame_phase17(
     }
     if (status != VF2_OK || phase_state == 0u ||
         (phase_index & UINT8_C(0x80)) != 0u ||
-        (gameplay_flags & UINT32_C(0x0c00110c)) != 0u) {
+        (gameplay_flags & UINT32_C(0x04000104)) != 0u) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
+    phase_step_forward =
+        (gameplay_flags & UINT32_C(0x08001008)) != 0u;
     phase_step_back =
+        !phase_step_forward &&
         (gameplay_flags & UINT32_C(0x00002000)) != 0u;
-    if (phase_step_back) {
+    phase_step = phase_step_forward || phase_step_back;
+    if (phase_step_forward) {
+        recovered_instructions =
+            phase_index >= UINT8_C(11)
+                ? UINT64_C(50)
+                : UINT64_C(49);
+    } else if (phase_step_back) {
         recovered_instructions =
             phase_index == 0u ? UINT64_C(50) : UINT64_C(49);
     }
@@ -1483,12 +1494,16 @@ static vf2_status execute_frame_phase17(
             machine, UINT32_C(0x00500808), &player1
         );
     }
-    if (phase_step_back) {
+    if (phase_step_forward) {
+        next_phase_index = phase_index >= UINT8_C(11)
+            ? UINT8_C(0)
+            : (uint8_t)(phase_index + UINT8_C(1));
+    } else if (phase_step_back) {
         next_phase_index = phase_index == 0u
             ? UINT8_C(11)
             : (uint8_t)(phase_index - UINT8_C(1));
     }
-    if (status == VF2_OK && phase_step_back) {
+    if (status == VF2_OK && phase_step) {
         status = vf2_model2a_read_u32(
             machine,
             UINT32_C(0x0005feac) +
@@ -1496,12 +1511,12 @@ static vf2_status execute_frame_phase17(
             &phase_pointer_holder
         );
     }
-    if (status == VF2_OK && phase_step_back) {
+    if (status == VF2_OK && phase_step) {
         status = vf2_model2a_read_u32(
             machine, phase_pointer_holder, &previous_phase_target
         );
     }
-    if (status == VF2_OK && phase_step_back) {
+    if (status == VF2_OK && phase_step) {
         status = vf2_model2a_read_u32(
             machine,
             UINT32_C(0x0005feac) +
@@ -1509,31 +1524,31 @@ static vf2_status execute_frame_phase17(
             &phase_pointer_holder
         );
     }
-    if (status == VF2_OK && phase_step_back) {
+    if (status == VF2_OK && phase_step) {
         status = vf2_model2a_read_u32(
             machine, phase_pointer_holder, &next_phase_target
         );
     }
-    if (status == VF2_OK && phase_step_back &&
+    if (status == VF2_OK && phase_step &&
         (previous_phase_target < UINT32_C(4) ||
          next_phase_target < UINT32_C(4))) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if (status == VF2_OK && phase_step_back) {
+    if (status == VF2_OK && phase_step) {
         status = write_u16(
             machine,
             previous_phase_target - UINT32_C(4),
             UINT16_C(0x8020)
         );
     }
-    if (status == VF2_OK && phase_step_back) {
+    if (status == VF2_OK && phase_step) {
         phase_index = next_phase_index;
         status = vf2_model2a_write(
             machine, UINT32_C(0x005000a4), &phase_index,
             sizeof(phase_index)
         );
     }
-    if (status == VF2_OK && phase_step_back) {
+    if (status == VF2_OK && phase_step) {
         status = write_u16(
             machine,
             next_phase_target - UINT32_C(4),
@@ -1552,7 +1567,7 @@ static vf2_status execute_frame_phase17(
     cpu->registers[VF2_I960_G0_REGISTER + 4u] = saved_g4;
     cpu->registers[VF2_I960_G0_REGISTER + 7u] = player0;
     cpu->registers[VF2_I960_G0_REGISTER + 8u] = player1;
-    if (phase_step_back) {
+    if (phase_step) {
         cpu->registers[VF2_I960_G0_REGISTER + 9u] =
             next_phase_target - UINT32_C(4);
     }
@@ -1574,8 +1589,8 @@ static vf2_status execute_frame_phase17(
     report->exit_address = cpu->ip;
     report->iterations = UINT64_C(1);
     report->changed_values =
-        phase_step_back ? UINT64_C(7) : UINT64_C(4);
-    report->bytes_written = phase_step_back ? 14u : 9u;
+        phase_step ? UINT64_C(7) : UINT64_C(4);
+    report->bytes_written = phase_step ? 14u : 9u;
     report->recovered_instruction_count = recovered_instructions;
     report->recovered_procedure_calls = UINT64_C(2);
     report->recovered_procedure_returns = UINT64_C(3);
