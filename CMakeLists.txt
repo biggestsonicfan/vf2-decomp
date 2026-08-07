@@ -96,8 +96,12 @@ add_executable(vf2cycles tools/vf2cycles/main.c)
 target_link_libraries(vf2cycles PRIVATE vf2_core)
 vf2_set_project_warnings(vf2cycles)
 
+add_executable(vf2recover tools/vf2recover/main.c)
+target_link_libraries(vf2recover PRIVATE vf2_core)
+vf2_set_project_warnings(vf2recover)
+
 include(GNUInstallDirs)
-install(TARGETS vf2 vf2rom vf2i960 vf2cycles
+install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
 
@@ -118,6 +122,7 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_tests)
 
     add_test(NAME vf2_tests COMMAND vf2_tests)
+    add_test(NAME vf2recover_help COMMAND vf2recover --help)
 
     add_executable(vf2_orchestrator_limits_tests
         tests/analysis/test_orchestrator_limits.c
