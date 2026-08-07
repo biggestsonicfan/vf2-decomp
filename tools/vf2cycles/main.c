@@ -605,20 +605,35 @@ int main(int argc, char **argv)
         );
     }
     if (status == VF2_OK) {
-        run_status = run_cycles_with_checkpoints(
-            &reference_machine,
-            &reference_cpu,
-            &native_machine,
-            &native_cpu,
-            &runtime_state,
-            snapshot.cpu.ip,
-            options.cycle_count,
-            options.minimum_blocks,
-            options.maximum_blocks,
-            &last_match_snapshot,
-            &last_match_state,
-            &report
-        );
+        if (options.failure_prefix == NULL) {
+            run_status = vf2_native_differential_run_cycles(
+                &reference_machine,
+                &reference_cpu,
+                &native_machine,
+                &native_cpu,
+                &runtime_state,
+                snapshot.cpu.ip,
+                options.cycle_count,
+                options.minimum_blocks,
+                options.maximum_blocks,
+                &report
+            );
+        } else {
+            run_status = run_cycles_with_checkpoints(
+                &reference_machine,
+                &reference_cpu,
+                &native_machine,
+                &native_cpu,
+                &runtime_state,
+                snapshot.cpu.ip,
+                options.cycle_count,
+                options.minimum_blocks,
+                options.maximum_blocks,
+                &last_match_snapshot,
+                &last_match_state,
+                &report
+            );
+        }
         status = run_status;
     }
 

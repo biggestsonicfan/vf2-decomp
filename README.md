@@ -270,5 +270,10 @@ failure or state mismatch and prints the partial cycle, last recovered step and
 first differing component. Add `--failure-prefix fifth-sweep-failure` to write
 the last fully matched pre-block state as `.vf2snap`, `.runtime` and `.txt`
 files. Re-running those files reproduces the unsupported block without replaying
-the accepted corridor. A successful run never interprets instructions on the
-native side.
+the accepted corridor. Pre-block snapshots are only taken when
+`--failure-prefix` is present, so normal endurance runs avoid that extra copy. A
+successful run never interprets instructions on the native side.
+
+A ROM-backed endurance run from the fifth-dispatch checkpoint has now completed
+1,000 additional repeated-address cycles (36,000 blocks / 1,582,507 recovered
+instructions) with exact differential state equality.

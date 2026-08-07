@@ -209,6 +209,17 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_native_runtime_state_tests
     )
 
+    add_executable(vf2_endurance_regression_tests
+        tests/recovered/test_endurance_regressions.c
+    )
+    target_link_libraries(vf2_endurance_regression_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_endurance_regression_tests)
+
+    add_test(
+        NAME vf2_endurance_regressions
+        COMMAND vf2_endurance_regression_tests
+    )
+
     add_executable(vf2_native_differential_tests
         tests/recovered/test_native_differential.c
     )

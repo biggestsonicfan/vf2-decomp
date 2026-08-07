@@ -119,6 +119,25 @@ covering frame-wait progress and all native aggregate counters. The endurance
 runner performs public one-block differential steps and can persist the last
 fully matched state immediately before a failure.
 
-This tooling does not extend the ROM-proven boundary by itself. Its first
-expected failure identifies the concrete unsupported block that must be
-recovered before a strict sixth-dispatch contract can be recorded.
+ROM-backed endurance now extends the proven corridor substantially beyond the
+fifth entry. A verified 36/36 ROM set completed 1,000 additional repeated-
+address cycles with exact CPU, local-frame, counter, frame-event and mutable-
+memory equality: 36,000 additional native blocks and 1,582,507 recovered i960
+instructions. The final checkpoint is again `fa_game_info` at `0x0001645c`,
+with 1,003 scheduler entries and 1,003 injected frame IRQs accumulated by the
+native runtime.
+
+That endurance run exposed and fixed two previously unobserved periodic paths:
+
+- inactive palette upload at `0x00002de4` now preserves the incoming i960
+  arithmetic condition because the ROM's `cmpobe` does not modify condition
+  codes; and
+- the frame-timer prefix at `0x00010f08` now accepts the
+  `(frame_counter & 31) == 0` path, skips the previous-minimum load/comparison
+  exactly like the ROM, and accounts the 21-instruction path.
+
+`vf2cycles` keeps pre-block failure snapshots only when `--failure-prefix` is
+requested; ordinary endurance uses the lower-overhead repeated-cycle runner.
+The next target is no longer an artificial sixth-dispatch milestone, but the
+first state-dependent branch that actually fails beyond this 1,000-cycle
+corridor.

@@ -488,7 +488,8 @@ vf2_status execute_palette_page_upload(
         return status;
     }
     if (active == 0u) {
-        set_equal_condition(cpu);
+        /* cmpobe at 0x00002dec branches on equality without updating the
+         * i960 arithmetic condition code. Preserve the incoming condition. */
         status = finish_recovered_procedure(machine, cpu, UINT64_C(3));
         if (status != VF2_OK) {
             return status;

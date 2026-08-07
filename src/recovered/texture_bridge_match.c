@@ -2386,8 +2386,38 @@ vf2_status execute_frame_timer_prefix(
             machine, UINT32_C(0x00500020), &frame_counter
         );
     }
-    if (status != VF2_OK || (frame_counter & UINT32_C(31)) == 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    if (status != VF2_OK) {
+        return status;
+    }
+    if ((frame_counter & UINT32_C(31)) == 0u) {
+        /* cmpobe at 0x00010f5c jumps directly to the minimum store and, like
+         * the other COBR instructions, does not update the arithmetic
+         * condition code. The skipped load leaves r3 at zero. */
+        cpu->registers[3] = 0u;
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500160), cpu->registers[5]
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x0050006d), &mode, 1u
+            );
+        }
+        if (status != VF2_OK || mode == UINT8_C(1) || mode == UINT8_C(2)) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER] = frame_byte;
+        (void)timer_low;
+        finish_recovered_control_block(
+            cpu, UINT32_C(0x00010f90), UINT64_C(21)
+        );
+        report->kind = VF2_HYBRID_BRIDGE_FRAME_TIMER_PREFIX;
+        report->entry_address = VF2_FRAME_TIMER_PREFIX_ENTRY;
+        report->exit_address = cpu->ip;
+        report->changed_values = UINT64_C(2);
+        report->bytes_written = sizeof(uint32_t) * 2u;
+        report->recovered_instruction_count = UINT64_C(21);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
     }
     status = vf2_model2a_read_u32(
         machine, UINT32_C(0x00500160), &previous_minimum
