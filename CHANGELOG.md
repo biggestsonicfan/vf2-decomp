@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- recovered the phase-17 bit-7 terminal countdown transition at `0x0005f07c`:
+  the `counter 1 -> 0` path now reproduces layer-bit clearing, global/gameplay
+  resets, the 48x64 tile clear, the `RESET` diagnostic write through
+  `0x0006116c`, and the non-returning branch to boot entry `0x000000b0`; strict
+  replay matches the enclosing `main-final-cluster` at 13,426 instructions;
+- made boot stages 1 and 2 warm-reset safe by preserving i960 registers and
+  control state that the ROM does not overwrite, while retaining the existing
+  cold-start differential contracts; the native runtime now dispatches the
+  `0x000000b0` and `0x000001b0` boot stages as recovered blocks;
+- validated the complete soft-reset handoff strictly from the phase-17
+  preterminal checkpoint through boot stage 1 (1,180,053 instructions) and boot
+  stage 2 (182,514 instructions) to `0x0000052c`: 1,375,993 total reference and
+  recovered-native instructions with exact CPU, local-frame, procedure-counter
+  and mutable-memory equality after each of the three native blocks;
+- added ROM-independent regression coverage for the terminal phase-17 memory,
+  register and procedure-count contract, warm boot-context preservation, and
+  the new native-runtime boot-stage step kinds;
 - accelerated strict per-block differential acceptance without weakening its
   equality contract: live CPU/mutable-memory state is compared directly,
   snapshot captures reuse same-sized buffers, and equal regions use `memcmp`

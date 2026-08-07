@@ -334,5 +334,19 @@ CRC, 48x64 tile clear and `EXIT TEST MODE` draw; the frame dispatcher accounts
 13,518 instructions. The path then arms a 320-frame countdown. Positive
 countdown visits strictly match at 626 dispatcher / 858 cluster instructions. A
 cycle-boundary probe from counter 320 validates 319 cycles (11,484 blocks /
-701,481 instructions) and restores an exact checkpoint at the next unsupported
-transition, `counter 1 -> 0`. Other bit-7 table entries remain unsupported.
+701,481 instructions) and restores an exact checkpoint at `counter 1`. Strict
+replay now continues through the terminal `counter 1 -> 0` transition at
+`0x0005f07c`: the recovered path clears the observed video/gameplay state,
+clears the 48x64 tile plane, emits the ROM `RESET` diagnostic through
+`0x0006116c`, and performs the non-returning branch to `0x000000b0`. The
+enclosing `main-final-cluster` matches at 13,426 instructions.
+
+The native runtime also accepts that warm soft-reset handoff through the existing
+boot recovery without pretending it is a power-on reset. Boot stage 1 preserves
+untouched incoming registers/control state and matches 1,180,053 instructions to
+`0x000001b0`; boot stage 2 matches another 182,514 instructions to `0x0000052c`.
+Together with the terminal cluster, the three strict blocks cover 1,375,993
+instructions with exact CPU, local-frame, procedure-counter and mutable-memory
+equality. The next concrete recovery boundary is the branch from `0x0000052c`
+into the initialization body at `0x00009798`. Other bit-7 table entries and
+phase state zero remain unsupported.

@@ -1452,6 +1452,7 @@ static vf2_status execute_frame_phase17_bit7_index11(
     uint8_t phase_a5 = 0u;
     uint8_t system_flags = 0u;
     int first_visit = 0;
+    int terminal_reset = 0;
     uint64_t expected_instructions = 0u;
     uint64_t expected_calls = 0u;
     uint64_t expected_returns = 0u;
@@ -1696,38 +1697,195 @@ static vf2_status execute_frame_phase17_bit7_index11(
             );
         }
         cpu->registers[3] = countdown;
-        /* The <= 0 terminal transition at 0x0005f07c is intentionally left
-         * fail-closed until that much later state is reached and captured. */
-        if (status != VF2_OK || (int32_t)countdown <= 0) {
-            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        if (status != VF2_OK) {
+            return status;
+        }
+        if ((int32_t)countdown <= 0) {
+            uint16_t layer = 0u;
+            uint32_t layer_control = 0u;
+            const uint32_t reset_words[4] = {
+                UINT32_C(0x52455320), UINT32_C(0x4e4c2053),
+                UINT32_C(0x4e204544), UINT32_C(0x20514555)
+            };
+            const uint8_t zero = 0u;
+
+            terminal_reset = 1;
+            expected_instructions = UINT64_C(13194);
+            expected_calls = UINT64_C(27);
+            expected_returns = UINT64_C(25);
+
+            /* 0x0005f07c: terminal test-mode countdown. The ROM does not
+             * return through the phase wrappers. It disables the two layer
+             * bits, clears transient gameplay state and the diagnostic tile
+             * plane, emits the RESET sentinel, then branches directly to the
+             * boot entry at 0x000000b0. */
+            cpu->registers[15] = UINT32_C(0x8000);
+            status = write_u16(
+                machine, UINT32_C(0x00500082), UINT16_C(0x8000)
+            );
+            cpu->registers[3] = UINT32_C(0x0100a00c);
+            if (status == VF2_OK) {
+                status = read_u16(machine, cpu->registers[3], &layer);
+            }
+            layer &= UINT16_C(0x7fff);
+            cpu->registers[4] = (uint32_t)layer;
+            if (status == VF2_OK) {
+                status = write_u16(machine, cpu->registers[3], layer);
+            }
+            if (status == VF2_OK) {
+                status = read_u16(
+                    machine, cpu->registers[3] + UINT32_C(2), &layer
+                );
+            }
+            layer &= UINT16_C(0x7fff);
+            cpu->registers[4] = (uint32_t)layer;
+            if (status == VF2_OK) {
+                status = write_u16(
+                    machine, cpu->registers[3] + UINT32_C(2), layer
+                );
+            }
+            cpu->registers[4] = 0u;
+            if (status == VF2_OK) {
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x0050009c), &zero, sizeof(zero)
+                );
+            }
+
+            cpu->registers[VF2_I960_G0_REGISTER + 9u] =
+                UINT32_C(0x01000000);
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(64);
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(48);
+            if (status == VF2_OK) {
+                status = vf2_i960_cpu_enter_procedure(
+                    cpu, UINT32_C(0x00008ef0), UINT32_C(0x0005f0c8)
+                );
+            }
+            if (status == VF2_OK) {
+                status = clear_tile_plane_64x48(
+                    machine, UINT32_C(0x01000000)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_i960_cpu_return_procedure(cpu, machine);
+            }
+            if (status == VF2_OK) {
+                cpu->registers[VF2_I960_G0_REGISTER + 9u] =
+                    UINT32_C(0x01001800);
+                cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x0050081c), &cpu->registers[3]
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, cpu->registers[3], &layer_control
+                );
+            }
+            layer_control &= ~UINT32_C(1);
+            cpu->registers[15] = layer_control;
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, cpu->registers[3], layer_control
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, cpu->registers[3], &layer_control
+                );
+            }
+            layer_control &= ~UINT32_C(2);
+            cpu->registers[15] = layer_control;
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, cpu->registers[3], layer_control
+                );
+            }
+            cpu->registers[15] = 0u;
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00500708), 0u
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00500704), 0u
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00500700), 0u
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x0050070c), 0u
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, cpu->registers[1] - UINT32_C(4),
+                    &cpu->registers[VF2_I960_G0_REGISTER + 4u]
+                );
+            }
+            cpu->registers[1] -= UINT32_C(4);
+            cpu->registers[3] = UINT32_C(0x00e80004);
+            cpu->registers[4] = 0u;
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, cpu->registers[3], 0u
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_i960_cpu_enter_procedure(
+                    cpu, UINT32_C(0x0006116c), UINT32_C(0x0005f138)
+                );
+            }
+            if (status == VF2_OK) {
+                cpu->registers[8] = reset_words[0];
+                cpu->registers[9] = reset_words[1];
+                cpu->registers[10] = reset_words[2];
+                cpu->registers[11] = reset_words[3];
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x0059cfe0), reset_words,
+                    sizeof(reset_words)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_i960_cpu_return_procedure(cpu, machine);
+            }
+            if (status == VF2_OK) {
+                cpu->ip = UINT32_C(0x000000b0);
+            }
         }
     }
     if (status != VF2_OK) {
         return status;
     }
 
-    /* ret from 0x5ef60/58fe0, wrapper restore, then ret from a6c0. */
-    set_equal_condition(cpu);
-    status = vf2_i960_cpu_return_procedure(cpu, machine);
-    if (status != VF2_OK || cpu->ip != UINT32_C(0x00010b78)) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-    status = vf2_model2a_read_u32(
-        machine, cpu->registers[1] - UINT32_C(4),
-        &cpu->registers[VF2_I960_G0_REGISTER + 4u]
-    );
-    cpu->registers[1] -= UINT32_C(4);
-    if (status == VF2_OK) {
+    if (!terminal_reset) {
+        /* ret from 0x5ef60/58fe0, wrapper restore, then ret from a6c0. */
+        set_equal_condition(cpu);
         status = vf2_i960_cpu_return_procedure(cpu, machine);
-    }
-    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a6f4)) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-    if (status == VF2_OK) {
-        status = vf2_i960_cpu_return_procedure(cpu, machine);
-    }
-    if (status != VF2_OK || cpu->ip != frame_dispatch_return) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        if (status != VF2_OK || cpu->ip != UINT32_C(0x00010b78)) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[1] - UINT32_C(4),
+            &cpu->registers[VF2_I960_G0_REGISTER + 4u]
+        );
+        cpu->registers[1] -= UINT32_C(4);
+        if (status == VF2_OK) {
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+        }
+        if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a6f4)) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        if (status == VF2_OK) {
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+        }
+        if (status != VF2_OK || cpu->ip != frame_dispatch_return) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
     }
 
     accounted = cpu->executed_instructions - start_instructions;
@@ -2072,6 +2230,7 @@ vf2_status execute_frame_dispatch_tick(
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &flags);
+    cpu->registers[15] = flags;
     if (status != VF2_OK || (flags & (UINT32_C(1) << 5u)) != 0u) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
@@ -2083,7 +2242,9 @@ vf2_status execute_frame_dispatch_tick(
          selector != UINT8_C(17))) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
+    cpu->registers[3] = (uint32_t)selector;
     selector_word = UINT32_C(1) << selector;
+    cpu->registers[4] = selector_word;
     status = vf2_model2a_write(
         machine, UINT32_C(0x0050002b), &selector, sizeof(selector)
     );
@@ -2101,6 +2262,7 @@ vf2_status execute_frame_dispatch_tick(
     if (status != VF2_OK) {
         return status;
     }
+    cpu->registers[5] = target;
     if (selector == UINT8_C(16)) {
         if (target != UINT32_C(0x00010a0c)) {
             return VF2_ERROR_UNSUPPORTED;
@@ -3412,7 +3574,9 @@ vf2_status execute_main_final_cluster(
     status=vf2_i960_cpu_enter_procedure(cpu,VF2_FRAME_SCRATCH_CLEAR_ENTRY,UINT32_C(0x0000a00c)); if(status==VF2_OK)status=execute_frame_scratch_clear(machine,cpu,&e);
     if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a00c))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     status=vf2_i960_cpu_enter_procedure(cpu,VF2_FRAME_DISPATCH_TICK_ENTRY,UINT32_C(0x0000a010)); if(status==VF2_OK)status=execute_frame_dispatch_tick(machine,cpu,&f);
-    if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a010))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
+    if(status!=VF2_OK)return status;
+    if(cpu->ip!=UINT32_C(0x000000b0) &&
+       cpu->ip!=UINT32_C(0x0000a010))return VF2_ERROR_UNSUPPORTED;
     cpu->executed_instructions+=UINT64_C(7);
     report->kind=VF2_HYBRID_BRIDGE_MAIN_FINAL_CLUSTER; report->entry_address=VF2_MAIN_FINAL_CLUSTER_ENTRY; report->exit_address=cpu->ip; report->bytes_written=a.bytes_written+b.bytes_written+d.bytes_written+e.bytes_written+f.bytes_written; report->recovered_instruction_count=cpu->executed_instructions-i; report->recovered_procedure_calls=cpu->procedure_calls-c; report->recovered_procedure_returns=cpu->procedure_returns-r; report->cpu_poststate_applied=1; return VF2_OK;
 }

@@ -60,6 +60,22 @@ static void test_initialize_and_names(void)
             "task"
         ) == 0
     );
+    CHECK(
+        strcmp(
+            vf2_native_runtime_step_kind_name(
+                VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE1
+            ),
+            "boot-stage1"
+        ) == 0
+    );
+    CHECK(
+        strcmp(
+            vf2_native_runtime_step_kind_name(
+                VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE2
+            ),
+            "boot-stage2"
+        ) == 0
+    );
 }
 
 static void test_zero_length_run(void)

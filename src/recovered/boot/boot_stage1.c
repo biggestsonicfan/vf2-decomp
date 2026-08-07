@@ -94,14 +94,17 @@ static vf2_status recover_final_cpu_state(
     if (cpu == NULL) {
         return VF2_OK;
     }
-    memset(cpu->registers, 0, sizeof(cpu->registers));
-    cpu->registers[1] = UINT32_C(0x005ff540);
-    cpu->registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    const int cold_start =
+        cpu->prcb == UINT32_C(0x00003000) && !cpu->reinitialized;
+
+    /* Stage 1 does not reset the i960 register file. Preserve registers that
+     * the ROM never writes so this recovery is valid both for power-on boot
+     * and for the phase-17 non-returning soft-reset branch. A cold reset has
+     * only sp/fp initialized, so preserving untouched registers is also the
+     * exact cold-boot behavior. */
     cpu->registers[3] = 0x80000000u;
     cpu->registers[4] = 0x00980000u;
-    cpu->registers[13] = 0u;
     cpu->registers[14] = 0x00920000u;
-    cpu->registers[15] = 0u;
     cpu->registers[16] = 0x000000b0u;
     cpu->registers[17] = 0x00003000u;
     cpu->registers[18] = 0x005ff410u;
@@ -122,12 +125,14 @@ static vf2_status recover_final_cpu_state(
     }
     cpu->registers[28] = VF2_BOOT_INTERRUPT_STACK;
     cpu->registers[30] = 0x0000018cu;
-    cpu->sat = 0u;
-    cpu->prcb = VF2_BOOT_INTERRUPT_DESTINATION;
     cpu->ip = VF2_BOOT_NEXT_INSTRUCTION;
-    cpu->arithmetic_control = UINT32_C(0x00000002);
-    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-    cpu->reinitialized = true;
+    if (cold_start) {
+        cpu->sat = 0u;
+        cpu->prcb = VF2_BOOT_INTERRUPT_DESTINATION;
+        cpu->arithmetic_control = UINT32_C(0x00000002);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        cpu->reinitialized = true;
+    }
     return VF2_OK;
 }
 

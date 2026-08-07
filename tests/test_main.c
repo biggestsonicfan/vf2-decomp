@@ -215,6 +215,35 @@ static void test_recovered_boot_stage1(void)
     EXPECT_TRUE(machine.work_ram[0xff426u] == 0x5fu);
     EXPECT_TRUE(machine.work_ram[0xff427u] == 0x00u);
 
+    /* Warm soft-reset entry must preserve registers/control state that the
+     * ROM's 0x000000b0 stage never writes. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0x005ff410u, 0xb0u);
+    cpu.reinitialized = true;
+    cpu.process_control = UINT32_C(0x001f0000);
+    cpu.arithmetic_control = UINT32_C(0x3f001002);
+    cpu.interrupt_control = UINT32_C(0x0f0e0d0c);
+    cpu.compare_result = VF2_I960_COMPARE_EQUAL;
+    cpu.registers[0] = UINT32_C(0x005ff5c0);
+    cpu.registers[1] = UINT32_C(0x005ff67c);
+    cpu.registers[2] = UINT32_C(0x0005f138);
+    cpu.registers[9] = UINT32_C(0x0ff7f7ff);
+    cpu.registers[23] = UINT32_C(0x00510980);
+    cpu.registers[29] = UINT32_C(0x00516480);
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff640);
+    EXPECT_TRUE(
+        vf2_recovered_boot_stage1_execute(&machine, &cpu, &report) == VF2_OK
+    );
+    EXPECT_TRUE(cpu.ip == UINT32_C(0x000001b0));
+    EXPECT_TRUE(cpu.registers[0] == UINT32_C(0x005ff5c0));
+    EXPECT_TRUE(cpu.registers[1] == UINT32_C(0x005ff67c));
+    EXPECT_TRUE(cpu.registers[2] == UINT32_C(0x0005f138));
+    EXPECT_TRUE(cpu.registers[9] == UINT32_C(0x0ff7f7ff));
+    EXPECT_TRUE(cpu.registers[23] == UINT32_C(0x00510980));
+    EXPECT_TRUE(cpu.registers[29] == UINT32_C(0x00516480));
+    EXPECT_TRUE(cpu.registers[VF2_I960_FP_REGISTER] == UINT32_C(0x005ff640));
+    EXPECT_TRUE(cpu.arithmetic_control == UINT32_C(0x3f001002));
+    EXPECT_TRUE(cpu.interrupt_control == UINT32_C(0x0f0e0d0c));
+
     vf2_model2a_shutdown(&machine);
     free(rom);
 }
@@ -249,15 +278,29 @@ static void test_recovered_boot_stage2(void)
     vf2_i960_cpu_reset(&cpu, 0u, 0x005ff410u, 0x1b0u);
     cpu.reinitialized = true;
     cpu.executed_instructions = 100u;
+    cpu.arithmetic_control = UINT32_C(0x3f001002);
+    cpu.registers[0] = UINT32_C(0x005ff5c0);
+    cpu.registers[1] = UINT32_C(0x005ff67c);
+    cpu.registers[23] = UINT32_C(0x00510980);
+    cpu.registers[29] = UINT32_C(0x00516480);
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff640);
 
     EXPECT_TRUE(vf2_recovered_boot_stage2_execute(&machine, &cpu, &report) == VF2_OK);
     EXPECT_TRUE(cpu.ip == 0x52cu);
     EXPECT_TRUE(cpu.process_control == 0x001f0000u);
     EXPECT_TRUE(cpu.arithmetic_control == 0x3f001000u);
     EXPECT_TRUE(cpu.interrupt_control == 0x0f0e0d0cu);
+    EXPECT_TRUE(cpu.registers[0] == UINT32_C(0x005ff5c0));
+    EXPECT_TRUE(cpu.registers[1] == UINT32_C(0x005ff67c));
     EXPECT_TRUE(cpu.registers[2] == 0x410u);
+    EXPECT_TRUE(cpu.registers[5] == UINT32_C(0x3f001002));
+    EXPECT_TRUE(cpu.registers[23] == UINT32_C(0x00510980));
+    EXPECT_TRUE(cpu.registers[29] == UINT32_C(0x00516480));
+    EXPECT_TRUE(cpu.registers[VF2_I960_FP_REGISTER] == UINT32_C(0x005ff640));
     EXPECT_TRUE(cpu.registers[VF2_I960_G14_REGISTER] == 0x220u);
     EXPECT_TRUE(cpu.executed_instructions == 182614u);
+    EXPECT_TRUE(cpu.procedure_calls == UINT64_C(1));
+    EXPECT_TRUE(cpu.procedure_returns == UINT64_C(1));
     EXPECT_TRUE(report.palette_entries_written == 12288u);
     EXPECT_TRUE(report.color_entries_written == 128u);
     EXPECT_TRUE(report.tile_halfwords_cleared == 24584u);

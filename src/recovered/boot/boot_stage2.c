@@ -190,6 +190,7 @@ vf2_status vf2_recovered_boot_stage2_execute(
     uint32_t flags = 0u;
     uint32_t interrupt_control = 0u;
     uint8_t board_probe = 1u;
+    const uint32_t incoming_arithmetic_control = cpu->arithmetic_control;
     vf2_status status = VF2_OK;
     vf2_recovered_boot_stage2_report local_report;
 
@@ -273,27 +274,23 @@ vf2_status vf2_recovered_boot_stage2_execute(
     cpu->compare_result = VF2_I960_COMPARE_EQUAL;
     cpu->ip = UINT32_C(0x0000052c);
     cpu->executed_instructions += UINT64_C(182514);
+    ++cpu->procedure_calls;
+    ++cpu->procedure_returns;
 
-    memset(cpu->registers, 0, sizeof(cpu->registers));
-    cpu->registers[1] = UINT32_C(0x005ff540);
+    /* Like stage 1, the hardware-init prefix does not reset the register
+     * file. Only materialize registers the ROM actually changes. This keeps
+     * cold boot exact while also preserving the live caller context during
+     * the phase-17 soft-reset handoff. r5 captures the arithmetic-control
+     * value that was live on entry before stage 2 installs its new AC. */
     cpu->registers[2] = UINT32_C(0x00000410);
     cpu->registers[3] = 0u;
     cpu->registers[4] = UINT32_C(0xff1f917f);
-    cpu->registers[5] = UINT32_C(0x00000002);
+    cpu->registers[5] = incoming_arithmetic_control;
     cpu->registers[7] = UINT32_C(0x0000ffff);
+    cpu->registers[9] = 0u;
     cpu->registers[11] = UINT32_C(0x01c00024);
-    cpu->registers[14] = UINT32_C(0x00920000);
     cpu->registers[15] = UINT32_C(0x00000100);
-    cpu->registers[16] = UINT32_C(0x000000b0);
-    cpu->registers[17] = UINT32_C(0x00003000);
-    cpu->registers[18] = UINT32_C(0x005ff410);
-    cpu->registers[19] = UINT32_MAX;
-    cpu->registers[20] = UINT32_C(0x000000b0);
-    cpu->registers[21] = UINT32_C(0xff000010);
-    cpu->registers[22] = UINT32_C(0x00003860);
-    cpu->registers[28] = UINT32_C(0x005ff000);
     cpu->registers[30] = UINT32_C(0x00000220);
-    cpu->registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
 
     local_report.start_address = UINT32_C(0x000001b0);
     local_report.stop_address = cpu->ip;

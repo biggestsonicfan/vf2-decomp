@@ -61,12 +61,13 @@ plane through `0x00008ef0`, and centers the phase label via
 
 The resulting observed bit-7 entry (`0x8b`) is also recovered: `0x00059154`
 selects `0x0005ef60`, whose first visit performs meter+CRC, clears the tile plane,
-draws `EXIT TEST MODE` and arms counter 320. Positive countdown visits are
-recovered and a boundary probe reaches the exact `counter 1` state. Still
-uncovered are the terminal `counter 1 -> 0` path from `0x0005f07c`, other bit-7
-indirect table entries, and phase state zero. The terminal trace is now observed
-through `0x0006116c` to `0x000000b0`, but it remains fail-closed until its
-non-returning soft-reset handoff is validated against the existing boot recovery.
+draws `EXIT TEST MODE` and arms counter 320. Positive countdown visits and the
+terminal `counter 1 -> 0` path at `0x0005f07c` are now recovered. The terminal
+clears the observed layer/game state, writes the reset diagnostic through
+`0x0006116c`, and hands off non-returningly to `0x000000b0`. Warm boot stages 1
+and 2 are strict-equal through `0x0000052c`; the next uncovered continuation is
+the branch into initialization at `0x00009798`. Other bit-7 indirect table
+entries and phase state zero remain unsupported.
 
 ## 5. Audio and platform
 

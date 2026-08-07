@@ -1,7 +1,11 @@
 #include "vf2/native_runtime.h"
+#include "vf2/recovered.h"
 
 #include <string.h>
 
+#define VF2_NATIVE_BOOT_STAGE1_ENTRY UINT32_C(0x000000b0)
+#define VF2_NATIVE_BOOT_STAGE1_INSTRUCTIONS UINT64_C(1180053)
+#define VF2_NATIVE_BOOT_STAGE2_ENTRY UINT32_C(0x000001b0)
 #define VF2_NATIVE_FRAME_WAIT_POLL_ENTRY UINT32_C(0x00010f90)
 #define VF2_NATIVE_INTERRUPT_RETURN_ENTRY UINT32_C(0x00000d20)
 #define VF2_NATIVE_SECOND_SCHEDULER_ENTRY UINT32_C(0x0000a010)
@@ -24,6 +28,72 @@
 #define VF2_NATIVE_TIMER_MASK UINT32_C(0x000fffff)
 #define VF2_NATIVE_SCRATCH_BASE UINT32_C(0x0050c000)
 #define VF2_NATIVE_SCRATCH_STRIDE UINT32_C(0x20)
+
+
+static vf2_status execute_boot_stage1(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_recovered_boot_stage1_report boot_report;
+    vf2_status status = VF2_OK;
+
+    if (cpu->ip != VF2_NATIVE_BOOT_STAGE1_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&boot_report, 0, sizeof(boot_report));
+    status = vf2_recovered_boot_stage1_execute(
+        machine, cpu, &boot_report
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += VF2_NATIVE_BOOT_STAGE1_INSTRUCTIONS;
+
+    report->kind = VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE1;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status execute_boot_stage2(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_recovered_boot_stage2_report boot_report;
+    vf2_status status = VF2_OK;
+
+    if (cpu->ip != VF2_NATIVE_BOOT_STAGE2_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&boot_report, 0, sizeof(boot_report));
+    status = vf2_recovered_boot_stage2_execute(
+        machine, cpu, &boot_report
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE2;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
 
 static void accumulate_step(
     vf2_native_runtime_state *state,
@@ -613,8 +683,12 @@ vf2_status vf2_native_runtime_step(
     memset(&local_report, 0, sizeof(local_report));
     local_report.entry_address = cpu->ip;
 
-    if (cpu->ip == VF2_NATIVE_FRAME_WAIT_POLL_ENTRY ||
-        cpu->ip == VF2_NATIVE_INTERRUPT_RETURN_ENTRY) {
+    if (cpu->ip == VF2_NATIVE_BOOT_STAGE1_ENTRY) {
+        status = execute_boot_stage1(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_BOOT_STAGE2_ENTRY) {
+        status = execute_boot_stage2(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_FRAME_WAIT_POLL_ENTRY ||
+               cpu->ip == VF2_NATIVE_INTERRUPT_RETURN_ENTRY) {
         vf2_hybrid_bridge_report bridge_report;
         memset(&bridge_report, 0, sizeof(bridge_report));
         status = vf2_hybrid_frame_wait_execute(
@@ -841,6 +915,10 @@ const char *vf2_native_runtime_step_kind_name(
         return "scheduler-transition";
     case VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH:
         return "scheduler-finish";
+    case VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE1:
+        return "boot-stage1";
+    case VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE2:
+        return "boot-stage2";
     default:
         return "unknown";
     }

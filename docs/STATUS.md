@@ -79,8 +79,8 @@ contracts.
 
 ## Validation
 
-The exact supported 36-file ROM set passes all 33 configured CTest targets:
-8 ROM-independent tests and 25 ROM-backed differential/observation tests. The
+The exact supported 36-file ROM set passes all 36 configured CTest targets:
+11 ROM-independent tests and 25 ROM-backed differential/observation tests. The
 ROM-independent suite also passes under AddressSanitizer,
 UndefinedBehaviorSanitizer and LeakSanitizer.
 
@@ -190,9 +190,22 @@ repeats meter+CRC and matches at 626 dispatcher / 858 cluster instructions.
 
 A resumable cycle-boundary probe starting at counter 320 completes 319 cycles,
 11,484 blocks and 701,481 reference/native instructions with equal cycle-end
-state, then stops at the exact pre-terminal checkpoint where counter 1 would
-become zero. This probe evidence does not replace the strict per-block contract;
-strict replay separately covers the first visit and consecutive countdown
-visits. The next concrete target is the terminal `0x0005f07c` transition and its
-non-returning soft-reset path toward `0x000000b0`; phase-state-zero and other
-bit-7 table entries remain additional targets.
+state and lands at the exact `counter 1` preterminal checkpoint. Strict replay
+now continues from there through the terminal `0x0005f07c` transition. The
+recovered terminal reproduces the ROM's layer-bit clears, global/gameplay resets,
+48x64 tile clear, `0x0006116c` reset-message write and non-returning branch to
+`0x000000b0`; the complete enclosing `main-final-cluster` is strict-equal at
+13,426 instructions.
+
+That handoff is no longer treated as a cold boot. Boot stage 1 now preserves the
+incoming registers/control state not touched by the ROM and strictly matches
+1,180,053 instructions from `0x000000b0` to `0x000001b0`. Boot stage 2 preserves
+the same warm context, accounts its ROM call/return, and strictly matches another
+182,514 instructions to `0x0000052c`. From the preterminal cluster through both
+boot stages, reference and recovered-native execution therefore match for
+1,375,993 instructions across three native blocks, including CPU, local frames,
+procedure counters and all mutable memory.
+
+The next concrete boundary is the unconditional branch at `0x0000052c` into the
+initialization body at `0x00009798`. Phase-state-zero and other bit-7 indirect
+table entries remain additional controlled-state targets.
