@@ -104,3 +104,16 @@ match, animation, collision and input types.
 
 TGP rendering, 68000/SCSP audio and a production platform backend remain later
 milestones.
+
+## Endurance tooling
+
+The differential layer now has two reusable pieces for the next v0.2.0 step:
+
+- `vf2i960 native-fifth-dispatch ROM_DIR OUTPUT.vf2snap` persists the exact
+  validated fifth-`fa_game_info` boundary; and
+- `vf2cycles` restores that boundary and executes a requested number of complete
+  repeated-address cycles with per-block CPU and mutable-memory comparison.
+
+This tooling does not extend the ROM-proven boundary by itself. Its first
+expected failure identifies the concrete unsupported block that must be
+recovered before a strict sixth-dispatch contract can be recorded.

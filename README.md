@@ -238,3 +238,30 @@ tests/                   ROM-independent and optional ROM-backed tests
 
 The repository contains no Sega game data. Users must provide their own legally
 obtained ROM files. See `docs/LEGAL.md` and `THIRD_PARTY.md`.
+
+## Snapshot endurance runner
+
+The strict fifth-dispatch command can optionally persist its proven native
+boundary as a versioned snapshot:
+
+```sh
+build/vf2i960 native-fifth-dispatch /path/to/vf2 fifth-dispatch.vf2snap
+```
+
+`vf2cycles` restores that exact CPU and mutable Model 2 state into independent
+reference and recovered-native machines, then executes repeated scheduler
+cycles in differential lockstep:
+
+```sh
+build/vf2cycles \
+  --rom-dir /path/to/vf2 \
+  --snapshot fifth-dispatch.vf2snap \
+  --cycles 10 \
+  --min-blocks 1 \
+  --max-blocks 16384
+```
+
+The command stops at the first unsupported native block, reference execution
+failure or state mismatch and prints the partial cycle, last recovered step and
+first differing component. A successful run never interprets instructions on
+the native side.

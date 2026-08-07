@@ -53,7 +53,7 @@ static void usage(const char *program)
         "  %s native-second-dispatch <rom-directory>\n"
         "  %s native-third-dispatch <rom-directory>\n"
         "  %s native-fourth-dispatch <rom-directory>\n"
-        "  %s native-fifth-dispatch <rom-directory>\n"
+        "  %s native-fifth-dispatch <rom-directory> [output.vf2snap]\n"
         "  %s compare-texture-bridge <rom-directory>\n"
         "  %s compare-post-frame-bridge <rom-directory>\n"
         "  %s compare-geometry-boundary <rom-directory>\n"
@@ -104,6 +104,7 @@ static void usage(const char *program)
 
 static FILE *g_orchestrator_trace_file = NULL;
 static uint64_t g_orchestrator_trace_step = 0u;
+static const char *g_native_snapshot_path = NULL;
 
 static bool is_orchestrator_cluster_ip(uint32_t ip)
 {
@@ -5099,6 +5100,30 @@ static int command_native_dispatch_ex(
                        third_report.native_recovered_instructions
                    ));
             printf("Final CPU and memory state:         MATCH\n");
+
+            if (native_fifth_dispatch && g_native_snapshot_path != NULL) {
+                vf2_i960_snapshot output_snapshot;
+                vf2_i960_snapshot_init(&output_snapshot);
+                status = vf2_i960_snapshot_capture(
+                    &output_snapshot,
+                    &native_cpu,
+                    &native_machine
+                );
+                if (status == VF2_OK) {
+                    status = vf2_i960_snapshot_write_file(
+                        &output_snapshot,
+                        g_native_snapshot_path
+                    );
+                }
+                vf2_i960_snapshot_destroy(&output_snapshot);
+                if (status == VF2_OK) {
+                    printf("Fifth-dispatch snapshot:            %s\n",
+                           g_native_snapshot_path);
+                } else {
+                    fprintf(stderr, "Could not write fifth-dispatch snapshot: %s\n",
+                            vf2_status_string(status));
+                }
+            }
         }
     }
 
@@ -5536,7 +5561,9 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "native-fourth-dispatch") == 0 && argc == 3) {
         return command_native_fourth_dispatch(argv[2]);
     }
-    if (strcmp(argv[1], "native-fifth-dispatch") == 0 && argc == 3) {
+    if (strcmp(argv[1], "native-fifth-dispatch") == 0 &&
+        (argc == 3 || argc == 4)) {
+        g_native_snapshot_path = argc == 4 ? argv[3] : NULL;
         return command_native_fifth_dispatch(argv[2]);
     }
     if (strcmp(argv[1], "compare-texture-bridge") == 0 && argc == 3) {

@@ -90,8 +90,12 @@ add_executable(vf2i960 tools/vf2i960/main.c)
 target_link_libraries(vf2i960 PRIVATE vf2_core)
 vf2_set_project_warnings(vf2i960)
 
+add_executable(vf2cycles tools/vf2cycles/main.c)
+target_link_libraries(vf2cycles PRIVATE vf2_core)
+vf2_set_project_warnings(vf2cycles)
+
 include(GNUInstallDirs)
-install(TARGETS vf2 vf2rom vf2i960
+install(TARGETS vf2 vf2rom vf2i960 vf2cycles
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
 
