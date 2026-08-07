@@ -91,6 +91,15 @@ vf2_status vf2_i960_snapshot_compare(
     vf2_i960_snapshot_diff *diff
 );
 
+/* Compare two live CPU/machine states without allocating snapshot buffers. */
+vf2_status vf2_i960_compare_live_state(
+    const vf2_i960_cpu *expected_cpu,
+    const vf2_model2a *expected_machine,
+    const vf2_i960_cpu *actual_cpu,
+    const vf2_model2a *actual_machine,
+    vf2_i960_snapshot_diff *diff
+);
+
 /* Compare captured memory regions while intentionally ignoring CPU state. */
 vf2_status vf2_i960_snapshot_compare_memory(
     const vf2_i960_snapshot *expected,

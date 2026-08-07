@@ -92,6 +92,12 @@ static vf2_status copy_region(uint8_t **destination, size_t *destination_size, c
     if (destination == NULL || destination_size == NULL || (source == NULL && source_size != 0u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
+    if (*destination != NULL && *destination_size == source_size) {
+        if (source_size != 0u) {
+            memcpy(*destination, source, source_size);
+        }
+        return VF2_OK;
+    }
     if (source_size != 0u) {
         copy = (uint8_t *)malloc(source_size);
         if (copy == NULL) {
@@ -191,7 +197,6 @@ vf2_status vf2_i960_snapshot_capture(vf2_i960_snapshot *snapshot, const vf2_i960
     if (snapshot == NULL || cpu == NULL || machine == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    vf2_i960_snapshot_destroy(snapshot);
     snapshot->cpu = *cpu;
     writable_regions(snapshot, destination);
     machine_regions(machine, source);
@@ -384,6 +389,9 @@ vf2_status vf2_i960_snapshot_read_file(vf2_i960_snapshot *snapshot, const char *
 static void compare_bytes(const char *component, const uint8_t *expected, const uint8_t *actual, size_t size, vf2_i960_snapshot_diff *diff)
 {
     size_t index = 0u;
+    if (size == 0u || memcmp(expected, actual, size) == 0) {
+        return;
+    }
     for (index = 0u; index < size; ++index) {
         if (expected[index] != actual[index]) {
             if (diff->equal) {
@@ -433,6 +441,100 @@ static vf2_status compare_memory_regions(
     for (index = 0u; index < VF2_SNAPSHOT_REGION_COUNT; ++index) {
         compare_bytes(expected_regions[index].name, expected_regions[index].data,
                       actual_regions[index].data, expected_regions[index].size, diff);
+    }
+    return VF2_OK;
+}
+
+vf2_status vf2_i960_compare_live_state(
+    const vf2_i960_cpu *expected_cpu,
+    const vf2_model2a *expected_machine,
+    const vf2_i960_cpu *actual_cpu,
+    const vf2_model2a *actual_machine,
+    vf2_i960_snapshot_diff *diff
+)
+{
+    snapshot_const_region_ref expected_regions[VF2_SNAPSHOT_REGION_COUNT];
+    snapshot_const_region_ref actual_regions[VF2_SNAPSHOT_REGION_COUNT];
+    size_t index = 0u;
+
+    if (expected_cpu == NULL || expected_machine == NULL ||
+        actual_cpu == NULL || actual_machine == NULL || diff == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    memset(diff, 0, sizeof(*diff));
+    diff->equal = true;
+    if (expected_cpu->sat != actual_cpu->sat ||
+        expected_cpu->prcb != actual_cpu->prcb ||
+        expected_cpu->ip != actual_cpu->ip ||
+        expected_cpu->process_control != actual_cpu->process_control ||
+        expected_cpu->arithmetic_control != actual_cpu->arithmetic_control ||
+        expected_cpu->interrupt_control != actual_cpu->interrupt_control ||
+        expected_cpu->compare_result != actual_cpu->compare_result ||
+        expected_cpu->reinitialized != actual_cpu->reinitialized ||
+        expected_cpu->local_frame_depth != actual_cpu->local_frame_depth) {
+        diff->equal = false;
+        (void)snprintf(diff->component, sizeof(diff->component), "cpu-state");
+        diff->expected_value = expected_cpu->ip;
+        diff->actual_value = actual_cpu->ip;
+        ++diff->differing_bytes;
+    }
+    for (index = 0u; index < VF2_I960_REGISTER_COUNT; ++index) {
+        if (expected_cpu->registers[index] != actual_cpu->registers[index]) {
+            if (diff->equal) {
+                diff->equal = false;
+                (void)snprintf(diff->component, sizeof(diff->component), "registers");
+                diff->first_offset = index;
+                diff->expected_value = expected_cpu->registers[index];
+                diff->actual_value = actual_cpu->registers[index];
+            }
+            ++diff->differing_bytes;
+        }
+    }
+    if (expected_cpu->local_frame_depth != actual_cpu->local_frame_depth) {
+        return VF2_OK;
+    }
+    for (index = 0u; index < expected_cpu->local_frame_depth; ++index) {
+        size_t reg = 0u;
+        for (reg = 0u; reg < VF2_I960_LOCAL_REGISTER_COUNT; ++reg) {
+            const uint32_t expected_value = expected_cpu->local_frames[index].registers[reg];
+            const uint32_t actual_value = actual_cpu->local_frames[index].registers[reg];
+            if (expected_value != actual_value) {
+                if (diff->equal) {
+                    diff->equal = false;
+                    (void)snprintf(diff->component, sizeof(diff->component), "local-frames");
+                    diff->first_offset = index * VF2_I960_LOCAL_REGISTER_COUNT + reg;
+                    diff->expected_value = expected_value;
+                    diff->actual_value = actual_value;
+                }
+                ++diff->differing_bytes;
+            }
+        }
+    }
+
+    machine_regions(expected_machine, expected_regions);
+    machine_regions(actual_machine, actual_regions);
+    for (index = 0u; index < VF2_SNAPSHOT_REGION_COUNT; ++index) {
+        if (expected_regions[index].size != actual_regions[index].size) {
+            if (diff->equal) {
+                diff->equal = false;
+                (void)snprintf(diff->component, sizeof(diff->component), "region-size");
+                diff->first_offset = index;
+                diff->expected_value = (uint32_t)expected_regions[index].size;
+                diff->actual_value = (uint32_t)actual_regions[index].size;
+            }
+            ++diff->differing_bytes;
+            return VF2_OK;
+        }
+    }
+    for (index = 0u; index < VF2_SNAPSHOT_REGION_COUNT; ++index) {
+        compare_bytes(
+            expected_regions[index].name,
+            expected_regions[index].data,
+            actual_regions[index].data,
+            expected_regions[index].size,
+            diff
+        );
     }
     return VF2_OK;
 }

@@ -52,25 +52,17 @@ static vf2_status compare_complete_state(
     vf2_i960_snapshot_diff *diff
 )
 {
-    vf2_status status = vf2_i960_snapshot_capture(
-        reference_snapshot,
+    vf2_status status = VF2_OK;
+
+    (void)reference_snapshot;
+    (void)native_snapshot;
+    status = vf2_i960_compare_live_state(
         reference_cpu,
-        reference_machine
+        reference_machine,
+        native_cpu,
+        native_machine,
+        diff
     );
-    if (status == VF2_OK) {
-        status = vf2_i960_snapshot_capture(
-            native_snapshot,
-            native_cpu,
-            native_machine
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_i960_snapshot_compare(
-            reference_snapshot,
-            native_snapshot,
-            diff
-        );
-    }
     if (status == VF2_OK && diff->equal) {
         compare_execution_counters(reference_cpu, native_cpu, diff);
     }

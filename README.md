@@ -274,9 +274,14 @@ the accepted corridor. Pre-block snapshots are only taken when
 `--failure-prefix` is present, so normal endurance runs avoid that extra copy. A
 successful run never interprets instructions on the native side.
 
-A ROM-backed endurance run from the fifth-dispatch checkpoint has now completed
-1,000 additional repeated-address cycles (36,000 blocks / 1,582,507 recovered
-instructions) with exact per-block differential state equality.
+A ROM-backed strict endurance chain from the fifth-dispatch checkpoint has now
+completed 10,000 additional repeated-address cycles (360,000 blocks / 15,689,445
+recovered instructions) with exact per-block differential state equality. The
+final chained checkpoint is again `fa_game_info` at `0x0001645c`, with scheduler
+entry / frame IRQ 10,003. The strict comparator now checks the two live CPU and
+mutable-memory states directly, snapshot capture reuses same-sized region buffers,
+and equal regions take a `memcmp` fast path while mismatches retain byte-precise
+diagnostics.
 
 For longer scouting runs, `--boundary-probe` keeps the same recovered-native and
 reference instruction-count lockstep but defers the expensive complete snapshot
@@ -301,7 +306,7 @@ sidecar after a successful run, allowing long endurance work to resume without
 replaying earlier accepted cycles. Using the verified ROM set, boundary probes
 have reached scheduler entry / frame IRQ 16,384 with complete cycle-end CPU,
 counter, local-frame and mutable-memory equality. The stricter published
-per-block corridor remains the 1,000-cycle result above.
+per-block corridor is now the 10,000-cycle result above.
 
 Controlled state-transition probing has also recovered both phase-17 navigation
 directions. Gameplay bit 13 (`0x00002000`) steps backward (`11 -> 10`, with

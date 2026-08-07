@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- accelerated strict per-block differential acceptance without weakening its
+  equality contract: live CPU/mutable-memory state is compared directly,
+  snapshot captures reuse same-sized buffers, and equal regions use `memcmp`
+  before falling back to byte-precise mismatch diagnostics;
+- added ROM-independent regression coverage for live-state equality/mismatch
+  reporting and snapshot-buffer reuse;
+- extended the verified 36/36-ROM strict fifth-dispatch endurance corridor to
+  10,000 chained repeated-address cycles: 360,000 blocks / 15,689,445 recovered
+  i960 instructions with per-block equality, ending again at `0x0001645c` with
+  scheduler entry / frame IRQ 10,003; the existing 16,384-cycle boundary probe
+  remains scouting evidence under its intentionally weaker cycle-end contract;
 - recovered the phase-17 bit-7 indirect dispatch for observed index `0x8b`:
   `0x00059154` clears the flag and dispatches through table entry `0x0005ff00`
   to `0x0005ef60`; the first visit now reproduces the ROM's game-meter update,
@@ -53,7 +64,7 @@
 - added `vf2_native_differential_probe_cycles` and `vf2cycles --boundary-probe` for long-horizon repeated-frame scouting: reference and native execution remain instruction-count locked per recovered block, frame-wait host state is checked on each wait block, complete CPU/mutable-memory state is compared at cycle boundaries, and any failing cycle restores both machines plus native runtime state to its exact start for strict replay;
 - added `vf2cycles --output-snapshot <file>` to persist successful endurance boundaries together with the versioned `.runtime` sidecar, allowing long ROM-backed probes to resume without replaying earlier cycles;
 - added ROM-independent coverage for the zero-cycle probe contract and retained the existing strict per-block runner unchanged as the acceptance path;
-- ROM-backed cycle-boundary probing from the proven fifth-dispatch corridor reached scheduler entry / frame IRQ 16,384 with complete cycle-end state equality; this is scouting evidence only and does not broaden the published 1,000-cycle strict per-block claim. The repeated state remains on the same mode/phase/gameplay fast paths, so v0.2.0 work now shifts toward controlled state-transition evidence rather than passive endurance of the same attractor;
+- ROM-backed cycle-boundary probing from the proven fifth-dispatch corridor reached scheduler entry / frame IRQ 16,384 with complete cycle-end state equality; this remains scouting evidence distinct from the published 10,000-cycle strict per-block claim. The repeated state remains on the same mode/phase/gameplay fast paths, so v0.2.0 work now shifts toward controlled state-transition evidence rather than passive endurance of the same attractor;
 - recovered the `0x0000a75c` busy subpath of `frame_geometry_gate`: the two
   observed transitions through `0x0000a748 -> 0x0000a800` (the
   `state[0x0050002a] != 17` retry-write, eight instructions and one byte,

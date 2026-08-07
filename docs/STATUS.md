@@ -118,13 +118,19 @@ covering frame-wait progress and all native aggregate counters. The endurance
 runner performs public one-block differential steps and can persist the last
 fully matched state immediately before a failure.
 
-ROM-backed endurance now extends the proven corridor substantially beyond the
-fifth entry. A verified 36/36 ROM set completed 1,000 additional repeated-
-address cycles with exact CPU, local-frame, counter, frame-event and mutable-
-memory equality: 36,000 additional native blocks and 1,582,507 recovered i960
-instructions. The final checkpoint is again `fa_game_info` at `0x0001645c`,
-with 1,003 scheduler entries and 1,003 injected frame IRQs accumulated by the
-native runtime.
+ROM-backed endurance now extends the strict proven corridor substantially beyond
+the fifth entry. A verified 36/36 ROM set completed 10,000 additional repeated-
+address cycles with exact per-block CPU, local-frame, counter, frame-event and
+mutable-memory equality: 360,000 additional native blocks and 15,689,445
+recovered i960 instructions. The final chained checkpoint is again
+`fa_game_info` at `0x0001645c`, with 10,003 scheduler entries and 10,003
+injected frame IRQs accumulated by the native runtime.
+
+The strict comparison path now compares live CPU and mutable machine state
+directly instead of materializing two temporary full snapshots for every block.
+Snapshot capture reuses same-sized region buffers, and equal memory regions use
+a `memcmp` fast path while differing regions still fall back to the byte scan
+that reports the exact component and first differing offset.
 
 That endurance run exposed and fixed two previously unobserved periodic paths:
 
@@ -145,8 +151,8 @@ exact beginning of the failing cycle, ready for strict per-block replay.
 so long probes can resume without replaying earlier cycles.
 
 Using the verified ROM set, cycle-boundary probing reached scheduler entry and
-frame IRQ 16,384 with complete cycle-end state equality. This does **not** extend
-the strict per-block acceptance claim beyond the published 1,000-cycle corridor.
+frame IRQ 16,384 with complete cycle-end state equality. This scouting result
+remains distinct from the now-published 10,000-cycle strict per-block corridor.
 It does show that passive repeated-frame execution has settled into a stable
 state: the observed mode remains `0x00020000`, phase state/index remain
 `0xff`/`0x0b`, and gameplay flags remain zero.

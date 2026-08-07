@@ -84,6 +84,68 @@ int vf2_test_i960_snapshot(void)
         return 3;
     }
 
+    {
+        vf2_model2a live_machine;
+        vf2_i960_cpu live_cpu;
+        uint8_t *const reused_work_ram = first.work_ram;
+
+        memset(&live_machine, 0, sizeof(live_machine));
+        memset(&live_cpu, 0, sizeof(live_cpu));
+        if (!vf2_model2a_initialize(&live_machine)) {
+            (void)remove(path);
+            vf2_i960_snapshot_destroy(&first);
+            vf2_i960_snapshot_destroy(&second);
+            vf2_model2a_shutdown(&machine);
+            return 4;
+        }
+        status = vf2_i960_snapshot_restore(&first, &live_cpu, &live_machine);
+        if (status == VF2_OK) {
+            status = vf2_i960_compare_live_state(
+                &cpu,
+                &machine,
+                &live_cpu,
+                &live_machine,
+                &diff
+            );
+        }
+        if (status != VF2_OK || !diff.equal) {
+            vf2_model2a_shutdown(&live_machine);
+            (void)remove(path);
+            vf2_i960_snapshot_destroy(&first);
+            vf2_i960_snapshot_destroy(&second);
+            vf2_model2a_shutdown(&machine);
+            return 5;
+        }
+        live_machine.work_ram[7] ^= 1u;
+        status = vf2_i960_compare_live_state(
+            &cpu,
+            &machine,
+            &live_cpu,
+            &live_machine,
+            &diff
+        );
+        if (status != VF2_OK || diff.equal ||
+            strcmp(diff.component, "work-ram") != 0 ||
+            diff.first_offset != 7u) {
+            vf2_model2a_shutdown(&live_machine);
+            (void)remove(path);
+            vf2_i960_snapshot_destroy(&first);
+            vf2_i960_snapshot_destroy(&second);
+            vf2_model2a_shutdown(&machine);
+            return 6;
+        }
+        status = vf2_i960_snapshot_capture(&first, &cpu, &machine);
+        if (status != VF2_OK || first.work_ram != reused_work_ram) {
+            vf2_model2a_shutdown(&live_machine);
+            (void)remove(path);
+            vf2_i960_snapshot_destroy(&first);
+            vf2_i960_snapshot_destroy(&second);
+            vf2_model2a_shutdown(&machine);
+            return 7;
+        }
+        vf2_model2a_shutdown(&live_machine);
+    }
+
     (void)remove(path);
     vf2_i960_snapshot_destroy(&first);
     vf2_i960_snapshot_destroy(&second);
