@@ -117,4 +117,29 @@ vf2_status vf2_native_differential_run_cycles(
     vf2_native_differential_cycles_report *report
 );
 
+/* Fast scouting mode for long repeated-address corridors. Native and reference
+ * execution still advance by the exact recovered instruction count for every
+ * block, and frame-wait host state is checked whenever it changes, but the
+ * expensive complete CPU/mutable-memory snapshot comparison is deferred until
+ * the cycle returns to repeated_address.
+ *
+ * On any unsupported block, reference failure, frame-wait mismatch, IP mismatch
+ * or cycle-boundary state mismatch, both machines and native_state are restored
+ * to the exact start of the failing cycle. This makes that state directly
+ * reusable by the strict per-block runner for failure localization. Successful
+ * probe cycles prove boundary equality only; strict run_cycles remains the
+ * acceptance contract for per-block equality. */
+vf2_status vf2_native_differential_probe_cycles(
+    vf2_model2a *reference_machine,
+    vf2_i960_cpu *reference_cpu,
+    vf2_model2a *native_machine,
+    vf2_i960_cpu *native_cpu,
+    vf2_native_runtime_state *native_state,
+    uint32_t repeated_address,
+    size_t cycle_count,
+    size_t minimum_blocks_per_cycle,
+    size_t max_blocks_per_cycle,
+    vf2_native_differential_cycles_report *report
+);
+
 #endif
