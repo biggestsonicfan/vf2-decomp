@@ -76,6 +76,73 @@ static void test_initialize_and_names(void)
             "boot-stage2"
         ) == 0
     );
+    CHECK(
+        strcmp(
+            vf2_native_runtime_step_kind_name(
+                VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INIT_PREFIX
+            ),
+            "post-boot-init-prefix"
+        ) == 0
+    );
+}
+
+static void test_post_boot_init_prefix(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state state;
+    vf2_native_runtime_step_report report;
+    uint32_t value = 0u;
+    uint8_t bytes[3] = {0u, 0u, 0u};
+
+    memset(&machine, 0, sizeof(machine));
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x0000052c));
+    cpu.registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x3000);
+    cpu.arithmetic_control = UINT32_C(0x3f001000);
+    cpu.compare_result = VF2_I960_COMPARE_EQUAL;
+    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+
+    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
+    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INIT_PREFIX);
+    CHECK(report.entry_address == UINT32_C(0x0000052c));
+    CHECK(report.exit_address == UINT32_C(0x0006dd4c));
+    CHECK(report.recovered_instruction_count == UINT64_C(60078));
+    CHECK(report.recovered_procedure_calls == UINT64_C(10));
+    CHECK(report.recovered_procedure_returns == UINT64_C(9));
+    CHECK(cpu.ip == UINT32_C(0x0006dd4c));
+    CHECK(cpu.local_frame_depth == 1u);
+    CHECK(cpu.registers[1] == VF2_WORK_RAM_BASE + UINT32_C(0x3080));
+    CHECK(cpu.registers[VF2_I960_FP_REGISTER] ==
+          VF2_WORK_RAM_BASE + UINT32_C(0x3040));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x00ae101f));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 10u] == UINT32_C(0x00800000));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 11u] == UINT32_C(0x00880000));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 12u] == UINT32_C(0x00004000));
+    CHECK((cpu.arithmetic_control & UINT32_C(7)) == UINT32_C(2));
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
+    CHECK(state.blocks_executed == 1u);
+
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x005000e0), bytes, 3u) == VF2_OK);
+    CHECK(bytes[0] == UINT8_C(0x80));
+    CHECK(bytes[1] == UINT8_C(0x80));
+    CHECK(bytes[2] == UINT8_C(0x80));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500082), bytes, 2u) == VF2_OK);
+    CHECK(bytes[0] == UINT8_C(0x00));
+    CHECK(bytes[1] == UINT8_C(0x80));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x01c80002), bytes, 2u) == VF2_OK);
+    CHECK(bytes[0] == UINT8_C(55));
+    CHECK(bytes[1] == UINT8_C(0));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00504020), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x00ae101f));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00e80004), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x421));
+
+    vf2_model2a_shutdown(&machine);
 }
 
 static void test_zero_length_run(void)
@@ -660,6 +727,7 @@ static void test_scheduler_finishes_after_early_last_active_task(void)
 int main(void)
 {
     test_initialize_and_names();
+    test_post_boot_init_prefix();
     test_zero_length_run();
     test_single_bridge_run();
     test_second_game_info_task_run();

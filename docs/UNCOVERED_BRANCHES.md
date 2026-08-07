@@ -65,9 +65,12 @@ draws `EXIT TEST MODE` and arms counter 320. Positive countdown visits and the
 terminal `counter 1 -> 0` path at `0x0005f07c` are now recovered. The terminal
 clears the observed layer/game state, writes the reset diagnostic through
 `0x0006116c`, and hands off non-returningly to `0x000000b0`. Warm boot stages 1
-and 2 are strict-equal through `0x0000052c`; the next uncovered continuation is
-the branch into initialization at `0x00009798`. Other bit-7 indirect table
-entries and phase state zero remain unsupported.
+and 2 are strict-equal through `0x0000052c`. The following branch into
+`0x00009798`, its prologue and the first serial/command-queue helper chain are
+now recovered strictly through the call entry at `0x0006dd4c` (60,078
+instructions, 10 calls / 9 returns). The remaining post-reset initializer from
+`0x0006dd4c` onward is still uncovered and is the next continuation. Other bit-7
+indirect table entries and phase state zero remain unsupported.
 
 ## 5. Audio and platform
 

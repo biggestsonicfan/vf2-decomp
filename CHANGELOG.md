@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- recovered the first post-boot initialization prefix from the warm-reset
+  boundary at `0x0000052c` through the call entry at `0x0006dd4c`: the native
+  block reproduces the `0x00009798` prologue, diagnostic-byte/mode writes, the
+  serial-control initialization at `0x0004372c` including six architectural
+  delay calls, the command-queue write at `0x000438ec`, and the `0x0000a048`
+  return stub; strict ROM-backed replay matches 60,078 instructions, 10 calls /
+  9 returns, CPU/local-frame state and all mutable memory exactly;
 - recovered the phase-17 bit-7 terminal countdown transition at `0x0005f07c`:
   the `counter 1 -> 0` path now reproduces layer-bit clearing, global/gameplay
   resets, the 48x64 tile clear, the `RESET` diagnostic write through

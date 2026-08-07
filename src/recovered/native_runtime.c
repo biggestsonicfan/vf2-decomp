@@ -6,6 +6,9 @@
 #define VF2_NATIVE_BOOT_STAGE1_ENTRY UINT32_C(0x000000b0)
 #define VF2_NATIVE_BOOT_STAGE1_INSTRUCTIONS UINT64_C(1180053)
 #define VF2_NATIVE_BOOT_STAGE2_ENTRY UINT32_C(0x000001b0)
+#define VF2_NATIVE_POST_BOOT_INIT_ENTRY UINT32_C(0x0000052c)
+#define VF2_NATIVE_POST_BOOT_INIT_EXIT UINT32_C(0x0006dd4c)
+#define VF2_NATIVE_POST_BOOT_INIT_INSTRUCTIONS UINT64_C(60078)
 #define VF2_NATIVE_FRAME_WAIT_POLL_ENTRY UINT32_C(0x00010f90)
 #define VF2_NATIVE_INTERRUPT_RETURN_ENTRY UINT32_C(0x00000d20)
 #define VF2_NATIVE_SECOND_SCHEDULER_ENTRY UINT32_C(0x0000a010)
@@ -87,6 +90,219 @@ static vf2_status execute_boot_stage2(
     }
 
     report->kind = VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE2;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status write_u16_le(
+    vf2_model2a *machine,
+    uint32_t address,
+    uint16_t value
+)
+{
+    const uint8_t bytes[2] = {
+        (uint8_t)value,
+        (uint8_t)(value >> 8u)
+    };
+    return vf2_model2a_write(machine, address, bytes, sizeof(bytes));
+}
+
+static vf2_status enter_and_return_procedure(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t target,
+    uint32_t return_address
+)
+{
+    vf2_status status = vf2_i960_cpu_enter_procedure(
+        cpu, target, return_address
+    );
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    return status;
+}
+
+static vf2_status execute_post_boot_init_prefix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    static const uint16_t serial_words[] = {
+        UINT16_C(0), UINT16_C(0), UINT16_C(0),
+        UINT16_C(64), UINT16_C(78), UINT16_C(55)
+    };
+    static const uint32_t delay_returns[] = {
+        UINT32_C(0x00043740), UINT32_C(0x0004374c),
+        UINT32_C(0x00043758), UINT32_C(0x00043764),
+        UINT32_C(0x00043770), UINT32_C(0x0004377c)
+    };
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint8_t byte_value = UINT8_C(0x80);
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_INIT_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* 0x52c branches directly to 0x9798. The prefix initializes three
+     * diagnostic bytes, the mode word and the globals consumed by the first
+     * post-reset subsystem initializer. */
+    status = vf2_model2a_write(
+        machine, UINT32_C(0x005000e0), &byte_value, sizeof(byte_value)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005000e1), &byte_value, sizeof(byte_value)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005000e2), &byte_value, sizeof(byte_value)
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16_le(
+            machine, UINT32_C(0x00500082), UINT16_C(0x8000)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[15] = UINT32_C(0x00008000);
+    cpu->registers[1] += UINT32_C(0x40);
+    cpu->registers[VF2_I960_G0_REGISTER + 10u] = UINT32_C(0x00800000);
+    cpu->registers[VF2_I960_G0_REGISTER + 11u] = UINT32_C(0x00880000);
+    cpu->registers[VF2_I960_G0_REGISTER + 12u] = UINT32_C(0x00004000);
+
+    /* call 0x4372c. Model its nested delay calls architecturally so the
+     * procedure counters and local-frame windows stay identical to the ROM. */
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x0004372c), UINT32_C(0x000097dc)
+    );
+    for (index = 0u; status == VF2_OK && index < 6u; ++index) {
+        status = write_u16_le(
+            machine, UINT32_C(0x01c80002), serial_words[index]
+        );
+        if (status == VF2_OK) {
+            status = enter_and_return_procedure(
+                machine, cpu, UINT32_C(0x000437bc), delay_returns[index]
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00504010), 0u
+        );
+    }
+    byte_value = 0u;
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504001), &byte_value, sizeof(byte_value)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504002), &byte_value, sizeof(byte_value)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504003), &byte_value, sizeof(byte_value)
+        );
+    }
+    byte_value = UINT8_C(0xff);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504014), &byte_value, sizeof(byte_value)
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x00ae101f);
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x000438ec), UINT32_C(0x000437b8)
+        );
+    }
+
+    /* 0x438ec enqueues g0 in the first command slot. */
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(33)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(33)
+        );
+    }
+    byte_value = UINT8_C(1);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504001), &byte_value, sizeof(byte_value)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00504020),
+            cpu->registers[VF2_I960_G0_REGISTER]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504003), &byte_value, sizeof(byte_value)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(0x421)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(0x421)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    /* 0xa048 is a branch-to-ret stub on this path. */
+    if (status == VF2_OK) {
+        status = enter_and_return_procedure(
+            machine, cpu, UINT32_C(0x0000a048), UINT32_C(0x000097e0)
+        );
+    }
+
+    /* The last compare-decrement in the delay loop leaves the arithmetic
+     * condition equal. call 0x6dd4c then opens the next local frame. */
+    if (status == VF2_OK) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, VF2_NATIVE_POST_BOOT_INIT_EXIT, UINT32_C(0x000097e4)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_INIT_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INIT_PREFIX;
     report->exit_address = cpu->ip;
     report->recovered_instruction_count =
         cpu->executed_instructions - start_instructions;
@@ -687,6 +903,8 @@ vf2_status vf2_native_runtime_step(
         status = execute_boot_stage1(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_BOOT_STAGE2_ENTRY) {
         status = execute_boot_stage2(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_INIT_ENTRY) {
+        status = execute_post_boot_init_prefix(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_FRAME_WAIT_POLL_ENTRY ||
                cpu->ip == VF2_NATIVE_INTERRUPT_RETURN_ENTRY) {
         vf2_hybrid_bridge_report bridge_report;
@@ -919,6 +1137,8 @@ const char *vf2_native_runtime_step_kind_name(
         return "boot-stage1";
     case VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE2:
         return "boot-stage2";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INIT_PREFIX:
+        return "post-boot-init-prefix";
     default:
         return "unknown";
     }

@@ -206,6 +206,13 @@ boot stages, reference and recovered-native execution therefore match for
 1,375,993 instructions across three native blocks, including CPU, local frames,
 procedure counters and all mutable memory.
 
-The next concrete boundary is the unconditional branch at `0x0000052c` into the
-initialization body at `0x00009798`. Phase-state-zero and other bit-7 indirect
-table entries remain additional controlled-state targets.
+The unconditional branch at `0x0000052c` and the first `0x00009798` initialization
+prefix are now recovered through the call entry at `0x0006dd4c`. The block
+strictly matches 60,078 reference instructions, 10 calls / 9 returns, the opened
+`0x0006dd4c` local frame, condition state and all mutable memory. It includes the
+three `0x80` diagnostic bytes, `0x8000` mode word, serial-control initialization
+with six original delay calls, command-queue setup, and the `0x0000a048` stub.
+The next concrete boundary is therefore the initializer at `0x0006dd4c`; its
+initial run through `0x0006ddd8` contains 718,349 reference instructions and is
+being decomposed at its semantic call boundaries. Phase-state-zero and other
+bit-7 indirect table entries remain additional controlled-state targets.

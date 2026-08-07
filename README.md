@@ -347,6 +347,10 @@ untouched incoming registers/control state and matches 1,180,053 instructions to
 `0x000001b0`; boot stage 2 matches another 182,514 instructions to `0x0000052c`.
 Together with the terminal cluster, the three strict blocks cover 1,375,993
 instructions with exact CPU, local-frame, procedure-counter and mutable-memory
-equality. The next concrete recovery boundary is the branch from `0x0000052c`
-into the initialization body at `0x00009798`. Other bit-7 table entries and
-phase state zero remain unsupported.
+equality. The warm-reset continuation now proceeds one block farther: the
+`0x0000052c -> 0x00009798` branch, initialization prologue and first serial /
+command-queue helpers are recovered through the call entry at `0x0006dd4c`.
+Strict replay matches 60,078 additional instructions with 10 calls / 9 returns,
+including exact `sp`/`fp`, local-frame, condition-code and mutable-memory state.
+The next concrete recovery boundary is the initializer beginning at
+`0x0006dd4c`. Other bit-7 table entries and phase state zero remain unsupported.
