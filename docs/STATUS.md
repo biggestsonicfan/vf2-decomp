@@ -207,12 +207,23 @@ boot stages, reference and recovered-native execution therefore match for
 procedure counters and all mutable memory.
 
 The unconditional branch at `0x0000052c` and the first `0x00009798` initialization
-prefix are now recovered through the call entry at `0x0006dd4c`. The block
-strictly matches 60,078 reference instructions, 10 calls / 9 returns, the opened
-`0x0006dd4c` local frame, condition state and all mutable memory. It includes the
-three `0x80` diagnostic bytes, `0x8000` mode word, serial-control initialization
-with six original delay calls, command-queue setup, and the `0x0000a048` stub.
-The next concrete boundary is therefore the initializer at `0x0006dd4c`; its
-initial run through `0x0006ddd8` contains 718,349 reference instructions and is
-being decomposed at its semantic call boundaries. Phase-state-zero and other
+prefix remain strict-equal through call entry `0x0006dd4c` at 60,078 instructions.
+The observed `0x0006dd4c` initializer is now recovered all the way through the
+caller boundary at `0x000098b0`: 15 additional strict blocks / 1,498,968
+instructions, with complete CPU, local-frame, procedure-counter and mutable-memory
+equality after every block. From the phase-17 preterminal checkpoint through the
+warm boot and post-boot corridor, the composed proof now covers 2,935,039
+instructions without native-side interpretation.
+
+The new corridor includes the 256-entry video ramps, color/palette construction,
+two shared descriptor-stream engines, valid backup-SRAM probe/CRC/restore, the
+`0x00011b48` table aggregate and the observed hardware-core setup. The register
+stream consumes 4 descriptors / 464 32-bit words; the larger block stream
+consumes 22 descriptors / 92,672 halfwords and is reused rather than duplicated
+inside the aggregate initializer. The restored video controls alter the dynamic
+ramp path, so the second pass accounts 11,245 instructions versus 11,563 on the
+initial pass.
+
+The next concrete boundary is the caller at `0x000098b0`, whose next call enters
+the texture/graphics initializer at `0x0004b020`. Phase-state-zero and other
 bit-7 indirect table entries remain additional controlled-state targets.

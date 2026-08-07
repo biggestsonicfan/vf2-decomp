@@ -1,5 +1,6 @@
 #include "vf2/native_runtime.h"
 #include "vf2/recovered.h"
+#include "recovery_internal.h"
 
 #include <string.h>
 
@@ -9,6 +10,32 @@
 #define VF2_NATIVE_POST_BOOT_INIT_ENTRY UINT32_C(0x0000052c)
 #define VF2_NATIVE_POST_BOOT_INIT_EXIT UINT32_C(0x0006dd4c)
 #define VF2_NATIVE_POST_BOOT_INIT_INSTRUCTIONS UINT64_C(60078)
+#define VF2_NATIVE_POST_BOOT_VIDEO_INIT_ENTRY UINT32_C(0x0006dd4c)
+#define VF2_NATIVE_POST_BOOT_VIDEO_RAMP_ENTRY UINT32_C(0x000005e8)
+#define VF2_NATIVE_POST_BOOT_VIDEO_INIT_ENTRY_INSTRUCTIONS UINT64_C(15)
+#define VF2_NATIVE_POST_BOOT_VIDEO_RAMP_INSTRUCTIONS UINT64_C(11563)
+#define VF2_NATIVE_POST_BOOT_COLOR_TABLES_ENTRY UINT32_C(0x0006dda4)
+#define VF2_NATIVE_POST_BOOT_MEMORY_CLEAR_ENTRY UINT32_C(0x0006dda8)
+#define VF2_NATIVE_POST_BOOT_COLOR_TABLES_INSTRUCTIONS UINT64_C(13429)
+#define VF2_NATIVE_POST_BOOT_MEMORY_CLEAR_INSTRUCTIONS UINT64_C(41015)
+#define VF2_NATIVE_POST_BOOT_REGISTER_STREAM_ENTRY UINT32_C(0x0006ddac)
+#define VF2_NATIVE_POST_BOOT_BLOCK_STREAM_ENTRY UINT32_C(0x0006ddb8)
+#define VF2_NATIVE_POST_BOOT_BACKUP_SRAM_PROBE_ENTRY UINT32_C(0x0006ddc4)
+#define VF2_NATIVE_POST_BOOT_REGISTER_STREAM_INSTRUCTIONS UINT64_C(3291)
+#define VF2_NATIVE_POST_BOOT_BLOCK_STREAM_INSTRUCTIONS UINT64_C(648975)
+#define VF2_NATIVE_POST_BOOT_BACKUP_SRAM_PROBE_INSTRUCTIONS UINT64_C(61)
+#define VF2_NATIVE_POST_BOOT_BACKUP_RESTORE_ENTRY UINT32_C(0x0006ddd8)
+#define VF2_NATIVE_POST_BOOT_BACKUP_RESTORE_INSTRUCTIONS UINT64_C(6729)
+#define VF2_NATIVE_POST_BOOT_RESTORED_VIDEO_ENTRY UINT32_C(0x000097e4)
+#define VF2_NATIVE_POST_BOOT_SECOND_COLOR_TABLES_ENTRY UINT32_C(0x00009890)
+#define VF2_NATIVE_POST_BOOT_PALETTE_SEED_ENTRY UINT32_C(0x00009894)
+#define VF2_NATIVE_POST_BOOT_SECOND_MEMORY_CLEAR_ENTRY UINT32_C(0x00009898)
+#define VF2_NATIVE_POST_BOOT_RESTORED_VIDEO_ENTRY_INSTRUCTIONS UINT64_C(22)
+#define VF2_NATIVE_POST_BOOT_PALETTE_SEED_INSTRUCTIONS UINT64_C(6149)
+#define VF2_NATIVE_POST_BOOT_TABLE_INIT_ENTRY UINT32_C(0x0000989c)
+#define VF2_NATIVE_POST_BOOT_TABLE_INIT_INSTRUCTIONS UINT64_C(682436)
+#define VF2_NATIVE_POST_BOOT_HARDWARE_CORE_INIT_ENTRY UINT32_C(0x000098a0)
+#define VF2_NATIVE_POST_BOOT_HARDWARE_CORE_INIT_INSTRUCTIONS UINT64_C(19594)
 #define VF2_NATIVE_FRAME_WAIT_POLL_ENTRY UINT32_C(0x00010f90)
 #define VF2_NATIVE_INTERRUPT_RETURN_ENTRY UINT32_C(0x00000d20)
 #define VF2_NATIVE_SECOND_SCHEDULER_ENTRY UINT32_C(0x0000a010)
@@ -306,6 +333,1460 @@ static vf2_status execute_post_boot_init_prefix(
     report->exit_address = cpu->ip;
     report->recovered_instruction_count =
         cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status execute_post_boot_video_init_entry(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    static const uint32_t addresses[] = {
+        UINT32_C(0x00500234), UINT32_C(0x00500235),
+        UINT32_C(0x00500236), UINT32_C(0x00500237),
+        UINT32_C(0x00500238), UINT32_C(0x00500239),
+        UINT32_C(0x0050023a)
+    };
+    static const uint8_t values[] = {
+        UINT8_C(0x75), UINT8_C(0x22), UINT8_C(0x75), UINT8_C(0x22),
+        UINT8_C(0x75), UINT8_C(0x22), UINT8_C(0x1f)
+    };
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+    size_t index = 0u;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_VIDEO_INIT_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    for (index = 0u; status == VF2_OK && index < 7u; ++index) {
+        status = vf2_model2a_write(
+            machine, addresses[index], &values[index], sizeof(values[index])
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[15] = UINT32_C(0x1f);
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_NATIVE_POST_BOOT_VIDEO_RAMP_ENTRY, UINT32_C(0x0006dda4)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_VIDEO_INIT_ENTRY_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_INIT_ENTRY;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static uint16_t video_ramp_value(
+    uint32_t index,
+    uint8_t slope,
+    uint8_t bias,
+    uint8_t scale
+)
+{
+    int32_t value = ((int32_t)index - INT32_C(116)) * (int32_t)slope;
+
+    value /= INT32_C(37);
+    value += (int32_t)bias;
+    if (value <= 0) {
+        value = 0;
+    } else if (value >= 256) {
+        value = -1;
+    }
+    return (uint16_t)(((uint32_t)scale * (uint32_t)value) >> 7u);
+}
+
+static uint64_t video_ramp_helper_instruction_count(
+    uint8_t slope,
+    uint8_t bias
+)
+{
+    uint64_t instructions = UINT64_C(3); /* two setup ops + ret */
+    uint32_t index = 0u;
+
+    for (index = 0u; index < 256u; ++index) {
+        int32_t value = ((int32_t)index - INT32_C(116)) * (int32_t)slope;
+        value /= INT32_C(37);
+        value += (int32_t)bias;
+        if (value <= 0) {
+            instructions += UINT64_C(13);
+        } else if (value >= 256) {
+            instructions += UINT64_C(16);
+        } else {
+            instructions += UINT64_C(15);
+        }
+    }
+    return instructions;
+}
+
+static vf2_status execute_post_boot_video_ramp(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    static const uint32_t table_bases[] = {
+        UINT32_C(0x00544000), UINT32_C(0x00544200), UINT32_C(0x00544400)
+    };
+    static const uint32_t helper_returns[] = {
+        UINT32_C(0x0000069c), UINT32_C(0x000006c0), UINT32_C(0x000006e4)
+    };
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint8_t controls[9] = {0u};
+    uint32_t table = 0u;
+    uint32_t index = 0u;
+    uint64_t recovered_instructions = UINT64_C(34);
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_VIDEO_RAMP_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00500234), controls, 6u
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x005000e0), controls + 6u, 3u
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00544600), controls, sizeof(controls)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    for (table = 0u; table < 3u; ++table) {
+        cpu->registers[VF2_I960_G0_REGISTER + 4u] = controls[table * 2u + 1u];
+        cpu->registers[VF2_I960_G0_REGISTER + 5u] = controls[table * 2u];
+        cpu->registers[VF2_I960_G0_REGISTER + 6u] = controls[6u + table];
+        cpu->registers[VF2_I960_G0_REGISTER + 7u] = table_bases[table];
+        recovered_instructions += video_ramp_helper_instruction_count(
+            controls[table * 2u + 1u], controls[table * 2u]
+        );
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x000006e8), helper_returns[table]
+        );
+        for (index = 0u; status == VF2_OK && index < 256u; ++index) {
+            status = write_u16_le(
+                machine,
+                table_bases[table] + index * UINT32_C(2),
+                video_ramp_value(
+                    index,
+                    controls[table * 2u + 1u],
+                    controls[table * 2u],
+                    controls[6u + table]
+                )
+            );
+        }
+        if (status == VF2_OK) {
+            cpu->registers[VF2_I960_G0_REGISTER + 7u] =
+                table_bases[table] + UINT32_C(0x200);
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+            cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions = start_instructions + recovered_instructions;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_RAMP;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static uint16_t post_boot_color_table_value(
+    uint32_t raw,
+    uint8_t slope,
+    uint8_t bias
+)
+{
+    uint32_t value = raw;
+
+    if (value != 0u) {
+        value = (uint32_t)slope * value;
+        value >>= 8u;
+        value += bias;
+        if (value >= UINT32_C(256)) {
+            value = UINT32_MAX;
+        }
+    }
+    return (uint16_t)value;
+}
+
+static vf2_status execute_post_boot_color_tables(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint8_t controls[7] = {0u};
+    uint32_t cursor = UINT32_C(0x01800000);
+    uint32_t outer = 0u;
+    uint32_t inner = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        (cpu->ip != VF2_NATIVE_POST_BOOT_COLOR_TABLES_ENTRY &&
+         cpu->ip != VF2_NATIVE_POST_BOOT_SECOND_COLOR_TABLES_ENTRY)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00500234), controls, sizeof(controls)
+    );
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu,
+            UINT32_C(0x00002b4c),
+            cpu->ip == VF2_NATIVE_POST_BOOT_COLOR_TABLES_ENTRY
+                ? UINT32_C(0x0006dda8)
+                : UINT32_C(0x00009894)
+        );
+    }
+    for (outer = 0u; status == VF2_OK && outer < 32u; ++outer) {
+        const uint32_t raw = outer * (uint32_t)controls[6];
+        const uint16_t red = post_boot_color_table_value(
+            raw, controls[1], controls[0]
+        );
+        const uint16_t green = post_boot_color_table_value(
+            raw, controls[3], controls[2]
+        );
+        const uint16_t blue = post_boot_color_table_value(
+            raw, controls[5], controls[4]
+        );
+
+        cursor += UINT32_C(0x80);
+        for (inner = 0u; status == VF2_OK && inner < 64u; ++inner) {
+            status = write_u16_le(
+                machine, cursor + UINT32_C(0x00010000), red
+            );
+            if (status == VF2_OK) {
+                status = write_u16_le(
+                    machine, cursor + UINT32_C(0x00014000), green
+                );
+            }
+            if (status == VF2_OK) {
+                status = write_u16_le(
+                    machine, cursor + UINT32_C(0x00018000), blue
+                );
+            }
+            cursor += UINT32_C(2);
+        }
+        cursor += UINT32_C(0x100);
+    }
+    if (status == VF2_OK) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_COLOR_TABLES_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COLOR_TABLES;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status fill_u16_region(
+    vf2_model2a *machine,
+    uint32_t address,
+    size_t word_count,
+    uint16_t value
+)
+{
+    vf2_status status = VF2_OK;
+    size_t index = 0u;
+
+    for (index = 0u; status == VF2_OK && index < word_count; ++index) {
+        status = write_u16_le(
+            machine, address + (uint32_t)(index * 2u), value
+        );
+    }
+    return status;
+}
+
+static vf2_status execute_post_boot_memory_clear(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint8_t zero = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        (cpu->ip != VF2_NATIVE_POST_BOOT_MEMORY_CLEAR_ENTRY &&
+         cpu->ip != VF2_NATIVE_POST_BOOT_SECOND_MEMORY_CLEAR_ENTRY)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu,
+        UINT32_C(0x00011a8c),
+        cpu->ip == VF2_NATIVE_POST_BOOT_MEMORY_CLEAR_ENTRY
+            ? UINT32_C(0x0006ddac)
+            : UINT32_C(0x0000989c)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x0050304c), 0u
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00503001), &zero, sizeof(zero)
+        );
+    }
+    if (status == VF2_OK) {
+        status = fill_u16_region(
+            machine, UINT32_C(0x01008000), 2048u, 0u
+        );
+    }
+    if (status == VF2_OK) {
+        status = fill_u16_region(
+            machine, UINT32_C(0x0100a000), 8u, 0u
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00503000), &zero, sizeof(zero)
+        );
+    }
+    if (status == VF2_OK) {
+        status = fill_u16_region(
+            machine, UINT32_C(0x0100c000), 4096u, 0u
+        );
+    }
+    if (status == VF2_OK) {
+        status = fill_u16_region(
+            machine, UINT32_C(0x01800000), 4096u, UINT16_C(0xfc00)
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x01802000);
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0x0000fc00);
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_MEMORY_CLEAR_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MEMORY_CLEAR;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status run_register_descriptor_stream(
+    vf2_model2a *machine,
+    uint32_t start,
+    uint32_t *end_cursor,
+    size_t *descriptor_count,
+    size_t *word_count
+);
+
+static vf2_status run_halfword_descriptor_stream(
+    vf2_model2a *machine,
+    uint32_t start,
+    uint32_t *end_cursor,
+    size_t *descriptor_count,
+    size_t *halfword_count
+);
+
+static vf2_status execute_post_boot_register_stream(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t cursor = UINT32_C(0x028003d4);
+    size_t descriptors = 0u;
+    size_t words = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_REGISTER_STREAM_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = cursor;
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00023f30), UINT32_C(0x0006ddb8)
+    );
+    if (status == VF2_OK) {
+        status = run_register_descriptor_stream(
+            machine, cursor, &cursor, &descriptors, &words
+        );
+    }
+    if (status != VF2_OK || cursor != UINT32_C(0x02800b38) ||
+        descriptors != 4u || words != 464u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = cursor;
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_REGISTER_STREAM_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_REGISTER_STREAM;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status copy_model2a_bytes(
+    vf2_model2a *machine,
+    uint32_t source,
+    uint32_t destination,
+    size_t byte_count
+)
+{
+    uint8_t buffer[256];
+    size_t copied = 0u;
+    vf2_status status = VF2_OK;
+
+    while (status == VF2_OK && copied < byte_count) {
+        const size_t remaining = byte_count - copied;
+        const size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+        status = vf2_model2a_read(
+            machine, source + (uint32_t)copied, buffer, chunk
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, destination + (uint32_t)copied, buffer, chunk
+            );
+        }
+        copied += chunk;
+    }
+    return status;
+}
+
+static vf2_status execute_post_boot_block_stream(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t cursor = UINT32_C(0x0280001c);
+    size_t descriptors = 0u;
+    size_t halfwords = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_BLOCK_STREAM_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = cursor;
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00023ee8), UINT32_C(0x0006ddc4)
+    );
+    if (status == VF2_OK) {
+        status = run_halfword_descriptor_stream(
+            machine, cursor, &cursor, &descriptors, &halfwords
+        );
+    }
+    if (status != VF2_OK || cursor != UINT32_C(0x028000d0) ||
+        descriptors != 22u || halfwords != 92672u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = cursor;
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_BLOCK_STREAM_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BLOCK_STREAM;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status execute_post_boot_backup_sram_probe(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_BACKUP_SRAM_PROBE_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+    cpu->registers[15] = VF2_BACKUP_SRAM_BASE;
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0050016c), VF2_BACKUP_SRAM_BASE
+    );
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x0006e1cc), UINT32_C(0x0006ddd8)
+        );
+    }
+    for (index = 0u; status == VF2_OK && index < 4u; ++index) {
+        const uint32_t address = VF2_BACKUP_SRAM_BASE + (uint32_t)index;
+        uint8_t original = 0u;
+        uint8_t observed = 0u;
+        uint8_t pattern = UINT8_C(0x55);
+
+        status = vf2_model2a_read(machine, address, &original, sizeof(original));
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(machine, address, &pattern, sizeof(pattern));
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(machine, address, &observed, sizeof(observed));
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(machine, address, &original, sizeof(original));
+        }
+        if (status != VF2_OK || observed != pattern) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+
+        pattern = UINT8_C(0xaa);
+        status = vf2_model2a_write(machine, address, &pattern, sizeof(pattern));
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(machine, address, &observed, sizeof(observed));
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(machine, address, &original, sizeof(original));
+        }
+        if (status != VF2_OK || observed != pattern) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_BACKUP_SRAM_PROBE_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BACKUP_SRAM_PROBE;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status execute_post_boot_backup_restore(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    static const uint32_t signature[4] = {
+        UINT32_C(0x54524956), UINT32_C(0x46204155),
+        UINT32_C(0x54484749), UINT32_C(0x32205245)
+    };
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t base = VF2_BACKUP_SRAM_BASE;
+    uint16_t version = 0u;
+    uint16_t stored_crc = 0u;
+    uint16_t crc = 0u;
+    uint8_t flags = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_BACKUP_RESTORE_ENTRY ||
+        cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* The successful SRAM probe falls through to the persisted-game-data
+     * validation path. Keep the observed signature/version contract fail-closed. */
+    for (index = 0u; status == VF2_OK && index < 4u; ++index) {
+        uint32_t observed = 0u;
+        status = vf2_model2a_read_u32(
+            machine,
+            VF2_BACKUP_SRAM_BASE + UINT32_C(0x3308) +
+                (uint32_t)(index * sizeof(uint32_t)),
+            &observed
+        );
+        if (status == VF2_OK && observed != signature[index]) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        uint8_t bytes[2] = {0u, 0u};
+        status = vf2_model2a_read(
+            machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3306),
+            bytes, sizeof(bytes)
+        );
+        version = (uint16_t)((uint16_t)bytes[0] |
+                             ((uint16_t)bytes[1] << 8u));
+    }
+    if (status != VF2_OK || version != UINT16_C(24)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &base
+    );
+    if (status != VF2_OK || base != VF2_BACKUP_SRAM_BASE) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    /* call 0x9480 for the 29-byte block at +0x3340. */
+    cpu->registers[VF2_I960_G0_REGISTER] = base + UINT32_C(0x3340);
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(29);
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00009480), UINT32_C(0x0006de40)
+    );
+    if (status == VF2_OK) {
+        status = vf2_recovered_table_crc16(
+            machine, base + UINT32_C(0x3340), 0u, UINT32_C(29), &crc
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = (uint32_t)crc;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status == VF2_OK) {
+        uint8_t bytes[2] = {0u, 0u};
+        status = vf2_model2a_read(
+            machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3302),
+            bytes, sizeof(bytes)
+        );
+        stored_crc = (uint16_t)((uint16_t)bytes[0] |
+                                ((uint16_t)bytes[1] << 8u));
+    }
+    if (status != VF2_OK || stored_crc != crc) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    /* call 0x9480 for the 15-byte block at +0x3320. */
+    cpu->registers[VF2_I960_G0_REGISTER] = base + UINT32_C(0x3320);
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(15);
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00009480), UINT32_C(0x0006de94)
+    );
+    if (status == VF2_OK) {
+        status = vf2_recovered_table_crc16(
+            machine, base + UINT32_C(0x3320), 0u, UINT32_C(15), &crc
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = (uint32_t)crc;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status == VF2_OK) {
+        uint8_t bytes[2] = {0u, 0u};
+        status = vf2_model2a_read(
+            machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3300),
+            bytes, sizeof(bytes)
+        );
+        stored_crc = (uint16_t)((uint16_t)bytes[0] |
+                                ((uint16_t)bytes[1] << 8u));
+    }
+    if (status != VF2_OK || stored_crc != crc) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    /* Restore the persisted 0x3fe0-byte payload to its work-RAM mirror. */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0050016c), VF2_BACKUP_SRAM_BASE
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00500171), &flags, sizeof(flags)
+        );
+    }
+    flags |= UINT8_C(1);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500171), &flags, sizeof(flags)
+        );
+    }
+    if (status == VF2_OK) {
+        status = copy_model2a_bytes(
+            machine, VF2_BACKUP_SRAM_BASE, UINT32_C(0x00599000),
+            (size_t)UINT32_C(0x00003fe0)
+        );
+    }
+
+    /* Refresh the metadata exactly as the ROM does after a valid restore. */
+    for (index = 0u; status == VF2_OK && index < 4u; ++index) {
+        status = vf2_model2a_write_u32(
+            machine,
+            VF2_BACKUP_SRAM_BASE + UINT32_C(0x3308) +
+                (uint32_t)(index * sizeof(uint32_t)),
+            signature[index]
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16_le(
+            machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3306),
+            UINT16_C(24)
+        );
+    }
+    if (status == VF2_OK) {
+        uint8_t zeroes[4] = {0u, 0u, 0u, 0u};
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x0050016c), UINT32_C(0x00599000)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00500148), zeroes, sizeof(zeroes)
+            );
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* The 0x6dd4c initializer returns to its caller at 0x97e4. */
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_BACKUP_RESTORE_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BACKUP_RESTORE;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status execute_post_boot_restored_video_entry(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    static const uint32_t source_offsets[7] = {
+        UINT32_C(0x3356), UINT32_C(0x3359), UINT32_C(0x3357),
+        UINT32_C(0x335a), UINT32_C(0x3358), UINT32_C(0x335b),
+        UINT32_C(0x335c)
+    };
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t base = 0u;
+    uint8_t value = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_RESTORED_VIDEO_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &base);
+    if (status != VF2_OK || base != UINT32_C(0x00599000)) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    for (index = 0u; status == VF2_OK && index < 7u; ++index) {
+        status = vf2_model2a_read(
+            machine, base + source_offsets[index], &value, sizeof(value)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00500234) + (uint32_t)index,
+                &value, sizeof(value)
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        cpu->registers[3] = (uint32_t)value;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, VF2_NATIVE_POST_BOOT_VIDEO_RAMP_ENTRY, UINT32_C(0x00009890)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_RESTORED_VIDEO_ENTRY_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESTORED_VIDEO_ENTRY;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status execute_post_boot_palette_seed(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_PALETTE_SEED_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00011560), UINT32_C(0x00009898)
+    );
+    if (status == VF2_OK) {
+        status = copy_model2a_bytes(
+            machine, UINT32_C(0x02100000), UINT32_C(0x01802000),
+            (size_t)UINT32_C(0x00000800)
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_PALETTE_SEED_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_SEED;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status run_register_descriptor_stream(
+    vf2_model2a *machine,
+    uint32_t start,
+    uint32_t *end_cursor,
+    size_t *descriptor_count,
+    size_t *word_count
+)
+{
+    uint32_t cursor = start;
+    size_t guard = 0u;
+    size_t total_words = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || end_cursor == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    while (status == VF2_OK && guard < 64u) {
+        uint32_t destination = 0u;
+        uint32_t encoded_count = 0u;
+        uint32_t words = 0u;
+        uint32_t index = 0u;
+
+        status = vf2_model2a_read_u32(machine, cursor, &destination);
+        cursor += UINT32_C(4);
+        if (status != VF2_OK || destination == 0u) {
+            break;
+        }
+        status = vf2_model2a_read_u32(machine, cursor, &encoded_count);
+        cursor += UINT32_C(4);
+        if (status != VF2_OK || (int32_t)encoded_count < 0) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        words = (uint32_t)((int32_t)encoded_count / INT32_C(2));
+        if (words > UINT32_C(65536)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        for (index = 0u; status == VF2_OK && index < words; ++index) {
+            uint32_t value = 0u;
+            status = vf2_model2a_read_u32(machine, cursor, &value);
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, destination + index * UINT32_C(4), value
+                );
+            }
+            cursor += UINT32_C(4);
+        }
+        total_words += (size_t)words;
+        ++guard;
+    }
+    if (status != VF2_OK || guard == 64u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    *end_cursor = cursor;
+    if (descriptor_count != NULL) {
+        *descriptor_count = guard;
+    }
+    if (word_count != NULL) {
+        *word_count = total_words;
+    }
+    return VF2_OK;
+}
+
+static vf2_status run_halfword_descriptor_stream(
+    vf2_model2a *machine,
+    uint32_t start,
+    uint32_t *end_cursor,
+    size_t *descriptor_count,
+    size_t *halfword_count
+)
+{
+    uint32_t cursor = start;
+    size_t guard = 0u;
+    size_t total_halfwords = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || end_cursor == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    while (status == VF2_OK && guard < 64u) {
+        uint32_t source = 0u;
+        uint32_t destination = 0u;
+        uint32_t header = 0u;
+        uint32_t halfwords = 0u;
+
+        status = vf2_model2a_read_u32(machine, cursor, &source);
+        cursor += UINT32_C(4);
+        if (status != VF2_OK || source == 0u) {
+            break;
+        }
+        status = vf2_model2a_read_u32(machine, cursor, &destination);
+        cursor += UINT32_C(4);
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(machine, source, &header);
+        }
+        if (status != VF2_OK || header > (UINT32_MAX >> 4u)) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        halfwords = header << 4u;
+        if (halfwords > UINT32_C(65536)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = copy_model2a_bytes(
+            machine, source + UINT32_C(4), destination,
+            (size_t)halfwords * sizeof(uint16_t)
+        );
+        total_halfwords += (size_t)halfwords;
+        ++guard;
+    }
+    if (status != VF2_OK || guard == 64u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    *end_cursor = cursor;
+    if (descriptor_count != NULL) {
+        *descriptor_count = guard;
+    }
+    if (halfword_count != NULL) {
+        *halfword_count = total_halfwords;
+    }
+    return VF2_OK;
+}
+
+static vf2_status execute_post_boot_table_init(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t cursor = 0u;
+    uint32_t stream_pointer = 0u;
+    uint32_t flags = 0u;
+    uint32_t table_cursor = UINT32_C(0x00011cb4);
+    size_t table_entries = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_TABLE_INIT_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* call 0x11b48, then its initial 0x11c20 8 KiB clear. */
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00011b48), UINT32_C(0x000098a0)
+    );
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00011c20), UINT32_C(0x00011b4c)
+        );
+    }
+    if (status == VF2_OK) {
+        uint8_t zeroes[256] = {0u};
+        size_t offset = 0u;
+        for (offset = 0u; status == VF2_OK && offset < 0x2000u;
+             offset += sizeof(zeroes)) {
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x01080000) + (uint32_t)offset,
+                zeroes, sizeof(zeroes)
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x01082000);
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    /* The first two stream pointers live in the main-data directory. */
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x02800000), &cursor
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, cursor, &stream_pointer);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00023ee8), UINT32_C(0x00011b60)
+        );
+    }
+    if (status == VF2_OK) {
+        status = run_halfword_descriptor_stream(machine, stream_pointer, &stream_pointer, NULL, NULL);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    cursor += UINT32_C(4);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, cursor, &stream_pointer);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00023f30), UINT32_C(0x00011b6c)
+        );
+    }
+    if (status == VF2_OK) {
+        status = run_register_descriptor_stream(machine, stream_pointer, &stream_pointer, NULL, NULL);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    /* Two compact descriptor tables are embedded directly in the i960 ROM. */
+    stream_pointer = UINT32_C(0x0001256c);
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00023ee8), UINT32_C(0x00011b7c)
+        );
+    }
+    if (status == VF2_OK) {
+        status = run_halfword_descriptor_stream(machine, stream_pointer, &stream_pointer, NULL, NULL);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    stream_pointer = UINT32_C(0x00012520);
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00023f30), UINT32_C(0x00011b88)
+        );
+    }
+    if (status == VF2_OK) {
+        status = run_register_descriptor_stream(machine, stream_pointer, &stream_pointer, NULL, NULL);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = stream_pointer;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    /* 0x11be4 is an empty inline table in this ROM revision. */
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00011be4), UINT32_C(0x00011b8c)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00011d38), &flags);
+    }
+    if (status != VF2_OK || flags != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00503004), UINT32_C(6));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00503008), UINT32_C(9));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00503002), &flags);
+    }
+    flags |= UINT32_C(1) << 15u;
+    flags &= ~(UINT32_C(1) << 14u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00503002), flags);
+    }
+
+    /* 0x11c44 expands the 64-entry palette index list terminated by -1. */
+    cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x0000fd02);
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00011c44), UINT32_C(0x00011be0)
+        );
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = table_cursor;
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(5);
+    while (status == VF2_OK && table_entries < 256u) {
+        uint8_t bytes[2] = {0u, 0u};
+        int16_t table_value = 0;
+        status = vf2_model2a_read(machine, table_cursor, bytes, sizeof(bytes));
+        table_cursor += UINT32_C(2);
+        table_value = (int16_t)((uint16_t)bytes[0] |
+                                ((uint16_t)bytes[1] << 8u));
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = table_cursor;
+        cpu->registers[VF2_I960_G0_REGISTER + 4u] = (uint32_t)(int32_t)table_value;
+        if (status != VF2_OK || table_value == -1) {
+            break;
+        }
+        status = write_u16_le(
+            machine,
+            VF2_PALETTE_RAM_BASE + ((uint32_t)(uint16_t)table_value << 5u),
+            UINT16_C(0xfd02)
+        );
+        ++table_entries;
+    }
+    if (status != VF2_OK || table_entries != 64u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_TABLE_INIT_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TABLE_INIT;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status execute_post_boot_hardware_core_init(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_HARDWARE_CORE_INIT_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* 0x0ed0 expands the 64-entry geometry register bootstrap table. */
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00000ed0), UINT32_C(0x000098a4)
+    );
+    for (index = 0u; status == VF2_OK && index < 64u; ++index) {
+        uint8_t bytes[2] = {0u, 0u};
+        uint32_t value = 0u;
+        const uint32_t destination =
+            VF2_GEOMETRY_BASE + index * UINT32_C(16);
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00003a00) + index * UINT32_C(2),
+            bytes, sizeof(bytes)
+        );
+        value = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8u);
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, destination + UINT32_C(4), value
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, destination + UINT32_C(8), value >> 8u
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    /* 0x0e60 temporarily gates video access while copying the copro table. */
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00000e60), UINT32_C(0x000098a8)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_VIDEO_CONTROL_BASE, UINT32_C(0x80000000)
+        );
+    }
+    if (status == VF2_OK) {
+        status = copy_model2a_bytes(
+            machine, UINT32_C(0x00003e90),
+            VF2_COPRO_PORT_BASE + UINT32_C(0x4000),
+            (size_t)UINT32_C(0x00003b68)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, VF2_VIDEO_CONTROL_BASE, 0u);
+    }
+    if (status == VF2_OK) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    /* 0x0ea4 observes the ready bit and acknowledges the copro port. */
+    if (status == VF2_OK) {
+        uint32_t video_status = 0u;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00000ea4), UINT32_C(0x000098ac)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, VF2_VIDEO_CONTROL_BASE + UINT32_C(4), &video_status
+            );
+        }
+        if (status != VF2_OK || (video_status & UINT32_C(1)) == 0u) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        status = vf2_model2a_write_u32(
+            machine,
+            cpu->registers[VF2_I960_G0_REGISTER + 11u] +
+                cpu->registers[VF2_I960_G0_REGISTER + 12u],
+            0u
+        );
+        if (status == VF2_OK) {
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+        }
+    }
+
+    /* 0x0f0c primes the four-command geometry ring and reuses the already
+     * recovered 0x2edc frame-commit procedure for the first advancement. */
+    if (status == VF2_OK) {
+        vf2_hybrid_bridge_report bridge_report;
+        uint8_t ring_index = UINT8_C(3);
+        uint32_t command = 0u;
+
+        memset(&bridge_report, 0, sizeof(bridge_report));
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x00000f0c), UINT32_C(0x000098b0)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, VF2_VIDEO_CONTROL_BASE + UINT32_C(0x0c), 0u
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x00501008), 0u
+            );
+        }
+        for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00007a00) + index * UINT32_C(4),
+                &command
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine,
+                    cpu->registers[VF2_I960_G0_REGISTER + 10u] +
+                        UINT32_C(0x1008),
+                    command
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine,
+                    cpu->registers[VF2_I960_G0_REGISTER + 10u] +
+                        UINT32_C(0x00f0),
+                    command
+                );
+            }
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00007a0c), &command
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x00501004), command
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine,
+                cpu->registers[VF2_I960_G0_REGISTER + 10u] +
+                    UINT32_C(0x1008),
+                command
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x0050100c),
+                &ring_index, sizeof(ring_index)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_i960_cpu_enter_procedure(
+                cpu, UINT32_C(0x00002edc), UINT32_C(0x00000f68)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_hybrid_post_frame_bridge_execute(
+                machine, cpu, &bridge_report
+            );
+        }
+        if (status == VF2_OK) {
+            uint8_t marker = UINT8_C(0xff);
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x0181c000), &marker, sizeof(marker)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_HARDWARE_CORE_INIT_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_HARDWARE_CORE_INIT;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
     report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
     return VF2_OK;
@@ -905,6 +2386,32 @@ vf2_status vf2_native_runtime_step(
         status = execute_boot_stage2(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_INIT_ENTRY) {
         status = execute_post_boot_init_prefix(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_VIDEO_INIT_ENTRY) {
+        status = execute_post_boot_video_init_entry(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_VIDEO_RAMP_ENTRY) {
+        status = execute_post_boot_video_ramp(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_COLOR_TABLES_ENTRY ||
+               cpu->ip == VF2_NATIVE_POST_BOOT_SECOND_COLOR_TABLES_ENTRY) {
+        status = execute_post_boot_color_tables(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_MEMORY_CLEAR_ENTRY ||
+               cpu->ip == VF2_NATIVE_POST_BOOT_SECOND_MEMORY_CLEAR_ENTRY) {
+        status = execute_post_boot_memory_clear(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_REGISTER_STREAM_ENTRY) {
+        status = execute_post_boot_register_stream(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_BLOCK_STREAM_ENTRY) {
+        status = execute_post_boot_block_stream(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_BACKUP_SRAM_PROBE_ENTRY) {
+        status = execute_post_boot_backup_sram_probe(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_BACKUP_RESTORE_ENTRY) {
+        status = execute_post_boot_backup_restore(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_RESTORED_VIDEO_ENTRY) {
+        status = execute_post_boot_restored_video_entry(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_PALETTE_SEED_ENTRY) {
+        status = execute_post_boot_palette_seed(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_TABLE_INIT_ENTRY) {
+        status = execute_post_boot_table_init(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_HARDWARE_CORE_INIT_ENTRY) {
+        status = execute_post_boot_hardware_core_init(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_FRAME_WAIT_POLL_ENTRY ||
                cpu->ip == VF2_NATIVE_INTERRUPT_RETURN_ENTRY) {
         vf2_hybrid_bridge_report bridge_report;
@@ -1139,6 +2646,30 @@ const char *vf2_native_runtime_step_kind_name(
         return "boot-stage2";
     case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INIT_PREFIX:
         return "post-boot-init-prefix";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_INIT_ENTRY:
+        return "post-boot-video-init-entry";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_RAMP:
+        return "post-boot-video-ramp";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COLOR_TABLES:
+        return "post-boot-color-tables";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MEMORY_CLEAR:
+        return "post-boot-memory-clear";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_REGISTER_STREAM:
+        return "post-boot-register-stream";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BLOCK_STREAM:
+        return "post-boot-block-stream";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BACKUP_SRAM_PROBE:
+        return "post-boot-backup-sram-probe";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BACKUP_RESTORE:
+        return "post-boot-backup-restore";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESTORED_VIDEO_ENTRY:
+        return "post-boot-restored-video-entry";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_SEED:
+        return "post-boot-palette-seed";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TABLE_INIT:
+        return "post-boot-table-init";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_HARDWARE_CORE_INIT:
+        return "post-boot-hardware-core-init";
     default:
         return "unknown";
     }

@@ -84,6 +84,98 @@ static void test_initialize_and_names(void)
             "post-boot-init-prefix"
         ) == 0
     );
+    {
+        static const vf2_native_runtime_step_kind kinds[] = {
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_INIT_ENTRY,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_RAMP,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COLOR_TABLES,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MEMORY_CLEAR,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_REGISTER_STREAM,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BLOCK_STREAM,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BACKUP_SRAM_PROBE,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_BACKUP_RESTORE,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESTORED_VIDEO_ENTRY,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_SEED,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TABLE_INIT,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_HARDWARE_CORE_INIT
+        };
+        static const char *const names[] = {
+            "post-boot-video-init-entry",
+            "post-boot-video-ramp",
+            "post-boot-color-tables",
+            "post-boot-memory-clear",
+            "post-boot-register-stream",
+            "post-boot-block-stream",
+            "post-boot-backup-sram-probe",
+            "post-boot-backup-restore",
+            "post-boot-restored-video-entry",
+            "post-boot-palette-seed",
+            "post-boot-table-init",
+            "post-boot-hardware-core-init"
+        };
+        size_t index = 0u;
+        for (index = 0u; index < sizeof(kinds) / sizeof(kinds[0]); ++index) {
+            CHECK(strcmp(vf2_native_runtime_step_kind_name(kinds[index]),
+                         names[index]) == 0);
+        }
+    }
+}
+
+static void run_video_ramp_fixture(
+    const uint8_t controls[9],
+    uint64_t expected_instructions
+)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state state;
+    vf2_native_runtime_step_report report;
+    uint16_t last_value = 0u;
+    uint8_t encoded[2] = {0u, 0u};
+
+    memset(&machine, 0, sizeof(machine));
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500234), controls, 6u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x005000e0), controls + 6u, 3u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x000005e8));
+    cpu.arithmetic_control = UINT32_C(0x3f001000);
+    cpu.compare_result = VF2_I960_COMPARE_EQUAL;
+    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+
+    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
+    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_RAMP);
+    CHECK(report.entry_address == UINT32_C(0x000005e8));
+    CHECK(report.exit_address == UINT32_C(0x00001004));
+    CHECK(report.recovered_instruction_count == expected_instructions);
+    CHECK(report.recovered_procedure_calls == UINT64_C(3));
+    CHECK(report.recovered_procedure_returns == UINT64_C(4));
+    CHECK(cpu.ip == UINT32_C(0x00001004));
+    CHECK(cpu.local_frame_depth == 0u);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x005445fe), encoded, 2u) == VF2_OK);
+    last_value = (uint16_t)((uint16_t)encoded[0] | ((uint16_t)encoded[1] << 8u));
+    CHECK(last_value != UINT16_C(0));
+    vf2_model2a_shutdown(&machine);
+}
+
+static void test_post_boot_video_ramp_dynamic_counts(void)
+{
+    static const uint8_t first_controls[9] = {
+        UINT8_C(0x75), UINT8_C(0x22), UINT8_C(0x75), UINT8_C(0x22),
+        UINT8_C(0x75), UINT8_C(0x22), UINT8_C(0x80), UINT8_C(0x80),
+        UINT8_C(0x80)
+    };
+    static const uint8_t restored_controls[9] = {
+        UINT8_C(0x40), UINT8_C(0x25), UINT8_C(0x40), UINT8_C(0x25),
+        UINT8_C(0x40), UINT8_C(0x25), UINT8_C(0x80), UINT8_C(0x80),
+        UINT8_C(0x80)
+    };
+
+    run_video_ramp_fixture(first_controls, UINT64_C(11563));
+    run_video_ramp_fixture(restored_controls, UINT64_C(11245));
 }
 
 static void test_post_boot_init_prefix(void)
@@ -727,6 +819,7 @@ static void test_scheduler_finishes_after_early_last_active_task(void)
 int main(void)
 {
     test_initialize_and_names();
+    test_post_boot_video_ramp_dynamic_counts();
     test_post_boot_init_prefix();
     test_zero_length_run();
     test_single_bridge_run();

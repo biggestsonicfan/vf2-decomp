@@ -347,10 +347,20 @@ untouched incoming registers/control state and matches 1,180,053 instructions to
 `0x000001b0`; boot stage 2 matches another 182,514 instructions to `0x0000052c`.
 Together with the terminal cluster, the three strict blocks cover 1,375,993
 instructions with exact CPU, local-frame, procedure-counter and mutable-memory
-equality. The warm-reset continuation now proceeds one block farther: the
-`0x0000052c -> 0x00009798` branch, initialization prologue and first serial /
-command-queue helpers are recovered through the call entry at `0x0006dd4c`.
-Strict replay matches 60,078 additional instructions with 10 calls / 9 returns,
-including exact `sp`/`fp`, local-frame, condition-code and mutable-memory state.
-The next concrete recovery boundary is the initializer beginning at
-`0x0006dd4c`. Other bit-7 table entries and phase state zero remain unsupported.
+equality. The warm-reset continuation now extends through the observed post-boot
+initializer to caller boundary `0x000098b0`. The existing `0x0000052c ->
+0x0006dd4c` prefix contributes 60,078 strict instructions; from `0x0006dd4c`,
+15 additional recovered blocks contribute 1,498,968 instructions with exact
+CPU, local-frame, procedure-counter and mutable-memory equality after every
+block. Combined with the terminal and warm boot stages, the controlled
+soft-reset chain is now compositionally proven for 2,935,039 instructions.
+
+The recovered initializer includes both descriptor-driven bulk streams (4
+descriptors / 464 words and 22 descriptors / 92,672 halfwords), valid backup-SRAM
+probe/CRC/restore, both video-ramp passes, palette/table construction and the
+observed geometry/video hardware-core setup. The second ramp is intentionally
+11,245 instructions rather than the first pass's 11,563 because its restored
+`0x40/0x25` controls take different clamp branches; runtime accounting derives
+that count from the data rather than the call site. The next concrete recovery
+boundary is the call at `0x000098b0` into the texture/graphics initializer
+`0x0004b020`. Other bit-7 table entries and phase state zero remain unsupported.

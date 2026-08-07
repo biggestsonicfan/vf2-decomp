@@ -1,4 +1,5 @@
 #include "texture_bridge_internal.h"
+#include "recovery_internal.h"
 
 
 vf2_status finish_recovered_procedure(
@@ -890,39 +891,7 @@ static vf2_status compute_table_crc16(
     uint16_t *result
 )
 {
-    uint32_t index = 0u;
-    uint16_t crc = 0u;
-    vf2_status status = VF2_OK;
-
-    if (result == NULL || count == 0u) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-    for (index = 0u; index < count; ++index) {
-        uint8_t raw = 0u;
-        uint16_t table_value = 0u;
-        const uint16_t high = (uint16_t)((uint32_t)crc << 8u);
-
-        crc = (uint16_t)(crc >> 8u);
-        status = vf2_model2a_read(
-            machine, source + index, &raw, sizeof(raw)
-        );
-        if (status != VF2_OK) {
-            return status;
-        }
-        crc ^= (uint16_t)raw;
-        status = read_u16(
-            machine,
-            UINT32_C(0x02000000) + (uint32_t)(crc & UINT16_C(0x00ff)) *
-                UINT32_C(2),
-            &table_value
-        );
-        if (status != VF2_OK) {
-            return status;
-        }
-        crc = (uint16_t)(table_value ^ high);
-    }
-    *result = crc;
-    return VF2_OK;
+    return vf2_recovered_table_crc16(machine, source, 0u, count, result);
 }
 
 static vf2_status phase16_queue_sound_command(

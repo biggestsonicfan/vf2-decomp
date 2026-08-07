@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- recovered the observed post-boot initializer from `0x0006dd4c` through the
+  caller boundary at `0x000098b0` as 15 strict native blocks: 1,498,968
+  reference/recovered instructions with exact CPU, local-frame, procedure-counter
+  and mutable-memory equality at every checkpoint;
+- replaced the two large initialization copy loops with shared descriptor-stream
+  semantics instead of address-specific copies: the `0x00023f30` stream consumes
+  4 descriptors / 464 32-bit words, while `0x00023ee8` consumes 22 descriptors /
+  92,672 halfwords; the same parsers are reused by the `0x00011b48` aggregate
+  initializer and its embedded streams;
+- recovered the valid backup-SRAM path including destructive-safe SRAM probing,
+  the `VIRTUA FIGHTER 2` / version-24 checks, both table-driven CRC validations
+  and the observed `0x3fe0`-byte restore into the work-RAM mirror; the shared CRC
+  implementation is now used by both phase recovery and post-boot restore;
+- made video-ramp instruction accounting state-derived rather than call-site
+  hardcoded: the initial controls reproduce 11,563 instructions and the restored
+  `0x40/0x25` controls reproduce 11,245, matching the ROM's clamp branches;
+- recovered the following palette/table and hardware-core setup through
+  `0x000098b0`, including the `0x00011b48` aggregate and the observed geometry /
+  video control path; the next concrete call is the texture/graphics initializer
+  at `0x0004b020`;
 - recovered the first post-boot initialization prefix from the warm-reset
   boundary at `0x0000052c` through the call entry at `0x0006dd4c`: the native
   block reproduces the `0x00009798` prologue, diagnostic-byte/mode writes, the
