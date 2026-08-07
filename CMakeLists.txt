@@ -55,7 +55,9 @@ add_library(vf2_core STATIC
     src/recovered/hybrid.c
     src/recovered/frame_wait.c
     src/recovered/native_runtime.c
+    src/recovered/native_runtime_state.c
     src/recovered/native_differential.c
+    src/recovered/native_differential_step.c
     src/recovered/texture_bridge.c
     src/recovered/texture_bridge_texture.c
     src/recovered/texture_bridge_video.c
@@ -189,6 +191,17 @@ if(VF2_BUILD_TESTS)
     add_test(
         NAME vf2_native_runtime
         COMMAND vf2_native_runtime_tests
+    )
+
+    add_executable(vf2_native_runtime_state_tests
+        tests/recovered/test_native_runtime_state.c
+    )
+    target_link_libraries(vf2_native_runtime_state_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_native_runtime_state_tests)
+
+    add_test(
+        NAME vf2_native_runtime_state
+        COMMAND vf2_native_runtime_state_tests
     )
 
     add_executable(vf2_native_differential_tests

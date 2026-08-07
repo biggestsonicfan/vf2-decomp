@@ -5103,26 +5103,68 @@ static int command_native_dispatch_ex(
 
             if (native_fifth_dispatch && g_native_snapshot_path != NULL) {
                 vf2_i960_snapshot output_snapshot;
+                const size_t snapshot_path_length =
+                    strlen(g_native_snapshot_path);
+                char *runtime_state_path = NULL;
+
                 vf2_i960_snapshot_init(&output_snapshot);
-                status = vf2_i960_snapshot_capture(
-                    &output_snapshot,
-                    &native_cpu,
-                    &native_machine
-                );
+                if (snapshot_path_length <=
+                    SIZE_MAX - sizeof(".runtime")) {
+                    runtime_state_path = (char *)malloc(
+                        snapshot_path_length + sizeof(".runtime")
+                    );
+                }
+                if (runtime_state_path == NULL) {
+                    status = VF2_ERROR_OUT_OF_MEMORY;
+                } else {
+                    memcpy(
+                        runtime_state_path,
+                        g_native_snapshot_path,
+                        snapshot_path_length
+                    );
+                    memcpy(
+                        runtime_state_path + snapshot_path_length,
+                        ".runtime",
+                        sizeof(".runtime")
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_i960_snapshot_capture(
+                        &output_snapshot,
+                        &native_cpu,
+                        &native_machine
+                    );
+                }
                 if (status == VF2_OK) {
                     status = vf2_i960_snapshot_write_file(
                         &output_snapshot,
                         g_native_snapshot_path
                     );
                 }
+                if (status == VF2_OK) {
+                    status = vf2_native_runtime_state_write_file(
+                        &runtime_state,
+                        runtime_state_path
+                    );
+                }
                 vf2_i960_snapshot_destroy(&output_snapshot);
                 if (status == VF2_OK) {
                     printf("Fifth-dispatch snapshot:            %s\n",
                            g_native_snapshot_path);
+                    printf("Fifth-dispatch runtime state:       %s\n",
+                           runtime_state_path);
                 } else {
-                    fprintf(stderr, "Could not write fifth-dispatch snapshot: %s\n",
-                            vf2_status_string(status));
+                    (void)remove(g_native_snapshot_path);
+                    if (runtime_state_path != NULL) {
+                        (void)remove(runtime_state_path);
+                    }
+                    fprintf(
+                        stderr,
+                        "Could not write fifth-dispatch checkpoint: %s\n",
+                        vf2_status_string(status)
+                    );
                 }
+                free(runtime_state_path);
             }
         }
     }

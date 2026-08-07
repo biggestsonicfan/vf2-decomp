@@ -7,6 +7,8 @@
 #include "vf2/hybrid.h"
 #include "vf2/status.h"
 
+#define VF2_NATIVE_RUNTIME_STATE_VERSION 1u
+
 typedef enum vf2_native_runtime_step_kind {
     VF2_NATIVE_RUNTIME_STEP_NONE = 0,
     VF2_NATIVE_RUNTIME_STEP_BRIDGE,
@@ -94,6 +96,19 @@ vf2_status vf2_native_runtime_run_until(
     uint32_t stop_address,
     size_t max_blocks,
     vf2_native_runtime_run_report *report
+);
+
+/* Persist the host-side state that is intentionally outside the
+ * architectural i960 snapshot. The fixed-width, little-endian
+ * format is versioned and protected by CRC32. */
+vf2_status vf2_native_runtime_state_write_file(
+    const vf2_native_runtime_state *state,
+    const char *path
+);
+
+vf2_status vf2_native_runtime_state_read_file(
+    vf2_native_runtime_state *state,
+    const char *path
 );
 
 const char *vf2_native_runtime_step_kind_name(

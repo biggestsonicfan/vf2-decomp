@@ -261,7 +261,14 @@ build/vf2cycles \
   --max-blocks 16384
 ```
 
+The fifth-dispatch command writes both `fifth-dispatch.vf2snap` and the
+versioned `fifth-dispatch.vf2snap.runtime` host-state sidecar. `vf2cycles`
+loads the sidecar automatically, or accepts an explicit `--state` path.
+
 The command stops at the first unsupported native block, reference execution
 failure or state mismatch and prints the partial cycle, last recovered step and
-first differing component. A successful run never interprets instructions on
-the native side.
+first differing component. Add `--failure-prefix fifth-sweep-failure` to write
+the last fully matched pre-block state as `.vf2snap`, `.runtime` and `.txt`
+files. Re-running those files reproduces the unsupported block without replaying
+the accepted corridor. A successful run never interprets instructions on the
+native side.

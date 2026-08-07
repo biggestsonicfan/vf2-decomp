@@ -114,6 +114,11 @@ The differential layer now has two reusable pieces for the next v0.2.0 step:
 - `vf2cycles` restores that boundary and executes a requested number of complete
   repeated-address cycles with per-block CPU and mutable-memory comparison.
 
+The checkpoint now includes a versioned, CRC-protected runtime-state sidecar
+covering frame-wait progress and all native aggregate counters. The endurance
+runner performs public one-block differential steps and can persist the last
+fully matched state immediately before a failure.
+
 This tooling does not extend the ROM-proven boundary by itself. Its first
 expected failure identifies the concrete unsupported block that must be
 recovered before a strict sixth-dispatch contract can be recorded.

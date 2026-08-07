@@ -35,6 +35,29 @@ typedef struct vf2_native_differential_cycles_report {
     int completed;
 } vf2_native_differential_cycles_report;
 
+typedef struct vf2_native_differential_step_report {
+    uint32_t start_address;
+    uint32_t final_reference_address;
+    uint32_t final_native_address;
+    uint64_t reference_instructions_executed;
+    uint64_t native_recovered_instructions;
+    vf2_native_runtime_step_report native_step;
+    vf2_i960_snapshot_diff diff;
+    int matched;
+} vf2_native_differential_step_report;
+
+/* Execute exactly one recovered block and the same number of reference
+ * instructions, then compare complete CPU, counter, frame-wait and mutable
+ * memory state. The native side never falls back to interpretation. */
+vf2_status vf2_native_differential_step(
+    vf2_model2a *reference_machine,
+    vf2_i960_cpu *reference_cpu,
+    vf2_model2a *native_machine,
+    vf2_i960_cpu *native_cpu,
+    vf2_native_runtime_state *native_state,
+    vf2_native_differential_step_report *report
+);
+
 /* Execute the recovered native runtime and the reference i960 in lockstep.
  * Both sides must enter with identical architectural and mutable-memory state.
  * For every accepted native block, the reference processor executes exactly
