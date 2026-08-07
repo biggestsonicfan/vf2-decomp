@@ -55,12 +55,18 @@ directions in `0x00058fe0`: gameplay mask `0x08001008` advances the index with
 `11 -> 0` wraparound, while bit 13 (`0x00002000`) decrements it with `0 -> 11`
 wraparound. Both mark the old double-indirect phase target with `0x8020` and the
 new target with `0x801c`, and the forward mask has ROM-accurate priority. The
-`0x04000104` reset/display path is also recovered: it sets phase-index bit 7,
-clears the 48x64 tile plane through `0x00008ef0`, and centers the phase label via
-`0x00060410 -> 0x00007fc0`. Strict replay then reaches the next concrete gap:
-the phase-index bit-7 indirect dispatch at `0x00059154`. Phase state zero also
-remains unsupported. The separate geometry-reset chain through `0x00008ef0`,
-`0x0006116c` and `0x000000b0` remains unobserved as a whole.
+`0x04000104` reset/display path sets phase-index bit 7, clears the 48x64 tile
+plane through `0x00008ef0`, and centers the phase label via
+`0x00060410 -> 0x00007fc0`.
+
+The resulting observed bit-7 entry (`0x8b`) is also recovered: `0x00059154`
+selects `0x0005ef60`, whose first visit performs meter+CRC, clears the tile plane,
+draws `EXIT TEST MODE` and arms counter 320. Positive countdown visits are
+recovered and a boundary probe reaches the exact `counter 1` state. Still
+uncovered are the terminal `counter 1 -> 0` path from `0x0005f07c`, other bit-7
+indirect table entries, and phase state zero. The terminal trace is now observed
+through `0x0006116c` to `0x000000b0`, but it remains fail-closed until its
+non-returning soft-reset handoff is validated against the existing boot recovery.
 
 ## 5. Audio and platform
 

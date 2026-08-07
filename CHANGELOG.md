@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- recovered the phase-17 bit-7 indirect dispatch for observed index `0x8b`:
+  `0x00059154` clears the flag and dispatches through table entry `0x0005ff00`
+  to `0x0005ef60`; the first visit now reproduces the ROM's game-meter update,
+  15-byte table CRC, 48x64 tile clear and `EXIT TEST MODE` diagnostic draw, with
+  13,286 frame-dispatch instructions / 27 calls / 28 returns and a strict-equal
+  13,518-instruction enclosing `main-final-cluster`;
+- recovered the positive phase-17 bit-7 countdown path: after the first visit
+  arms counter 320 and latches phase byte `0xff`, each subsequent visit repeats
+  meter+CRC and decrements the counter with a 626-instruction dispatcher /
+  858-instruction enclosing cluster; strict per-block replay covers consecutive
+  countdown visits, while a resumable cycle-boundary probe validates 319 cycles
+  (11,484 blocks / 701,481 reference and native instructions) and stops exactly
+  at the still-fail-closed `counter 1 -> 0` terminal transition;
+- fixed phase-17 bit-7 return tracking to read the caller return address from the
+  saved i960 local frame rather than the freshly-cleared current-frame `r2`;
+- added ROM-independent coverage for the bit-7 first-visit and positive-countdown
+  contracts, including game-meter fixtures, CRC backing data, tile/text output,
+  procedure counts and countdown state;
 - recovered the phase-17 gameplay mask `0x04000104` reset/display branch in
   `0x00058fe0`: controlled ROM-backed replay sets phase-index bit 7, clears the
   phase auxiliary byte, latches `0xff`, zeroes the object marker, reproduces the
@@ -29,9 +47,9 @@
   ROM's double-indirect table, and the enclosing `main-final-cluster` plus a
   complete 36-block scheduler cycle now match the reference i960 exactly;
 - added ROM-independent phase-17 tests for forward/backward ordinary and wrap
-  cases, forward-over-bit13 priority, and the reset/display path including the
-  48x64 clear and centered `EXIT` label; phase-state-zero and phase-index-bit-7
-  indirect dispatch remain fail-closed `VF2_ERROR_UNSUPPORTED`;
+  cases, forward-over-bit13 priority, reset/display, and the observed index-11
+  bit-7 first-visit/countdown paths; phase-state-zero, other bit-7 table entries
+  and the countdown terminal transition remain fail-closed;
 - added `vf2_native_differential_probe_cycles` and `vf2cycles --boundary-probe` for long-horizon repeated-frame scouting: reference and native execution remain instruction-count locked per recovered block, frame-wait host state is checked on each wait block, complete CPU/mutable-memory state is compared at cycle boundaries, and any failing cycle restores both machines plus native runtime state to its exact start for strict replay;
 - added `vf2cycles --output-snapshot <file>` to persist successful endurance boundaries together with the versioned `.runtime` sidecar, allowing long ROM-backed probes to resume without replaying earlier cycles;
 - added ROM-independent coverage for the zero-cycle probe contract and retained the existing strict per-block runner unchanged as the acceptance path;

@@ -319,5 +319,15 @@ zeros the current object marker, clears the 48x64 tile plane to word `0x0020`,
 and centers the ROM phase label (`EXIT` for index 11) through the original
 `0x00060410 -> 0x00007fc0` text path. Strict differential replay matches the
 12,889-instruction enclosing cluster exactly and stays equal for the following
-35 blocks. The next observed boundary is the bit-7 indirect dispatch at
-`0x00059154`, which remains fail-closed.
+35 blocks.
+
+That bit-7 continuation is now recovered for the observed index-11 entry.
+`0x00059154` clears the bit and dispatches through `0x0005ff00` to `0x0005ef60`.
+On the first visit the recovered path reproduces the game-meter update, 15-byte
+CRC, 48x64 tile clear and `EXIT TEST MODE` draw; the frame dispatcher accounts
+13,286 instructions and the enclosing `main-final-cluster` matches strictly at
+13,518 instructions. The path then arms a 320-frame countdown. Positive
+countdown visits strictly match at 626 dispatcher / 858 cluster instructions. A
+cycle-boundary probe from counter 320 validates 319 cycles (11,484 blocks /
+701,481 instructions) and restores an exact checkpoint at the next unsupported
+transition, `counter 1 -> 0`. Other bit-7 table entries remain unsupported.

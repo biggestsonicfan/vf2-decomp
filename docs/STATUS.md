@@ -172,10 +172,21 @@ byte, latches `0xff`, zeroes the current object marker, clears the 48x64 tile
 plane to `0x0020`, and centers/copies the current phase label. The recovered
 dispatch accounts 12,657 instructions with 5 calls / 6 returns; the complete
 12,889-instruction `main-final-cluster` is strict-equal, followed by 35 more
-equal recovered blocks. The first subsequent failure is the expected phase-index
-bit-7 indirect dispatch at `0x00059154`.
+equal recovered blocks.
 
-The next high-value v0.2.0 target is therefore that observed bit-7 indirect
-phase dispatch, followed by controlled evidence for phase-state-zero, additional
-match/selection and fighter/object paths rather than unbounded passive endurance
-in the same attractor.
+The observed bit-7 continuation is now recovered for phase index `0x8b`. The ROM
+clears bit 7 at `0x00059154`, reads table entry `0x0005ff00`, and indirect-
+dispatches to `0x0005ef60`. Its first visit executes the recovered game-meter
+path, a 15-byte CRC, the 48x64 tile clear and `EXIT TEST MODE` draw. Strict
+per-block replay matches the 13,286-instruction frame dispatcher and the complete
+13,518-instruction `main-final-cluster`. The subsequent positive countdown path
+repeats meter+CRC and matches at 626 dispatcher / 858 cluster instructions.
+
+A resumable cycle-boundary probe starting at counter 320 completes 319 cycles,
+11,484 blocks and 701,481 reference/native instructions with equal cycle-end
+state, then stops at the exact pre-terminal checkpoint where counter 1 would
+become zero. This probe evidence does not replace the strict per-block contract;
+strict replay separately covers the first visit and consecutive countdown
+visits. The next concrete target is the terminal `0x0005f07c` transition and its
+non-returning soft-reset path toward `0x000000b0`; phase-state-zero and other
+bit-7 table entries remain additional targets.
