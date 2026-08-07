@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- recovered the phase-17 gameplay mask `0x04000104` reset/display branch in
+  `0x00058fe0`: controlled ROM-backed replay sets phase-index bit 7, clears the
+  phase auxiliary byte, latches `0xff`, zeroes the object marker, reproduces the
+  ROM's 48x64 tile-plane clear through `0x00008ef0`, and centers/copies the
+  phase label through `0x00060410 -> 0x00007fc0`; the resulting dispatcher is
+  12,657 instructions with 5 calls / 6 returns and the enclosing
+  `main-final-cluster` matches the reference exactly at 12,889 instructions;
+- strict replay remains equal for the next 35 recovered blocks after that
+  controlled reset and now stops at the following `main-final-cluster`, where
+  the newly-set phase-index bit 7 selects the still-unrecovered indirect branch
+  at `0x00059154`;
 - recovered the phase-17 forward-step gameplay mask `0x08001008` in
   `0x00058fe0`: controlled ROM-backed differential execution proves the same
   double-indirect old/new phase-marker protocol as the step-back branch, with
@@ -18,9 +29,9 @@
   ROM's double-indirect table, and the enclosing `main-final-cluster` plus a
   complete 36-block scheduler cycle now match the reference i960 exactly;
 - added ROM-independent phase-17 tests for forward/backward ordinary and wrap
-  cases plus forward-over-bit13 priority, while retaining `0x04000104`,
-  phase-state-zero and phase-index-bit-7 paths as fail-closed
-  `VF2_ERROR_UNSUPPORTED`;
+  cases, forward-over-bit13 priority, and the reset/display path including the
+  48x64 clear and centered `EXIT` label; phase-state-zero and phase-index-bit-7
+  indirect dispatch remain fail-closed `VF2_ERROR_UNSUPPORTED`;
 - added `vf2_native_differential_probe_cycles` and `vf2cycles --boundary-probe` for long-horizon repeated-frame scouting: reference and native execution remain instruction-count locked per recovered block, frame-wait host state is checked on each wait block, complete CPU/mutable-memory state is compared at cycle boundaries, and any failing cycle restores both machines plus native runtime state to its exact start for strict replay;
 - added `vf2cycles --output-snapshot <file>` to persist successful endurance boundaries together with the versioned `.runtime` sidecar, allowing long ROM-backed probes to resume without replaying earlier cycles;
 - added ROM-independent coverage for the zero-cycle probe contract and retained the existing strict per-block runner unchanged as the acceptance path;

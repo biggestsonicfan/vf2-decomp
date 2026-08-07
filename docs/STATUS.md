@@ -166,7 +166,16 @@ cycles (2,185 and 2,186 instructions respectively). This is controlled
 state-transition evidence, not a claim that passive natural execution reaches
 these branches.
 
-The next high-value v0.2.0 target remains controlled evidence collection for
-additional match, selection, fighter/object and alternate phase paths, followed
-by strict replay and recovery of each newly reached branch, rather than
-unbounded passive endurance in the same attractor.
+The phase-17 reset/display mask `0x04000104` is now recovered from the same
+controlled boundary. The ROM sets phase-index bit 7, clears the auxiliary phase
+byte, latches `0xff`, zeroes the current object marker, clears the 48x64 tile
+plane to `0x0020`, and centers/copies the current phase label. The recovered
+dispatch accounts 12,657 instructions with 5 calls / 6 returns; the complete
+12,889-instruction `main-final-cluster` is strict-equal, followed by 35 more
+equal recovered blocks. The first subsequent failure is the expected phase-index
+bit-7 indirect dispatch at `0x00059154`.
+
+The next high-value v0.2.0 target is therefore that observed bit-7 indirect
+phase dispatch, followed by controlled evidence for phase-state-zero, additional
+match/selection and fighter/object paths rather than unbounded passive endurance
+in the same attractor.

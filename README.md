@@ -311,3 +311,13 @@ directions. Gameplay bit 13 (`0x00002000`) steps backward (`11 -> 10`, with
 instruction `main-final-cluster` variants and their complete following 36-block
 cycles. This is targeted branch evidence rather than an extension of the
 passive endurance claim.
+
+The next controlled phase transition is now recovered as well. Injecting
+`0x04000104` at the same pre-`main-final-cluster` boundary sets phase-index bit
+7, clears the phase auxiliary byte, stores `0xff` in the companion state byte,
+zeros the current object marker, clears the 48x64 tile plane to word `0x0020`,
+and centers the ROM phase label (`EXIT` for index 11) through the original
+`0x00060410 -> 0x00007fc0` text path. Strict differential replay matches the
+12,889-instruction enclosing cluster exactly and stays equal for the following
+35 blocks. The next observed boundary is the bit-7 indirect dispatch at
+`0x00059154`, which remains fail-closed.
