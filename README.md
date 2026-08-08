@@ -361,6 +361,37 @@ probe/CRC/restore, both video-ramp passes, palette/table construction and the
 observed geometry/video hardware-core setup. The second ramp is intentionally
 11,245 instructions rather than the first pass's 11,563 because its restored
 `0x40/0x25` controls take different clamp branches; runtime accounting derives
-that count from the data rather than the call site. The next concrete recovery
-boundary is the call at `0x000098b0` into the texture/graphics initializer
-`0x0004b020`. Other bit-7 table entries and phase state zero remain unsupported.
+that count from the data rather than the call site. Recovery now crosses the call
+at `0x000098b0` into the texture/graphics initializer, clears the six observed
+state/counter words in `0x0004b020`, and derives the timer threshold in
+`0x0004afb4`. Recovery now composes the shared timer/wait helper return, captures
+the initial frame byte at `0x0004afdc`, and reproduces the asynchronous status
+poll at `0x0004afe4` through interrupt injection and resumption. The frame-change
+exit now completes the early wait helper at `0x00000f7c`, reuses the recovered
+video-status latch and unwinds both callers to `0x0004b07c`. The following
+82-instruction observed path now verifies the board and four graphics-data
+identities, initializes ten texture records transactionally and enters
+`0x0004b820`; its four-instruction wrapper is also recovered through the nested
+record setup at `0x0004b9b8`. The observed setup initializes record zero, clears
+the three texture restart words and unwinds to `0x000098b4` in 24 instructions.
+The following recovered `0x00011704` expansion consumes 66 rows of 128 ROM bytes
+and writes 8,448 zero-extended luma words in 50,891 instructions, reaching
+`0x000098b8`. That caller now enters the shared early frame wait, composes its
+video-status latch and returns to `0x000098bc`. The following `0x00011744`
+run-length expander now emits the first 8,192-byte geometry pattern in 63,799
+instructions, commits the geometry frame, performs the next early wait and
+returns to `0x0001179c`. Recovery now continues the live decoder state through
+the second 8,192-byte pass in 63,742 instructions, ending with pattern word
+`0x4b4b4b4b` at the next frame commit. The third pass now continues through
+another 8,192 bytes in 63,700 instructions and reaches the following frame
+commit with terminal word `0x67676767`. The fourth and final pass emits the last
+8,192 bytes in 63,679 instructions and reaches its frame commit with terminal
+word `0x80808080`. The final commit and wait now unwind `0x00011744`, the caller's
+following early wait completes through `0x000098c4`, and the observed
+`0x000117f8` geometry-table initializer now clears its setup words, emits two
+mode commands plus 32 command/value pairs and reaches the frame commit. That
+commit and early wait now complete, and the initializer returns to `0x000098c8`.
+The `0x0004ad40` reset now clears three graphics-state halfwords and the
+`0x00546000` word, returning at `0x000098cc`. The call into `0x00007f7c` is the
+new boundary. Other
+bit-7 table entries and phase state zero remain unsupported.

@@ -224,6 +224,100 @@ inside the aggregate initializer. The restored video controls alter the dynamic
 ramp path, so the second pass accounts 11,245 instructions versus 11,563 on the
 initial pass.
 
-The next concrete boundary is the caller at `0x000098b0`, whose next call enters
-the texture/graphics initializer at `0x0004b020`. Phase-state-zero and other
-bit-7 indirect table entries remain additional controlled-state targets.
+The texture/graphics continuation now crosses the caller at `0x000098b0`, clears
+the six observed texture state/counter words in `0x0004b020`, and reproduces the
+timer-threshold prefix in `0x0004afb4`. The existing shared timer/wait helper at
+`0x00000b6c` is now composed into this corridor, including its observed positive
+delta path and return to `0x0004afdc`. The initializer captures the initial frame
+byte and now reproduces the asynchronous status-poll loop at `0x0004afe4`, using
+the shared frame-wait event model to inject and resume the interrupt exactly at
+the loop boundary. The observed frame-change exit stores status 1 and calls the
+early wait helper at `0x00000f7c`. Its odd/high frame-byte polling, interrupt
+resumption, zeroing exit and call to the existing `0x00002ec4` video-status latch
+are now composed, followed by both returns to `0x0004b07c`. The observed
+equal-identity continuation is recovered for another 82 instructions: it checks
+the board ID and four graphics-data identities, clears the status halfword,
+initializes ten 32-byte texture records and enters `0x0004b820`. Identity
+rejections are preflighted before any record write. The four-instruction
+`0x0004b820` wrapper is also recovered and enters the nested texture-record setup
+at `0x0004b9b8`. Its observed 24-instruction path activates record zero with ID
+40, priority 1 and no argument, clears the three texture restart words and
+unwinds all three procedure frames to `0x000098b4`. The path preserves the
+incoming arithmetic condition because its `cmpob*` instructions do not modify
+condition codes, and unsupported priority/record states reject before writes.
+The next `0x00011704` call is recovered as a 66x128 luma-table expansion. It
+consumes 8,448 ROM bytes, writes the same number of zero-extended 32-bit luma
+entries and accounts 50,891 instructions including its caller. Execution now
+reaches `0x000098b8`, where the recovered caller enters the shared early frame
+wait. Its observed zero-byte exit, video-status latch and return complete at
+`0x000098bc`. The `0x00011744` initializer is a run-length geometry-pattern
+expander: its first pass makes 2,048 calls to `0x000117a8`, emits 8,192 bytes
+through geometry port `0x00804000`, and reaches the shared `0x00002edc` frame
+commit after 63,799 instructions, 2,050 calls and 2,048 returns. A direct
+ROM-backed reference/native comparison matches complete CPU and mutable memory
+at that boundary. The frame commit and following early wait are composed through
+`0x0001179c`. The second pass continues the six live decoder registers, emits
+another 8,192 bytes in 63,742 instructions with 2,049 calls / 2,048 returns and
+reaches the next `0x00002edc` frame commit with terminal word `0x4b4b4b4b`.
+The third pass continues the same decoder for 63,700 instructions and reaches
+the following frame commit with another 8,192 bytes and terminal word
+`0x67676767`. The fourth and final pass emits the last 8,192 bytes in 63,679
+instructions with 2,049 calls / 2,048 returns and reaches its frame commit with
+terminal word `0x80808080`. Its frame commit and early wait now complete, the
+three-instruction loop exit unwinds `0x00011744` to `0x000098c0`, and the caller's
+following early wait returns at `0x000098c4`. The `0x000117f8` initializer is
+now recovered through its frame commit: it calls the shared geometry mode helper
+for modes 3 and 1, clears offsets `0x60` and `0x70`, then emits the 32-entry ROM
+command/value table in 281 instructions. Its frame commit and early wait now
+complete, followed by the return to `0x000098c8`. The `0x0004ad40` reset clears
+the three graphics-state halfwords at `0x005502a8/2b0/2b8` and the word at
+`0x00546000`, then returns at `0x000098cc` after 10 instructions. The call into
+`0x00007f7c` now copies its six-word ROM video table to `0x00501500` in 16
+instructions. The following `0x00007ef0` call copies two three-word constant
+groups to `0x00501400` in 8 instructions. Both preserve their exact observed
+register and procedure-accounting effects and return through `0x000098d4`. The
+already memory-differentially proven task-registry initializer at `0x00010cbc`
+is now composed into the runtime as a 648-instruction caller block. It reads all
+29 ROM descriptors, rebuilds the registry and scratch records, preserves the
+observed global-register and condition state, and returns through `0x000098d8`.
+The following `0x00050130` graphics-buffer initializer stores base `0x005d0000`,
+active flag 1 and offset 0 in 8 instructions, returning through `0x000098dc`.
+The `0x0004e7b4` render-state initializer now clears its seven control words,
+sets the `0x0a000000` limit and composes `0x0004f904` to arm bit 1 and clear all
+216 sixteen-byte table records. It returns through `0x000098e0` after 672
+instructions. The `0x00044084` game-default initializer is now composed with its
+two bounded helpers: `0x00023bfc` copies 40 ROM words and trailing defaults,
+while `0x0001fee4` fills 26 float slots with 1.0. The complete caller writes the
+observed gameplay constants and task-state defaults in 442 instructions with
+three calls and returns, reaching `0x000098e4`. The `0x00053750` object-table
+initializer now follows its main-data pointer, copies 2,817 sixteen-byte records
+to `0x00560000`, initializes the two `0x7f7f7f7f` sentinels and returns through
+`0x000098e8` after 11,284 instructions. The `0x0000a0c4` effect-table initializer
+now copies 4 KiB from ROM to `0x00531000`, clears 16 KiB at `0x00535000` and
+returns through `0x000098ec` after 5,652 instructions. The `0x000012bc` input
+ring initializer writes both indices and returns through `0x000098f0` after six
+instructions. The observed mode-zero path through `0x00000fa0` now emits the
+three inline I/O diagnostics, validates both ready polls, initializes the I/O
+control byte, clears the five input-state fields and returns through
+`0x000098f4` after 270 instructions with four calls and returns. The following
+inline loop copies 192 KiB from `0x023d0000` to `0x005a0000` and reaches
+`0x00009920` after 61,443 instructions. The `0x0000245c` display-offset
+initializer is now composed from the existing game-color lookup and state
+classifier. It clears both mirrored fractional offsets, rounds the two position
+bytes down by their color-derived divisors, preserves the caller's `g0` and
+returns through `0x00009924` after 126 instructions with six calls and returns.
+The following `0x0001128c` frame accumulator initializes 256 samples, derives
+the observed zero intensity/level and resets the selected sample, returning at
+`0x00009928` after 1,178 instructions. The `0x000113f4` profile initializer then
+copies the selected ROM defaults to `0x0050a700` and returns at `0x0000992c`
+after 32 instructions. The next 30 inline instructions initialize gameplay
+globals and constants through the call boundary at `0x000099fc`. The
+observed zero-mode `0x0001fcc0` entry clears input flag bit 20 and restores the
+baseline range constants in 18 instructions, entering `0x0001ff0c`. That helper
+composes the 26-float `0x0001fee4` fill and returns to `0x0001fdd4` after 114
+instructions. The following 17-instruction ROM profile load updates the mirrored
+hardware/profile fields and reaches `0x0001fe60`. Its palette wrapper is now
+composed through nested entry `0x00002c38` after another 12 instructions. The
+`0x00002c38` palette-ramp body is the next concrete boundary.
+Phase-state-zero and other bit-7 indirect table entries remain additional
+controlled-state targets.

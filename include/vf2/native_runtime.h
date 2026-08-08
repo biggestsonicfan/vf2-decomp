@@ -31,7 +31,39 @@ typedef enum vf2_native_runtime_step_kind {
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESTORED_VIDEO_ENTRY,
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_SEED,
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TABLE_INIT,
-    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_HARDWARE_CORE_INIT
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_HARDWARE_CORE_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TEXTURE_INIT_ENTRY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TEXTURE_TIMER_ENTRY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_EARLY_WAIT_RETURN,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GRAPHICS_VERIFY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TEXTURE_RECORD_ENTRY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TEXTURE_RECORD_SETUP,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_LUMA_TABLE_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_EARLY_WAIT_ENTRY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GEOMETRY_PATTERN,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GEOMETRY_PATTERN_RETURN,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GEOMETRY_TABLE_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GEOMETRY_TABLE_RETURN,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GRAPHICS_STATE_RESET,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_VIDEO_CONSTANTS,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DISPLAY_CONSTANTS,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_TASK_REGISTRY_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GRAPHICS_BUFFER_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RENDER_STATE_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GAME_DEFAULTS_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_OBJECT_TABLE_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_EFFECT_TABLE_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INPUT_RING_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_IO_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GAME_DATA_COPY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DISPLAY_OFFSET_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_FRAME_ACCUMULATOR_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PROFILE_DEFAULTS_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GAMEPLAY_GLOBALS_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INPUT_PROFILE_ENTRY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_FLOAT_DEFAULTS_INIT,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INPUT_PROFILE_LOAD,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_RAMP_ENTRY
 } vf2_native_runtime_step_kind;
 
 typedef struct vf2_native_runtime_state {
@@ -85,49 +117,34 @@ typedef struct vf2_native_runtime_run_report {
 /* Initialize a persistent recovered-runtime state. The observed frame scheduler
  * injects vector 12 after four visits, but tests and future platform backends
  * may supply a different positive threshold. */
-vf2_status vf2_native_runtime_initialize(
-    vf2_native_runtime_state *state,
-    size_t frame_wait_visits_before_interrupt
-);
+vf2_status vf2_native_runtime_initialize(vf2_native_runtime_state *state,
+                                         size_t frame_wait_visits_before_interrupt);
 
 /* Execute exactly one accepted recovered block at cpu->ip. This function never
  * falls back to the i960 interpreter. Unknown addresses and unobserved branches
  * return VF2_ERROR_UNSUPPORTED without changing the aggregate counters. */
-vf2_status vf2_native_runtime_step(
-    vf2_model2a *machine,
-    vf2_i960_cpu *cpu,
-    vf2_native_runtime_state *state,
-    vf2_native_runtime_step_report *report
-);
+vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                   vf2_native_runtime_state *state,
+                                   vf2_native_runtime_step_report *report);
 
 /* Execute recovered blocks until stop_address is reached or max_blocks is
  * exhausted. Reaching the stop address before executing a block is a successful
  * zero-length run. Budget exhaustion returns VF2_ERROR_UNSUPPORTED and leaves a
  * complete partial report for diagnostics. */
-vf2_status vf2_native_runtime_run_until(
-    vf2_model2a *machine,
-    vf2_i960_cpu *cpu,
-    vf2_native_runtime_state *state,
-    uint32_t stop_address,
-    size_t max_blocks,
-    vf2_native_runtime_run_report *report
-);
+vf2_status vf2_native_runtime_run_until(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                        vf2_native_runtime_state *state,
+                                        uint32_t stop_address, size_t max_blocks,
+                                        vf2_native_runtime_run_report *report);
 
 /* Persist the host-side state that is intentionally outside the
  * architectural i960 snapshot. The fixed-width, little-endian
  * format is versioned and protected by CRC32. */
-vf2_status vf2_native_runtime_state_write_file(
-    const vf2_native_runtime_state *state,
-    const char *path
-);
+vf2_status vf2_native_runtime_state_write_file(const vf2_native_runtime_state *state,
+                                               const char *path);
 
-vf2_status vf2_native_runtime_state_read_file(
-    vf2_native_runtime_state *state,
-    const char *path
-);
+vf2_status vf2_native_runtime_state_read_file(vf2_native_runtime_state *state,
+                                              const char *path);
 
-const char *vf2_native_runtime_step_kind_name(
-    vf2_native_runtime_step_kind kind
-);
+const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind);
 
 #endif

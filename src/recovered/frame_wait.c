@@ -4,6 +4,7 @@
 
 #define VF2_FRAME_WAIT_EARLY UINT32_C(0x00000f7c)
 #define VF2_FRAME_WAIT_MAIN UINT32_C(0x00010f98)
+#define VF2_TEXTURE_INIT_WAIT_POLL UINT32_C(0x0004afe4)
 #define VF2_FRAME_INTERRUPT_MASK UINT32_C(1)
 #define VF2_FRAME_INTERRUPT_VECTOR UINT32_C(12)
 #define VF2_FRAME_INTERRUPT_LEVEL UINT32_C(1)
@@ -37,7 +38,8 @@ vf2_status vf2_hybrid_frame_wait_observe(
     }
     memset(&local_report, 0, sizeof(local_report));
     if (cpu->ip != VF2_FRAME_WAIT_EARLY &&
-        cpu->ip != VF2_FRAME_WAIT_MAIN) {
+        cpu->ip != VF2_FRAME_WAIT_MAIN &&
+        cpu->ip != VF2_TEXTURE_INIT_WAIT_POLL) {
         if (report != NULL) {
             *report = local_report;
         }
@@ -97,7 +99,58 @@ vf2_status vf2_hybrid_frame_wait_execute(
     }
     memset(&local_report, 0, sizeof(local_report));
 
-    if (entry == UINT32_C(0x00010f90)) {
+    if (entry == VF2_FRAME_WAIT_EARLY) {
+        for (;;) {
+            uint8_t frame_byte = 0u;
+            vf2_hybrid_frame_wait_report wait_report;
+            int repeats = 0;
+
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x00500000),
+                &frame_byte, sizeof(frame_byte)
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            cpu->registers[4] = frame_byte;
+            cpu->executed_instructions += UINT64_C(2);
+            repeats = frame_byte > UINT8_C(2);
+            if (!repeats) {
+                ++cpu->executed_instructions;
+                repeats = (frame_byte & UINT8_C(1)) != 0u;
+            }
+            if (!repeats) {
+                const uint8_t zero = 0u;
+                cpu->registers[3] = 0u;
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x00500000), &zero, sizeof(zero)
+                );
+                if (status == VF2_OK) {
+                    status = vf2_i960_cpu_enter_procedure(
+                        cpu, UINT32_C(0x00002ec4), UINT32_C(0x00000f9c)
+                    );
+                }
+                if (status != VF2_OK) {
+                    return status;
+                }
+                cpu->executed_instructions += UINT64_C(3);
+                break;
+            }
+
+            cpu->ip = VF2_FRAME_WAIT_EARLY;
+            memset(&wait_report, 0, sizeof(wait_report));
+            status = vf2_hybrid_frame_wait_observe(
+                machine, cpu, state, &wait_report
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            if (wait_report.interrupt_injected) {
+                break;
+            }
+        }
+        local_report.kind = VF2_HYBRID_BRIDGE_FRAME_WAIT_POLL;
+    } else if (entry == UINT32_C(0x00010f90)) {
         uint8_t frame_byte = 0u;
         vf2_hybrid_frame_wait_report wait_report;
 
@@ -151,39 +204,55 @@ vf2_status vf2_hybrid_frame_wait_execute(
         vf2_hybrid_frame_wait_report wait_report;
 
         status = vf2_i960_cpu_return_procedure(cpu, machine);
-        if (status != VF2_OK || cpu->ip != VF2_FRAME_WAIT_MAIN) {
-            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-        }
-        ++cpu->executed_instructions;
-
-        memset(&wait_report, 0, sizeof(wait_report));
-        status = vf2_hybrid_frame_wait_observe(
-            machine, cpu, state, &wait_report
-        );
-        if (status != VF2_OK || wait_report.interrupt_injected) {
-            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-        }
-
-        status = vf2_model2a_read(
-            machine, UINT32_C(0x00500000), &frame_byte, sizeof(frame_byte)
-        );
         if (status != VF2_OK) {
             return status;
         }
-        cpu->registers[3] = frame_byte;
-        cpu->ip = UINT32_C(0x00010fa0);
         ++cpu->executed_instructions;
 
-        if (cpu->registers[3] ==
-            cpu->registers[VF2_I960_G0_REGISTER]) {
+        if (cpu->ip == VF2_TEXTURE_INIT_WAIT_POLL ||
+            cpu->ip == VF2_FRAME_WAIT_EARLY) {
+            memset(&wait_report, 0, sizeof(wait_report));
+            status = vf2_hybrid_frame_wait_observe(
+                machine, cpu, state, &wait_report
+            );
+            if (status != VF2_OK || wait_report.interrupt_injected) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
+            local_report.kind =
+                VF2_HYBRID_BRIDGE_INTERRUPT_RETURN_WAIT_EXIT;
+            local_report.iterations = UINT64_C(1);
+        } else if (cpu->ip != VF2_FRAME_WAIT_MAIN) {
             return VF2_ERROR_UNSUPPORTED;
-        }
-        cpu->ip = UINT32_C(0x00010fa4);
-        ++cpu->executed_instructions;
+        } else {
+            memset(&wait_report, 0, sizeof(wait_report));
+            status = vf2_hybrid_frame_wait_observe(
+                machine, cpu, state, &wait_report
+            );
+            if (status != VF2_OK || wait_report.interrupt_injected) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
 
-        local_report.kind =
-            VF2_HYBRID_BRIDGE_INTERRUPT_RETURN_WAIT_EXIT;
-        local_report.iterations = UINT64_C(1);
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x00500000), &frame_byte, sizeof(frame_byte)
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            cpu->registers[3] = frame_byte;
+            cpu->ip = UINT32_C(0x00010fa0);
+            ++cpu->executed_instructions;
+
+            if (cpu->registers[3] ==
+                cpu->registers[VF2_I960_G0_REGISTER]) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            cpu->ip = UINT32_C(0x00010fa4);
+            ++cpu->executed_instructions;
+
+            local_report.kind =
+                VF2_HYBRID_BRIDGE_INTERRUPT_RETURN_WAIT_EXIT;
+            local_report.iterations = UINT64_C(1);
+        }
     } else {
         return VF2_ERROR_UNSUPPORTED;
     }
