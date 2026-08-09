@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "vf2/geometry.h"
+
 static vf2_status game_require_graphics(const vf2_game *game)
 {
     if (game == NULL || game->initialized == 0 ||
@@ -93,25 +95,101 @@ static vf2_status game_capture_copro_write(
     return VF2_ERROR_UNSUPPORTED;
 }
 
+static vf2_status game_render_native_geometry_ring(vf2_game *game)
+{
+    enum { geometry_buffer_mask = 0x0001fffc };
+    uint32_t start = 0u;
+    uint32_t end = 0u;
+    uint32_t distance = 0u;
+    uint32_t offset = 0u;
+    uint32_t *words = NULL;
+    size_t word_count = 0u;
+    size_t index = 0u;
+    vf2_tgp_geometry_stream_report scan;
+    vf2_status status = VF2_OK;
+
+    if (game == NULL || game->native_machine == NULL ||
+        game->platform == NULL || game->tgp == NULL) {
+        return VF2_OK;
+    }
+    status = vf2_model2a_read_u32(
+        game->native_machine,
+        VF2_GEOMETRY_BASE + VF2_GEOMETRY_PREVIOUS_OFFSET,
+        &start
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            game->native_machine,
+            VF2_GEOMETRY_BASE + VF2_GEOMETRY_WRITE_OFFSET,
+            &end
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    distance = ((end & (uint32_t)geometry_buffer_mask) -
+                (start & (uint32_t)geometry_buffer_mask)) &
+               (uint32_t)geometry_buffer_mask;
+    if (distance == 0u || (distance & (sizeof(uint32_t) - 1u)) != 0u) {
+        return VF2_OK;
+    }
+    word_count = (size_t)(distance / sizeof(uint32_t));
+    words = (uint32_t *)calloc(word_count, sizeof(*words));
+    if (words == NULL) {
+        return VF2_ERROR_OUT_OF_MEMORY;
+    }
+    offset = start & (uint32_t)geometry_buffer_mask;
+    for (index = 0u; index < word_count; ++index) {
+        status = vf2_model2a_read_u32(
+            game->native_machine,
+            VF2_BUFFER_RAM_BASE + offset,
+            &words[index]
+        );
+        if (status != VF2_OK) {
+            free(words);
+            return status;
+        }
+        offset = (offset + sizeof(uint32_t)) &
+                 (uint32_t)geometry_buffer_mask;
+    }
+    status = vf2_tgp_scan_geometry_stream(words, word_count, &scan);
+    if (status == VF2_OK && scan.ended != 0) {
+        status = vf2_tgp_execute_geometry_stream(
+            game->tgp, words, word_count, game->platform,
+            UINT32_C(0xffffffff), &scan
+        );
+    }
+    if (status == VF2_ERROR_UNSUPPORTED ||
+        status == VF2_ERROR_OUT_OF_BOUNDS) {
+        /* The native ring is still broader than the recovered packet decoder.
+         * Leave an unrecognized ring untouched from the game's perspective so
+         * a future decoder can consume it without making frame execution fail. */
+        status = VF2_OK;
+    }
+    free(words);
+    return status;
+}
+
 static vf2_status game_render_native_geometry(vf2_game *game)
 {
     vf2_tgp_geometry_stream_report report;
+    vf2_status status = VF2_OK;
 
-    if (game == NULL || game->platform == NULL || game->tgp == NULL ||
-        game->native_copro_word_count == 0u) {
+    if (game == NULL || game->platform == NULL || game->tgp == NULL) {
         return VF2_OK;
     }
-    {
-        vf2_status status = vf2_tgp_execute_geometry_stream(
+    if (game->native_copro_word_count != 0u) {
+        status = vf2_tgp_execute_geometry_stream(
             game->tgp, game->native_copro_words,
             game->native_copro_word_count, game->platform,
             UINT32_C(0xffffffff), &report
         );
-        if (status == VF2_OK) {
-            game->native_copro_word_count = 0u;
+        if (status != VF2_OK) {
+            return status;
         }
-        return status;
+        game->native_copro_word_count = 0u;
     }
+    return game_render_native_geometry_ring(game);
 }
 
 vf2_status vf2_game_initialize(vf2_game *game)

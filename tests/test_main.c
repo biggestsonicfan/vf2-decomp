@@ -221,6 +221,16 @@ static void test_model2a_host_input(void)
         &machine, VF2_IO_CONTROL_BASE + 6u, &value, sizeof(value)
     ) == VF2_OK);
     EXPECT_TRUE(value == UINT8_C(0xff));
+    EXPECT_TRUE(vf2_model2a_set_input(
+        &machine,
+        VF2_PLATFORM_BUTTON_P2_PUNCH | VF2_PLATFORM_BUTTON_P2_KICK |
+        VF2_PLATFORM_BUTTON_P2_GUARD | VF2_PLATFORM_BUTTON_P2_UP |
+        VF2_PLATFORM_BUTTON_P2_LEFT
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 6u, &value, sizeof(value)
+    ) == VF2_OK);
+    EXPECT_TRUE(value == UINT8_C(0x58));
 
     value = UINT8_C(0xfb);
     EXPECT_TRUE(vf2_model2a_write(

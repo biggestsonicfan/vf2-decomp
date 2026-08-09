@@ -25,7 +25,7 @@
 | TGP scalar services and host boundary | Recovered; stateful direct/object geometry reference executor with matrix/viewport/depth submission added; native Model 2A coprocessor writes are captured into the TGP stream with flat-RAM fallback; packet decoder/microcode not recovered |
 | Geometry command packing and ring commit | Recovered for observed four-entry boundary |
 | SCSP CPU bus, register, sample and MIDI boundary | Recovered 0x1000-byte register window, visible sound map, deterministic PCM slot renderer and slot ADSR lifecycle; FM/DSP fidelity remains open |
-| Portable framebuffer/input backend | Recovered headless software surface, deterministic input injection and game-facing graphics/audio frame lifecycle; window/audio device adapters remain open |
+| Portable framebuffer/input backend | Recovered headless software surface, deterministic P1/P2 input injection and game-facing graphics/audio frame lifecycle; window/audio device adapters remain open |
 | Playable port | No |
 
 ## Development head after v0.1.3 acceptance
@@ -83,10 +83,12 @@ contracts.
 
 ## Validation
 
-The exact supported 36-file ROM set passes all 44 configured CTest targets:
-17 ROM-independent tests and 26 ROM-backed differential/observation tests. The
-ROM-independent suite also passes under AddressSanitizer,
-UndefinedBehaviorSanitizer and LeakSanitizer.
+The focused core, game, and native-runtime targets pass locally against the
+supported 36-file ROM set. The full 44-target MSVC/Ninja Release CTest run is
+not currently green: the optimized TGP executable and several ROM-backed
+observation targets terminate with access violations, while the sanitizer TGP
+build passes. That toolchain/test-harness issue is separate from the native
+runtime corridor and must be resolved before claiming a clean full suite.
 
 Public CI cannot contain the proprietary ROM set, so GitHub Actions covers the
 warning-as-error GCC/Clang builds and sanitizers while strict ROM-backed

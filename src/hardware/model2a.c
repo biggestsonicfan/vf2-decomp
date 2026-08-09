@@ -26,6 +26,34 @@ static void write_le32(uint8_t *data, uint32_t value)
     data[3] = (uint8_t)(value >> 24u);
 }
 
+static vf2_status model2a_push_geometry_word(
+    vf2_model2a *machine,
+    uint32_t value
+)
+{
+    uint32_t buffer_offset = 0u;
+    size_t byte_offset = 0u;
+
+    if (machine == NULL || machine->buffer_ram == NULL ||
+        machine->buffer_ram_size < sizeof(uint32_t)) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    buffer_offset = machine->geometry_write_start & UINT32_C(0x0001fffc);
+    byte_offset = (size_t)buffer_offset;
+    if (byte_offset > machine->buffer_ram_size - sizeof(uint32_t)) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if ((machine->geometry_control & UINT32_C(0x80000000)) != 0u) {
+        ++machine->geometry_program_count;
+    } else {
+        write_le32(machine->buffer_ram + byte_offset, value);
+        machine->geometry_write_start =
+            (machine->geometry_write_start + sizeof(uint32_t)) &
+            UINT32_C(0x000fffff);
+    }
+    return VF2_OK;
+}
+
 static int range_contains(
     uint32_t base,
     size_t region_size,
@@ -257,6 +285,28 @@ static uint8_t model2a_host_input_port(
         if ((input & VF2_PLATFORM_BUTTON_LEFT) != 0u) {
             value &= (uint8_t)~UINT8_C(0x80);
         }
+    } else if (port == 3u) {
+        if ((input & VF2_PLATFORM_BUTTON_P2_PUNCH) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x01);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_P2_KICK) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x02);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_P2_GUARD) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x04);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_P2_DOWN) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x10);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_P2_UP) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x20);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_P2_RIGHT) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x40);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_P2_LEFT) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x80);
+        }
     }
     return value;
 }
@@ -369,6 +419,10 @@ int vf2_model2a_initialize(vf2_model2a *machine)
     machine->io_control[0x16u] = 0xffu;
     machine->io_control[0x18u] = 0xffu;
     machine->io_control[0x1au] = 0x0cu;
+    machine->geometry_write_start = 0u;
+    machine->geometry_read_start = 0u;
+    machine->geometry_control = 0u;
+    machine->geometry_program_count = 0u;
     return 1;
 }
 
@@ -483,6 +537,16 @@ vf2_status vf2_model2a_read(
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     if (range_contains(
+            VF2_GEOMETRY_BASE + UINT32_C(0x4000),
+            UINT32_C(0x4000), address, size)) {
+        if (size != sizeof(uint32_t) ||
+            (address & (sizeof(uint32_t) - 1u)) != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        write_le32((uint8_t *)destination, UINT32_C(0xffffffff));
+        return VF2_OK;
+    }
+    if (range_contains(
             VF2_IO_CONTROL_BASE, machine->io_control_size, address, size)) {
         vf2_status input_status = model2a_read_input_port(
             machine, address, destination, size
@@ -533,6 +597,17 @@ vf2_status vf2_model2a_write(
     if (machine == NULL || source == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
+    if (range_contains(
+            VF2_GEOMETRY_BASE + UINT32_C(0x4000),
+            UINT32_C(0x4000), address, size)) {
+        if (size != sizeof(uint32_t) ||
+            (address & (sizeof(uint32_t) - 1u)) != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        return model2a_push_geometry_word(machine, read_le32(
+            (const uint8_t *)source
+        ));
+    }
     /* The i960 program window is ROM with writes explicitly ignored by the
      * Model 2 map. Some original routines use low addresses as disposable
      * stack spill locations during early initialization. */
@@ -547,6 +622,17 @@ vf2_status vf2_model2a_write(
     }
     if (address == VF2_INTERRUPT_CONTROL_BASE + 4u && size == sizeof(uint32_t)) {
         write_le32(machine->interrupt_control + 4u, read_le32((const uint8_t *)source));
+        return VF2_OK;
+    }
+    if (address == VF2_VIDEO_CONTROL_BASE + UINT32_C(8) &&
+        size == sizeof(uint32_t)) {
+        const uint32_t value = read_le32((const uint8_t *)source);
+        if ((value & UINT32_C(0x80000000)) != 0u &&
+            (machine->geometry_control & UINT32_C(0x80000000)) == 0u) {
+            machine->geometry_program_count = 0u;
+        }
+        machine->geometry_control = value;
+        write_le32(machine->video_control + 8u, value);
         return VF2_OK;
     }
     /* The Model 2A map exposes 0x01c00040-0x01c00043 as write-only no-ops.
@@ -571,6 +657,15 @@ vf2_status vf2_model2a_write(
     }
     offset = (size_t)((uint64_t)address - view.base);
     memcpy(view.write_data + offset, source, size);
+    if (size == sizeof(uint32_t) &&
+        address == VF2_GEOMETRY_BASE + UINT32_C(0x1008)) {
+        machine->geometry_write_start = read_le32((const uint8_t *)source) &
+                                        UINT32_C(0x000fffff);
+    } else if (size == sizeof(uint32_t) &&
+               address == VF2_GEOMETRY_BASE + UINT32_C(0x3008)) {
+        machine->geometry_read_start = read_le32((const uint8_t *)source) &
+                                       UINT32_C(0x000fffff);
+    }
     return VF2_OK;
 }
 

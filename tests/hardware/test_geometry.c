@@ -72,6 +72,27 @@ int main(void)
         &value) == VF2_OK);
     EXPECT_TRUE(value == UINT32_C(0x00001000));
 
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_GEOMETRY_BASE + VF2_GEOMETRY_WRITE_OFFSET,
+        VF2_BUFFER_RAM_BASE) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_VIDEO_CONTROL_BASE + UINT32_C(8), 0u) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_GEOMETRY_BASE + UINT32_C(0x4000),
+        UINT32_C(0x01000000)) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read_u32(
+        &machine, VF2_BUFFER_RAM_BASE, &value) == VF2_OK);
+    EXPECT_TRUE(value == UINT32_C(0x01000000));
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_VIDEO_CONTROL_BASE + UINT32_C(8),
+        UINT32_C(0x80000000)) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_GEOMETRY_BASE + UINT32_C(0x4000),
+        UINT32_C(0x02000000)) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read_u32(
+        &machine, VF2_BUFFER_RAM_BASE + sizeof(uint32_t), &value) == VF2_OK);
+    EXPECT_TRUE(value == 0u);
+
     vf2_model2a_shutdown(&machine);
     return failures == 0 ? 0 : 1;
 }

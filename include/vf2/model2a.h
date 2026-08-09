@@ -109,6 +109,10 @@ typedef struct vf2_model2a {
     size_t luma_ram_size;
     uint8_t *system_control;
     size_t system_control_size;
+    uint32_t geometry_write_start;
+    uint32_t geometry_read_start;
+    uint32_t geometry_control;
+    uint32_t geometry_program_count;
     vf2_model2a_copro_read_callback copro_read_callback;
     vf2_model2a_copro_write_callback copro_write_callback;
     void *copro_callback_context;
