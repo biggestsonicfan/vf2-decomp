@@ -2286,12 +2286,12 @@ static vf2_status execute_frame_phase17(
     return VF2_OK;
 }
 
-static vf2_status execute_selector3_display_text(
+static vf2_status execute_selector3_display_text_at(
     vf2_model2a *machine,
-    uint32_t source_base
+    uint32_t source_base,
+    uint32_t destination_base
 )
 {
-    const uint32_t destination_base = UINT32_C(0x01004000);
     int16_t addend = 0;
     int16_t word_mode = 0;
     uint16_t raw_addend = 0u;
@@ -2355,6 +2355,16 @@ static vf2_status execute_selector3_display_text(
     return status;
 }
 
+static vf2_status execute_selector3_display_text(
+    vf2_model2a *machine,
+    uint32_t source_base
+)
+{
+    return execute_selector3_display_text_at(
+        machine, source_base, UINT32_C(0x01004000)
+    );
+}
+
 static vf2_status execute_selector3_profile_class(
     const vf2_model2a *machine,
     uint32_t base,
@@ -2391,6 +2401,10 @@ static vf2_status execute_selector3_profile_class(
         return VF2_OK;
     }
     if ((flags & (UINT32_C(1) << 1u)) != 0u) {
+        if (mode != UINT8_C(25)) {
+            *result = UINT32_C(2);
+            return VF2_OK;
+        }
         status = vf2_model2a_read(
             machine, base + UINT32_C(0x3327), &left, sizeof(left)
         );
@@ -2602,16 +2616,8 @@ static vf2_status execute_selector3_register_stream(
     return VF2_OK;
 }
 
-static vf2_status execute_frame_selector3_b0d8(
-    vf2_model2a *machine,
-    uint8_t previous_phase,
-    uint8_t *next_phase
-)
+static vf2_status execute_selector3_mode0_prefix(vf2_model2a *machine)
 {
-    static const uint32_t clear_slots[] = {
-        UINT32_C(0x00500828), UINT32_C(0x00500844),
-        UINT32_C(0x00500848), UINT32_C(0x0050081c)
-    };
     static const uint32_t palette_sources[] = {
         UINT32_C(0x000266f0), UINT32_C(0x000266f4),
         UINT32_C(0x00026700), UINT32_C(0x00026704)
@@ -2622,22 +2628,13 @@ static vf2_status execute_frame_selector3_b0d8(
     };
     uint32_t pointer = 0u;
     uint32_t value = 0u;
-    uint32_t task0 = 0u;
-    uint32_t task1 = 0u;
-    uint32_t index = 0u;
     uint32_t palette_value = 0u;
+    uint32_t index = 0u;
     uint8_t zero = 0u;
-    uint8_t one = UINT8_C(1);
-    uint8_t three = UINT8_C(3);
-    uint8_t six = UINT8_C(6);
-    uint8_t eight = UINT8_C(8);
-    uint16_t zero16 = 0u;
-    uint8_t input_zero = 0u;
-    uint8_t input_default = UINT8_C(0x63);
     vf2_status status = VF2_OK;
 
-    /* 0xae78 is the phase-zero mode-table target.  The live profile takes
-     * its fallback at 0xafd0, which sets phase 2 and enters 0xb0d8. */
+    /* 0xae78: clear the mode scratch byte, seed the two palette pages,
+     * clear the diagnostic plane and prepare the graphics control flags. */
     status = vf2_model2a_write(
         machine, UINT32_C(0x00503030), &zero, sizeof(zero)
     );
@@ -2667,13 +2664,56 @@ static vf2_status execute_frame_selector3_b0d8(
         );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, UINT32_C(0x00500030), &((uint8_t){2u}), sizeof(uint8_t)
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500834), &pointer
         );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &value);
+    }
+    if (status == VF2_OK) {
+        value |= UINT32_C(0x42800000);
+        status = vf2_model2a_write_u32(machine, pointer, value);
+    }
+    return status;
+}
+
+static vf2_status execute_frame_selector3_b0d8(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase,
+    int prefix_already_applied
+)
+{
+    static const uint32_t clear_slots[] = {
+        UINT32_C(0x00500828), UINT32_C(0x00500844),
+        UINT32_C(0x00500848), UINT32_C(0x0050081c)
+    };
+    uint32_t pointer = 0u;
+    uint32_t value = 0u;
+    uint32_t task0 = 0u;
+    uint32_t task1 = 0u;
+    uint32_t index = 0u;
+    uint8_t zero = 0u;
+    uint8_t one = UINT8_C(1);
+    uint8_t three = UINT8_C(3);
+    uint8_t six = UINT8_C(6);
+    uint8_t eight = UINT8_C(8);
+    uint16_t zero16 = 0u;
+    uint8_t input_zero = 0u;
+    uint8_t input_default = UINT8_C(0x63);
+    vf2_status status = VF2_OK;
+
+    if (!prefix_already_applied) {
+        status = execute_selector3_mode0_prefix(machine);
     }
     if (status != VF2_OK) {
         return status;
     }
+
+    status = vf2_model2a_write(
+        machine, UINT32_C(0x00500030), &((uint8_t){2u}), sizeof(uint8_t)
+    );
 
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &pointer);
     if (status == VF2_OK) {
@@ -2691,7 +2731,9 @@ static vf2_status execute_frame_selector3_b0d8(
         status = write_u16(machine, UINT32_C(0x0100a00c), zero16);
     }
     if (status == VF2_OK) {
-        status = execute_selector3_display_text(machine);
+        status = execute_selector3_display_text(
+            machine, UINT32_C(0x02a6c15e)
+        );
     }
     for (index = 0u; status == VF2_OK && index < 4u; ++index) {
         status = vf2_model2a_read_u32(machine, clear_slots[index], &pointer);
@@ -2867,6 +2909,1103 @@ static vf2_status execute_frame_selector3_b0d8(
         *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
         status = vf2_model2a_write(machine, UINT32_C(0x00500030), next_phase,
                                    sizeof(*next_phase));
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_profile_measure(
+    const vf2_model2a *machine,
+    uint32_t base,
+    uint32_t *x_result,
+    uint32_t *y_result
+)
+{
+    uint32_t flags = 0u;
+    uint32_t profile_class = 0u;
+    uint32_t color0 = 0u;
+    uint32_t color1 = 0u;
+    uint32_t first = 0u;
+    uint32_t second = 0u;
+    uint32_t third = 0u;
+    uint32_t fourth = 0u;
+    uint8_t value = 0u;
+    vf2_status status = VF2_OK;
+
+    if (x_result == NULL || y_result == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = execute_selector3_profile_class(
+        machine, base, &profile_class
+    );
+    if (status == VF2_OK) {
+        status = execute_selector3_profile_color(
+            machine, base, 0u, &color0
+        );
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_profile_color(
+            machine, base, 1u, &color1
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, base + UINT32_C(0x3320), &flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3380), &value, sizeof(value)
+        );
+        first = (uint32_t)value;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3388), &value, sizeof(value)
+        );
+        second = (uint32_t)value;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3385), &value, sizeof(value)
+        );
+        third = (uint32_t)value;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x338d), &value, sizeof(value)
+        );
+        fourth = (uint32_t)value;
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    color0 = (color0 >> 16u) & UINT32_C(0xff);
+    color1 = (color1 >> 16u) & UINT32_C(0xff);
+    if (color0 == 0u || color1 == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (profile_class == UINT32_C(3)) {
+        *x_result = 0u;
+        *y_result = 0u;
+    } else if (profile_class == UINT32_C(2) &&
+               (flags & (UINT32_C(1) << 1u)) == 0u) {
+        *x_result = (first + second) / color0 + third;
+        *y_result = fourth;
+    } else {
+        *x_result = first / color0 + third;
+        *y_result = second / color1 + fourth;
+    }
+    return VF2_OK;
+}
+
+static vf2_status execute_selector3_phase1(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t base = 0u;
+    uint32_t profile_flags = 0u;
+    uint32_t runtime_flags = 0u;
+    uint32_t input_flags = 0u;
+    uint32_t x = 0u;
+    uint32_t y = 0u;
+    uint32_t sum = 0u;
+    uint32_t counter = 0u;
+    uint8_t mode = 0u;
+    int countdown = 0;
+    vf2_status status = VF2_OK;
+
+    if (cpu == NULL || next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &base
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3324), &mode, sizeof(mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, base + UINT32_C(0x3320), &profile_flags
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (mode == UINT8_C(25) &&
+        (profile_flags & (UINT32_C(1) << 1u)) == 0u) {
+        countdown = 1;
+    } else {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500708), &runtime_flags
+        );
+        if (status == VF2_OK && (runtime_flags & UINT32_C(3)) == 0u) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00500704), &input_flags
+            );
+            if (status == VF2_OK &&
+                (input_flags & UINT32_C(0x08000008)) == 0u) {
+                countdown = 1;
+            }
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (!countdown) {
+        status = execute_selector3_profile_measure(
+            machine, base, &x, &y
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[0] = x;
+        cpu->registers[1] = y;
+        if ((profile_flags & UINT32_C(1)) != 0u ||
+            (runtime_flags & (UINT32_C(1) << 1u)) == 0u) {
+            sum = x + y;
+        } else {
+            sum = x;
+        }
+        if (sum < UINT32_C(24)) {
+            *next_phase = UINT8_C(6);
+            return vf2_model2a_write(
+                machine, UINT32_C(0x00500030), next_phase,
+                sizeof(*next_phase)
+            );
+        }
+    }
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500024), &counter
+    );
+    if (status == VF2_OK) {
+        --counter;
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500024), counter
+        );
+    }
+    if (status == VF2_OK && (int32_t)counter <= 0) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
+        );
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase3(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t flags = 0u;
+    uint32_t counter = 0u;
+    uint32_t terminal_gate = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500068), &flags
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500068), flags | (UINT32_C(1) << 16u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500024), &counter
+        );
+    }
+    if (status == VF2_OK) {
+        --counter;
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500024), counter
+        );
+    }
+    /* The ROM emits 0xad1001 when the countdown reaches 192. The sound
+     * queue is deliberately left to the existing audio boundary; this worker
+     * still preserves the selector-visible timer and phase transitions. */
+    if (status == VF2_OK && (int32_t)counter > 0) {
+        return VF2_OK;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00550000), &terminal_gate
+        );
+    }
+    if (status == VF2_OK && terminal_gate != UINT32_C(1)) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
+        );
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase4(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t flags = 0u;
+    uint32_t pointer = 0u;
+    uint32_t profile_flags = 0u;
+    uint32_t counter = 0u;
+    uint8_t fifteen = UINT8_C(15);
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500068), &flags
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500068),
+            flags & ~(UINT32_C(1) << 16u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_halfword_stream(
+            machine, UINT32_C(0x02800394)
+        );
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_register_stream(
+            machine, UINT32_C(0x02805890)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500068),
+            flags & ~(UINT32_C(1) << 14u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = clear_tile_plane_64x48(
+            machine, UINT32_C(0x01000000)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500834), &pointer
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        flags |= (UINT32_C(1) << 30u) |
+                 (UINT32_C(1) << 23u) |
+                 (UINT32_C(1) << 25u);
+        flags &= ~(UINT32_C(1) << 20u);
+        status = vf2_model2a_write_u32(machine, pointer, flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0201f388), &counter
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500024), counter
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500814), &pointer
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, pointer + UINT32_C(0x40), &fifteen,
+            sizeof(fifteen)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, pointer + UINT32_C(0x210),
+            UINT32_C(0x0201f624)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &pointer
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, pointer + UINT32_C(0x3320), &profile_flags
+        );
+    }
+    if (status == VF2_OK && (profile_flags & UINT32_C(1)) == 0u) {
+        status = execute_selector3_display_text(
+            machine, UINT32_C(0x02a6d8aa)
+        );
+    }
+    if (status == VF2_OK) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
+        );
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase5(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t counter = 0u;
+    uint32_t pointer = 0u;
+    uint32_t flags = 0u;
+    uint8_t zero = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500024), &counter
+    );
+    if (status == VF2_OK) {
+        --counter;
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500024), counter
+        );
+    }
+    if (status == VF2_OK && counter != 0u) {
+        return VF2_OK;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x0050009c), &zero, sizeof(zero)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500804), &pointer
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, pointer,
+            (flags & ~((UINT32_C(1) << 23u) |
+                       (UINT32_C(1) << 22u))) |
+                (UINT32_C(1) << 26u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500808), &pointer
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, pointer,
+            (flags & ~((UINT32_C(1) << 23u) |
+                       (UINT32_C(1) << 22u))) |
+                (UINT32_C(1) << 26u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00508000), &flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00508000),
+            flags & ~(UINT32_C(1) << 16u)
+        );
+    }
+    if (status == VF2_OK) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
+        );
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase6(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t pointer = 0u;
+    uint32_t flags = 0u;
+    uint32_t profile_flags = 0u;
+    uint32_t destination = UINT32_C(0x010055e0);
+    uint16_t zero16 = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = clear_tile_plane_64x48(
+        machine, UINT32_C(0x01000000)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500834), &pointer
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        flags |= (UINT32_C(1) << 30u) |
+                 (UINT32_C(1) << 23u) |
+                 (UINT32_C(1) << 25u);
+        flags &= ~(UINT32_C(1) << 20u);
+        status = vf2_model2a_write_u32(machine, pointer, flags);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0100a004), zero16);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0100a00c), zero16);
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_display_text_at(
+            machine, UINT32_C(0x02a68586), UINT32_C(0x01004000)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &pointer
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, pointer + UINT32_C(0x3320), &profile_flags
+        );
+    }
+    if (status == VF2_OK && (profile_flags & UINT32_C(1)) != 0u) {
+        destination = UINT32_C(0x01005460);
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_display_text_at(
+            machine, UINT32_C(0x02a6c0da), destination
+        );
+    }
+    if (status == VF2_OK) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
+        );
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase7(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t task0 = 0u;
+    uint32_t task1 = 0u;
+    uint32_t source = 0u;
+    uint32_t pointer = 0u;
+    uint32_t value = 0u;
+    uint8_t first_mode = 0u;
+    uint8_t second_mode = 0u;
+    uint8_t task0_mode = 0u;
+    uint8_t task1_mode = 0u;
+    uint8_t mode = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500804), &task0
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500808), &task1
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500168), &source
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, source + UINT32_C(0xc), &first_mode,
+            sizeof(first_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, source + UINT32_C(0x10), &second_mode,
+            sizeof(second_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, source + UINT32_C(0xfff), &task0_mode,
+            sizeof(task0_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, source + UINT32_C(0xffe), &task1_mode,
+            sizeof(task1_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x0050a00c), source + UINT32_C(4)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, task0 + UINT32_C(4), &mode, sizeof(mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, task0 + UINT32_C(0x1b0), &first_mode,
+            sizeof(first_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, task0 + UINT32_C(0x69c), &task0_mode,
+            sizeof(task0_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, task1 + UINT32_C(0x1b0), &second_mode,
+            sizeof(second_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, task1 + UINT32_C(0x69c), &task1_mode,
+            sizeof(task1_mode)
+        );
+    }
+    if (status == VF2_OK && first_mode > UINT8_C(13)) {
+        task0_mode = (uint8_t)(first_mode - UINT8_C(13));
+        status = vf2_model2a_write(
+            machine, task0 + UINT32_C(0x1b1), &task0_mode,
+            sizeof(task0_mode)
+        );
+    } else if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, task0 + UINT32_C(0x1b1), &first_mode,
+            sizeof(first_mode)
+        );
+    }
+    if (status == VF2_OK && second_mode > UINT8_C(13)) {
+        task1_mode = (uint8_t)(second_mode - UINT8_C(13));
+        status = vf2_model2a_write(
+            machine, task1 + UINT32_C(0x1b1), &task1_mode,
+            sizeof(task1_mode)
+        );
+    } else if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, task1 + UINT32_C(0x1b1), &second_mode,
+            sizeof(second_mode)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task0 + UINT32_C(0x18),
+                                       UINT32_C(0xbf800000));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task1 + UINT32_C(0x18),
+                                       UINT32_C(0x3f800000));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task0 + UINT32_C(0x1c), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task1 + UINT32_C(0x1c), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task0 + UINT32_C(0x20), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task1 + UINT32_C(0x20), 0u);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, task0 + UINT32_C(0x26), UINT16_C(3u << 14));
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, task1 + UINT32_C(0x26), UINT16_C(1u << 14));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task0 + UINT32_C(0xc),
+                                       UINT32_C(0x13f08));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task1 + UINT32_C(0xc),
+                                       UINT32_C(0x13f08));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, task0 + UINT32_C(0x2a), &mode,
+                                   sizeof(mode));
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, task0 + UINT32_C(0x624), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, task1 + UINT32_C(0x2a), &mode,
+                                   sizeof(mode));
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, task1 + UINT32_C(0x624), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, task0, &value);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task0,
+                                       (value & UINT32_C(0xff000000)) |
+                                           (UINT32_C(1) << 31u));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, task1, &value);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task1,
+                                       (value & UINT32_C(0xff000000)) |
+                                           (UINT32_C(1) << 31u));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500868), &pointer);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &value);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, pointer,
+                                       value | (UINT32_C(1) << 31u));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, pointer + UINT32_C(0xc),
+                                       UINT32_C(0x640f4));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, task1 + UINT32_C(4), &((uint8_t){1}),
+                                   sizeof(uint8_t));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, task1 + UINT32_C(0x18),
+                                       UINT32_C(0x3f800000));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050005c),
+                                       UINT32_C(0x11d84));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500060),
+                                       UINT32_C(0x11d8c));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x0050004c), &((uint8_t){2}),
+                                   sizeof(uint8_t));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x0050005b), &mode,
+                                  sizeof(mode));
+    }
+    if (status == VF2_OK) {
+        mode = (uint8_t)((mode + UINT8_C(1)) % UINT8_C(10));
+        status = vf2_model2a_write(machine, UINT32_C(0x0050005b), &mode,
+                                   sizeof(mode));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00500064), &mode,
+                                   sizeof(mode));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050a160),
+                                       UINT32_C(0x3727c5ac));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &pointer);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, pointer + UINT32_C(0x50),
+                                       UINT32_C(5u << 6));
+    }
+    if (status == VF2_OK) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(machine, UINT32_C(0x00500030), next_phase,
+                                   sizeof(*next_phase));
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase9(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t pointer = 0u;
+    uint32_t flags = 0u;
+    uint32_t counter = 0u;
+    uint32_t base = 0u;
+    uint16_t timer_value = 0u;
+    uint8_t profile_flags = 0u;
+    uint8_t phase_flags = 0u;
+    int alternate_text = 0;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &pointer);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer + UINT32_C(0x50), &counter);
+    }
+    if (status == VF2_OK) {
+        --counter;
+        status = vf2_model2a_write_u32(machine, pointer + UINT32_C(0x50), counter);
+    }
+    if (status == VF2_OK && counter != 0u) {
+        return VF2_OK;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00550000), &flags);
+    }
+    if (status == VF2_OK && flags == UINT32_C(1)) {
+        return VF2_OK;
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, UINT32_C(0x005000a0), &timer_value);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, pointer + UINT32_C(0x40), timer_value);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, pointer + UINT32_C(0x42), timer_value);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        flags &= ~((UINT32_C(1) << 30u) | (UINT32_C(1) << 20u) |
+                   (UINT32_C(1) << 25u));
+        flags |= (UINT32_C(1) << 28u) | (UINT32_C(1) << 23u);
+        status = vf2_model2a_write_u32(machine, pointer, flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500864), &pointer);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, pointer, flags | (UINT32_C(1) << 29u) |
+                                   (UINT32_C(1) << 27u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &base);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, base + UINT32_C(0x3351), &phase_flags,
+                                  sizeof(phase_flags));
+    }
+    if (status == VF2_OK && (phase_flags & UINT8_C(0x10)) != 0u) {
+        status = vf2_model2a_read(machine, base + UINT32_C(0x3350), &profile_flags,
+                                  sizeof(profile_flags));
+    }
+    if (status == VF2_OK &&
+        ((phase_flags & UINT8_C(0x10)) == 0u || profile_flags == 0u)) {
+        status = execute_selector3_display_text_at(
+            machine, UINT32_C(0x02a6f24e), UINT32_C(0x01000516)
+        );
+    } else if (status == VF2_OK) {
+        alternate_text = 1;
+        status = execute_selector3_display_text_at(
+            machine, UINT32_C(0x02a6f606), UINT32_C(0x01000516)
+        );
+        if (status == VF2_OK) {
+            status = execute_selector3_register_stream(
+                machine, UINT32_C(0x00012520)
+            );
+        }
+        if (status == VF2_OK) {
+            status = execute_selector3_halfword_stream(
+                machine, UINT32_C(0x0001256c)
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_display_text_at(
+            machine,
+            alternate_text ? UINT32_C(0x00013d3c) : UINT32_C(0x02a6f43a),
+            UINT32_C(0x01000906)
+        );
+    }
+    if (status == VF2_OK) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(machine, UINT32_C(0x00500030), next_phase,
+                                   sizeof(*next_phase));
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase10(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t task0 = 0u;
+    uint32_t task1 = 0u;
+    uint32_t flags = 0u;
+    uint32_t pointer = 0u;
+    uint16_t delay = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &task0);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, task0, &flags);
+    }
+    if (status == VF2_OK && (flags & (UINT32_C(1) << 5u)) == 0u) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &task1);
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(machine, task1, &flags);
+        }
+        if (status == VF2_OK && (flags & (UINT32_C(1) << 5u)) == 0u) {
+            status = read_u16(machine, UINT32_C(0x00500028), &delay);
+            if (status == VF2_OK) {
+                delay = (uint16_t)(delay - UINT16_C(1));
+                status = write_u16(machine, UINT32_C(0x00500028), delay);
+            }
+            if (status == VF2_OK && delay != 0u) {
+                return VF2_OK;
+            }
+        } else if (status == VF2_OK) {
+            return VF2_OK;
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+    status = vf2_model2a_write(
+        machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500858), &pointer);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, pointer, flags & ~(UINT32_C(1) << 31u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &pointer);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, pointer + UINT32_C(0x50),
+                                       UINT32_C(128));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500864), &pointer);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer, &flags);
+    }
+    if (status == VF2_OK) {
+        flags &= ~(UINT32_C(1) << 29u);
+        flags |= UINT32_C(1) << 28u;
+        status = vf2_model2a_write_u32(machine, pointer, flags);
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase11(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t pointer = 0u;
+    uint32_t counter = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &pointer);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer + UINT32_C(0x50), &counter);
+    }
+    if (status == VF2_OK) {
+        --counter;
+        status = vf2_model2a_write_u32(machine, pointer + UINT32_C(0x50), counter);
+    }
+    if (status == VF2_OK && counter == 0u) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(machine, UINT32_C(0x00500030), next_phase,
+                                   sizeof(*next_phase));
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_phase12(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t flags = 0u;
+    vf2_status status = execute_selector3_phase6(
+        machine, previous_phase, next_phase
+    );
+
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500068), flags | (UINT32_C(1) << 14u)
+        );
+    }
+    return status;
+}
+
+static vf2_status execute_selector3_mode0_special(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase,
+    int *fallback
+)
+{
+    uint32_t base = 0u;
+    uint32_t flags = 0u;
+    uint32_t x = 0u;
+    uint32_t y = 0u;
+    uint8_t variant = 0u;
+    uint16_t zero16 = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL || fallback == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *fallback = 0;
+    status = execute_selector3_mode0_prefix(machine);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &base
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, base + UINT32_C(0x3350), &variant, sizeof(variant)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (variant != UINT8_C(1)) {
+        *fallback = 1;
+        return VF2_OK;
+    }
+
+    status = execute_selector3_profile_measure(machine, base, &x, &y);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (x != 0u || y != 0u) {
+        *fallback = 1;
+        return VF2_OK;
+    }
+
+    status = execute_selector3_halfword_stream(
+        machine, UINT32_C(0x02800380)
+    );
+    if (status == VF2_OK) {
+        status = execute_selector3_register_stream(
+            machine, UINT32_C(0x02805abc)
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0100a004), zero16);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, UINT32_C(0x0100a00c), zero16);
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_display_text(
+            machine, UINT32_C(0x02ab2f82)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &flags
+        );
+    }
+    if (status == VF2_OK) {
+        flags |= UINT32_C(1) << 14u;
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500068), flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500024), UINT32_C(256)
+        );
+    }
+    if (status == VF2_OK) {
+        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
+        );
     }
     return status;
 }
@@ -3187,16 +4326,107 @@ vf2_status execute_frame_dispatch_tick(
     }
     if (selector == UINT8_C(3)) {
         uint8_t phase = 0u;
+        uint32_t phase_target = 0u;
+        int fallback = 0;
 
         if (target != UINT32_C(0x0000acf8)) {
             return VF2_ERROR_UNSUPPORTED;
         }
         status = vf2_model2a_read(machine, UINT32_C(0x00500030), &phase,
                                   sizeof(phase));
-        if (status != VF2_OK || phase != UINT8_C(0)) {
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x0000aac4) + (uint32_t)phase * UINT32_C(4),
+                &phase_target
+            );
+        }
+        if (status != VF2_OK ||
+            (phase == UINT8_C(0) &&
+             phase_target != UINT32_C(0x0000ae78)) ||
+            (phase == UINT8_C(1) &&
+             phase_target != UINT32_C(0x0000afe0)) ||
+            (phase == UINT8_C(2) &&
+             phase_target != UINT32_C(0x0000b0d8)) ||
+            (phase == UINT8_C(3) &&
+             phase_target != UINT32_C(0x0000b394)) ||
+            (phase == UINT8_C(4) &&
+             phase_target != UINT32_C(0x0000b3f8)) ||
+            (phase == UINT8_C(5) &&
+             phase_target != UINT32_C(0x0000b4f0)) ||
+            (phase == UINT8_C(6) &&
+             phase_target != UINT32_C(0x0000b588)) ||
+            (phase == UINT8_C(7) &&
+             phase_target != UINT32_C(0x0000b66c)) ||
+            (phase == UINT8_C(9) &&
+             phase_target != UINT32_C(0x0000baec)) ||
+            (phase == UINT8_C(10) &&
+             phase_target != UINT32_C(0x0000bc10)) ||
+            (phase == UINT8_C(11) &&
+             phase_target != UINT32_C(0x0000bcb0)) ||
+            (phase == UINT8_C(12) &&
+             phase_target != UINT32_C(0x0000bce4)) ||
+            (phase != UINT8_C(0) && phase != UINT8_C(1) &&
+             phase != UINT8_C(2) && phase != UINT8_C(3) &&
+             phase != UINT8_C(4) && phase != UINT8_C(5) &&
+             phase != UINT8_C(6) && phase != UINT8_C(7) &&
+             phase != UINT8_C(9) && phase != UINT8_C(10) &&
+             phase != UINT8_C(11) && phase != UINT8_C(12))) {
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
-        status = execute_frame_selector3_b0d8(machine, phase, &phase);
+        if (phase == UINT8_C(0)) {
+            status = execute_selector3_mode0_special(
+                machine, phase, &phase, &fallback
+            );
+        } else if (phase == UINT8_C(1)) {
+            status = execute_selector3_phase1(
+                machine, cpu, phase, &phase
+            );
+        } else if (phase == UINT8_C(3)) {
+            status = execute_selector3_phase3(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(4)) {
+            status = execute_selector3_phase4(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(5)) {
+            status = execute_selector3_phase5(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(6)) {
+            status = execute_selector3_phase6(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(7)) {
+            status = execute_selector3_phase7(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(9)) {
+            status = execute_selector3_phase9(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(10)) {
+            status = execute_selector3_phase10(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(11)) {
+            status = execute_selector3_phase11(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(12)) {
+            status = execute_selector3_phase12(
+                machine, phase, &phase
+            );
+        } else {
+            status = execute_frame_selector3_b0d8(
+                machine, phase, &phase, 1
+            );
+        }
+        if (status == VF2_OK && fallback) {
+            status = execute_frame_selector3_b0d8(
+                machine, phase, &phase, 1
+            );
+        }
         if (status == VF2_OK) {
             uint32_t common_value = 0u;
             uint32_t common_pointer = 0u;

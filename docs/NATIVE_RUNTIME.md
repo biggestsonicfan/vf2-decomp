@@ -157,8 +157,13 @@ initializer and nested `0x31004` setup are now covered as well. Scouting from
 the resumed path now also covers its `0x1fedc` call into the ROM's `0x11704`
 byte-to-luma-table copier, including live G0/G1/G2 pointer/count poststate and
 the trailing `0x1fee0` return. The frame-dispatch bridge now covers selectors
-0, 1 and 2, including the ROM `0xab0c` control-channel reset and selector-3
-handoff; selector 3's mode-table worker remains the next native boundary.
+0, 1 and 2, including the ROM `0xab0c` control-channel reset, and selector 3's
+phase-zero mode-table worker. That worker includes the live `0xae78` fallback,
+the alternate zero-derived profile path, both small descriptor expanders and
+the two ROM text sources. Selector 3 phases 1 through 7 now cover the profile
+gate/countdown, timer/terminal gate, descriptor setup and task-resource handoff;
+phase 9's delayed timer/text branch is also covered. Phase 8's `0x9444` handoff
+and phase 10 and above remain the next boundary.
 Longer endurance runs remain after that branch. Each new branch should retain an exact differential
 contract and a synthetic state regression where practical before broader
 fighter, object, match, animation, collision and input types are introduced.

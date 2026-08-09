@@ -132,9 +132,12 @@ is recovered, as is the 90-instruction `0x0002eab8` initializer and nested
 `0x00031004` setup. Its `0x0001fedc` call into the 66-row `0x00011704` luma
 copy and trailing return are now recovered with live pointer poststate. The
 frame-dispatch bridge now covers selector 2's `0x0000ab0c` reset and advances
-to selector 3; selector 3's mode-table worker, the subsequent
-`0x00002de4` hardware-command/palette return, alternate input modes, other
-bit-7 indirect table entries and phase state zero remain unsupported.
+to selector 3. Selector 3's phase-zero `0x0000ae78` mode-table worker is now
+recovered for both the live fallback profile and the zero-derived alternate
+profile, including its two descriptor expanders and both ROM text sources.
+Selector 3 phase 8's opaque `0x00009444` handoff and phase 10 and above, the subsequent `0x00002de4` hardware-command/
+palette return, alternate input modes, other bit-7 indirect table entries and
+phase-state-zero continuation remain unsupported.
 
 ## 5. Audio and platform
 

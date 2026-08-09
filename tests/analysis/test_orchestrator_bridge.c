@@ -599,10 +599,11 @@ static void test_frame_dispatch_tick(void)
     vf2_i960_cpu cpu;
     vf2_hybrid_bridge_report report = {0};
     uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
     uint8_t selector = 1u;
     uint32_t value = 0u;
-    uint8_t crc_table[512] = {0};
     const size_t rom_size = (size_t)UINT32_C(0x00080000);
+    const size_t main_data_size = (size_t)UINT32_C(0x00b00000);
 
     CHECK(vf2_model2a_initialize(&machine) != 0);
     if (machine.work_ram == NULL) {
@@ -611,6 +612,13 @@ static void test_frame_dispatch_tick(void)
     rom = (uint8_t *)calloc(rom_size, 1u);
     CHECK(rom != NULL);
     if (rom == NULL) {
+        vf2_model2a_shutdown(&machine);
+        return;
+    }
+    main_data = (uint8_t *)calloc(main_data_size, 1u);
+    CHECK(main_data != NULL);
+    if (main_data == NULL) {
+        free(rom);
         vf2_model2a_shutdown(&machine);
         return;
     }
@@ -668,7 +676,7 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_attach_main_rom(&machine, rom, rom_size) == VF2_OK);
     CHECK(
         vf2_model2a_attach_main_data(
-            &machine, crc_table, sizeof(crc_table)
+            &machine, main_data, main_data_size
         ) == VF2_OK
     );
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000), 0u) == VF2_OK);
@@ -1267,7 +1275,275 @@ static void test_frame_dispatch_tick(void)
         CHECK(read_test_u16(&machine, UINT32_C(0x010014ac)) == UINT16_C(0x801c));
     }
 
+    /* Selector 3, phase-zero alternate profile: 0xae78 classifies the
+     * profile as the zero-derived display path, expands empty descriptor
+     * streams, draws from 0x02ab2f82 and advances to phase one. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000a6f8) + UINT32_C(3 * 4),
+        UINT32_C(0x0000acf8)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4), UINT32_C(0x0000ae78)
+    );
+    write_rom_u32(
+        main_data, UINT32_C(0x00003320), UINT32_C(0)
+    );
+    main_data[UINT32_C(0x00003324)] = UINT8_C(25);
+    main_data[UINT32_C(0x00003350)] = UINT8_C(1);
+    main_data[UINT32_C(0x00ab2f82) + UINT32_C(0)] = UINT8_C(0);
+    main_data[UINT32_C(0x00ab2f82) + UINT32_C(1)] = UINT8_C(0);
+    write_rom_u32(
+        main_data, UINT32_C(0x00ab2f82) + UINT32_C(4), UINT32_C(1)
+    );
+    write_rom_u32(
+        main_data, UINT32_C(0x00ab2f82) + UINT32_C(8), UINT32_C(1)
+    );
+    main_data[UINT32_C(0x00ab2f82) + UINT32_C(12)] = UINT8_C(7);
+    selector = UINT8_C(3);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &selector, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){0}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050016c), VF2_MAIN_DATA_BASE) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050009c), 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050008f), &(uint8_t){1}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500834), UINT32_C(0x00520000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520000), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500804), UINT32_C(0x00530000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500808), UINT32_C(0x00531000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500868), UINT32_C(0x00521100)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050086c), UINT32_C(0x00521104)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521100), 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521104), 0u) == VF2_OK);
+    {
+        const uint32_t clear_slots[] = {
+            UINT32_C(0x00500828), UINT32_C(0x00500844),
+            UINT32_C(0x00500848), UINT32_C(0x0050081c),
+            UINT32_C(0x00500858), UINT32_C(0x00500878),
+            UINT32_C(0x0050087c), UINT32_C(0x00500880)
+        };
+        size_t index = 0u;
+
+        for (index = 0u; index < sizeof(clear_slots) / sizeof(clear_slots[0]); ++index) {
+            const uint32_t pointer = UINT32_C(0x00521000) + (uint32_t)index * UINT32_C(4);
+            CHECK(vf2_model2a_write_u32(&machine, clear_slots[index], pointer) == VF2_OK);
+            CHECK(vf2_model2a_write_u32(&machine, pointer,
+                                         index == 3u ? UINT32_C(3) : UINT32_C(0x80000000)) == VF2_OK);
+        }
+    }
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x0050002a), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(4));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(1));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);
+    CHECK(value == UINT32_C(256));
+    CHECK(read_test_u16(&machine, UINT32_C(0x01004000)) == UINT16_C(7));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x0050009c), &value) == VF2_OK);
+    CHECK((value & UINT32_C(1)) == 0u);
+
+    /* Selector 3 phase one: the ROM's mode-25/flag-clear gate takes the
+     * countdown path and leaves the phase unchanged after 2 -> 1. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(4), UINT32_C(0x0000afe0)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){1}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500024), UINT32_C(2)) == VF2_OK);
+    main_data[UINT32_C(0x00003324)] = UINT8_C(25);
+    write_rom_u32(main_data, UINT32_C(0x00003320), UINT32_C(0));
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x0050002a), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(4));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(1));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);
+    CHECK(value == UINT32_C(1));
+
+    /* The alternate phase-one branch calls 0x2584. With a zero measurement,
+     * the observed sum comparison selects phase six. */
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){1}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500024), UINT32_C(10)) == VF2_OK);
+    main_data[UINT32_C(0x00003324)] = UINT8_C(24);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500708), UINT32_C(3)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(6));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);
+    CHECK(value == UINT32_C(10));
+
+    /* Phase three (0xb394) publishes the ready bit, decrements its timer and
+     * advances when the terminal gate is clear. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(3 * 4), UINT32_C(0x0000b394)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500024), UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00550000), UINT32_C(0)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(4));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0));
+
+    /* Phase four (0xb3f8) consumes the descriptor tables, clears the display
+     * plane and installs the next task resources before advancing. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(4 * 4), UINT32_C(0x0000b3f8)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){4}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500814), UINT32_C(0x00522000)) == VF2_OK);
+    write_test_u16(&machine, UINT32_C(0x01000000), UINT16_C(0xffff));
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(5));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0));
+    CHECK(read_test_u16(&machine, UINT32_C(0x01000000)) == UINT16_C(32));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00522040), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(15));
+
+    /* Phase five (0xb4f0) closes the timer, updates both render descriptors
+     * and releases the runtime-ready bit before entering phase six. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(5 * 4), UINT32_C(0x0000b4f0)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){5}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500024), UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050009c), UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00530000), UINT32_C(0xffffffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00531000), UINT32_C(0xffffffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000), UINT32_C(1) << 16u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(6));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x0050009c), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00530000), &value) == VF2_OK);
+    CHECK(value == ((UINT32_C(0xffffffff) & ~((UINT32_C(1) << 23u) | (UINT32_C(1) << 22u))) |
+                    (UINT32_C(1) << 26u)));
+
+    /* Phase six (0xb588) resets the tile/text staging planes and advances to
+     * the next worker. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(6 * 4), UINT32_C(0x0000b588)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){6}, 1u) == VF2_OK);
+    write_test_u16(&machine, UINT32_C(0x01000000), UINT16_C(0xffff));
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(7));
+    CHECK(read_test_u16(&machine, UINT32_C(0x01000000)) == UINT16_C(32));
+
+    /* Phase seven (0xb66c) builds the two gameplay task descriptors and
+     * publishes the selector-side handoff state. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(7 * 4), UINT32_C(0x0000b66c)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){7}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500168), VF2_MAIN_DATA_BASE) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500854), UINT32_C(0x00521300)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050085c), UINT32_C(0x00521304)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500860), UINT32_C(0x00521308)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521300), UINT32_C(0xffffffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521304), UINT32_C(0xffffffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521308), UINT32_C(0xffffffff)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050005b), &(uint8_t){0}, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(8));
+    CHECK(read_test_u16(&machine, UINT32_C(0x00530026)) == UINT16_C(0xc000));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x0050a00c), &value) == VF2_OK);
+    CHECK(value == VF2_MAIN_DATA_BASE + UINT32_C(4));
+
+    /* Phase nine (0xbaec) performs the delayed timer/state handoff and uses
+     * the normal text branch when the profile phase flag is clear. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(9 * 4), UINT32_C(0x0000baec)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){9}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500864), UINT32_C(0x00521400)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521400), UINT32_C(0)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(10));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00520050), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0));
+
+    /* Phases ten through twelve cover the compact timer chain: task-gate
+     * release, pointer countdown and the phase-12 display reset. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(10 * 4), UINT32_C(0x0000bc10)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(11 * 4), UINT32_C(0x0000bcb0)
+    );
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(12 * 4), UINT32_C(0x0000bce4)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){10}, 1u) == VF2_OK);
+    write_test_u16(&machine, UINT32_C(0x00500028), UINT16_C(1));
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521400), UINT32_C(1) << 29u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(11));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00520050), &value) == VF2_OK);
+    CHECK(value == UINT32_C(128));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00521400), &value) == VF2_OK);
+    CHECK((value & (UINT32_C(1) << 29u)) == 0u);
+    CHECK((value & (UINT32_C(1) << 28u)) != 0u);
+
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){11}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(12));
+
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){12}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068), 0u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(13));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500068), &value) == VF2_OK);
+    CHECK((value & (UINT32_C(1) << 14u)) != 0u);
+
     vf2_model2a_shutdown(&machine);
+    free(main_data);
+    free(rom);
 }
 
 
