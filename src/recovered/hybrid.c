@@ -10,6 +10,96 @@
 #define VF2_CAMERA_UPDATE_EXIT UINT32_C(0x0001d660)
 #define VF2_CAMERA_GATE_ENTRY UINT32_C(0x0001d660)
 #define VF2_CAMERA_GATE_FAST_EXIT UINT32_C(0x0001e524)
+#define VF2_GAME_INFO_ENTRY UINT32_C(0x0001645c)
+#define VF2_PLAYER_TASK_ENTRY UINT32_C(0x00013f08)
+#define VF2_TASK_CAMERA_ENTRY UINT32_C(0x0001d320)
+#define VF2_TASK_USER_ENTRY UINT32_C(0x00029748)
+#define VF2_TASK_SOUND_ENTRY UINT32_C(0x000439fc)
+#define VF2_TASK_KILL_OSAGE_ENTRY UINT32_C(0x000657dc)
+#define VF2_TASK_OSAGE_ENTRY UINT32_C(0x000640f4)
+#define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
+#define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
+
+static vf2_status hybrid_game_info_interpreter_needed(
+    const vf2_model2a *machine,
+    int *needed
+)
+{
+    uint32_t fighter0 = 0u;
+    uint32_t fighter1 = 0u;
+    uint32_t fighter0_flags = 0u;
+    uint32_t fighter1_flags = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || needed == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500804), &fighter0
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500808), &fighter1
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter0, &fighter0_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter1, &fighter1_flags);
+    }
+    if (status == VF2_OK) {
+        *needed = ((fighter0_flags | fighter1_flags) &
+                   UINT32_C(0x80000000)) != 0u;
+    }
+    return status;
+}
+
+/* Keep unrecovered fighter tasks exact while their C recovery is pending:
+ * execute the original task until its architectural RET returns to the
+ * scheduler. This is an explicit bridge, not a silent native fallback. */
+static vf2_status hybrid_execute_interpreted_task(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t registry_address,
+    uint32_t entry_address,
+    vf2_recovered_task_report *report
+)
+{
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != entry_address || cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&options, 0, sizeof(options));
+    options.stop_address = VF2_SCHEDULER_RETURN;
+    options.max_steps = VF2_INTERPRETED_TASK_STEP_LIMIT;
+    options.stop_on_self_branch = false;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+        cpu->ip != VF2_SCHEDULER_RETURN) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    memset(report, 0, sizeof(*report));
+    report->entry_point = entry_address;
+    report->registry_address = registry_address;
+    report->continuation = cpu->ip;
+    (void)start_instructions;
+    (void)start_calls;
+    (void)start_returns;
+    return VF2_OK;
+}
 
 static vf2_status hybrid_camera_fast_gate_supported(
     const vf2_model2a *machine
@@ -555,10 +645,24 @@ vf2_status vf2_hybrid_first_dispatch_scheduler_advance(
 #define VF2_SECOND_SCHEDULER_ENTRY UINT32_C(0x00010d54)
 #define VF2_SECOND_SCHEDULER_TASK_RETURN UINT32_C(0x00010dcc)
 #define VF2_SECOND_SCHEDULER_REGISTRY_BASE UINT32_C(0x00510000)
-#define VF2_SECOND_SCHEDULER_EXPECTED_REGISTRY UINT32_C(0x00515200)
-#define VF2_SECOND_SCHEDULER_EXPECTED_INDEX 13u
 #define VF2_SECOND_SCHEDULER_GEOMETRY_STATUS UINT32_C(0x00800070)
 #define VF2_SECOND_SCHEDULER_GEOMETRY_COMMAND UINT32_C(0x00804000)
+
+static int hybrid_second_scheduler_task_supported(uint32_t entry_address)
+{
+    switch (entry_address) {
+    case VF2_TASK_GAME_INFO_ENTRY:
+    case VF2_PLAYER_TASK_ENTRY:
+    case VF2_TASK_CAMERA_ENTRY:
+    case VF2_TASK_USER_ENTRY:
+    case VF2_TASK_SOUND_ENTRY:
+    case VF2_TASK_KILL_OSAGE_ENTRY:
+    case VF2_TASK_OSAGE_ENTRY:
+        return 1;
+    default:
+        return 0;
+    }
+}
 
 vf2_status vf2_hybrid_second_scheduler_enter(
     vf2_model2a *machine,
@@ -701,9 +805,7 @@ vf2_status vf2_hybrid_second_scheduler_enter(
         scratch += VF2_SCHEDULER_SCRATCH_STRIDE;
     }
 
-    if (index != VF2_SECOND_SCHEDULER_EXPECTED_INDEX ||
-        registry != VF2_SECOND_SCHEDULER_EXPECTED_REGISTRY ||
-        selected_entry != VF2_TASK_GAME_INFO_ENTRY) {
+    if (index >= task_count || !hybrid_second_scheduler_task_supported(selected_entry)) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -756,12 +858,6 @@ vf2_status vf2_hybrid_second_scheduler_enter(
     }
     return VF2_OK;
 }
-
-#define VF2_TASK_CAMERA_ENTRY UINT32_C(0x0001d320)
-#define VF2_TASK_USER_ENTRY UINT32_C(0x00029748)
-#define VF2_TASK_SOUND_ENTRY UINT32_C(0x000439fc)
-#define VF2_TASK_KILL_OSAGE_ENTRY UINT32_C(0x000657dc)
-#define VF2_TASK_OSAGE_ENTRY UINT32_C(0x000640f4)
 
 static vf2_status hybrid_complete_procedure(
     vf2_model2a *machine,
@@ -869,6 +965,7 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
     uint32_t fighter1 = 0u;
     uint32_t fighter = 0u;
     uint8_t instance = 0u;
+    int interpreted_task = 0;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || cpu->registers[29] != registry_address ||
@@ -893,24 +990,43 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
     switch (cpu->ip) {
     case VF2_TASK_GAME_INFO_ENTRY:
         local_report.kind = VF2_HYBRID_TASK_GAME_INFO;
-        status = vf2_recovered_task_game_info_first_dispatch(
-            machine, registry_address, &task_report
+        status = hybrid_game_info_interpreter_needed(
+            machine, &interpreted_task
         );
-        if (status == VF2_OK) {
-            status = vf2_model2a_read_u32(
-                machine, UINT32_C(0x00500804), &fighter0
+        if (status == VF2_OK && interpreted_task) {
+            status = hybrid_execute_interpreted_task(
+                machine, cpu, registry_address, VF2_GAME_INFO_ENTRY,
+                &task_report
             );
-        }
-        if (status == VF2_OK) {
-            status = vf2_model2a_read_u32(
-                machine, UINT32_C(0x00500808), &fighter1
+        } else if (status == VF2_OK) {
+            status = vf2_recovered_task_game_info_first_dispatch(
+                machine, registry_address, &task_report
             );
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00500804), &fighter0
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00500808), &fighter1
+                );
+            }
+            if (status == VF2_OK) {
+                cpu->registers[23] = fighter1;
+                cpu->registers[24] = fighter0;
+                body_instructions = UINT64_C(18);
+            }
         }
-        if (status == VF2_OK) {
-            cpu->registers[23] = fighter1;
-            cpu->registers[24] = fighter0;
-            body_instructions = UINT64_C(18);
-        }
+        break;
+
+    case VF2_PLAYER_TASK_ENTRY:
+        local_report.kind = VF2_HYBRID_TASK_PLAYER;
+        interpreted_task = 1;
+        status = hybrid_execute_interpreted_task(
+            machine, cpu, registry_address, VF2_PLAYER_TASK_ENTRY,
+            &task_report
+        );
         break;
 
     case VF2_TASK_USER_ENTRY:
@@ -984,7 +1100,7 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
         local_report.task_bytes_written = task_report.bytes_written;
         local_report.global_bytes_written = task_report.global_bytes_written;
     }
-    if (status == VF2_OK) {
+    if (status == VF2_OK && !interpreted_task) {
         status = hybrid_complete_procedure(
             machine, cpu, body_instructions, nested_calls, nested_returns
         );
@@ -1025,6 +1141,8 @@ const char *vf2_hybrid_task_kind_name(vf2_hybrid_task_kind kind)
         return "fa_osage0";
     case VF2_HYBRID_TASK_OSAGE1:
         return "fa_osage1";
+    case VF2_HYBRID_TASK_PLAYER:
+        return "fa_player";
     case VF2_HYBRID_TASK_NONE:
     default:
         return "none";

@@ -8,15 +8,15 @@ contains ROM validation and reconstruction tools, a structured Intel i960
 analyzer, a bounded semantic executor used for differential validation, and the
 first game/runtime functions recovered in portable C.
 
-## v0.1.3 fifth-dispatch acceptance
+## v0.1.3 recovery head
 
 The recovered native runtime now crosses the complete observed fourth scheduler
 sweep and the next frame boundary. `vf2i960 native-fifth-dispatch` reaches the
 fifth `fa_game_info` entry with:
 
 - 830 repeated-frame differential blocks;
-- 7,402,741 instructions on both native and reference sides;
-- 8,673,563 continuous recovered instructions including the historical bridge;
+- 7,404,913 instructions on both native and reference sides;
+- 8,675,735 continuous recovered instructions including the historical bridge;
 - complete CPU, local-frame, execution-counter, frame-event and mutable-memory
   equality at every checkpoint; and
 - **zero interpreted instructions** on the native side.
@@ -26,6 +26,21 @@ instruction five-level mip expansion consuming 43,648 source bytes and writing
 87,296 texture bytes. It also accepts leading inactive texture records before a
 live record, the zero-counter texture path and the distinct mode-17 diagnostic
 instruction profile.
+
+## Sixth-dispatch acceptance
+
+The same strict native differential contract now validates the next complete
+repeated scheduler cycle after the fifth entry. `vf2i960 native-sixth-dispatch`
+compares 866 blocks and 7,404,913 instructions, returning to `fa_game_info` at
+`0x0001645c` with exact CPU and mutable-memory equality.
+
+The current hardware boundary also includes a deterministic SCSP PCM slot
+renderer, sound-board map, injected-input/framebuffer platform backend, and
+TGP matrix/viewport/depth reference path with bounded geometry-stream framing.
+The `vf2_game` shell now owns that graphics lifecycle through explicit frame
+and geometry-submit calls.
+These are compatibility layers; the original TGP packet execution, full SCSP
+FM/DSP behavior and fighter/gameplay logic remain open.
 
 ## v0.1.2 fourth-dispatch acceptance
 
@@ -58,8 +73,9 @@ first dynamic states exposed by continued execution:
 - aligned CMake, public header, executable and documentation versioning.
 
 Unsupported texture variants and unobserved state combinations still fail with
-`VF2_ERROR_UNSUPPORTED`; the native runtime never silently falls back to the
-i960 interpreter.
+`VF2_ERROR_UNSUPPORTED`. The native runtime has one explicit interpreter-backed
+bridge for the fighter-state `fa_game_info`/`fa_player` tasks; other unknown
+paths remain explicit failures.
 
 ## v0.1.0 repeated-frame acceptance
 
@@ -76,9 +92,9 @@ the completed first scheduler sweep through the third scheduler entry.
 
 The repeated corridor includes another frame interrupt/return, persistent task
 contexts, texture/video/game/tile repeated paths and the large phase-16 frame
-dispatch handler. This acceptance does **not** make the project playable: TGP
-rendering, broader gameplay states, audio, input and a production platform
-backend remain on the roadmap.
+dispatch handler. This acceptance does **not** make the project playable: the
+original TGP packet path, broader gameplay states, full audio synthesis and
+production platform adapters remain on the roadmap.
 
 ## v0.0.25 milestone
 
@@ -189,12 +205,20 @@ build/vf2i960 native-second-dispatch /path/to/vf2
 build/vf2i960 native-third-dispatch /path/to/vf2
 build/vf2i960 native-fourth-dispatch /path/to/vf2
 build/vf2i960 native-fifth-dispatch /path/to/vf2
+build/vf2i960 native-resume /path/to/vf2 sixth-entry.vf2snap 20 0x80000000 0xa014
 build/vf2i960 compare-texture-bridge /path/to/vf2
 build/vf2i960 compare-post-frame-bridge /path/to/vf2
 build/vf2i960 compare-geometry-boundary /path/to/vf2
 build/vf2i960 compare-second-scheduler-entry /path/to/vf2
 build/vf2i960 compare-game-geometry-helpers /path/to/vf2
 build/vf2i960 task-profile /path/to/vf2 out/first-dispatch.csv
+```
+
+Inspect the 68000 audio program:
+
+```sh
+build/vf2m68k info /path/to/vf2
+build/vf2m68k disasm /path/to/vf2 0x100 64
 ```
 
 ## First-dispatch profile
@@ -246,6 +270,12 @@ boundary as a versioned snapshot:
 
 ```sh
 build/vf2i960 native-fifth-dispatch /path/to/vf2 fifth-dispatch.vf2snap
+```
+
+To exercise the explicit fighter-state bridges from a sixth-entry snapshot:
+
+```sh
+build/vf2i960 native-resume /path/to/vf2 sixth-entry.vf2snap 20 0x80000000 0xa014
 ```
 
 `vf2cycles` restores that exact CPU and mutable Model 2 state into independent

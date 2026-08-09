@@ -40,6 +40,8 @@ static void usage(const char *program)
         "  %s task-profile <rom-directory> [output.csv]\n"
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
+        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or]\n"
+        "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
         "  %s compare-boot <rom-directory>\n"
         "  %s compare-init <rom-directory>\n"
         "  %s compare-task-registry <rom-directory>\n"
@@ -54,6 +56,7 @@ static void usage(const char *program)
         "  %s native-third-dispatch <rom-directory>\n"
         "  %s native-fourth-dispatch <rom-directory>\n"
         "  %s native-fifth-dispatch <rom-directory> [output.vf2snap]\n"
+        "  %s native-sixth-dispatch <rom-directory> [output.vf2snap]\n"
         "  %s compare-texture-bridge <rom-directory>\n"
         "  %s compare-post-frame-bridge <rom-directory>\n"
         "  %s compare-geometry-boundary <rom-directory>\n"
@@ -63,6 +66,9 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program,
+        program,
+        program,
         program,
         program,
         program,
@@ -851,6 +857,9 @@ static int command_execute(
     execution_history history;
     vf2_status status = load_maincpu(rom_directory, &image, &image_size, &vectors);
     memset(&history, 0, sizeof(history));
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&result, 0, sizeof(result));
     if (status == VF2_OK) {
         status = execute_boot_path(
             rom_directory,
@@ -2515,6 +2524,8 @@ static int command_snapshot(
     vf2_i960_snapshot snapshot;
     vf2_status status = VF2_OK;
     memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&result, 0, sizeof(result));
     status = load_maincpu(rom_directory, &image, &image_size, &vectors);
     vf2_i960_snapshot_init(&snapshot);
     if (status == VF2_OK) {
@@ -2558,6 +2569,498 @@ static int command_snapshot(
     return EXIT_SUCCESS;
 }
 
+/* Resume a captured reference state for scouting beyond the current native
+ * boundary.  This is intentionally a reference-only observer: it reports the
+ * first decoder/executor failure and injects the same frame/timer interrupts
+ * used by the differential runner, without claiming a native recovery. */
+static int command_resume_trace(
+    const char *rom_directory,
+    const char *snapshot_path,
+    uint32_t max_steps,
+    uint32_t clear_task_index,
+    uint32_t fighter_flags_or
+)
+{
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_i960_snapshot snapshot;
+    vf2_i960_trace_event event;
+    vf2_status status = VF2_OK;
+    uint32_t frame_wait_visits = 0u;
+    uint32_t timer_interrupts = 0u;
+    uint32_t frame_interrupts = 0u;
+    uint32_t calls = 0u;
+    uint32_t steps = 0u;
+    uint32_t halt_ip = 0u;
+    bool stopped_on_error = false;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    vf2_i960_snapshot_init(&snapshot);
+    status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(
+            rom_directory, &machine, image, image_size
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_read_file(&snapshot, snapshot_path);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_restore(&snapshot, &cpu, &machine);
+    }
+    if (status == VF2_OK && clear_task_index < 29u) {
+        uint32_t address = UINT32_C(0x00510000);
+        uint32_t index = 0u;
+        for (index = 0u; index < clear_task_index; ++index) {
+            uint32_t stack_size = 0u;
+            status = vf2_model2a_read_u32(
+                &machine, address + UINT32_C(8), &stack_size
+            );
+            if (status != VF2_OK) {
+                break;
+            }
+            address += stack_size;
+        }
+        if (status == VF2_OK) {
+            uint32_t flags = 0u;
+            status = vf2_model2a_read_u32(&machine, address, &flags);
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    &machine, address, flags & ~UINT32_C(0x80000000)
+                );
+            }
+        }
+    }
+    if (status == VF2_OK && fighter_flags_or != UINT32_MAX) {
+        uint32_t fighter0 = 0u;
+        uint32_t fighter1 = 0u;
+        uint32_t flags = 0u;
+        status = vf2_model2a_read_u32(
+            &machine, UINT32_C(0x00500804), &fighter0
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                &machine, UINT32_C(0x00500808), &fighter1
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(&machine, fighter0, &flags);
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                &machine, fighter0, flags | fighter_flags_or
+            );
+            status = vf2_model2a_read_u32(&machine, fighter1, &flags);
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                &machine, fighter1, flags | fighter_flags_or
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        printf("Resume trace start: IP=0x%08x instructions=%llu\n",
+               (unsigned)cpu.ip,
+               (unsigned long long)cpu.executed_instructions);
+        {
+            uint32_t registry = UINT32_C(0x00510000);
+            uint32_t index = 0u;
+            printf("  task registry snapshot:\n");
+            for (index = 0u; index < 29u; ++index) {
+                uint32_t flags = 0u;
+                uint32_t stack_size = 0u;
+                uint32_t entry = 0u;
+                if (vf2_model2a_read_u32(&machine, registry, &flags) != VF2_OK ||
+                    vf2_model2a_read_u32(&machine, registry + UINT32_C(8), &stack_size) != VF2_OK ||
+                    vf2_model2a_read_u32(&machine, registry + UINT32_C(0x0c), &entry) != VF2_OK) {
+                    break;
+                }
+                printf("    %2u registry=0x%08x flags=0x%08x stack=0x%08x entry=0x%08x\n",
+                       (unsigned)index, (unsigned)registry, (unsigned)flags,
+                       (unsigned)stack_size, (unsigned)entry);
+                registry += stack_size;
+            }
+        }
+        {
+            uint32_t fighter0 = 0u;
+            uint32_t fighter1 = 0u;
+            uint32_t flags0 = 0u;
+            uint32_t flags1 = 0u;
+            if (vf2_model2a_read_u32(
+                    &machine, UINT32_C(0x00500804), &fighter0
+                ) == VF2_OK &&
+                vf2_model2a_read_u32(
+                    &machine, UINT32_C(0x00500808), &fighter1
+                ) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, fighter0, &flags0) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, fighter1, &flags1) == VF2_OK) {
+                printf("  fighters: p0=0x%08x flags=0x%08x p1=0x%08x flags=0x%08x\n",
+                       (unsigned)fighter0, (unsigned)flags0,
+                       (unsigned)fighter1, (unsigned)flags1);
+            }
+        }
+    }
+
+    while (status == VF2_OK && steps < max_steps) {
+        const uint32_t ip_before = cpu.ip;
+        memset(&event, 0, sizeof(event));
+        status = vf2_i960_step(&cpu, &machine, &event);
+        ++steps;
+        if (status != VF2_OK) {
+            halt_ip = ip_before;
+            stopped_on_error = true;
+            break;
+        }
+        if (event.instruction.flow == VF2_I960_FLOW_CALL) {
+            ++calls;
+            if (calls <= 128u || event.ip_after == UINT32_C(0x0001645c) ||
+                event.ip_after == UINT32_C(0x00010d54)) {
+                printf("  call #%u 0x%08x -> 0x%08x r29=0x%08x depth=%u\n",
+                       (unsigned)calls, (unsigned)event.ip_before,
+                       (unsigned)event.ip_after,
+                       (unsigned)cpu.registers[29],
+                       (unsigned)cpu.local_frame_depth);
+            }
+        }
+        if (ip_before == UINT32_C(0x0000a010)) {
+            printf("  scheduler call at instructions=%llu\n",
+                   (unsigned long long)cpu.executed_instructions);
+        }
+        if (ip_before == UINT32_C(0x00000f7c) ||
+            ip_before == UINT32_C(0x00010f98) ||
+            ip_before == UINT32_C(0x00010fa0) ||
+            ip_before == UINT32_C(0x0004afe4)) {
+            ++frame_wait_visits;
+            if (frame_wait_visits >= 4u) {
+                status = vf2_model2a_raise_interrupt(&machine, UINT32_C(1));
+                if (status == VF2_OK) {
+                    status = vf2_i960_cpu_enter_interrupt(
+                        &cpu, &machine, 12u, 1u
+                    );
+                }
+                frame_wait_visits = 0u;
+                ++frame_interrupts;
+            }
+        }
+        if (ip_before == UINT32_C(0x0004aff8) && cpu.ip == ip_before) {
+            status = vf2_model2a_raise_interrupt(
+                &machine, UINT32_C(1) << 5u
+            );
+            if (status == VF2_OK) {
+                status = vf2_i960_cpu_enter_interrupt(
+                    &cpu, &machine, 14u, 1u
+                );
+            }
+            ++timer_interrupts;
+        }
+    }
+
+    if (stopped_on_error) {
+        vf2_i960_instruction instruction;
+        char text[256];
+        printf("Resume trace stopped: status=%s IP=0x%08x instructions=%llu\n",
+               vf2_status_string(status), (unsigned)halt_ip,
+               (unsigned long long)cpu.executed_instructions);
+        if (vf2_i960_decode(image, image_size, halt_ip, &instruction) == VF2_OK &&
+            vf2_i960_format_instruction(&instruction, text, sizeof(text)) == VF2_OK) {
+            printf("  instruction: %s\n", text);
+        }
+        status = VF2_OK;
+    } else {
+        printf("Resume trace budget exhausted at IP=0x%08x instructions=%llu\n",
+               (unsigned)cpu.ip,
+               (unsigned long long)cpu.executed_instructions);
+    }
+    printf("  calls=%u frame-interrupts=%u timer-interrupts=%u steps=%u\n",
+           (unsigned)calls, (unsigned)frame_interrupts,
+           (unsigned)timer_interrupts, (unsigned)steps);
+
+    vf2_i960_snapshot_destroy(&snapshot);
+    if (machine.work_ram != NULL) {
+        vf2_model2a_shutdown(&machine);
+    }
+    free(image);
+    return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+static int command_native_resume(
+    const char *rom_directory,
+    const char *snapshot_path,
+    uint32_t max_blocks,
+    uint32_t fighter_flags_or,
+    uint32_t stop_address,
+    const char *output_snapshot_path
+)
+{
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_i960_snapshot snapshot;
+    vf2_i960_snapshot output_snapshot;
+    vf2_native_runtime_state runtime;
+    vf2_native_runtime_run_report report;
+    vf2_native_runtime_step_report forced_step;
+    uint32_t start_address = 0u;
+    int forced_one_block = 0;
+    vf2_status status = VF2_OK;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&runtime, 0, sizeof(runtime));
+    memset(&report, 0, sizeof(report));
+    memset(&forced_step, 0, sizeof(forced_step));
+    vf2_i960_snapshot_init(&snapshot);
+    vf2_i960_snapshot_init(&output_snapshot);
+
+    status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(
+            rom_directory, &machine, image, image_size
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_read_file(&snapshot, snapshot_path);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_restore(&snapshot, &cpu, &machine);
+    }
+    if (status == VF2_OK && fighter_flags_or != UINT32_MAX) {
+        uint32_t fighter0 = 0u;
+        uint32_t fighter1 = 0u;
+        uint32_t flags = 0u;
+        status = vf2_model2a_read_u32(
+            &machine, UINT32_C(0x00500804), &fighter0
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                &machine, UINT32_C(0x00500808), &fighter1
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(&machine, fighter0, &flags);
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                &machine, fighter0, flags | fighter_flags_or
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(&machine, fighter1, &flags);
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                &machine, fighter1, flags | fighter_flags_or
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_native_runtime_initialize(&runtime, 4u);
+    }
+    if (status == VF2_OK) {
+        start_address = cpu.ip;
+        if (max_blocks != 0u && cpu.ip == stop_address) {
+            status = vf2_native_runtime_step(
+                &machine, &cpu, &runtime, &forced_step
+            );
+            forced_one_block = status == VF2_OK;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_native_runtime_run_until(
+            &machine, &cpu, &runtime, stop_address,
+            max_blocks - (forced_one_block ? 1u : 0u),
+            &report
+        );
+        if (forced_one_block) {
+            report.start_address = start_address;
+            ++report.blocks_executed;
+            report.recovered_instruction_count +=
+                forced_step.recovered_instruction_count;
+            report.recovered_procedure_calls +=
+                forced_step.recovered_procedure_calls;
+            report.recovered_procedure_returns +=
+                forced_step.recovered_procedure_returns;
+            if (status == VF2_OK &&
+                report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_NONE) {
+                report.last_step_kind = forced_step.kind;
+                report.last_bridge_kind = forced_step.bridge_kind;
+                report.last_task_kind = forced_step.task_kind;
+            }
+        }
+    }
+    if (status == VF2_OK && !report.reached_stop) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK && output_snapshot_path != NULL) {
+        status = vf2_i960_snapshot_capture(
+            &output_snapshot, &cpu, &machine
+        );
+        if (status == VF2_OK) {
+            status = vf2_i960_snapshot_write_file(
+                &output_snapshot, output_snapshot_path
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        printf(
+            "Native resume: blocks=%zu instructions=%llu entry=0x%08x "
+            "exit=0x%08x task=%s\n",
+            report.blocks_executed,
+            (unsigned long long)report.recovered_instruction_count,
+            (unsigned)report.start_address,
+            (unsigned)report.final_address,
+            vf2_hybrid_task_kind_name(report.last_task_kind)
+        );
+        printf(
+            "  calls=%llu returns=%llu fighter_flags_or=0x%08x\n",
+            (unsigned long long)report.recovered_procedure_calls,
+            (unsigned long long)report.recovered_procedure_returns,
+            (unsigned)fighter_flags_or
+        );
+    } else {
+        fprintf(
+            stderr,
+            "Native resume failed: %s at 0x%08x after %zu blocks "
+            "entry=0x%08x "
+            "step=%s bridge=%s task=%s\n",
+            vf2_status_string(status),
+            (unsigned)report.final_address,
+            report.blocks_executed,
+            (unsigned)report.last_entry_address,
+            vf2_native_runtime_step_kind_name(report.last_step_kind),
+            vf2_hybrid_bridge_kind_name(report.last_bridge_kind),
+            vf2_hybrid_task_kind_name(report.last_task_kind)
+        );
+        if (report.last_entry_address == UINT32_C(0x0001d458)) {
+            uint32_t flags = 0u;
+            uint32_t runtime_flags = 0u;
+            uint32_t mode_handler = 0u;
+            uint32_t first_value = 0u;
+            uint32_t vertical_value = 0u;
+            uint32_t second_value = 0u;
+            uint32_t range_value = 0u;
+            uint32_t vertical_limit = 0u;
+            uint32_t fighter0 = 0u;
+            uint32_t fighter1 = 0u;
+            uint32_t fighter0_flags = 0u;
+            uint32_t fighter1_flags = 0u;
+            uint16_t input_flags = 0u;
+            uint8_t input_index = 0u;
+            uint8_t mode = 0u;
+            if (vf2_model2a_read_u32(&machine, UINT32_C(0x00515400), &flags) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00508000), &runtime_flags) == VF2_OK &&
+                vf2_model2a_read(&machine, UINT32_C(0x00500064), &input_index, sizeof(input_index)) == VF2_OK &&
+                vf2_model2a_read(&machine, UINT32_C(0x00515440), &mode, sizeof(mode)) == VF2_OK &&
+                vf2_model2a_read_u32(&machine,
+                    UINT32_C(0x0006e2e4) + ((uint32_t)mode & UINT32_C(0xff)) * 4u,
+                    &mode_handler) == VF2_OK &&
+                vf2_model2a_read(&machine,
+                    UINT32_C(0x0006eea0) + ((uint32_t)input_index << 8u),
+                    &input_flags, sizeof(input_flags)) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00515418), &first_value) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x0051541c), &vertical_value) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00515420), &second_value) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x0050a00c), &range_value) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x0050a148), &vertical_limit) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00500804), &fighter0) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00500808), &fighter1) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, fighter0, &fighter0_flags) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, fighter1, &fighter1_flags) == VF2_OK) {
+                fprintf(stderr,
+                        "  camera state: flags=0x%08x runtime=0x%08x mode=%u "
+                        "handler=0x%08x input=%u input-flags=0x%04x\n"
+                        "    values=%08x/%08x/%08x range=%08x limit=%08x "
+                        "fighters=%08x/%08x flags=%08x/%08x\n",
+                        (unsigned)flags, (unsigned)runtime_flags,
+                        (unsigned)mode, (unsigned)mode_handler,
+                        (unsigned)input_index, (unsigned)input_flags,
+                        (unsigned)first_value, (unsigned)vertical_value,
+                        (unsigned)second_value, (unsigned)range_value,
+                        (unsigned)vertical_limit, (unsigned)fighter0,
+                        (unsigned)fighter1, (unsigned)fighter0_flags,
+                        (unsigned)fighter1_flags);
+            }
+        }
+        if (report.last_entry_address == UINT32_C(0x0004bd5c)) {
+            uint32_t value0 = 0u;
+            uint32_t value1 = 0u;
+            uint32_t value2 = 0u;
+            uint32_t value3 = 0u;
+            uint32_t runtime_flags = 0u;
+            if (vf2_model2a_read_u32(&machine, cpu.registers[5], &value0) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, cpu.registers[5] + UINT32_C(0x1c), &value1) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, cpu.registers[5] + UINT32_C(0x10), &value2) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00508000), &runtime_flags) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x02300008), &value3) == VF2_OK) {
+                fprintf(stderr,
+                        "  texture status: r3=%08x r5=%08x r8=%08x r9=%08x "
+                        "r10=%08x depth=%u rec=%08x/%08x/%08x runtime=%08x table=%08x\n",
+                        (unsigned)cpu.registers[3], (unsigned)cpu.registers[5],
+                        (unsigned)cpu.registers[8], (unsigned)cpu.registers[9],
+                        (unsigned)cpu.registers[10], (unsigned)cpu.local_frame_depth,
+                        (unsigned)value0,
+                        (unsigned)value1, (unsigned)value2,
+                        (unsigned)runtime_flags, (unsigned)value3);
+            }
+        }
+        if (report.last_entry_address == UINT32_C(0x0000a010)) {
+            uint32_t ready = 0u;
+            uint32_t runtime = 0u;
+            uint32_t count = 0u;
+            uint32_t timer1 = 0u;
+            uint32_t timer2 = 0u;
+            if (vf2_model2a_read_u32(&machine, UINT32_C(0x00500068), &ready) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00508000), &runtime) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00011d94), &count) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00f00004), &timer1) == VF2_OK &&
+                vf2_model2a_read_u32(&machine, UINT32_C(0x00f00008), &timer2) == VF2_OK) {
+                fprintf(stderr,
+                        "  second scheduler: ready=%08x runtime=%08x count=%u "
+                        "timer1=%08x timer2=%08x fp=%08x sp=%08x depth=%u\n",
+                        (unsigned)ready, (unsigned)runtime, (unsigned)count,
+                        (unsigned)timer1, (unsigned)timer2,
+                        (unsigned)cpu.registers[31], (unsigned)cpu.registers[1],
+                        (unsigned)cpu.local_frame_depth);
+                {
+                    uint32_t registry = UINT32_C(0x00510000);
+                    uint32_t index = 0u;
+                    for (index = 0u; index < count && index < 64u; ++index) {
+                        uint32_t flags = 0u;
+                        uint32_t entry = 0u;
+                        uint32_t stride = 0u;
+                        if (vf2_model2a_read_u32(&machine, registry, &flags) != VF2_OK ||
+                            vf2_model2a_read_u32(&machine, registry + UINT32_C(0x0c), &entry) != VF2_OK ||
+                            vf2_model2a_read_u32(&machine, registry + UINT32_C(8), &stride) != VF2_OK) {
+                            break;
+                        }
+                        fprintf(stderr, "    [%u] reg=%08x flags=%08x entry=%08x stride=%08x\n",
+                                (unsigned)index, (unsigned)registry, (unsigned)flags,
+                                (unsigned)entry, (unsigned)stride);
+                        if (stride == 0u) {
+                            break;
+                        }
+                        registry += stride;
+                    }
+                }
+            }
+        }
+    }
+
+    vf2_i960_snapshot_destroy(&snapshot);
+    vf2_i960_snapshot_destroy(&output_snapshot);
+    if (machine.work_ram != NULL) {
+        vf2_model2a_shutdown(&machine);
+    }
+    free(image);
+    return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
 static int command_compare_boot(const char *rom_directory)
 {
     uint8_t *image = NULL;
@@ -2573,6 +3076,10 @@ static int command_compare_boot(const char *rom_directory)
     vf2_i960_snapshot recovered_snapshot;
     vf2_i960_snapshot_diff diff;
     vf2_status status = VF2_OK;
+    memset(&interpreted_cpu, 0, sizeof(interpreted_cpu));
+    memset(&recovered_cpu, 0, sizeof(recovered_cpu));
+    memset(&result, 0, sizeof(result));
+    memset(&report, 0, sizeof(report));
     memset(&diff, 0, sizeof(diff));
     status = load_maincpu(rom_directory, &image, &image_size, &vectors);
     vf2_i960_snapshot_init(&interpreted_snapshot);
@@ -2681,6 +3188,11 @@ static int command_compare_init(const char *rom_directory)
     vf2_i960_snapshot_diff diff;
     vf2_status status = VF2_OK;
 
+    memset(&interpreted_cpu, 0, sizeof(interpreted_cpu));
+    memset(&recovered_cpu, 0, sizeof(recovered_cpu));
+    memset(&result, 0, sizeof(result));
+    memset(&stage1_report, 0, sizeof(stage1_report));
+    memset(&stage2_report, 0, sizeof(stage2_report));
     memset(&diff, 0, sizeof(diff));
     memset(&interpreted_machine, 0, sizeof(interpreted_machine));
     memset(&recovered_machine, 0, sizeof(recovered_machine));
@@ -3471,6 +3983,7 @@ static int command_native_dispatch_ex(
     bool native_third_dispatch,
     bool native_fourth_dispatch,
     bool native_fifth_dispatch,
+    bool native_sixth_dispatch,
     bool observe_third_sweep
 )
 {
@@ -3527,6 +4040,8 @@ static int command_native_dispatch_ex(
     memset(&diff, 0, sizeof(diff));
     memset(task_reports, 0, sizeof(task_reports));
     memset(&finish_report, 0, sizeof(finish_report));
+    memset(&original_frame_wait, 0, sizeof(original_frame_wait));
+    memset(&native_frame_wait, 0, sizeof(native_frame_wait));
     vf2_task_catalog_init(&catalog);
     vf2_i960_snapshot_init(&entry_snapshot);
 
@@ -4966,31 +5481,41 @@ static int command_native_dispatch_ex(
 
     if (status == VF2_OK &&
         (native_third_dispatch || native_fourth_dispatch ||
-         native_fifth_dispatch)) {
+         native_fifth_dispatch || native_sixth_dispatch)) {
         const uint32_t repeated_entry = plan.runnable_entry_points[0];
         const uint32_t repeated_registry = plan.runnable_registry_addresses[0];
-        const size_t minimum_blocks = native_fifth_dispatch
-            ? 79u
-            : (native_fourth_dispatch ? 43u : 1u);
-        const size_t expected_blocks = native_fifth_dispatch
-            ? 830u
-            : (native_fourth_dispatch ? 78u : 42u);
-        const uint64_t expected_instructions = native_fifth_dispatch
-            ? UINT64_C(7402741)
-            : (native_fourth_dispatch
-                ? UINT64_C(58869)
-                : UINT64_C(55239));
-        const char *dispatch_label = native_fifth_dispatch
-            ? "fifth"
-            : (native_fourth_dispatch ? "fourth" : "third");
+        const size_t minimum_blocks = native_sixth_dispatch
+            ? 831u
+            : (native_fifth_dispatch
+                ? 79u
+                : (native_fourth_dispatch ? 43u : 1u));
+        const size_t expected_blocks = native_sixth_dispatch
+            ? 866u
+            : (native_fifth_dispatch
+                ? 830u
+                : (native_fourth_dispatch ? 78u : 42u));
+        const uint64_t expected_instructions = native_sixth_dispatch
+            ? UINT64_C(7404913)
+            : (native_fifth_dispatch
+                ? UINT64_C(7402741)
+                : (native_fourth_dispatch
+                    ? UINT64_C(58869)
+                    : UINT64_C(55239)));
+        const char *dispatch_label = native_sixth_dispatch
+            ? "sixth"
+            : (native_fifth_dispatch
+                ? "fifth"
+                : (native_fourth_dispatch ? "fourth" : "third"));
         vf2_native_runtime_state runtime_state;
         vf2_native_differential_report third_report;
 
-        stage = native_fifth_dispatch
-            ? "native-fifth-dispatch"
-            : (native_fourth_dispatch
-                ? "native-fourth-dispatch"
-                : "native-third-dispatch");
+        stage = native_sixth_dispatch
+            ? "native-sixth-dispatch"
+            : (native_fifth_dispatch
+                ? "native-fifth-dispatch"
+                : (native_fourth_dispatch
+                    ? "native-fourth-dispatch"
+                    : "native-third-dispatch"));
         memset(&runtime_state, 0, sizeof(runtime_state));
         memset(&third_report, 0, sizeof(third_report));
         status = vf2_native_runtime_initialize(&runtime_state, 4u);
@@ -5085,14 +5610,18 @@ static int command_native_dispatch_ex(
             printf("Repeated frame-wait phases:         %zu\n",
                    runtime_state.frame_wait_phases);
             printf("%s task entry:                   0x%08x\n",
-                   native_fifth_dispatch
-                       ? "Fifth"
-                       : (native_fourth_dispatch ? "Fourth" : "Third"),
+                   native_sixth_dispatch
+                       ? "Sixth"
+                       : (native_fifth_dispatch
+                           ? "Fifth"
+                           : (native_fourth_dispatch ? "Fourth" : "Third")),
                    (unsigned)native_cpu.ip);
             printf("%s registry:                     0x%08x\n",
-                   native_fifth_dispatch
-                       ? "Fifth"
-                       : (native_fourth_dispatch ? "Fourth" : "Third"),
+                   native_sixth_dispatch
+                       ? "Sixth"
+                       : (native_fifth_dispatch
+                           ? "Fifth"
+                           : (native_fourth_dispatch ? "Fourth" : "Third")),
                    (unsigned)native_cpu.registers[29]);
             printf("Continuous recovered instructions:  %llu\n",
                    (unsigned long long)(
@@ -5101,7 +5630,8 @@ static int command_native_dispatch_ex(
                    ));
             printf("Final CPU and memory state:         MATCH\n");
 
-            if (native_fifth_dispatch && g_native_snapshot_path != NULL) {
+            if ((native_fifth_dispatch || native_sixth_dispatch) &&
+                g_native_snapshot_path != NULL) {
                 vf2_i960_snapshot output_snapshot;
                 const size_t snapshot_path_length =
                     strlen(g_native_snapshot_path);
@@ -5375,36 +5905,51 @@ static int command_native_dispatch_ex(
 
 static int command_native_first_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, false, false, false, false, false);
+    return command_native_dispatch_ex(
+        rom_directory, false, false, false, false, false, false
+    );
 }
 
 static int command_native_second_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, false, false, false, false);
+    return command_native_dispatch_ex(
+        rom_directory, true, false, false, false, false, false
+    );
 }
 
 static int command_native_third_dispatch(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, true, false, false, false);
+    return command_native_dispatch_ex(
+        rom_directory, true, true, false, false, false, false
+    );
 }
 
 static int command_native_fourth_dispatch(const char *rom_directory)
 {
     return command_native_dispatch_ex(
-        rom_directory, true, false, true, false, false
+        rom_directory, true, false, true, false, false, false
     );
 }
 
 static int command_native_fifth_dispatch(const char *rom_directory)
 {
     return command_native_dispatch_ex(
-        rom_directory, true, false, false, true, false
+        rom_directory, true, false, false, true, false, false
+    );
+}
+
+static int command_native_sixth_dispatch(const char *rom_directory)
+{
+    return command_native_dispatch_ex(
+        rom_directory, true, false, false, false, true, false
     );
 }
 
 static int command_native_observe_third_sweep(const char *rom_directory)
 {
-    return command_native_dispatch_ex(rom_directory, true, false, false, false, true);
+    return command_native_dispatch_ex(
+        rom_directory, true, false, false, false, false, true
+    );
 }
 
 static const char *orchestrator_trace_default_path(void)
@@ -5436,7 +5981,7 @@ static int command_trace_orchestrator(
     g_orchestrator_trace_step = 0u;
 
     dispatch_result = command_native_dispatch_ex(
-        rom_directory, true, false, false, false, false
+        rom_directory, true, false, false, false, false, false
     );
 
     g_orchestrator_trace_file = NULL;
@@ -5564,6 +6109,64 @@ int main(int argc, char **argv)
         return command_snapshot(argv[2], argv[3]);
     }
 
+    if (strcmp(argv[1], "resume-trace") == 0 &&
+        (argc == 4 || argc == 5 || argc == 6 || argc == 7)) {
+        uint32_t max_steps = UINT32_C(10000000);
+        uint32_t clear_task_index = UINT32_MAX;
+        uint32_t fighter_flags_or = UINT32_MAX;
+        if (argc == 5 && !parse_u32(argv[4], &max_steps)) {
+            fprintf(stderr, "Invalid maximum steps: %s\n", argv[4]);
+            return EXIT_FAILURE;
+        }
+        if (argc == 6 &&
+            (!parse_u32(argv[4], &max_steps) ||
+             !parse_u32(argv[5], &clear_task_index))) {
+            fprintf(stderr, "Invalid resume-trace options\n");
+            return EXIT_FAILURE;
+        }
+        if (argc == 7 &&
+            (!parse_u32(argv[4], &max_steps) ||
+             !parse_u32(argv[5], &clear_task_index) ||
+             !parse_u32(argv[6], &fighter_flags_or))) {
+            fprintf(stderr, "Invalid resume-trace options\n");
+            return EXIT_FAILURE;
+        }
+        return command_resume_trace(
+            argv[2], argv[3], max_steps, clear_task_index, fighter_flags_or
+        );
+    }
+
+    if (strcmp(argv[1], "native-resume") == 0 &&
+        (argc == 4 || argc == 5 || argc == 6 || argc == 7 || argc == 8)) {
+        uint32_t max_blocks = UINT32_C(1);
+        uint32_t fighter_flags_or = UINT32_MAX;
+        uint32_t stop_address = UINT32_C(0x00010dcc);
+        if (argc >= 5 && !parse_u32(argv[4], &max_blocks)) {
+            fprintf(stderr, "Invalid native-resume block budget\n");
+            return EXIT_FAILURE;
+        }
+        if (argc == 6 && !parse_u32(argv[5], &fighter_flags_or)) {
+            fprintf(stderr, "Invalid native-resume fighter flags\n");
+            return EXIT_FAILURE;
+        }
+        if (argc == 7 &&
+            (!parse_u32(argv[5], &fighter_flags_or) ||
+             !parse_u32(argv[6], &stop_address))) {
+            fprintf(stderr, "Invalid native-resume options\n");
+            return EXIT_FAILURE;
+        }
+        if (argc == 8 &&
+            (!parse_u32(argv[5], &fighter_flags_or) ||
+             !parse_u32(argv[6], &stop_address))) {
+            fprintf(stderr, "Invalid native-resume options\n");
+            return EXIT_FAILURE;
+        }
+        return command_native_resume(
+            argv[2], argv[3], max_blocks, fighter_flags_or, stop_address,
+            argc == 8 ? argv[7] : NULL
+        );
+    }
+
     if (strcmp(argv[1], "compare-boot") == 0 && argc == 3) {
         return command_compare_boot(argv[2]);
     }
@@ -5607,6 +6210,11 @@ int main(int argc, char **argv)
         (argc == 3 || argc == 4)) {
         g_native_snapshot_path = argc == 4 ? argv[3] : NULL;
         return command_native_fifth_dispatch(argv[2]);
+    }
+    if (strcmp(argv[1], "native-sixth-dispatch") == 0 &&
+        (argc == 3 || argc == 4)) {
+        g_native_snapshot_path = argc == 4 ? argv[3] : NULL;
+        return command_native_sixth_dispatch(argv[2]);
     }
     if (strcmp(argv[1], "compare-texture-bridge") == 0 && argc == 3) {
         return command_native_second_dispatch(argv[2]);

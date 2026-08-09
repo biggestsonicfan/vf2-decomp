@@ -8,20 +8,24 @@
 | Supported ROM validation | 36/36 files |
 | Accepted startup/post-frame bridge | Recovered C |
 | Post-frame bridge instructions | 1,270,822 / 1,270,822 recovered |
-| Repeated-frame corridor | 7,402,741 instructions across 830 differential blocks |
-| Continuous recovered instructions | 8,673,563 |
+| Repeated-frame corridor | 7,404,913 instructions across 866 differential blocks |
+| Continuous recovered instructions | 8,675,735 |
 | Native-side interpreted instructions on accepted paths | 0 |
 | Second through fourth scheduler sweeps | Completely recovered for the observed corridor |
 | Fifth scheduler entry | Recovered and ROM-validated |
-| Current ROM-proven native boundary | Fifth `fa_game_info` at `0x0001645c` |
+| Current ROM-proven native boundary | Sixth `fa_game_info` at `0x0001645c` |
+| Fighter-state bit-31 runtime path | Explicit i960 bridges for `fa_game_info` and `fa_player` through scheduler return; native C recovery remains open |
 | `vf2i960 native-third-dispatch` | `MATCH`: 42 blocks / 55,239 instructions |
 | `vf2i960 native-fourth-dispatch` | `MATCH`: 78 blocks / 58,869 instructions |
 | `vf2i960 native-fifth-dispatch` | `MATCH`: 830 blocks / 7,402,741 instructions |
+| `vf2i960 native-sixth-dispatch` | `MATCH`: 866 blocks / 7,404,913 instructions |
 | Repeated-cycle differential API | Strict per-block + cycle-boundary probe + resumable checkpoints |
-| ROM-independent / ROM-backed CTest targets | 11 / 25, 36 total |
-| TGP protocol and renderer | Not recovered |
-| Motorola 68000 / SCSP audio | Not recovered |
-| Window, input and production platform backend | Not implemented |
+| ROM-independent / ROM-backed CTest targets | 18 / 26, 44 total |
+| 68000 audio vectors, board map, voice maintenance and command dispatcher | Voice maintenance plus bounded 0x80, zero/nonzero-stream 0x90 lookup/no-live return, both 0x11d0 voice-helper branches, the populated-table 0x90 allocator prefix, live B0 0x1/0x2 packed SCSP +0x13 writes, 0xa0 stream-descriptor initialization, 0x1f7c normal/C-D packets, B0 0x10 control, F0 wait/search, FF/F7 skips, FF/2F sentinels and ordinary/F1 pointer re-entry, 0xc0, 0xe0 and selected 0xb0 command/ring paths integrated; allocator sample-table copy, high-bit stream controls, other handlers and synthesis remain open |
+| TGP scalar services and host boundary | Recovered; stateful direct/object geometry reference executor with matrix/viewport/depth submission added; packet decoder/microcode not recovered |
+| Geometry command packing and ring commit | Recovered for observed four-entry boundary |
+| SCSP CPU bus, register, sample and MIDI boundary | Recovered 0x1000-byte register window, visible sound map, deterministic PCM slot renderer and slot ADSR lifecycle; FM/DSP fidelity remains open |
+| Portable framebuffer/input backend | Recovered headless software surface, deterministic input injection and game-facing graphics/audio frame lifecycle; window/audio device adapters remain open |
 | Playable port | No |
 
 ## Development head after v0.1.3 acceptance
@@ -49,9 +53,9 @@ interpretation.
 
 The v0.1.3 differential contract is:
 
-- 830 compared repeated-frame blocks;
-- 7,402,741 reference and recovered-native instructions;
-- 8,673,563 continuous recovered instructions including the historical bridge;
+- 866 compared repeated-frame blocks;
+- 7,404,913 reference and recovered-native instructions;
+- 8,675,735 continuous recovered instructions including the historical bridge;
 - three repeated scheduler entries and finishes;
 - twelve repeated scheduler transitions;
 - six frame-wait phases; and
@@ -68,10 +72,10 @@ The extension beyond v0.1.2 includes the observed:
 - mode-17 system-memory diagnostic profile, which executes one instruction more
   than adjacent mode 16.
 
-Run the strict acceptance with:
+Run the strict sixth-entry acceptance with:
 
 ```sh
-vf2i960 native-fifth-dispatch /path/to/vf2
+vf2i960 native-sixth-dispatch /path/to/vf2
 ```
 
 The older third- and fourth-dispatch commands remain independent regression
@@ -79,8 +83,8 @@ contracts.
 
 ## Validation
 
-The exact supported 36-file ROM set passes all 36 configured CTest targets:
-11 ROM-independent tests and 25 ROM-backed differential/observation tests. The
+The exact supported 36-file ROM set passes all 44 configured CTest targets:
+17 ROM-independent tests and 26 ROM-backed differential/observation tests. The
 ROM-independent suite also passes under AddressSanitizer,
 UndefinedBehaviorSanitizer and LeakSanitizer.
 
@@ -101,8 +105,10 @@ is the complete fifth scheduler sweep and longer repeated-frame endurance runs,
 while replacing evidence-specific raw-address logic with fighter, object,
 match, animation, collision and input types.
 
-TGP rendering, 68000/SCSP audio and a production platform backend remain later
-milestones.
+TGP polygon rendering, the complete 68000 sound command path, hardware-accurate
+SCSP FM/DSP synthesis, gameplay integration and production platform adapters
+remain later milestones. The core now has deterministic PCM audio and a
+headless framebuffer/input surface for those integrations.
 
 ## Endurance tooling
 
@@ -318,6 +324,12 @@ composes the 26-float `0x0001fee4` fill and returns to `0x0001fdd4` after 114
 instructions. The following 17-instruction ROM profile load updates the mirrored
 hardware/profile fields and reaches `0x0001fe60`. Its palette wrapper is now
 composed through nested entry `0x00002c38` after another 12 instructions. The
-`0x00002c38` palette-ramp body is the next concrete boundary.
-Phase-state-zero and other bit-7 indirect table entries remain additional
-controlled-state targets.
+`0x00002c38` palette body clears the `0x00546008` scratch ramp, emits 28 rows
+of 32 RGB halfword entries, latches the active page, and returns after 30,467
+recovered instructions, followed by its one-instruction return stub to
+`0x0001fe64`. Its resumed prefix now loads the table pair, reproduces the
+`0x4b410` registration helper, clears `0x0050a014`–`0x0050a026`, and reaches
+`0x0002eab8`; the 90-instruction initializer and nested `0x31004` setup are
+also recovered. The subsequent hardware-command routine, alternate input
+modes, phase-state-zero and other bit-7 indirect table entries remain
+additional controlled-state targets.

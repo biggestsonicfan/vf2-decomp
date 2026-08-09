@@ -41,15 +41,19 @@ add_library(vf2_core STATIC
     src/core/rom_manifest.c
     src/core/status.c
     src/game/game.c
+    src/hardware/geometry.c
     src/hardware/model2a.c
     src/hardware/scsp.c
+    src/hardware/sound_board.c
     src/hardware/tgp.c
+    src/m68k/decoder.c
     src/i960/decoder.c
     src/i960/executor.c
     src/i960/formatter.c
     src/i960/instruction.c
     src/i960/snapshot.c
     src/platform/platform_null.c
+    src/platform/platform_software.c
     src/recovered/boot_entry.c
     src/recovered/camera_viewport.c
     src/recovered/hybrid.c
@@ -100,8 +104,12 @@ add_executable(vf2recover tools/vf2recover/main.c)
 target_link_libraries(vf2recover PRIVATE vf2_core)
 vf2_set_project_warnings(vf2recover)
 
+add_executable(vf2m68k tools/vf2m68k/main.c)
+target_link_libraries(vf2m68k PRIVATE vf2_core)
+vf2_set_project_warnings(vf2m68k)
+
 include(GNUInstallDirs)
-install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover
+install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover vf2m68k
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
 
@@ -134,6 +142,61 @@ if(VF2_BUILD_TESTS)
         NAME vf2_orchestrator_limits
         COMMAND vf2_orchestrator_limits_tests
     )
+
+    add_executable(vf2_tgp_tests
+        tests/hardware/test_tgp.c
+    )
+    target_link_libraries(vf2_tgp_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_tgp_tests)
+
+    add_test(NAME vf2_tgp COMMAND vf2_tgp_tests)
+
+    add_executable(vf2_scsp_tests
+        tests/hardware/test_scsp.c
+    )
+    target_link_libraries(vf2_scsp_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_scsp_tests)
+
+    add_test(NAME vf2_scsp COMMAND vf2_scsp_tests)
+
+    add_executable(vf2_sound_board_tests
+        tests/hardware/test_sound_board.c
+    )
+    target_link_libraries(vf2_sound_board_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_sound_board_tests)
+    add_test(NAME vf2_sound_board COMMAND vf2_sound_board_tests)
+
+    add_executable(vf2_geometry_tests
+        tests/hardware/test_geometry.c
+    )
+    target_link_libraries(vf2_geometry_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_geometry_tests)
+
+    add_test(NAME vf2_geometry COMMAND vf2_geometry_tests)
+
+    add_executable(vf2_platform_tests
+        tests/platform/test_platform.c
+    )
+    target_link_libraries(vf2_platform_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_platform_tests)
+
+    add_test(NAME vf2_platform COMMAND vf2_platform_tests)
+
+    add_executable(vf2_game_tests
+        tests/game/test_game.c
+    )
+    target_link_libraries(vf2_game_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_game_tests)
+
+    add_test(NAME vf2_game COMMAND vf2_game_tests)
+
+    add_executable(vf2_m68k_tests
+        tests/m68k/test_decoder.c
+    )
+    target_link_libraries(vf2_m68k_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_tests)
+
+    add_test(NAME vf2_m68k COMMAND vf2_m68k_tests)
 
     add_executable(vf2_orchestrator_scan_tests
         tests/analysis/test_orchestrator_scan.c
@@ -320,6 +383,10 @@ if(VF2_BUILD_TESTS)
             COMMAND vf2i960 native-fifth-dispatch "${VF2_ROM_DIR}"
         )
         add_test(
+            NAME vf2_native_sixth_dispatch
+            COMMAND vf2i960 native-sixth-dispatch "${VF2_ROM_DIR}"
+        )
+        add_test(
             NAME vf2_texture_bridge_differential
             COMMAND vf2i960 compare-texture-bridge "${VF2_ROM_DIR}"
         )
@@ -350,7 +417,8 @@ if(VF2_BUILD_TESTS)
             vf2_camera_viewport_differential vf2_hybrid_first_dispatch
             vf2_native_first_dispatch vf2_native_second_dispatch
             vf2_native_third_dispatch vf2_native_fourth_dispatch
-            vf2_native_fifth_dispatch vf2_texture_bridge_differential
+            vf2_native_fifth_dispatch vf2_native_sixth_dispatch
+            vf2_texture_bridge_differential
             vf2_post_frame_bridge_differential
             vf2_geometry_boundary_differential
             vf2_second_scheduler_entry_differential

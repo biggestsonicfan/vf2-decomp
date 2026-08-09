@@ -22,6 +22,17 @@ handles the observed changing final active task. Still uncovered:
 The accepted corridor includes active input/state selector fast paths,
 the player-update bit-14 exit and their observed sequence gates. Still missing:
 
+The reference i960 executor now covers the conditional range comparisons and
+single-precision integer/real conversions encountered when the fighter-state
+bit-31 path is forced. The runtime has an explicit interpreter-backed bridge
+for this task through its scheduler return; the corresponding large fighter
+procedures remain unrecovered as native C.
+
+The same bridge now covers the following `fa_player` task entry at
+`0x00013f08`, allowing a real sixth-entry snapshot to advance through both
+fighter task records and back to the main loop. This is still execution of the
+original i960 task, not native-C recovery.
+
 - character and arena selection;
 - the complete match state machine, timeout and game-over transitions;
 - fighter physics, hitboxes, hurtboxes, collision, damage and combos;
@@ -46,7 +57,8 @@ inputs before writes. Still uncovered:
 - other stream headers, dimensions, timer states and mip layouts;
 - compressed-stream corruption and invalid symbol/pair indexes;
 - geometry ring-register patterns outside the accepted sequence;
-- TGP command protocol, transforms, clipping, projection and rasterization; and
+- polygon FIFO packet protocol, lighting/clipping fidelity and hardware
+  renderer behavior beyond the bounded direct/object reference executor; and
 - production rendering output.
 
 The observed phase-17 dispatcher path is accepted when phase state is non-zero.
@@ -113,15 +125,23 @@ gameplay-global initialization through `0x000099fc`. Alternate accumulator
 modes and signed profile overrides remain unsupported. The observed zero-mode
 path through `0x0001fcc0`, its 26-float defaults and ROM profile load are
 recovered through `0x0001fe60`; the palette wrapper then reaches nested entry
-`0x00002c38`. Alternate input modes, the `0x00002c38` palette-ramp body, other
-bit-7 indirect table entries and phase state zero remain unsupported.
+`0x00002c38`. The observed palette body is recovered for its 28-row by
+32-entry RGB ramp and page latch, including the return stub at `0x00020050`.
+The resumed `0x0001fe64` prefix through the `0x4b410` helper and state clears
+is recovered, as is the 90-instruction `0x0002eab8` initializer and nested
+`0x00031004` setup. The subsequent hardware-command routine, alternate input
+modes, other bit-7 indirect table entries and phase state zero remain unsupported.
 
 ## 5. Audio and platform
 
-Only the accepted deterministic sound-task buffer behavior is recovered. The
-Motorola 68000 sound-command protocol, SCSP-compatible audio backend, native
-windowing, gamepad mappings, frame pacing and production platform integration
-remain unimplemented.
+Only the accepted deterministic sound-task buffer behavior, the SCSP
+register/sample/MIDI host boundary, and the ROM's 68000 voice-maintenance
+transition and command-dispatcher boundaries are recovered. The populated
+sample-table prefix of the `0x90` allocator is also covered. The Motorola
+68000 command handlers other than the bounded `0xc0`/`0xe0` paths, selected
+no-live-voice `0xb0` entries and that allocator prefix, live voice/DSP synthesis,
+native windowing, gamepad mappings,
+frame pacing and production platform integration remain unimplemented.
 
 ## 6. Transactional rejection coverage
 

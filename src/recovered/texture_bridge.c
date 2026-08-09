@@ -528,6 +528,12 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-orchestrator-epilogue";
     case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY:
         return "second-scheduler-entry";
+    case VF2_HYBRID_BRIDGE_CAMERA_BIT7_INTERPRETER:
+        return "camera-bit7-interpreter";
+    case VF2_HYBRID_BRIDGE_TEXTURE_SELECTOR_INTERPRETER:
+        return "texture-selector-interpreter";
+    case VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_INTERPRETER:
+        return "texture-counter-interpreter";
     case VF2_HYBRID_BRIDGE_NONE:
     default:
         return "none";

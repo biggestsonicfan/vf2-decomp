@@ -309,5 +309,92 @@ int vf2_test_i960_executor(void)
         return 33;
     }
     vf2_model2a_shutdown(&machine);
+
+    /* Conditional compare preserves equality and otherwise replaces the
+     * condition code with the second signed/ordinal comparison. */
+    memset(image, 0xff, sizeof(image));
+    write_le32(image + 0u, UINT32_C(0x5a03e083)); /* cmpi r3, r15 */
+    write_le32(image + 4u, UINT32_C(0x5a012183)); /* concmpi r3, r4 */
+    if (!vf2_model2a_initialize(&machine)) {
+        return 34;
+    }
+    if (vf2_model2a_attach_main_rom(&machine, image, sizeof(image)) != VF2_OK) {
+        vf2_model2a_shutdown(&machine);
+        return 35;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, 0u);
+    cpu.registers[3] = 3u;
+    cpu.registers[15] = 1u;
+    cpu.registers[4] = 5u;
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.compare_result != VF2_I960_COMPARE_GREATER) {
+        vf2_model2a_shutdown(&machine);
+        return 36;
+    }
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.compare_result != VF2_I960_COMPARE_LESS) {
+        vf2_model2a_shutdown(&machine);
+        return 37;
+    }
+    cpu.ip = 0u;
+    cpu.registers[15] = 3u;
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.compare_result != VF2_I960_COMPARE_EQUAL) {
+        vf2_model2a_shutdown(&machine);
+        return 38;
+    }
+    cpu.registers[4] = UINT32_MAX;
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.compare_result != VF2_I960_COMPARE_EQUAL) {
+        vf2_model2a_shutdown(&machine);
+        return 39;
+    }
+    vf2_model2a_shutdown(&machine);
+
+    /* cvtri converts a single-precision real to an integer using AC[31:30]. */
+    memset(image, 0xff, sizeof(image));
+    write_le32(image + 0u, UINT32_C(0x6c68100d)); /* cvtri r13, r13 */
+    if (!vf2_model2a_initialize(&machine)) {
+        return 40;
+    }
+    if (vf2_model2a_attach_main_rom(&machine, image, sizeof(image)) != VF2_OK) {
+        vf2_model2a_shutdown(&machine);
+        return 41;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, 0u);
+    cpu.registers[13] = UINT32_C(0x3fc00000); /* 1.5 */
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.registers[13] != 2u) {
+        vf2_model2a_shutdown(&machine);
+        return 42;
+    }
+    cpu.ip = 0u;
+    cpu.arithmetic_control = UINT32_C(0xc0000000);
+    cpu.registers[13] = UINT32_C(0x3fc00000);
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.registers[13] != 1u) {
+        vf2_model2a_shutdown(&machine);
+        return 43;
+    }
+    vf2_model2a_shutdown(&machine);
+
+    /* cvtir converts a signed integer register to a single-precision real. */
+    memset(image, 0xff, sizeof(image));
+    write_le32(image + 0u, UINT32_C(0x67b01216)); /* cvtir g6, g6 */
+    if (!vf2_model2a_initialize(&machine)) {
+        return 44;
+    }
+    if (vf2_model2a_attach_main_rom(&machine, image, sizeof(image)) != VF2_OK) {
+        vf2_model2a_shutdown(&machine);
+        return 45;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, 0u);
+    cpu.registers[22] = UINT32_C(0xfffffff6); /* -10 */
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.registers[22] != UINT32_C(0xc1200000)) {
+        vf2_model2a_shutdown(&machine);
+        return 46;
+    }
+    vf2_model2a_shutdown(&machine);
     return 0;
 }

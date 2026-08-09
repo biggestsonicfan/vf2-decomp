@@ -109,6 +109,9 @@ typedef enum vf2_hybrid_bridge_kind {
     VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE,
     VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE,
     VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY,
+    VF2_HYBRID_BRIDGE_CAMERA_BIT7_INTERPRETER,
+    VF2_HYBRID_BRIDGE_TEXTURE_SELECTOR_INTERPRETER,
+    VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_INTERPRETER,
     VF2_HYBRID_BRIDGE_COUNT
 } vf2_hybrid_bridge_kind;
 
@@ -180,7 +183,8 @@ typedef enum vf2_hybrid_task_kind {
     VF2_HYBRID_TASK_SOUND,
     VF2_HYBRID_TASK_KILL_OSAGE,
     VF2_HYBRID_TASK_OSAGE0,
-    VF2_HYBRID_TASK_OSAGE1
+    VF2_HYBRID_TASK_OSAGE1,
+    VF2_HYBRID_TASK_PLAYER
 } vf2_hybrid_task_kind;
 
 typedef struct vf2_hybrid_task_report {
@@ -243,9 +247,9 @@ typedef struct vf2_hybrid_second_scheduler_report {
 } vf2_hybrid_second_scheduler_report;
 
 /* Execute the observed second scheduler entry from the main-loop call at
- * 0x0000a010 through the callx into the first runnable task. The accepted
- * path scans thirteen inactive descriptors and enters fa_game_info at task
- * index 13 without interpreting any i960 instructions. */
+ * 0x0000a010 through the callx into the first runnable task. The scan keeps
+ * the observed timer/frame behavior and accepts the recovered runnable task
+ * entry variants used by later repeated cycles. */
 vf2_status vf2_hybrid_second_scheduler_enter(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,

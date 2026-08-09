@@ -100,10 +100,10 @@ int main(int argc, char **argv)
     printf("SAT:     0x%08x\n", (unsigned)recovered.system_address_table);
     printf("PRCB:    0x%08x\n", (unsigned)recovered.initial_prcb);
     printf("Entry:   0x%08x\n", (unsigned)recovered.initial_entry);
-    printf("\nCurrent milestone: repeated-frame native runtime through fifth dispatch.\n");
+    printf("\nCurrent milestone: sixth-dispatch native runtime plus integrated graphics/audio boundaries.\n");
     printf(
-        "Next milestone: recover game subsystems and extend execution beyond "
-        "the fifth scheduler entry.\n"
+        "Next milestone: recover remaining sound handlers and evidence-backed "
+        "fighter/gameplay state.\n"
     );
 
     free(maincpu);

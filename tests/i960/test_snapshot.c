@@ -15,6 +15,7 @@ int vf2_test_i960_snapshot(void)
     vf2_i960_snapshot_diff diff;
     vf2_status status = VF2_OK;
 
+    memset(&diff, 0, sizeof(diff));
     vf2_i960_snapshot_init(&first);
     vf2_i960_snapshot_init(&second);
     if (!vf2_model2a_initialize(&machine)) {

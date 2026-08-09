@@ -476,12 +476,53 @@ vf2_status execute_texture_record_status_setup(
         );
     }
     cpu->registers[VF2_I960_G0_REGISTER] = flags;
-    if (status != VF2_OK ||
-        (flags & ((UINT32_C(1) << 4u) |
-                  (UINT32_C(1) << 3u) |
-                  (UINT32_C(1) << 1u))) != 0u ||
-        cpu->registers[8] == 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* These are effective-address overrides in the original routine, not
+     * table loads. Bit 4 selects the record's alternate pair at +8/+a;
+     * bit 3 or bit 1 selects the pair at +4/+6. */
+    if ((flags & (UINT32_C(1) << 4u)) != 0u) {
+        uint16_t table_index = 0u;
+        uint16_t selected_value = 0u;
+        status = read_u16(
+            machine, cpu->registers[5] + UINT32_C(8), &table_index
+        );
+        if (status == VF2_OK) {
+            status = read_u16(
+                machine, cpu->registers[5] + UINT32_C(0x0a),
+                &selected_value
+            );
+        }
+        cpu->registers[3] = table_index;
+        cpu->registers[8] = selected_value;
+        if (status == VF2_OK) {
+            cpu->registers[9] += (uint32_t)table_index * UINT32_C(4);
+            cpu->registers[10] += (uint32_t)table_index * UINT32_C(4);
+        }
+    } else if ((flags & ((UINT32_C(1) << 3u) |
+                         (UINT32_C(1) << 1u))) != 0u) {
+        uint16_t table_index = 0u;
+        uint16_t selected_value = 0u;
+        status = read_u16(
+            machine, cpu->registers[5] + UINT32_C(4), &table_index
+        );
+        if (status == VF2_OK) {
+            status = read_u16(
+                machine, cpu->registers[5] + UINT32_C(6),
+                &selected_value
+            );
+        }
+        cpu->registers[3] = table_index;
+        cpu->registers[8] = selected_value;
+        if (status == VF2_OK) {
+            cpu->registers[9] += (uint32_t)table_index * UINT32_C(4);
+            cpu->registers[10] += (uint32_t)table_index * UINT32_C(4);
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
     }
     status = write_u16(
         machine,
@@ -501,16 +542,26 @@ vf2_status execute_texture_record_status_setup(
     if (status != VF2_OK) {
         return status;
     }
-    cpu->ip = VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT;
-    cpu->executed_instructions += UINT64_C(22);
+    cpu->ip = cpu->registers[8] == 0u
+        ? VF2_TEXTURE_STATUS_DISPATCH_ENTRY
+        : VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT;
+    cpu->executed_instructions +=
+        ((flags & ((UINT32_C(1) << 4u) |
+                   (UINT32_C(1) << 3u) |
+                   (UINT32_C(1) << 1u))) != 0u)
+            ? UINT64_C(26) : UINT64_C(22);
 
     report->kind = VF2_HYBRID_BRIDGE_TEXTURE_RECORD_STATUS_SETUP;
     report->entry_address = VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY;
-    report->exit_address = VF2_TEXTURE_RECORD_STATUS_SETUP_EXIT;
+    report->exit_address = cpu->ip;
     report->iterations = UINT64_C(1);
     report->changed_values = UINT64_C(4);
     report->bytes_written = 12u;
-    report->recovered_instruction_count = UINT64_C(22);
+    report->recovered_instruction_count =
+        ((flags & ((UINT32_C(1) << 4u) |
+                   (UINT32_C(1) << 3u) |
+                   (UINT32_C(1) << 1u))) != 0u)
+            ? UINT64_C(26) : UINT64_C(22);
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }

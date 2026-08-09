@@ -3,12 +3,32 @@
 ## Purpose
 
 `vf2_native_runtime` is the reusable execution layer above individual recovered
-blocks. It is independent from the ROM-backed differential CLI and never falls
-back to the Intel i960 interpreter.
+blocks. It is independent from the ROM-backed differential CLI. Recovered
+blocks run natively; the fighter-state bit-31 branch has one explicit,
+interpreter-backed task bridge while its C recovery is still open.
 
 It routes accepted bridge, task, frame-wait, interrupt and scheduler states,
 uses live task-registry strides, preserves persistent task contexts and reports
 unknown or unobserved paths as `VF2_ERROR_UNSUPPORTED`.
+
+## Fighter-state bridge
+
+When either fighter record carries bit 31, `fa_game_info` selects the ROM
+updates at `0x00018144` and `0x00018644`. The runtime now executes that task
+through the reference i960 executor until the architectural `RET` reaches the
+scheduler at `0x00010dcc`, preserving exact CPU, frame and mutable-memory
+behavior. This is a runtime completion bridge, not a claim that those large
+fighter procedures have been translated to native C.
+
+The following scheduler task at `0x00013f08` is also routed through the same
+explicit bridge as `fa_player`. A real sixth-entry snapshot with both fighter
+bit-31 flags forced now advances from `fa_game_info` through the player tasks
+and returns to `0x0000a014`; the native-resume command is the reproducible
+smoke test for that continuation:
+
+```sh
+vf2i960 native-resume /path/to/vf2 sixth-entry.vf2snap 20 0x80000000 0xa014
+```
 
 ## API
 
@@ -54,8 +74,8 @@ vf2i960 native-fifth-dispatch /path/to/vf2
 It requires exactly:
 
 - **830** repeated-frame differential blocks;
-- **7,402,741** reference and recovered-native instructions;
-- **8,673,563** continuous recovered instructions including the historical
+- **7,404,913** reference and recovered-native instructions;
+- **8,675,735** continuous recovered instructions including the historical
   bridge; and
 - zero native-side interpreter fallbacks.
 
@@ -95,15 +115,19 @@ reported native instruction count, mirrors deterministic host frame events and
 compares complete CPU state, local frames and all mutable Model 2 memory after
 every block.
 
-The current CMake configuration exposes 8 ROM-independent and 25 ROM-backed
-tests. All 33 pass against the supported ROM set, and the ROM-independent suite
+The current CMake configuration exposes 16 ROM-independent and 26 ROM-backed
+tests. All configured tests pass against the supported ROM set, and the ROM-independent suite
 passes under ASan, UBSan and LeakSanitizer.
 
 ## Next integration
 
-The current native boundary is the fifth `fa_game_info` entry. The next target
-is the complete fifth scheduler sweep and the first unsupported state after it,
-followed by longer endurance runs. Each new branch should retain an exact
-differential contract and a synthetic state regression where practical before
-broader fighter, object, match, animation, collision and input types are
-introduced.
+The current native boundary includes the observed post-boot palette build at
+`0x00002c38`; its 28-by-32 RGB ramp, page latch and `0x00020050` return stub
+are covered by a synthetic state regression. The resumed `0x0001fe64` wrapper
+prefix is now also recovered through its `0x4b410` registration helper, state
+clears, and call into `0x0002eab8`; that helper's 90-instruction state
+initializer and nested `0x31004` setup are now covered as well. The next
+targets are the subsequent hardware-command routine and alternate palette/input modes, followed by longer
+endurance runs. Each new branch should retain an exact differential
+contract and a synthetic state regression where practical before broader
+fighter, object, match, animation, collision and input types are introduced.

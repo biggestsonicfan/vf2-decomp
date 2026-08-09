@@ -4,6 +4,8 @@ Primary technical references for the project:
 
 - MAME Sega Model 2 driver:
   `https://github.com/mamedev/mame/blob/master/src/mame/sega/model2.cpp`
+- MAME Sega Model 2 geometry engine and rasterizer:
+  `https://github.com/mamedev/mame/blob/master/src/mame/sega/model2_v.cpp`
 - MAME Intel i960 implementation:
   `https://github.com/mamedev/mame/tree/master/src/devices/cpu/i960`
 - Intel 80960KB Programmer's Reference Manual, document 270567-001.

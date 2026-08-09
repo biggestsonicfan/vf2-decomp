@@ -63,7 +63,11 @@ typedef enum vf2_native_runtime_step_kind {
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INPUT_PROFILE_ENTRY,
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_FLOAT_DEFAULTS_INIT,
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_INPUT_PROFILE_LOAD,
-    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_RAMP_ENTRY
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_RAMP_ENTRY,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD_RETURN,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_WRAPPER_PREFIX,
+    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT
 } vf2_native_runtime_step_kind;
 
 typedef struct vf2_native_runtime_state {
@@ -108,6 +112,7 @@ typedef struct vf2_native_runtime_run_report {
     uint64_t recovered_instruction_count;
     uint64_t recovered_procedure_calls;
     uint64_t recovered_procedure_returns;
+    uint32_t last_entry_address;
     vf2_native_runtime_step_kind last_step_kind;
     vf2_hybrid_bridge_kind last_bridge_kind;
     vf2_hybrid_task_kind last_task_kind;
@@ -120,9 +125,10 @@ typedef struct vf2_native_runtime_run_report {
 vf2_status vf2_native_runtime_initialize(vf2_native_runtime_state *state,
                                          size_t frame_wait_visits_before_interrupt);
 
-/* Execute exactly one accepted recovered block at cpu->ip. This function never
- * falls back to the i960 interpreter. Unknown addresses and unobserved branches
- * return VF2_ERROR_UNSUPPORTED without changing the aggregate counters. */
+/* Execute exactly one accepted recovered block at cpu->ip. The explicitly
+ * labeled fighter-state bridge may execute the original i960 task until its
+ * scheduler return; unknown addresses and other unobserved branches return
+ * VF2_ERROR_UNSUPPORTED without changing aggregate counters. */
 vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                    vf2_native_runtime_state *state,
                                    vf2_native_runtime_step_report *report);

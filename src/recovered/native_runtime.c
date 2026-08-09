@@ -112,12 +112,24 @@
 #define VF2_NATIVE_POST_BOOT_INPUT_PROFILE_LOAD_EXIT UINT32_C(0x0001fe60)
 #define VF2_NATIVE_POST_BOOT_PALETTE_RAMP_BODY UINT32_C(0x0001fffc)
 #define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY UINT32_C(0x00002c38)
+#define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_INSTRUCTIONS UINT64_C(30467)
+#define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_RETURN UINT32_C(0x00020050)
+#define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_ENTRY UINT32_C(0x0001fe64)
+#define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER UINT32_C(0x0004b410)
+#define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER_RETURN UINT32_C(0x0001fe78)
+#define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_NEXT UINT32_C(0x0002eab8)
+#define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_RETURN UINT32_C(0x0001fedc)
+#define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN UINT32_C(0x0002ec20)
+#define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED UINT32_C(0x00031004)
+#define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INSTRUCTIONS UINT64_C(90)
+#define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED_INSTRUCTIONS UINT64_C(11)
 #define VF2_NATIVE_FRAME_WAIT_POLL_ENTRY UINT32_C(0x00010f90)
 #define VF2_NATIVE_INTERRUPT_RETURN_ENTRY UINT32_C(0x00000d20)
 #define VF2_NATIVE_SECOND_SCHEDULER_ENTRY UINT32_C(0x0000a010)
 #define VF2_NATIVE_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_NATIVE_MAIN_AFTER_SCHEDULER UINT32_C(0x0000a014)
 #define VF2_NATIVE_GAME_INFO_TASK_ENTRY UINT32_C(0x0001645c)
+#define VF2_NATIVE_PLAYER_TASK_ENTRY UINT32_C(0x00013f08)
 #define VF2_NATIVE_CAMERA_RECURRING_ENTRY UINT32_C(0x0001d458)
 #define VF2_NATIVE_CAMERA_GATE_ENTRY UINT32_C(0x0001d660)
 #define VF2_NATIVE_CAMERA_FAST_EXIT UINT32_C(0x0001e524)
@@ -4167,6 +4179,445 @@ execute_post_boot_palette_ramp_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
     return VF2_OK;
 }
 
+static vf2_status
+execute_post_boot_palette_build(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    const uint32_t work_base = UINT32_C(0x00546008);
+    const uint32_t output_base = UINT32_C(0x00546128);
+    const uint32_t row_count = UINT32_C(28);
+    const uint32_t column_count = UINT32_C(32);
+    const uint32_t fixed_point_denominator = UINT32_C(18);
+    const uint32_t fixed_point_scale = UINT32_C(28);
+    uint8_t red_base = 0u;
+    uint8_t red_source_step = 0u;
+    uint8_t green_base = 0u;
+    uint8_t green_source_step = 0u;
+    uint8_t blue_base = 0u;
+    uint8_t blue_source_step = 0u;
+    uint8_t red_multiplier = 0u;
+    uint8_t green_multiplier = 0u;
+    uint8_t blue_multiplier = 0u;
+    uint32_t red_step = 0u;
+    uint32_t green_step = 0u;
+    uint32_t blue_step = 0u;
+    uint32_t red_accumulator = 0u;
+    uint32_t green_accumulator = 0u;
+    uint32_t blue_accumulator = 0u;
+    uint32_t row = 0u;
+    uint32_t column = 0u;
+    uint32_t output = output_base;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY ||
+        cpu->local_frame_depth != 3u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = vf2_model2a_read(machine, UINT32_C(0x00500234), &red_base,
+                              sizeof(red_base));
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500235), &red_source_step,
+                                  sizeof(red_source_step));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500236), &green_base,
+                                  sizeof(green_base));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500237), &green_source_step,
+                                  sizeof(green_source_step));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500238), &blue_base,
+                                  sizeof(blue_base));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x00500239), &blue_source_step,
+                                  sizeof(blue_source_step));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x005000e0), &red_multiplier,
+                                  sizeof(red_multiplier));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x005000e1), &green_multiplier,
+                                  sizeof(green_multiplier));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, UINT32_C(0x005000e2), &blue_multiplier,
+                                  sizeof(blue_multiplier));
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* The ROM emits eighteen quad stores for this 0x120-byte scratch area. */
+    for (row = 0u; status == VF2_OK && row < UINT32_C(0x120); row += 16u) {
+        uint8_t zeroes[16] = {0u};
+        status = vf2_model2a_write(machine, work_base + row, zeroes, sizeof(zeroes));
+    }
+
+    for (row = 1u; status == VF2_OK && row <= row_count; ++row) {
+        red_step = (row * (uint32_t)red_source_step * fixed_point_scale) /
+                   fixed_point_denominator;
+        green_step = (row * (uint32_t)green_source_step * fixed_point_scale) /
+                     fixed_point_denominator;
+        blue_step = (row * (uint32_t)blue_source_step * fixed_point_scale) /
+                    fixed_point_denominator;
+        red_accumulator = 0u;
+        green_accumulator = 0u;
+        blue_accumulator = 0u;
+
+        status = write_u16_le(machine, output, 0u);
+        if (status == VF2_OK) {
+            status = write_u16_le(machine, output + UINT32_C(2), 0u);
+        }
+        if (status == VF2_OK) {
+            status = write_u16_le(machine, output + UINT32_C(4), 0u);
+        }
+        output += UINT32_C(6);
+
+        for (column = 0u; status == VF2_OK && column < column_count; ++column) {
+            uint32_t red = 0u;
+            uint32_t green = 0u;
+            uint32_t blue = 0u;
+
+            red_accumulator += red_step;
+            red = (red_accumulator >> 8u) + (uint32_t)red_base;
+            if (red >= UINT32_C(0x100)) {
+                red = UINT32_MAX;
+            }
+            red = (red * (uint32_t)red_multiplier) >> 7u;
+
+            green_accumulator += green_step;
+            green = (green_accumulator >> 8u) + (uint32_t)green_base;
+            if (green >= UINT32_C(0x100)) {
+                green = UINT32_MAX;
+            }
+            green = (green * (uint32_t)green_multiplier) >> 7u;
+
+            blue_accumulator += blue_step;
+            blue = (blue_accumulator >> 8u) + (uint32_t)blue_base;
+            if (blue >= UINT32_C(0x100)) {
+                blue = UINT32_MAX;
+            }
+            blue = (blue * (uint32_t)blue_multiplier) >> 7u;
+
+            status = write_u16_le(machine, output, (uint16_t)red);
+            if (status == VF2_OK) {
+                status = write_u16_le(machine, output + UINT32_C(2), (uint16_t)green);
+            }
+            if (status == VF2_OK) {
+                status = write_u16_le(machine, output + UINT32_C(4), (uint16_t)blue);
+            }
+            output += UINT32_C(6);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00546004), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00546000), UINT32_C(1));
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* The final cmpinco is in the build frame.  The ordinary procedure
+     * return below restores the caller's locals, so only its condition code
+     * survives this return. */
+    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions =
+        start_instructions + VF2_NATIVE_POST_BOOT_PALETTE_BUILD_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_post_boot_palette_build_return(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                       vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_PALETTE_BUILD_RETURN ||
+        cpu->local_frame_depth != 2u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions = start_instructions + UINT64_C(1);
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD_RETURN;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_post_boot_resumed_wrapper_prefix(vf2_model2a *machine,
+                                         vf2_i960_cpu *cpu,
+                                         vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    const uint32_t table_offset = cpu->registers[4];
+    uint32_t value = 0u;
+    uint32_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0006eeb0) + table_offset, &value
+    );
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = value;
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0006eeb4) + table_offset, &value
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = value;
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER,
+            VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER_RETURN
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[3] = 1u;
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00550000), 1u);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[3] = UINT32_C(0x005502e0);
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x005502e0), 3u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x005502e4), cpu->registers[VF2_I960_G0_REGISTER]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x005502e8),
+            cpu->registers[VF2_I960_G0_REGISTER + 1u]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x005502ec), cpu->registers[VF2_I960_G0_REGISTER + 2u]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status == VF2_OK && cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER_RETURN) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x0050a014) + index * UINT32_C(4), 0u
+        );
+    }
+    for (index = 0u; status == VF2_OK && index < 4u; ++index) {
+        status = write_u16_le(
+            machine, UINT32_C(0x0050a020) + index * UINT32_C(2), 0u
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_NEXT,
+            VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_RETURN
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->executed_instructions = start_instructions + UINT64_C(27);
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_WRAPPER_PREFIX;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_post_boot_resumed_helper_init(vf2_model2a *machine,
+                                      vf2_i960_cpu *cpu,
+                                      vf2_native_runtime_step_report *report) {
+    static const struct {
+        uint32_t offset;
+        uint32_t value;
+    } global_words[] = {
+        {UINT32_C(0x0050a160), UINT32_C(0xc0900000)},
+        {UINT32_C(0x0050a164), UINT32_C(0x3dcccccd)},
+        {UINT32_C(0x0050a168), UINT32_C(0x3dcccccd)},
+    };
+    static const struct {
+        uint32_t offset;
+        uint32_t value;
+    } state_words[] = {
+        {UINT32_C(0x234), UINT32_C(0x3c872b02)},
+        {UINT32_C(0x238), UINT32_C(0x3ca3d70a)},
+        {UINT32_C(0x264), UINT32_C(0x409851ec)},
+        {UINT32_C(0x268), UINT32_C(0x40d051ec)},
+        {UINT32_C(0x240), 0u},
+        {UINT32_C(0x2bc), 0u},
+        {UINT32_C(0x2c0), 0u},
+        {UINT32_C(0x2c4), UINT32_C(0x3e19999a)},
+        {UINT32_C(0x2c8), 0u},
+        {UINT32_C(0x2cc), UINT32_C(0xbcf5c28f)},
+    };
+    static const uint32_t state_halfwords[][2] = {
+        {UINT32_C(0x260), 0u}, {UINT32_C(0x23c), 13u},
+        {UINT32_C(0x26c), 0u}, {UINT32_C(0x26e), 0u},
+        {UINT32_C(0x244), 0u}, {UINT32_C(0x2b0), 0u},
+        {UINT32_C(0x2b2), 0u}, {UINT32_C(0x2b4), 0u},
+        {UINT32_C(0x2b6), 0u}, {UINT32_C(0x2b8), 0u},
+        {UINT32_C(0x2ba), 0u},
+    };
+    static const uint32_t state_bytes[][2] = {
+        {UINT32_C(0x27c), 0u}, {UINT32_C(0x23e), 88u},
+        {UINT32_C(0x27d), 0u}, {UINT32_C(0x23f), 0u},
+        {UINT32_C(0x246), UINT32_C(0xff)}, {UINT32_C(0x27e), 0u},
+        {UINT32_C(0x27f), 0u},
+    };
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t state_base = 0u;
+    uint32_t stream_base = 0u;
+    uint8_t byte_value = 0u;
+    uint32_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_NEXT ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    for (index = 0u; status == VF2_OK && index < sizeof(global_words) /
+                                         sizeof(global_words[0]); ++index) {
+        status = vf2_model2a_write_u32(machine, global_words[index].offset,
+                                       global_words[index].value);
+    }
+    if (status == VF2_OK) {
+        byte_value = 0u;
+        status = vf2_model2a_write(machine, UINT32_C(0x0050a14d),
+                                   &byte_value, sizeof(byte_value));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500814), &state_base);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, state_base + UINT32_C(0xdf),
+                                  &byte_value, sizeof(byte_value));
+        byte_value = (uint8_t)(byte_value & UINT8_C(0xfe));
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(machine, state_base + UINT32_C(0xdf),
+                                       &byte_value, sizeof(byte_value));
+        }
+    }
+    for (index = 0u; status == VF2_OK && index < sizeof(state_words) /
+                                         sizeof(state_words[0]); ++index) {
+        status = vf2_model2a_write_u32(machine, state_base + state_words[index].offset,
+                                       state_words[index].value);
+    }
+    for (index = 0u; status == VF2_OK && index < sizeof(state_halfwords) /
+                                         sizeof(state_halfwords[0]); ++index) {
+        status = write_u16_le(machine, state_base + state_halfwords[index][0],
+                              (uint16_t)state_halfwords[index][1]);
+    }
+    for (index = 0u; status == VF2_OK && index < sizeof(state_bytes) /
+                                         sizeof(state_bytes[0]); ++index) {
+        byte_value = (uint8_t)state_bytes[index][1];
+        status = vf2_model2a_write(machine, state_base + state_bytes[index][0],
+                                   &byte_value, sizeof(byte_value));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050084c), &stream_base);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x40), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED,
+            VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[8] = UINT32_C(0x40c00000);
+        cpu->registers[9] = UINT32_C(0x40966666);
+        cpu->registers[10] = UINT32_C(0x41940000);
+        cpu->registers[12] = 0u;
+        cpu->registers[13] = 0u;
+        cpu->registers[14] = 0u;
+        status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x54),
+                                       cpu->registers[8]);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x58),
+                                       cpu->registers[9]);
+    }
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+        status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x60) +
+                                       index * UINT32_C(4), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x70), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status == VF2_OK && cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status != VF2_OK || cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_RETURN) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    cpu->executed_instructions = start_instructions +
+        VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INSTRUCTIONS +
+        VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
 static void accumulate_step(vf2_native_runtime_state *state,
                             const vf2_native_runtime_step_report *report) {
     ++state->blocks_executed;
@@ -4188,17 +4639,79 @@ static void accumulate_step(vf2_native_runtime_state *state,
 }
 
 static vf2_status
+execute_recurring_camera_bit7_interpreter(vf2_model2a *machine,
+                                           vf2_i960_cpu *cpu,
+                                           vf2_native_runtime_step_report *report)
+{
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_CAMERA_RECURRING_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&options, 0, sizeof(options));
+    options.stop_address = VF2_NATIVE_SCHEDULER_RETURN;
+    options.max_steps = UINT64_C(20000000);
+    options.stop_on_self_branch = false;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+        cpu->ip != VF2_NATIVE_SCHEDULER_RETURN) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    report->kind = VF2_NATIVE_RUNTIME_STEP_TASK;
+    report->bridge_kind = VF2_HYBRID_BRIDGE_CAMERA_BIT7_INTERPRETER;
+    report->task_kind = VF2_HYBRID_TASK_CAMERA;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
 execute_recurring_camera_task(vf2_model2a *machine, vf2_i960_cpu *cpu,
                               vf2_native_runtime_step_report *report) {
     const uint64_t start_instructions = cpu->executed_instructions;
     const uint64_t start_calls = cpu->procedure_calls;
     const uint64_t start_returns = cpu->procedure_returns;
     const uint32_t recurring_fighter_cursor = cpu->registers[23];
+    uint32_t fighter0 = 0u;
+    uint32_t fighter1 = 0u;
+    uint32_t fighter0_flags = 0u;
+    uint32_t fighter1_flags = 0u;
     vf2_hybrid_block_report block_report;
     vf2_status status = VF2_OK;
 
     if (cpu->ip != VF2_NATIVE_CAMERA_RECURRING_ENTRY || cpu->local_frame_depth == 0u) {
         return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &fighter0);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &fighter1);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter0, &fighter0_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter1, &fighter1_flags);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if ((fighter0_flags | fighter1_flags) & (UINT32_C(1) << 7u)) {
+        return execute_recurring_camera_bit7_interpreter(machine, cpu, report);
     }
 
     memset(&block_report, 0, sizeof(block_report));
@@ -4238,6 +4751,87 @@ execute_recurring_camera_task(vf2_model2a *machine, vf2_i960_cpu *cpu,
         report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
     }
     return status;
+}
+
+static vf2_status
+execute_texture_selector_interpreter(vf2_model2a *machine,
+                                     vf2_i960_cpu *cpu,
+                                     uint32_t stop_address,
+                                     vf2_native_runtime_step_report *report)
+{
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&options, 0, sizeof(options));
+    options.stop_address = stop_address;
+    options.max_steps = UINT64_C(20000000);
+    options.stop_on_self_branch = false;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+        cpu->ip != stop_address) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    report->kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+    report->bridge_kind = VF2_HYBRID_BRIDGE_TEXTURE_SELECTOR_INTERPRETER;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_texture_counter_interpreter(vf2_model2a *machine,
+                                     vf2_i960_cpu *cpu,
+                                     vf2_native_runtime_step_report *report)
+{
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_TEXTURE_COUNTER_UPDATE_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&options, 0, sizeof(options));
+    options.stop_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
+    options.max_steps = UINT64_C(20000000);
+    options.stop_on_self_branch = false;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+        cpu->ip != VF2_TEXTURE_COUNTER_UPDATE_EXIT) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    report->kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+    report->bridge_kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_INTERPRETER;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
 }
 
 static vf2_status
@@ -4771,6 +5365,14 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = execute_post_boot_input_profile_load(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_INPUT_PROFILE_LOAD_EXIT) {
         status = execute_post_boot_palette_ramp_entry(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY) {
+        status = execute_post_boot_palette_build(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_PALETTE_BUILD_RETURN) {
+        status = execute_post_boot_palette_build_return(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_ENTRY) {
+        status = execute_post_boot_resumed_wrapper_prefix(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_NEXT) {
+        status = execute_post_boot_resumed_helper_init(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_GEOMETRY_PATTERN_ENTRY ||
                cpu->ip == VF2_NATIVE_POST_BOOT_PATTERN_WAIT_EXIT) {
         status = execute_post_boot_geometry_pattern(machine, cpu, &local_report);
@@ -4820,7 +5422,85 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = execute_recurring_camera_task(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_SOUND_CONTINUATION_ENTRY) {
         status = execute_sound_continuation_task(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY) {
+        uint32_t selector_flags = 0u;
+        uint16_t selected_value = 0u;
+        const uint32_t relevant_flags =
+            (UINT32_C(1) << 4u) | (UINT32_C(1) << 3u) | (UINT32_C(1) << 1u);
+        status = vf2_model2a_read_u32(
+            machine, cpu->registers[5] + UINT32_C(0x10), &selector_flags
+        );
+        if (status == VF2_OK &&
+            (selector_flags & relevant_flags) != 0u) {
+            const uint32_t selected_offset =
+                (selector_flags & (UINT32_C(1) << 4u)) != 0u
+                    ? UINT32_C(0x0a) : UINT32_C(6);
+            status = vf2_model2a_read(
+                machine, cpu->registers[5] + selected_offset,
+                &selected_value, sizeof(selected_value)
+            );
+            if (status == VF2_OK) {
+                status = execute_texture_selector_interpreter(
+                    machine, cpu,
+                    selected_value == 0u
+                        ? VF2_TEXTURE_STATUS_DISPATCH_ENTRY
+                        : VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY,
+                    &local_report
+                );
+            }
+        } else if (status == VF2_OK) {
+            vf2_hybrid_bridge_report bridge_report;
+            memset(&bridge_report, 0, sizeof(bridge_report));
+            status = vf2_hybrid_post_frame_bridge_execute(
+                machine, cpu, &bridge_report
+            );
+            if (status == VF2_OK) {
+                local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+                local_report.bridge_kind = bridge_report.kind;
+                local_report.exit_address = cpu->ip;
+                local_report.recovered_instruction_count =
+                    bridge_report.recovered_instruction_count;
+                local_report.recovered_procedure_calls =
+                    bridge_report.recovered_procedure_calls;
+                local_report.recovered_procedure_returns =
+                    bridge_report.recovered_procedure_returns;
+            }
+        }
+    } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {
+        uint32_t counter0 = 0u;
+        uint32_t counter1 = 0u;
+        status = vf2_model2a_read_u32(
+            machine, VF2_TEXTURE_COUNTER0, &counter0
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, VF2_TEXTURE_COUNTER1, &counter1
+            );
+        }
+        if (status == VF2_OK && (counter0 != 0u || counter1 != 0u)) {
+            status = execute_texture_counter_interpreter(
+                machine, cpu, &local_report
+            );
+        } else if (status == VF2_OK) {
+            vf2_hybrid_bridge_report bridge_report;
+            memset(&bridge_report, 0, sizeof(bridge_report));
+            status = vf2_hybrid_post_frame_bridge_execute(
+                machine, cpu, &bridge_report
+            );
+            if (status == VF2_OK) {
+                local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+                local_report.bridge_kind = bridge_report.kind;
+                local_report.exit_address = cpu->ip;
+                local_report.recovered_instruction_count =
+                    bridge_report.recovered_instruction_count;
+                local_report.recovered_procedure_calls =
+                    bridge_report.recovered_procedure_calls;
+                local_report.recovered_procedure_returns =
+                    bridge_report.recovered_procedure_returns;
+            }
+        }
     } else if (cpu->ip == VF2_NATIVE_GAME_INFO_TASK_ENTRY ||
+               cpu->ip == VF2_NATIVE_PLAYER_TASK_ENTRY ||
                cpu->ip == VF2_NATIVE_USER_TASK_ENTRY ||
                cpu->ip == VF2_NATIVE_SOUND_TASK_ENTRY ||
                cpu->ip == VF2_NATIVE_KILL_OSAGE_TASK_ENTRY ||
@@ -4909,6 +5589,7 @@ vf2_status vf2_native_runtime_run_until(vf2_model2a *machine, vf2_i960_cpu *cpu,
     while (cpu->ip != stop_address && local_report.blocks_executed < max_blocks) {
         vf2_native_runtime_step_report step_report;
         memset(&step_report, 0, sizeof(step_report));
+        local_report.last_entry_address = cpu->ip;
         status = vf2_native_runtime_step(machine, cpu, state, &step_report);
         /* Surface the last attempted step kind, even on failure, so the
          * run report can identify which recovered block rejected an
@@ -5063,6 +5744,14 @@ const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind)
         return "post-boot-input-profile-load";
     case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_RAMP_ENTRY:
         return "post-boot-palette-ramp-entry";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD:
+        return "post-boot-palette-build";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD_RETURN:
+        return "post-boot-palette-build-return";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_WRAPPER_PREFIX:
+        return "post-boot-resumed-wrapper-prefix";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT:
+        return "post-boot-resumed-helper-init";
     default:
         return "unknown";
     }

@@ -32,6 +32,7 @@ int vf2_test_i960_interrupts(void)
     uint8_t flag = 0u;
     vf2_status status = VF2_OK;
 
+    memset(&report, 0, sizeof(report));
     rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE);
     if (rom == NULL || !vf2_model2a_initialize(&machine)) {
         free(rom);

@@ -1,6 +1,7 @@
 #include "vf2/i960/executor.h"
 
 #include <limits.h>
+#include <math.h>
 #include <string.h>
 
 #include "vf2/i960/decoder.h"
@@ -256,6 +257,57 @@ static void compare_signed(vf2_i960_cpu *cpu, uint32_t left, uint32_t right)
     } else {
         set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
     }
+}
+
+static vf2_status convert_real_to_integer(
+    const vf2_i960_cpu *cpu,
+    uint32_t bits,
+    bool truncate,
+    uint32_t *result
+)
+{
+    const float value = bits_to_float(bits);
+    double rounded = 0.0;
+    unsigned mode = 0u;
+
+    if (cpu == NULL || result == NULL || !isfinite(value)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (truncate) {
+        rounded = trunc((double)value);
+    } else {
+        mode = (unsigned)((cpu->arithmetic_control >> 30u) & 3u);
+        switch (mode) {
+        case 0u: {
+            const double lower = floor((double)value);
+            const double fraction = (double)value - lower;
+            if (fraction < 0.5) {
+                rounded = lower;
+            } else if (fraction > 0.5) {
+                rounded = lower + 1.0;
+            } else {
+                rounded = fmod(fabs(lower), 2.0) == 0.0
+                    ? lower : lower + 1.0;
+            }
+            break;
+        }
+        case 1u:
+            rounded = floor((double)value);
+            break;
+        case 2u:
+            rounded = ceil((double)value);
+            break;
+        case 3u:
+        default:
+            rounded = trunc((double)value);
+            break;
+        }
+    }
+    if (rounded < (double)INT32_MIN || rounded > (double)INT32_MAX) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    *result = (uint32_t)(int32_t)rounded;
+    return VF2_OK;
 }
 
 static bool condition_matches(
@@ -898,6 +950,54 @@ static vf2_status execute_instruction(
             compare_signed(cpu, first, second);
         }
         return VF2_OK;
+    }
+    if (strcmp(mnemonic, "concmpo") == 0 ||
+        strcmp(mnemonic, "concmpi") == 0) {
+        /* Conditional compare implements the i960 two-sided range idiom:
+         * once the preceding comparison has produced equality, preserve it;
+         * otherwise compare the new operands and replace the condition code. */
+        if ((cpu->arithmetic_control & UINT32_C(2)) != 0u) {
+            return VF2_OK;
+        }
+        status = operand_value(cpu, &instruction->operands[0], &first);
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = operand_value(cpu, &instruction->operands[1], &second);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (strcmp(mnemonic, "concmpo") == 0) {
+            compare_unsigned(cpu, first, second);
+        } else {
+            compare_signed(cpu, first, second);
+        }
+        return VF2_OK;
+    }
+    if (strcmp(mnemonic, "cvtri") == 0 ||
+        strcmp(mnemonic, "cvtzri") == 0) {
+        uint32_t converted = 0u;
+        status = operand_value(cpu, &instruction->operands[0], &first);
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = convert_real_to_integer(
+            cpu, first, strcmp(mnemonic, "cvtzri") == 0, &converted
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        return set_register(cpu, &instruction->operands[1], converted);
+    }
+    if (strcmp(mnemonic, "cvtir") == 0) {
+        status = operand_value(cpu, &instruction->operands[0], &first);
+        if (status != VF2_OK) {
+            return status;
+        }
+        return set_register(
+            cpu, &instruction->operands[1],
+            float_to_bits((float)(int32_t)first)
+        );
     }
     if (strcmp(mnemonic, "cmpdeco") == 0 || strcmp(mnemonic, "cmpdeci") == 0 ||
         strcmp(mnemonic, "cmpinco") == 0 || strcmp(mnemonic, "cmpinci") == 0) {

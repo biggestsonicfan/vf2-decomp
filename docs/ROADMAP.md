@@ -300,11 +300,26 @@
 - C geometry compatibility API;
 - deterministic software reference renderer.
 
+The first hardware-boundary slice is now present: table-backed scalar services,
+program upload storage, host FIFOs and banked copro/buffer memory are covered by
+`vf2_tgp`. Its bounded stateful reference executor handles direct data,
+polygon-ROM/RAM object data, matrix/translation/focus state and depth-tested
+triangle submission. Polygon packet decoding, lighting/clipping fidelity and
+renderer microcode recovery remain outstanding.
+
 ## v0.4.0 — audio path
 
 - 68000 sound-command protocol;
 - recovered sound driver logic;
 - portable SCSP-compatible backend.
+
+The audio-analysis slice now exposes the ROM vector table, the Model 2 sound
+board map, instruction-aligned shared-interrupt and 32-entry voice-maintenance
+state transition through `vf2_sound_board`, a producer/consumer command ring with
+bounded `0xc0`, no-live-voice `0xe0`, and selected `0xb0` handlers, and a
+deterministic PCM slot renderer with sample-address progression, looping, stereo
+pan and a slot ADSR lifecycle. Full command decoding, FM/DSP and
+hardware-accurate envelope timing remain outstanding.
 
 ## v0.9.0 — first playable native build
 

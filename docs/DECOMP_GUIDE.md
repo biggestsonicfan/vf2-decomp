@@ -56,7 +56,9 @@ label it recovered.
 - execution coverage is intentionally limited to verified startup semantics;
 - static propagation remains mainly intraprocedural;
 - computed continuations depending on caller state can remain unresolved;
-- no scheduler, game task, TGP or sound program has been recovered yet;
+- no complete scheduler/game task, polygon TGP program or sound program has
+  been recovered yet; the evidence-bounded TGP scalar host boundary is now
+  available as `vf2_tgp`;
 - the Model 2 memory model contains only regions required by current paths.
 
 ## Files that must not be committed
