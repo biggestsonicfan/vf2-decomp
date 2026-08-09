@@ -685,8 +685,10 @@ vf2_status vf2_hybrid_second_scheduler_enter(
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL ||
-        cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE ||
-        cpu->local_frame_depth > 1u) {
+        (cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE &&
+         cpu->ip != VF2_SECOND_SCHEDULER_ENTRY) ||
+        (cpu->ip == VF2_SECOND_SCHEDULER_CALL_SITE &&
+         cpu->local_frame_depth > 1u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
@@ -724,12 +726,14 @@ vf2_status vf2_hybrid_second_scheduler_enter(
         return VF2_ERROR_UNSUPPORTED;
     }
 
-    status = vf2_i960_cpu_enter_procedure(
-        cpu, VF2_SECOND_SCHEDULER_ENTRY,
-        VF2_SECOND_SCHEDULER_CALL_SITE + UINT32_C(4)
-    );
-    if (status != VF2_OK) {
-        return status;
+    if (cpu->ip == VF2_SECOND_SCHEDULER_CALL_SITE) {
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, VF2_SECOND_SCHEDULER_ENTRY,
+            VF2_SECOND_SCHEDULER_CALL_SITE + UINT32_C(4)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
     }
 
     /* The two 0x7b18 helpers clear the geometry status word and publish
@@ -805,7 +809,36 @@ vf2_status vf2_hybrid_second_scheduler_enter(
         scratch += VF2_SCHEDULER_SCRATCH_STRIDE;
     }
 
-    if (index >= task_count || !hybrid_second_scheduler_task_supported(selected_entry)) {
+    if (index >= task_count) {
+        /* The ROM returns normally when the full registry scan finds no
+         * runnable descriptor. The next frame will re-enter the scheduler;
+         * there is no task frame to reconstruct in this case. */
+        cpu->registers[0] &= ~UINT32_C(7);
+        cpu->executed_instructions += UINT64_C(220);
+        cpu->procedure_calls += UINT64_C(2);
+        cpu->procedure_returns += UINT64_C(2);
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status != VF2_OK) {
+            return status;
+        }
+        ++cpu->executed_instructions;
+        local_report.descriptors_scanned = task_count;
+        local_report.inactive_descriptors_scanned = task_count;
+        local_report.selected_task_index = task_count;
+        local_report.registry_start = VF2_SECOND_SCHEDULER_REGISTRY_BASE;
+        local_report.selected_registry_address = registry;
+        local_report.selected_entry_address = 0u;
+        local_report.scheduler_entry_address = VF2_SECOND_SCHEDULER_ENTRY;
+        local_report.recovered_instruction_count = UINT64_C(221);
+        local_report.recovered_procedure_calls = UINT64_C(2);
+        local_report.recovered_procedure_returns = UINT64_C(3);
+        local_report.cpu_poststate_applied = 1;
+        if (report != NULL) {
+            *report = local_report;
+        }
+        return VF2_OK;
+    }
+    if (!hybrid_second_scheduler_task_supported(selected_entry)) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -813,6 +846,7 @@ vf2_status vf2_hybrid_second_scheduler_enter(
      * task entry itself receives a fresh local frame, while this state remains
      * cached for the task's later RET to 0x10dcc. */
     memset(&cpu->registers[2], 0, 14u * sizeof(cpu->registers[0]));
+    cpu->registers[0] = 0u;
     cpu->registers[2] = UINT32_C(0x00010d64);
     cpu->registers[3] = task_count;
     cpu->registers[4] = selected_entry;

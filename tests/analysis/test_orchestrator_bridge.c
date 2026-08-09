@@ -1395,7 +1395,7 @@ static void test_frame_interrupt_support_batch(void)
     uint8_t *rom = NULL;
     uint8_t byte = 0u;
     uint32_t value = 0u;
-    const size_t rom_size = (size_t)UINT32_C(0x00050700);
+    const size_t rom_size = (size_t)UINT32_C(0x00050728);
 
     CHECK(vf2_model2a_initialize(&machine) != 0);
     if (machine.work_ram == NULL) {
@@ -1426,6 +1426,13 @@ static void test_frame_interrupt_support_batch(void)
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005001dc), 0u) == VF2_OK);
     byte = 0u;
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500f00), &byte, 1u) == VF2_OK);
+    /* The compose helper samples the board's video-control bytes at these
+     * offsets; keep the synthetic board input neutral while the host-input
+     * mask remains covered by the model2a input tests. */
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x01c00010), &byte, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x01c00012), &byte, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x01c00014), &byte, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x01c0001c), &byte, 1u) == VF2_OK);
     enter_parent(&cpu, UINT32_C(0x00001064));
     memset(&report, 0, sizeof(report));
     CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);

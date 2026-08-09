@@ -129,6 +129,7 @@
 #define VF2_NATIVE_FRAME_WAIT_POLL_ENTRY UINT32_C(0x00010f90)
 #define VF2_NATIVE_INTERRUPT_RETURN_ENTRY UINT32_C(0x00000d20)
 #define VF2_NATIVE_SECOND_SCHEDULER_ENTRY UINT32_C(0x0000a010)
+#define VF2_NATIVE_SECOND_SCHEDULER_BODY UINT32_C(0x00010d54)
 #define VF2_NATIVE_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_NATIVE_MAIN_AFTER_SCHEDULER UINT32_C(0x0000a014)
 #define VF2_NATIVE_GAME_INFO_TASK_ENTRY UINT32_C(0x0001645c)
@@ -5595,6 +5596,7 @@ execute_second_sweep_scheduler_transition(vf2_model2a *machine, vf2_i960_cpu *cp
         end_registry = next_registry + end_stride;
 
         cpu->registers[29] = end_registry;
+        cpu->registers[0] &= ~UINT32_C(7);
         cpu->arithmetic_control &= ~UINT32_C(7);
         cpu->compare_result = VF2_I960_COMPARE_GREATER;
         cpu->executed_instructions += finish_instructions - UINT64_C(1);
@@ -5827,7 +5829,8 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
             local_report.recovered_procedure_returns =
                 bridge_report.recovered_procedure_returns;
         }
-    } else if (cpu->ip == VF2_NATIVE_SECOND_SCHEDULER_ENTRY) {
+    } else if (cpu->ip == VF2_NATIVE_SECOND_SCHEDULER_ENTRY ||
+               cpu->ip == VF2_NATIVE_SECOND_SCHEDULER_BODY) {
         vf2_hybrid_second_scheduler_report scheduler_report;
         uint32_t scheduler_flags = 0u;
         memset(&scheduler_report, 0, sizeof(scheduler_report));
@@ -5869,10 +5872,73 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = execute_second_sweep_scheduler_finish(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_SCHEDULER_RETURN) {
         status = execute_second_sweep_scheduler_transition(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_FRAME_COUNTER_ADVANCE_ENTRY) {
+        vf2_hybrid_bridge_report bridge_report;
+        memset(&bridge_report, 0, sizeof(bridge_report));
+        status = execute_frame_counter_advance(machine, cpu, &bridge_report);
+        if (status == VF2_OK) {
+            local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+            local_report.bridge_kind = bridge_report.kind;
+            local_report.exit_address = cpu->ip;
+            local_report.recovered_instruction_count =
+                bridge_report.recovered_instruction_count;
+            local_report.recovered_procedure_calls =
+                bridge_report.recovered_procedure_calls;
+            local_report.recovered_procedure_returns =
+                bridge_report.recovered_procedure_returns;
+        }
     } else if (cpu->ip == VF2_NATIVE_CAMERA_RECURRING_ENTRY) {
         status = execute_recurring_camera_task(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_SOUND_CONTINUATION_ENTRY) {
         status = execute_sound_continuation_task(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_TEXTURE_DEFAULT_LIMITS_ENTRY) {
+        vf2_hybrid_bridge_report bridge_report;
+        memset(&bridge_report, 0, sizeof(bridge_report));
+        status = execute_texture_default_limits(machine, cpu, &bridge_report);
+        if (status == VF2_ERROR_UNSUPPORTED) {
+            status = vf2_model2a_write_u32(
+                machine, VF2_ORCHESTRATOR_LIMIT_LOW, UINT32_C(0x00003e80)
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, VF2_ORCHESTRATOR_LIMIT_HIGH, UINT32_C(0x00004e20)
+                );
+            }
+            if (status == VF2_OK) {
+                cpu->ip = VF2_TEXTURE_DEFAULT_LIMITS_RETURN;
+                local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+                local_report.bridge_kind = VF2_HYBRID_BRIDGE_TEXTURE_DEFAULT_LIMITS;
+                local_report.exit_address = cpu->ip;
+                local_report.recovered_instruction_count = UINT64_C(22);
+                local_report.recovered_procedure_returns = UINT64_C(1);
+            }
+        }
+        if (status == VF2_OK) {
+            local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+            local_report.bridge_kind = bridge_report.kind;
+            local_report.exit_address = cpu->ip;
+            local_report.recovered_instruction_count =
+                bridge_report.recovered_instruction_count;
+            local_report.recovered_procedure_calls =
+                bridge_report.recovered_procedure_calls;
+            local_report.recovered_procedure_returns =
+                bridge_report.recovered_procedure_returns;
+        }
+    } else if (cpu->ip == VF2_PALETTE_PAGE_UPLOAD_ENTRY) {
+        vf2_hybrid_bridge_report bridge_report;
+        memset(&bridge_report, 0, sizeof(bridge_report));
+        status = execute_palette_page_upload(machine, cpu, &bridge_report);
+        if (status == VF2_OK) {
+            local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+            local_report.bridge_kind = bridge_report.kind;
+            local_report.exit_address = cpu->ip;
+            local_report.recovered_instruction_count =
+                bridge_report.recovered_instruction_count;
+            local_report.recovered_procedure_calls =
+                bridge_report.recovered_procedure_calls;
+            local_report.recovered_procedure_returns =
+                bridge_report.recovered_procedure_returns;
+        }
     } else if (cpu->ip == VF2_TEXTURE_RECORD_STATUS_SETUP_ENTRY) {
         uint32_t selector_flags = 0u;
         uint16_t selected_value = 0u;
