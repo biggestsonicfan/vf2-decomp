@@ -127,13 +127,27 @@ static vf2_status game_render_native_geometry_ring(vf2_game *game)
     if (status != VF2_OK) {
         return status;
     }
+    game->native_geometry_start = start;
+    game->native_geometry_end = end;
+    game->native_geometry_word_count = 0u;
+    memset(&game->native_geometry_report, 0, sizeof(game->native_geometry_report));
+    game->native_geometry_preview_count = 0u;
+    memset(game->native_geometry_preview, 0, sizeof(game->native_geometry_preview));
+    memset(game->native_geometry_class_counts, 0,
+           sizeof(game->native_geometry_class_counts));
     distance = ((end & (uint32_t)geometry_buffer_mask) -
                 (start & (uint32_t)geometry_buffer_mask)) &
                (uint32_t)geometry_buffer_mask;
     if (distance == 0u || (distance & (sizeof(uint32_t) - 1u)) != 0u) {
+        game->native_geometry_word_count = 0u;
         return VF2_OK;
     }
     word_count = (size_t)(distance / sizeof(uint32_t));
+    game->native_geometry_word_count = word_count;
+    game->native_geometry_preview_count = 0u;
+    memset(game->native_geometry_preview, 0, sizeof(game->native_geometry_preview));
+    memset(game->native_geometry_class_counts, 0,
+           sizeof(game->native_geometry_class_counts));
     words = (uint32_t *)calloc(word_count, sizeof(*words));
     if (words == NULL) {
         return VF2_ERROR_OUT_OF_MEMORY;
@@ -149,10 +163,21 @@ static vf2_status game_render_native_geometry_ring(vf2_game *game)
             free(words);
             return status;
         }
+        ++game->native_geometry_class_counts[
+            (words[index] >> 23u) & UINT32_C(0x1f)
+        ];
+        if (game->native_geometry_preview_count <
+            sizeof(game->native_geometry_preview) /
+                sizeof(game->native_geometry_preview[0])) {
+            game->native_geometry_preview[
+                game->native_geometry_preview_count++
+            ] = words[index];
+        }
         offset = (offset + sizeof(uint32_t)) &
                  (uint32_t)geometry_buffer_mask;
     }
     status = vf2_tgp_scan_geometry_stream(words, word_count, &scan);
+    game->native_geometry_report = scan;
     if (status == VF2_OK && scan.ended != 0) {
         status = vf2_tgp_execute_geometry_stream(
             game->tgp, words, word_count, game->platform,
@@ -211,6 +236,14 @@ vf2_status vf2_game_initialize(vf2_game *game)
     game->native_copro_word_count = 0u;
     game->native_copro_word_capacity = 0u;
     game->native_copro_capture_enabled = 0;
+    game->native_geometry_start = 0u;
+    game->native_geometry_end = 0u;
+    game->native_geometry_word_count = 0u;
+    memset(&game->native_geometry_report, 0, sizeof(game->native_geometry_report));
+    memset(game->native_geometry_preview, 0, sizeof(game->native_geometry_preview));
+    game->native_geometry_preview_count = 0u;
+    memset(game->native_geometry_class_counts, 0,
+           sizeof(game->native_geometry_class_counts));
     game->input = 0u;
     game->input_set = 0;
     return VF2_OK;
@@ -545,6 +578,14 @@ void vf2_game_shutdown(vf2_game *game)
         game->native_copro_word_count = 0u;
         game->native_copro_word_capacity = 0u;
         game->native_copro_capture_enabled = 0;
+        game->native_geometry_start = 0u;
+        game->native_geometry_end = 0u;
+        game->native_geometry_word_count = 0u;
+        memset(&game->native_geometry_report, 0, sizeof(game->native_geometry_report));
+        game->native_geometry_preview_count = 0u;
+        memset(game->native_geometry_preview, 0, sizeof(game->native_geometry_preview));
+        memset(game->native_geometry_class_counts, 0,
+               sizeof(game->native_geometry_class_counts));
         game->input = 0u;
         game->input_set = 0;
         game->initialized = 0;

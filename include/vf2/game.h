@@ -27,6 +27,13 @@ typedef struct vf2_game {
     size_t native_copro_word_count;
     size_t native_copro_word_capacity;
     int native_copro_capture_enabled;
+    uint32_t native_geometry_start;
+    uint32_t native_geometry_end;
+    size_t native_geometry_word_count;
+    vf2_tgp_geometry_stream_report native_geometry_report;
+    uint32_t native_geometry_preview[16];
+    size_t native_geometry_preview_count;
+    size_t native_geometry_class_counts[32];
     uint32_t input;
     int input_set;
 } vf2_game;

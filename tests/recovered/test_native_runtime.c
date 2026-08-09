@@ -93,7 +93,8 @@ static void test_initialize_and_names(void) {
             VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD,
             VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD_RETURN,
             VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_WRAPPER_PREFIX,
-            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT};
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT,
+            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT};
         static const char *const names[] = {"post-boot-video-init-entry",
                                             "post-boot-video-ramp",
                                             "post-boot-color-tables",
@@ -141,7 +142,8 @@ static void test_initialize_and_names(void) {
                                             "post-boot-palette-build",
                                             "post-boot-palette-build-return",
                                             "post-boot-resumed-wrapper-prefix",
-                                            "post-boot-resumed-helper-init"};
+                                            "post-boot-resumed-helper-init",
+                                            "post-boot-main-loop-init"};
         size_t index = 0u;
         for (index = 0u; index < sizeof(kinds) / sizeof(kinds[0]); ++index) {
             CHECK(strcmp(vf2_native_runtime_step_kind_name(kinds[index]),
@@ -641,7 +643,7 @@ static void test_post_boot_graphics_verify(void) {
         uint32_t pattern = 0u;
         CHECK(vf2_model2a_read_u32(&machine, VF2_GEOMETRY_BASE + UINT32_C(0x4000),
                                    &pattern) == VF2_OK);
-        CHECK(pattern == UINT32_C(0x29292929));
+        CHECK(pattern == UINT32_C(0xffffffff));
     }
 
     memset(&report, 0, sizeof(report));
@@ -707,7 +709,7 @@ static void test_post_boot_graphics_verify(void) {
         uint32_t pattern = 0u;
         CHECK(vf2_model2a_read_u32(&machine, VF2_GEOMETRY_BASE + UINT32_C(0x4000),
                                    &pattern) == VF2_OK);
-        CHECK(pattern == UINT32_C(0x4b4b4b4b));
+        CHECK(pattern == UINT32_C(0xffffffff));
     }
 
     memset(&report, 0, sizeof(report));
@@ -764,7 +766,7 @@ static void test_post_boot_graphics_verify(void) {
         uint32_t pattern = 0u;
         CHECK(vf2_model2a_read_u32(&machine, VF2_GEOMETRY_BASE + UINT32_C(0x4000),
                                    &pattern) == VF2_OK);
-        CHECK(pattern == UINT32_C(0x67676767));
+        CHECK(pattern == UINT32_C(0xffffffff));
     }
 
     memset(&report, 0, sizeof(report));
@@ -821,7 +823,7 @@ static void test_post_boot_graphics_verify(void) {
         uint32_t pattern = 0u;
         CHECK(vf2_model2a_read_u32(&machine, VF2_GEOMETRY_BASE + UINT32_C(0x4000),
                                    &pattern) == VF2_OK);
-        CHECK(pattern == UINT32_C(0x80808080));
+        CHECK(pattern == UINT32_C(0xffffffff));
     }
 
     memset(&report, 0, sizeof(report));
@@ -913,7 +915,7 @@ static void test_post_boot_graphics_verify(void) {
         CHECK(value == 0u);
         CHECK(vf2_model2a_read_u32(&machine, VF2_GEOMETRY_BASE + UINT32_C(0x4000),
                                    &value) == VF2_OK);
-        CHECK(value == UINT32_C(0x3f00001f));
+        CHECK(value == UINT32_C(0xffffffff));
     }
 
     memset(&report, 0, sizeof(report));
@@ -1480,6 +1482,36 @@ static void test_post_boot_graphics_verify(void) {
     CHECK(read_test_u32(&machine, UINT32_C(0x0050b100) + UINT32_C(0x58)) ==
           UINT32_C(0x40966666));
 
+    /* 0x1fedc calls the ROM's second luma-table copier using the live table
+       pointers.  Keep this separate from the earlier 0x98b4 entry so the
+       resumed call/return boundary is covered too. */
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x12800000);
+    cpu.registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0x00078d10);
+    cpu.registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(66);
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
+    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_TABLE);
+    CHECK(report.entry_address == UINT32_C(0x0001fedc));
+    CHECK(report.exit_address == UINT32_C(0x0001fee0));
+    CHECK(report.recovered_instruction_count == UINT64_C(50891));
+    CHECK(report.recovered_procedure_calls == UINT64_C(1));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x12808400));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 1u] == UINT32_C(0x0007ae10));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 2u] == 0u);
+    CHECK(read_test_u32(&machine, UINT32_C(0x12800000)) == UINT32_C(1));
+    CHECK(read_test_u32(&machine, UINT32_C(0x128083fc)) ==
+          UINT32_C(254));
+
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
+    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_RETURN);
+    CHECK(report.entry_address == UINT32_C(0x0001fee0));
+    CHECK(report.exit_address == UINT32_C(0x00009a00));
+    CHECK(report.recovered_instruction_count == UINT64_C(1));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(cpu.local_frame_depth == 0u);
+
     CHECK(vf2_model2a_write_u32(&machine, records[0], UINT32_C(0x12345678)) == VF2_OK);
     write_u32_bytes(main_data, 0x00302000u, UINT32_C(0xaaaaaaaa));
     enter_parent(&cpu, UINT32_C(0x0004b07c));
@@ -1938,26 +1970,26 @@ static void test_repeated_scheduler_entry_dispatches_recovery(void) {
 
     memset(&step_report, 0xff, sizeof(step_report));
     CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &step_report) ==
-          VF2_ERROR_UNSUPPORTED);
-    /* The runtime did not short-circuit with a distinct third-scheduler step
-     * kind; it forwarded the call to vf2_hybrid_second_scheduler_enter, which
-     * rejected the unseeded scheduler state via its own preconditions. */
-    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_NONE);
+          VF2_OK);
+    /* With runtime-ready clear, the ROM takes its cold/idle scheduler return
+     * directly back to the main-loop head. */
+    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER);
     CHECK(step_report.entry_address == UINT32_C(0x0000a010));
-    CHECK(step_report.recovered_instruction_count == UINT64_C(0));
-    /* Unsupported steps must not advance any recovered accounting. */
-    CHECK(state.blocks_executed == 0u);
-    CHECK(state.recovered_instruction_count == UINT64_C(0));
-    CHECK(state.scheduler_entries == 1u);
+    CHECK(step_report.exit_address == UINT32_C(0x00009fb0));
+    CHECK(step_report.recovered_instruction_count == UINT64_C(4));
+    CHECK(state.blocks_executed == 1u);
+    CHECK(state.recovered_instruction_count == UINT64_C(4));
+    CHECK(state.scheduler_entries == 2u);
+    CHECK(cpu.ip == UINT32_C(0x00009fb0));
 
     /* The same observation must surface through run_until's report. */
     memset(&run_report, 0xff, sizeof(run_report));
     CHECK(vf2_native_runtime_run_until(&machine, &cpu, &state, UINT32_C(0x00000000), 4u,
                                        &run_report) == VF2_ERROR_UNSUPPORTED);
     CHECK(run_report.reached_stop == 0);
-    CHECK(run_report.blocks_executed == 0u);
+    CHECK(run_report.blocks_executed == 1u);
     CHECK(run_report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_NONE);
-    CHECK(run_report.final_address == UINT32_C(0x0000a010));
+    CHECK(run_report.final_address == UINT32_C(0x00002f5c));
 
     vf2_model2a_shutdown(&machine);
     free(rom);

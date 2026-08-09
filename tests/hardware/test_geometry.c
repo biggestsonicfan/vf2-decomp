@@ -93,6 +93,8 @@ int main(void)
         &machine, VF2_BUFFER_RAM_BASE + sizeof(uint32_t), &value) == VF2_OK);
     EXPECT_TRUE(value == 0u);
 
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_VIDEO_CONTROL_BASE + UINT32_C(8), 0u) == VF2_OK);
     vf2_model2a_shutdown(&machine);
     return failures == 0 ? 0 : 1;
 }

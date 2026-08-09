@@ -3020,14 +3020,20 @@ static int command_native_resume(
     if (status == VF2_OK && !report.reached_stop) {
         status = VF2_ERROR_UNSUPPORTED;
     }
-    if (status == VF2_OK && output_snapshot_path != NULL) {
-        status = vf2_i960_snapshot_capture(
+    /* Preserve the post-failure state too: a rejected native bridge is often
+     * the most useful snapshot for differential diagnosis. */
+    if (output_snapshot_path != NULL &&
+        (status == VF2_OK || report.blocks_executed != 0u)) {
+        vf2_status snapshot_status = vf2_i960_snapshot_capture(
             &output_snapshot, &cpu, &machine
         );
-        if (status == VF2_OK) {
-            status = vf2_i960_snapshot_write_file(
+        if (snapshot_status == VF2_OK) {
+            snapshot_status = vf2_i960_snapshot_write_file(
                 &output_snapshot, output_snapshot_path
             );
+        }
+        if (status == VF2_OK) {
+            status = snapshot_status;
         }
     }
     if (status == VF2_OK) {

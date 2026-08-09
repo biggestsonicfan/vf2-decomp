@@ -125,6 +125,11 @@ geometry decoder before the software frame is closed. The capture deliberately
 falls back to the Model 2A flat backing store after observing each write, so
 the still-incomplete TGP device does not perturb the recovered runtime.
 
+The native frame boundary reads the observed geometry FIFO ring interval
+and executes the command classes currently understood by the TGP reference
+decoder; unrecognized or empty object data remains non-fatal and produces no
+triangles.
+
 This is an integration boundary, not a claim of a playable game: gameplay input
 semantics, the complete TGP packet/microcode protocol, gameplay state and full
 sound behavior remain open.
@@ -132,11 +137,14 @@ sound behavior remain open.
 The Model 2A input facade now exposes the active-low 315-5649 B/C/D input
 ports at `0x01c00002`, `0x01c00004` and `0x01c00006`. `vf2_game_set_input`
 updates the platform surface and synchronizes the native machine, including
-VF2 P1 joystick, punch, kick, guard, start, coin and service controls.
+VF2 P1/P2 joystick, punch, kick and guard controls, plus start, coin and
+service controls.
 
 The current CMake configuration exposes 16 ROM-independent and 26 ROM-backed
-tests. All configured tests pass against the supported ROM set, and the ROM-independent suite
-passes under ASan, UBSan and LeakSanitizer.
+tests. The focused geometry, game and native-runtime targets pass; the full
+optimized ROM-backed suite still has known access violations in the unfinished
+native TGP/gameplay paths. The ROM-independent suite passes under ASan,
+UBSan and LeakSanitizer.
 
 ## Next integration
 
@@ -145,8 +153,12 @@ The current native boundary includes the observed post-boot palette build at
 are covered by a synthetic state regression. The resumed `0x0001fe64` wrapper
 prefix is now also recovered through its `0x4b410` registration helper, state
 clears, and call into `0x0002eab8`; that helper's 90-instruction state
-initializer and nested `0x31004` setup are now covered as well. The next
-targets are the subsequent hardware-command routine and alternate palette/input modes, followed by longer
-endurance runs. Each new branch should retain an exact differential
+initializer and nested `0x31004` setup are now covered as well. Scouting from
+the resumed path now also covers its `0x1fedc` call into the ROM's `0x11704`
+byte-to-luma-table copier, including live G0/G1/G2 pointer/count poststate and
+the trailing `0x1fee0` return. The frame-dispatch bridge now covers selectors
+0, 1 and 2, including the ROM `0xab0c` control-channel reset and selector-3
+handoff; selector 3's mode-table worker remains the next native boundary.
+Longer endurance runs remain after that branch. Each new branch should retain an exact differential
 contract and a synthetic state regression where practical before broader
 fighter, object, match, animation, collision and input types are introduced.

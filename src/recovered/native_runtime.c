@@ -119,7 +119,10 @@
 #define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER_RETURN UINT32_C(0x0001fe78)
 #define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_NEXT UINT32_C(0x0002eab8)
 #define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_RETURN UINT32_C(0x0001fedc)
+#define VF2_NATIVE_POST_BOOT_RESUMED_LUMA_RETURN UINT32_C(0x0001fee0)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN UINT32_C(0x0002ec20)
+#define VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY UINT32_C(0x00009a00)
+#define VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY UINT32_C(0x00009fb0)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED UINT32_C(0x00031004)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INSTRUCTIONS UINT64_C(90)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED_INSTRUCTIONS UINT64_C(11)
@@ -877,108 +880,132 @@ execute_post_boot_backup_restore(vf2_model2a *machine, vf2_i960_cpu *cpu,
     uint16_t crc = 0u;
     uint8_t flags = 0u;
     size_t index = 0u;
+    int restore_payload = 1;
+    vf2_hybrid_bridge_report diagnostic_report;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || report == NULL ||
-        cpu->ip != VF2_NATIVE_POST_BOOT_BACKUP_RESTORE_ENTRY ||
-        cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
+        cpu->ip != VF2_NATIVE_POST_BOOT_BACKUP_RESTORE_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
-    /* The successful SRAM probe falls through to the persisted-game-data
-     * validation path. Keep the observed signature/version contract fail-closed. */
-    for (index = 0u; status == VF2_OK && index < 4u; ++index) {
-        uint32_t observed = 0u;
-        status = vf2_model2a_read_u32(machine,
-                                      VF2_BACKUP_SRAM_BASE + UINT32_C(0x3308) +
-                                          (uint32_t)(index * sizeof(uint32_t)),
-                                      &observed);
-        if (status == VF2_OK && observed != signature[index]) {
-            return VF2_ERROR_UNSUPPORTED;
+    /* A cold Model 2 boot has an erased backup SRAM image.  The ROM displays
+     * the matching diagnostic string and then falls through to the same
+     * payload/metadata initialization used after a valid restore. */
+    memset(&diagnostic_report, 0, sizeof(diagnostic_report));
+    if (cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
+        cpu->registers[25] = UINT32_C(0x010005b8);
+        cpu->registers[14] = UINT32_C(0x0006dfd0);
+        status = execute_inline_text_thunk(machine, cpu, &diagnostic_report);
+        restore_payload = 0;
+    } else {
+        int signature_valid = 1;
+        for (index = 0u; status == VF2_OK && index < 4u; ++index) {
+            uint32_t observed = 0u;
+            status = vf2_model2a_read_u32(
+                machine,
+                VF2_BACKUP_SRAM_BASE + UINT32_C(0x3308) +
+                    (uint32_t)(index * sizeof(uint32_t)),
+                &observed);
+            if (status == VF2_OK && observed != signature[index]) {
+                signature_valid = 0;
+            }
         }
-    }
-    if (status == VF2_OK) {
-        uint8_t bytes[2] = {0u, 0u};
-        status = vf2_model2a_read(machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3306),
-                                  bytes, sizeof(bytes));
-        version = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
-    }
-    if (status != VF2_OK || version != UINT16_C(24)) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
+        if (status == VF2_OK && !signature_valid) {
+            cpu->registers[25] = UINT32_C(0x010008aa);
+            cpu->registers[14] = UINT32_C(0x0006df10);
+            status = execute_inline_text_thunk(machine, cpu, &diagnostic_report);
+        }
+        if (status == VF2_OK && signature_valid) {
+            uint8_t bytes[2] = {0u, 0u};
+            status = vf2_model2a_read(
+                machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3306), bytes, sizeof(bytes));
+            version = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
+            if (status == VF2_OK && version != UINT16_C(24)) {
+                cpu->registers[25] = UINT32_C(0x010008a4);
+                cpu->registers[14] = UINT32_C(0x0006dedc);
+                status = execute_inline_text_thunk(machine, cpu, &diagnostic_report);
+            }
+        }
+        if (status == VF2_OK && signature_valid && version == UINT16_C(24)) {
+            status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &base);
+            if (status != VF2_OK || base != VF2_BACKUP_SRAM_BASE) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
 
-    status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &base);
-    if (status != VF2_OK || base != VF2_BACKUP_SRAM_BASE) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
+            /* call 0x9480 for the 29-byte block at +0x3340. */
+            cpu->registers[VF2_I960_G0_REGISTER] = base + UINT32_C(0x3340);
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(29);
+            status = vf2_i960_cpu_enter_procedure(
+                cpu, UINT32_C(0x00009480), UINT32_C(0x0006de40));
+            if (status == VF2_OK) {
+                status = vf2_recovered_table_crc16(machine, base + UINT32_C(0x3340), 0u,
+                                                   UINT32_C(29), &crc);
+            }
+            if (status == VF2_OK) {
+                cpu->registers[VF2_I960_G0_REGISTER] = (uint32_t)crc;
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+                cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+                status = vf2_i960_cpu_return_procedure(cpu, machine);
+            }
+            if (status == VF2_OK) {
+                uint8_t bytes[2] = {0u, 0u};
+                status = vf2_model2a_read(
+                    machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3302), bytes, sizeof(bytes));
+                stored_crc = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
+            }
+            if (status != VF2_OK || stored_crc != crc) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
 
-    /* call 0x9480 for the 29-byte block at +0x3340. */
-    cpu->registers[VF2_I960_G0_REGISTER] = base + UINT32_C(0x3340);
-    cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
-    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(29);
-    status =
-        vf2_i960_cpu_enter_procedure(cpu, UINT32_C(0x00009480), UINT32_C(0x0006de40));
-    if (status == VF2_OK) {
-        status = vf2_recovered_table_crc16(machine, base + UINT32_C(0x3340), 0u,
-                                           UINT32_C(29), &crc);
-    }
-    if (status == VF2_OK) {
-        cpu->registers[VF2_I960_G0_REGISTER] = (uint32_t)crc;
-        cpu->arithmetic_control =
-            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
-        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-        status = vf2_i960_cpu_return_procedure(cpu, machine);
-    }
-    if (status == VF2_OK) {
-        uint8_t bytes[2] = {0u, 0u};
-        status = vf2_model2a_read(machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3302),
-                                  bytes, sizeof(bytes));
-        stored_crc = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
-    }
-    if (status != VF2_OK || stored_crc != crc) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-    }
-
-    /* call 0x9480 for the 15-byte block at +0x3320. */
-    cpu->registers[VF2_I960_G0_REGISTER] = base + UINT32_C(0x3320);
-    cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
-    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(15);
-    status =
-        vf2_i960_cpu_enter_procedure(cpu, UINT32_C(0x00009480), UINT32_C(0x0006de94));
-    if (status == VF2_OK) {
-        status = vf2_recovered_table_crc16(machine, base + UINT32_C(0x3320), 0u,
-                                           UINT32_C(15), &crc);
-    }
-    if (status == VF2_OK) {
-        cpu->registers[VF2_I960_G0_REGISTER] = (uint32_t)crc;
-        cpu->arithmetic_control =
-            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
-        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-        status = vf2_i960_cpu_return_procedure(cpu, machine);
-    }
-    if (status == VF2_OK) {
-        uint8_t bytes[2] = {0u, 0u};
-        status = vf2_model2a_read(machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3300),
-                                  bytes, sizeof(bytes));
-        stored_crc = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
-    }
-    if (status != VF2_OK || stored_crc != crc) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            /* call 0x9480 for the 15-byte block at +0x3320. */
+            cpu->registers[VF2_I960_G0_REGISTER] = base + UINT32_C(0x3320);
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(15);
+            status = vf2_i960_cpu_enter_procedure(
+                cpu, UINT32_C(0x00009480), UINT32_C(0x0006de94));
+            if (status == VF2_OK) {
+                status = vf2_recovered_table_crc16(machine, base + UINT32_C(0x3320), 0u,
+                                                   UINT32_C(15), &crc);
+            }
+            if (status == VF2_OK) {
+                cpu->registers[VF2_I960_G0_REGISTER] = (uint32_t)crc;
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+                cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+                status = vf2_i960_cpu_return_procedure(cpu, machine);
+            }
+            if (status == VF2_OK) {
+                uint8_t bytes[2] = {0u, 0u};
+                status = vf2_model2a_read(
+                    machine, VF2_BACKUP_SRAM_BASE + UINT32_C(0x3300), bytes, sizeof(bytes));
+                stored_crc = (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u));
+            }
+            if (status != VF2_OK || stored_crc != crc) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
+        }
     }
 
     /* Restore the persisted 0x3fe0-byte payload to its work-RAM mirror. */
-    status = vf2_model2a_write_u32(machine, UINT32_C(0x0050016c), VF2_BACKUP_SRAM_BASE);
-    if (status == VF2_OK) {
-        status = vf2_model2a_read(machine, UINT32_C(0x00500171), &flags, sizeof(flags));
-    }
-    flags |= UINT8_C(1);
-    if (status == VF2_OK) {
-        status =
-            vf2_model2a_write(machine, UINT32_C(0x00500171), &flags, sizeof(flags));
-    }
-    if (status == VF2_OK) {
-        status = copy_model2a_bytes(machine, VF2_BACKUP_SRAM_BASE, UINT32_C(0x00599000),
-                                    (size_t)UINT32_C(0x00003fe0));
+    if (restore_payload) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050016c), VF2_BACKUP_SRAM_BASE);
+        if (status == VF2_OK) {
+            status =
+                vf2_model2a_read(machine, UINT32_C(0x00500171), &flags, sizeof(flags));
+        }
+        flags |= UINT8_C(1);
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(machine, UINT32_C(0x00500171), &flags,
+                                       sizeof(flags));
+        }
+        if (status == VF2_OK) {
+            status = copy_model2a_bytes(machine, VF2_BACKUP_SRAM_BASE,
+                                        UINT32_C(0x00599000),
+                                        (size_t)UINT32_C(0x00003fe0));
+        }
     }
 
     /* Refresh the metadata exactly as the ROM does after a valid restore. */
@@ -4618,6 +4645,282 @@ execute_post_boot_resumed_helper_init(vf2_model2a *machine,
     return VF2_OK;
 }
 
+static vf2_status
+execute_post_boot_resumed_luma_table(vf2_model2a *machine,
+                                     vf2_i960_cpu *cpu,
+                                     vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    const uint32_t destination_start = UINT32_C(0x12800000);
+    const uint32_t source_start = UINT32_C(0x00078d10);
+    uint32_t row_count = 0u;
+    const uint32_t column_count = UINT32_C(128);
+    uint64_t byte_count = 0u;
+    uint64_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_RETURN ||
+        cpu->local_frame_depth == 0u ||
+        vf2_model2a_read_u32(machine, UINT32_C(0x00078d0c), &row_count) != VF2_OK ||
+        row_count != UINT32_C(66)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    byte_count = (uint64_t)row_count * column_count;
+    if (
+        byte_count > VF2_LUMA_RAM_SIZE / sizeof(uint32_t) ||
+        destination_start < VF2_LUMA_RAM_BASE ||
+        destination_start > VF2_LUMA_RAM_BASE + VF2_LUMA_RAM_SIZE -
+                                 (uint32_t)(byte_count * sizeof(uint32_t)) ||
+        source_start >= VF2_MAIN_ROM_BASE + machine->main_rom_size ||
+        byte_count > (uint64_t)(VF2_MAIN_ROM_BASE + machine->main_rom_size -
+                                source_start)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(cpu, VF2_NATIVE_POST_BOOT_LUMA_TABLE_BODY,
+                                          VF2_NATIVE_POST_BOOT_RESUMED_LUMA_RETURN);
+    for (index = 0u; status == VF2_OK && index < byte_count; ++index) {
+        uint8_t value = 0u;
+        status = vf2_model2a_read(machine, source_start + (uint32_t)index,
+                                  &value, sizeof(value));
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, destination_start + (uint32_t)(index * sizeof(uint32_t)),
+                (uint32_t)value);
+        }
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] =
+            destination_start + (uint32_t)(byte_count * sizeof(uint32_t));
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] =
+            source_start + (uint32_t)byte_count;
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
+        cpu->registers[VF2_I960_G0_REGISTER + 3u] = 0u;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (status != VF2_OK || cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_LUMA_RETURN) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    cpu->executed_instructions = start_instructions +
+        VF2_NATIVE_POST_BOOT_LUMA_TABLE_INSTRUCTIONS;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_TABLE;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions -
+                                          start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_post_boot_resumed_luma_return(vf2_model2a *machine,
+                                      vf2_i960_cpu *cpu,
+                                      vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_RESUMED_LUMA_RETURN ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions = start_instructions + UINT64_C(1);
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_RETURN;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = UINT64_C(1);
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_post_boot_main_loop_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                 vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t state_base = 0u;
+    uint32_t audio_base = 0u;
+    uint32_t input0 = 0u;
+    uint32_t input1 = 0u;
+    uint32_t flags = 0u;
+    uint32_t index = 0u;
+    uint8_t zero = 0u;
+    vf2_hybrid_bridge_report text_report;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY ||
+        cpu->local_frame_depth != 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* 0x9a00's fixed initialization stores. */
+    status = vf2_model2a_write(machine, UINT32_C(0x0050406b), &zero, sizeof(zero));
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500814), &state_base);
+    }
+    if (status == VF2_OK) {
+        status = write_u16_le(machine, state_base + UINT32_C(0xf8), UINT16_C(23u << 5));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x005000e9), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x005000e4), 0u);
+    }
+    if (status == VF2_OK) {
+        const uint8_t one = 1u;
+        status = vf2_model2a_write(machine, UINT32_C(0x0050009c), &one, sizeof(one));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500070), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500074), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00500081), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x0050a0b8), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x0050a0b9), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x0050005b), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = write_u16_le(machine, UINT32_C(0x00500086), 0u);
+    }
+    if (status == VF2_OK) {
+        status = write_u16_le(machine, UINT32_C(0x00500088), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x005001c0), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00508008), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500850), &audio_base);
+    }
+    if (status == VF2_OK) {
+        const uint8_t one = 1u;
+        status = vf2_model2a_write(machine, audio_base + UINT32_C(0x1fd), &one,
+                                   sizeof(one));
+    }
+    if (status == VF2_OK) {
+        const uint8_t thirty = 30u;
+        status = vf2_model2a_write(machine, UINT32_C(0x00500090), &thirty,
+                                   sizeof(thirty));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &input0);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &input1);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, input0 + UINT32_C(0x1230), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, input0 + UINT32_C(0x1234), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, input0, &flags);
+    }
+    if (status == VF2_OK) {
+        flags = (flags & ~(UINT32_C(1) << 23u)) | (UINT32_C(1) << 26u);
+        status = vf2_model2a_write_u32(machine, input0, flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, input1 + UINT32_C(0x1230), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, input1 + UINT32_C(0x1234), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, input1, &flags);
+    }
+    if (status == VF2_OK) {
+        flags = (flags & ~(UINT32_C(1) << 23u)) | (UINT32_C(1) << 26u);
+        status = vf2_model2a_write_u32(machine, input1, flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x0050008d), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x0050008e), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00504078), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
+    }
+    if (status == VF2_OK) {
+        flags &= ~UINT32_C(0x001e0800);
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
+    }
+
+    /* The 0x19a7c sound initializer writes the small SCSP control block and
+       clears the repeating 0x30-byte service slots. */
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00548006), (uint8_t[]){1u}, 1u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00548007), (uint8_t[]){3u}, 1u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00548008), (uint8_t[]){4u}, 1u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00548004), &zero, sizeof(zero));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00548005), (uint8_t[]){3u}, 1u);
+    }
+    for (index = 0u; status == VF2_OK && index < UINT32_C(0x1fe); ++index) {
+        status = vf2_model2a_write_u32(machine,
+                                       UINT32_C(0x00548010) + index * UINT32_C(0x40) +
+                                           UINT32_C(0x30),
+                                       0u);
+    }
+
+    memset(&text_report, 0, sizeof(text_report));
+    if (status == VF2_OK) {
+        cpu->registers[25] = UINT32_C(0x01000ca8);
+        cpu->registers[14] = UINT32_C(0x00009f84);
+        status = execute_inline_text_thunk(machine, cpu, &text_report);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* Skip the ROM's calibrated delay loop; 0x9fb0 is an existing recovered
+       main-loop bridge entry and begins the same visible state transition. */
+    cpu->ip = VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY;
+    cpu->executed_instructions = start_instructions + UINT64_C(700000);
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
 static void accumulate_step(vf2_native_runtime_state *state,
                             const vf2_native_runtime_step_report *report) {
     ++state->blocks_executed;
@@ -5497,6 +5800,12 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = execute_post_boot_resumed_wrapper_prefix(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_NEXT) {
         status = execute_post_boot_resumed_helper_init(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_RETURN) {
+        status = execute_post_boot_resumed_luma_table(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_RESUMED_LUMA_RETURN) {
+        status = execute_post_boot_resumed_luma_return(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY) {
+        status = execute_post_boot_main_loop_init(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_GEOMETRY_PATTERN_ENTRY ||
                cpu->ip == VF2_NATIVE_POST_BOOT_PATTERN_WAIT_EXIT) {
         status = execute_post_boot_geometry_pattern(machine, cpu, &local_report);
@@ -5520,22 +5829,40 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
         }
     } else if (cpu->ip == VF2_NATIVE_SECOND_SCHEDULER_ENTRY) {
         vf2_hybrid_second_scheduler_report scheduler_report;
+        uint32_t scheduler_flags = 0u;
         memset(&scheduler_report, 0, sizeof(scheduler_report));
-        status = vf2_hybrid_second_scheduler_enter(machine, cpu, &scheduler_report);
-        if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, VF2_NATIVE_RUNTIME_FLAGS,
+                                      &scheduler_flags);
+        if (status == VF2_OK && (scheduler_flags & (UINT32_C(1) << 9u)) == 0u) {
+            /* The ROM's cold/idle scheduler path returns to the top of the
+             * main loop while runtime-ready is clear. */
+            cpu->registers[9] = scheduler_flags;
+            cpu->ip = VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY;
+            cpu->executed_instructions += UINT64_C(4);
             local_report.kind = VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER;
             local_report.bridge_kind = VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY;
             local_report.exit_address = cpu->ip;
-            local_report.next_task_index = scheduler_report.selected_task_index;
-            local_report.next_registry_address =
-                scheduler_report.selected_registry_address;
-            local_report.descriptors_scanned = scheduler_report.descriptors_scanned;
-            local_report.recovered_instruction_count =
-                scheduler_report.recovered_instruction_count;
-            local_report.recovered_procedure_calls =
-                scheduler_report.recovered_procedure_calls;
-            local_report.recovered_procedure_returns =
-                scheduler_report.recovered_procedure_returns;
+            local_report.recovered_instruction_count = UINT64_C(4);
+            local_report.recovered_procedure_returns = UINT64_C(1);
+        } else if (status == VF2_OK) {
+            status = vf2_hybrid_second_scheduler_enter(machine, cpu, &scheduler_report);
+        }
+        if (status == VF2_OK) {
+            if (local_report.kind == VF2_NATIVE_RUNTIME_STEP_NONE) {
+                local_report.kind = VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER;
+                local_report.bridge_kind = VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY;
+                local_report.exit_address = cpu->ip;
+                local_report.next_task_index = scheduler_report.selected_task_index;
+                local_report.next_registry_address =
+                    scheduler_report.selected_registry_address;
+                local_report.descriptors_scanned = scheduler_report.descriptors_scanned;
+                local_report.recovered_instruction_count =
+                    scheduler_report.recovered_instruction_count;
+                local_report.recovered_procedure_calls =
+                    scheduler_report.recovered_procedure_calls;
+                local_report.recovered_procedure_returns =
+                    scheduler_report.recovered_procedure_returns;
+            }
         }
     } else if (cpu->ip == VF2_NATIVE_SCHEDULER_RETURN &&
                cpu->registers[29] == UINT32_C(0x00516180)) {
@@ -5949,6 +6276,12 @@ const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind)
         return "post-boot-resumed-wrapper-prefix";
     case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT:
         return "post-boot-resumed-helper-init";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_TABLE:
+        return "post-boot-resumed-luma-table";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_RETURN:
+        return "post-boot-resumed-luma-return";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT:
+        return "post-boot-main-loop-init";
     default:
         return "unknown";
     }
