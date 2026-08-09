@@ -8,6 +8,7 @@
 #include "vf2/hybrid.h"
 #include "vf2/rom.h"
 #include "vf2/model2a.h"
+#include "vf2/platform.h"
 #include "vf2/recovered.h"
 
 static int failures = 0;
@@ -127,6 +128,113 @@ static void write_le32(uint8_t *data, uint32_t value)
     data[1] = (uint8_t)(value >> 8u);
     data[2] = (uint8_t)(value >> 16u);
     data[3] = (uint8_t)(value >> 24u);
+}
+
+typedef struct test_copro_callback_state {
+    size_t calls;
+    uint32_t address;
+    uint32_t value;
+    vf2_status result;
+} test_copro_callback_state;
+
+static vf2_status test_copro_write_callback(
+    void *context,
+    uint32_t address,
+    const void *source,
+    size_t size
+)
+{
+    test_copro_callback_state *state =
+        (test_copro_callback_state *)context;
+    const uint8_t *bytes = (const uint8_t *)source;
+
+    if (state == NULL || source == NULL || size != sizeof(uint32_t)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    ++state->calls;
+    state->address = address;
+    state->value = (uint32_t)bytes[0] |
+                   ((uint32_t)bytes[1] << 8u) |
+                   ((uint32_t)bytes[2] << 16u) |
+                   ((uint32_t)bytes[3] << 24u);
+    return state->result;
+}
+
+static void test_model2a_copro_callbacks(void)
+{
+    vf2_model2a machine;
+    test_copro_callback_state state = {0u, 0u, 0u, VF2_OK};
+    uint32_t value = 0u;
+
+    EXPECT_TRUE(vf2_model2a_initialize(&machine) != 0);
+    EXPECT_TRUE(vf2_model2a_set_copro_callbacks(
+        &machine, NULL, test_copro_write_callback, &state
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_COPRO_PORT_BASE + 0x24u, UINT32_C(0x12345678)
+    ) == VF2_OK);
+    EXPECT_TRUE(state.calls == 1u);
+    EXPECT_TRUE(state.address == VF2_COPRO_PORT_BASE + 0x24u);
+    EXPECT_TRUE(state.value == UINT32_C(0x12345678));
+    EXPECT_TRUE(vf2_model2a_read_u32(
+        &machine, VF2_COPRO_PORT_BASE + 0x24u, &value
+    ) == VF2_OK);
+    EXPECT_TRUE(value == 0u);
+
+    state.result = VF2_ERROR_UNSUPPORTED;
+    EXPECT_TRUE(vf2_model2a_write_u32(
+        &machine, VF2_COPRO_PORT_BASE + 0x28u, UINT32_C(0xaabbccdd)
+    ) == VF2_OK);
+    EXPECT_TRUE(state.calls == 2u);
+    EXPECT_TRUE(vf2_model2a_read_u32(
+        &machine, VF2_COPRO_PORT_BASE + 0x28u, &value
+    ) == VF2_OK);
+    EXPECT_TRUE(value == UINT32_C(0xaabbccdd));
+    vf2_model2a_shutdown(&machine);
+}
+
+static void test_model2a_host_input(void)
+{
+    vf2_model2a machine;
+    uint8_t value = 0u;
+
+    EXPECT_TRUE(vf2_model2a_initialize(&machine) != 0);
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 2u, &value, sizeof(value)
+    ) == VF2_OK);
+    EXPECT_TRUE(value == UINT8_C(0xff));
+    EXPECT_TRUE(vf2_model2a_set_input(
+        &machine,
+        VF2_PLATFORM_BUTTON_COIN | VF2_PLATFORM_BUTTON_START |
+        VF2_PLATFORM_BUTTON_PUNCH | VF2_PLATFORM_BUTTON_KICK |
+        VF2_PLATFORM_BUTTON_GUARD | VF2_PLATFORM_BUTTON_UP
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 2u, &value, sizeof(value)
+    ) == VF2_OK);
+    EXPECT_TRUE(value == UINT8_C(0xee));
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 4u, &value, sizeof(value)
+    ) == VF2_OK);
+    EXPECT_TRUE(value == UINT8_C(0xd8));
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 6u, &value, sizeof(value)
+    ) == VF2_OK);
+    EXPECT_TRUE(value == UINT8_C(0xff));
+
+    value = UINT8_C(0xfb);
+    EXPECT_TRUE(vf2_model2a_write(
+        &machine, VF2_IO_CONTROL_BASE + 0x10u, &value, sizeof(value)
+    ) == VF2_OK);
+    value = UINT8_C(0x55);
+    EXPECT_TRUE(vf2_model2a_write(
+        &machine, VF2_IO_CONTROL_BASE + 4u, &value, sizeof(value)
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 4u, &value, sizeof(value)
+    ) == VF2_OK);
+    EXPECT_TRUE(value == UINT8_C(0x55));
+    vf2_model2a_shutdown(&machine);
 }
 
 static void test_boot_vectors(void)
@@ -1240,6 +1348,8 @@ int main(void)
     test_load32_word();
     test_load32_byte();
     test_load16_word_swap();
+    test_model2a_copro_callbacks();
+    test_model2a_host_input();
     test_boot_vectors();
     test_recovered_boot_stage1();
     test_recovered_boot_stage2();

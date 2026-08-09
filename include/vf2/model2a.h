@@ -6,6 +6,19 @@
 
 #include "vf2/status.h"
 
+typedef vf2_status (*vf2_model2a_copro_read_callback)(
+    void *context,
+    uint32_t address,
+    void *destination,
+    size_t size
+);
+typedef vf2_status (*vf2_model2a_copro_write_callback)(
+    void *context,
+    uint32_t address,
+    const void *source,
+    size_t size
+);
+
 enum {
     VF2_MAIN_ROM_BASE = 0x00000000u,
     VF2_MAIN_ROM_SIZE = 0x00200000u,
@@ -96,6 +109,10 @@ typedef struct vf2_model2a {
     size_t luma_ram_size;
     uint8_t *system_control;
     size_t system_control_size;
+    vf2_model2a_copro_read_callback copro_read_callback;
+    vf2_model2a_copro_write_callback copro_write_callback;
+    void *copro_callback_context;
+    uint32_t input;
 } vf2_model2a;
 
 int vf2_model2a_initialize(vf2_model2a *machine);
@@ -119,6 +136,19 @@ vf2_status vf2_model2a_take_main_data(
     uint8_t *main_data,
     size_t main_data_size
 );
+
+/* Install optional callbacks for the write-only/read-write coprocessor port.
+ * A callback may return VF2_ERROR_UNSUPPORTED to retain the ordinary flat-RAM
+ * behavior for an access it does not model. */
+vf2_status vf2_model2a_set_copro_callbacks(
+    vf2_model2a *machine,
+    vf2_model2a_copro_read_callback read_callback,
+    vf2_model2a_copro_write_callback write_callback,
+    void *context
+);
+
+/* Set the host input mask using VF2_PLATFORM_BUTTON_* bit definitions. */
+vf2_status vf2_model2a_set_input(vf2_model2a *machine, uint32_t input);
 
 vf2_status vf2_model2a_read(
     const vf2_model2a *machine,

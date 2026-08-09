@@ -22,7 +22,7 @@
 | Repeated-cycle differential API | Strict per-block + cycle-boundary probe + resumable checkpoints |
 | ROM-independent / ROM-backed CTest targets | 18 / 26, 44 total |
 | 68000 audio vectors, board map, voice maintenance and command dispatcher | Voice maintenance plus bounded 0x80, zero/nonzero-stream 0x90 lookup/no-live return, both 0x11d0 voice-helper branches, the populated-table 0x90 allocator prefix, live B0 0x1/0x2 packed SCSP +0x13 writes, 0xa0 stream-descriptor initialization, 0x1f7c normal/C-D packets, B0 0x10 control, F0 wait/search, FF/F7 skips, FF/2F sentinels and ordinary/F1 pointer re-entry, 0xc0, 0xe0 and selected 0xb0 command/ring paths integrated; allocator sample-table copy, high-bit stream controls, other handlers and synthesis remain open |
-| TGP scalar services and host boundary | Recovered; stateful direct/object geometry reference executor with matrix/viewport/depth submission added; packet decoder/microcode not recovered |
+| TGP scalar services and host boundary | Recovered; stateful direct/object geometry reference executor with matrix/viewport/depth submission added; native Model 2A coprocessor writes are captured into the TGP stream with flat-RAM fallback; packet decoder/microcode not recovered |
 | Geometry command packing and ring commit | Recovered for observed four-entry boundary |
 | SCSP CPU bus, register, sample and MIDI boundary | Recovered 0x1000-byte register window, visible sound map, deterministic PCM slot renderer and slot ADSR lifecycle; FM/DSP fidelity remains open |
 | Portable framebuffer/input backend | Recovered headless software surface, deterministic input injection and game-facing graphics/audio frame lifecycle; window/audio device adapters remain open |

@@ -23,6 +23,12 @@ typedef struct vf2_game {
     vf2_i960_cpu *native_cpu;
     vf2_native_runtime_state *native_runtime;
     vf2_native_runtime_run_report native_report;
+    uint32_t *native_copro_words;
+    size_t native_copro_word_count;
+    size_t native_copro_word_capacity;
+    int native_copro_capture_enabled;
+    uint32_t input;
+    int input_set;
 } vf2_game;
 
 vf2_status vf2_game_initialize(vf2_game *game);

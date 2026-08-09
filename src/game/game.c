@@ -3,8 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "vf2/geometry.h"
-
 static vf2_status game_require_graphics(const vf2_game *game)
 {
     if (game == NULL || game->initialized == 0 ||
@@ -32,72 +30,88 @@ static vf2_status game_require_native(const vf2_game *game)
     return VF2_OK;
 }
 
-static vf2_status game_render_native_geometry(vf2_game *game)
+static vf2_status game_capture_copro_write(
+    void *context,
+    uint32_t address,
+    const void *source,
+    size_t size
+)
 {
-    uint32_t previous = 0u;
-    uint32_t write = 0u;
-    uint32_t distance = 0u;
-    size_t word_count = 0u;
-    uint32_t *words = NULL;
-    vf2_tgp_geometry_stream_report report;
-    vf2_status status = VF2_OK;
+    vf2_game *game = (vf2_game *)context;
+    uint32_t value = 0u;
+    uint32_t packet = 0u;
+    size_t capacity = 0u;
 
-    if (game == NULL || game->native_machine == NULL ||
-        game->platform == NULL || game->tgp == NULL) {
-        return VF2_OK;
-    }
-    status = vf2_model2a_read_u32(
-        game->native_machine,
-        VF2_GEOMETRY_BASE + VF2_GEOMETRY_PREVIOUS_OFFSET,
-        &previous
-    );
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(
-            game->native_machine,
-            VF2_GEOMETRY_BASE + VF2_GEOMETRY_WRITE_OFFSET,
-            &write
-        );
-    }
-    if (status != VF2_OK || previous < VF2_BUFFER_RAM_BASE ||
-        previous >= VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE ||
-        write < VF2_BUFFER_RAM_BASE ||
-        write >= VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE) {
-        return status != VF2_OK ? status : VF2_ERROR_UNSUPPORTED;
-    }
-    distance = write >= previous
-        ? write - previous
-        : (VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE - previous) +
-          (write - VF2_BUFFER_RAM_BASE);
-    if ((distance & (sizeof(uint32_t) - 1u)) != 0u ||
-        distance > VF2_BUFFER_RAM_SIZE) {
+    if (game == NULL || source == NULL || size != sizeof(uint32_t) ||
+        game->native_copro_capture_enabled == 0) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    word_count = distance / sizeof(uint32_t);
-    if (word_count == 0u) {
-        return VF2_OK;
+    value = (uint32_t)((const uint8_t *)source)[0] |
+            ((uint32_t)((const uint8_t *)source)[1] << 8u) |
+            ((uint32_t)((const uint8_t *)source)[2] << 16u) |
+            ((uint32_t)((const uint8_t *)source)[3] << 24u);
+    if (address >= VF2_COPRO_PORT_BASE &&
+        address < VF2_COPRO_PORT_BASE + 0x4000u) {
+        const uint32_t byte_offset = address - VF2_COPRO_PORT_BASE;
+        packet = (value & UINT32_C(0x800fffff)) |
+                 (((byte_offset >> 2u) & UINT32_C(0xff)) << 23u);
+    } else if (address >= VF2_COPRO_PORT_BASE + 0x4000u &&
+               address < VF2_COPRO_PORT_BASE + VF2_COPRO_PORT_SIZE) {
+        packet = value;
+    } else {
+        return VF2_ERROR_UNSUPPORTED;
     }
-    words = (uint32_t *)calloc(word_count, sizeof(*words));
-    if (words == NULL) {
-        return VF2_ERROR_OUT_OF_MEMORY;
-    }
-    for (size_t index = 0u; index < word_count; ++index) {
-        const uint32_t address = previous + (uint32_t)(index * sizeof(uint32_t));
-        const uint32_t wrapped = address < VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE
-            ? address
-            : VF2_BUFFER_RAM_BASE + (address - (VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE));
-        status = vf2_model2a_read_u32(game->native_machine, wrapped, &words[index]);
-        if (status != VF2_OK) {
-            break;
+    if (game->native_copro_word_count == game->native_copro_word_capacity) {
+        if (game->native_copro_word_capacity == 0u) {
+            capacity = 256u;
+        } else {
+            if (game->native_copro_word_capacity > SIZE_MAX / 2u) {
+                return VF2_ERROR_OUT_OF_MEMORY;
+            }
+            capacity = game->native_copro_word_capacity * 2u;
+        }
+        if (capacity > SIZE_MAX / sizeof(*game->native_copro_words)) {
+            return VF2_ERROR_OUT_OF_MEMORY;
+        }
+        {
+            uint32_t *words = (uint32_t *)realloc(
+                game->native_copro_words,
+                capacity * sizeof(*game->native_copro_words)
+            );
+            if (words == NULL) {
+                return VF2_ERROR_OUT_OF_MEMORY;
+            }
+            game->native_copro_words = words;
+            game->native_copro_word_capacity = capacity;
         }
     }
-    if (status == VF2_OK) {
-        status = vf2_tgp_execute_geometry_stream(
-            game->tgp, words, word_count, game->platform,
+    game->native_copro_words[game->native_copro_word_count++] = packet;
+    /* Keep the Model 2A backing store updated as well. The recovered runtime
+     * still observes a few coprocessor-port values while the full TGP FIFO
+     * device is being completed; returning UNSUPPORTED asks model2a.c to
+     * retain that compatibility behavior after capture. */
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+static vf2_status game_render_native_geometry(vf2_game *game)
+{
+    vf2_tgp_geometry_stream_report report;
+
+    if (game == NULL || game->platform == NULL || game->tgp == NULL ||
+        game->native_copro_word_count == 0u) {
+        return VF2_OK;
+    }
+    {
+        vf2_status status = vf2_tgp_execute_geometry_stream(
+            game->tgp, game->native_copro_words,
+            game->native_copro_word_count, game->platform,
             UINT32_C(0xffffffff), &report
         );
+        if (status == VF2_OK) {
+            game->native_copro_word_count = 0u;
+        }
+        return status;
     }
-    free(words);
-    return status;
 }
 
 vf2_status vf2_game_initialize(vf2_game *game)
@@ -115,6 +129,12 @@ vf2_status vf2_game_initialize(vf2_game *game)
     game->native_cpu = NULL;
     game->native_runtime = NULL;
     memset(&game->native_report, 0, sizeof(game->native_report));
+    game->native_copro_words = NULL;
+    game->native_copro_word_count = 0u;
+    game->native_copro_word_capacity = 0u;
+    game->native_copro_capture_enabled = 0;
+    game->input = 0u;
+    game->input_set = 0;
     return VF2_OK;
 }
 
@@ -200,6 +220,19 @@ vf2_status vf2_game_attach_graphics(
     }
     game->platform = platform;
     game->tgp = tgp;
+    if (game->native_machine != NULL) {
+        status = vf2_model2a_set_copro_callbacks(
+            game->native_machine, NULL, game_capture_copro_write, game
+        );
+        if (status != VF2_OK) {
+            game->platform = NULL;
+            game->tgp = NULL;
+            vf2_platform_shutdown(platform);
+            free(tgp);
+            free(platform);
+            return status;
+        }
+    }
     return VF2_OK;
 }
 
@@ -210,7 +243,15 @@ vf2_status vf2_game_set_input(vf2_game *game, uint32_t input)
     if (status != VF2_OK) {
         return status;
     }
-    return vf2_platform_set_input(game->platform, input);
+    status = vf2_platform_set_input(game->platform, input);
+    if (status == VF2_OK) {
+        game->input = input;
+        game->input_set = 1;
+        if (game->native_machine != NULL) {
+            status = vf2_model2a_set_input(game->native_machine, input);
+        }
+    }
+    return status;
 }
 
 vf2_status vf2_game_attach_native_runtime(
@@ -228,6 +269,15 @@ vf2_status vf2_game_attach_native_runtime(
     game->native_cpu = cpu;
     game->native_runtime = runtime;
     memset(&game->native_report, 0, sizeof(game->native_report));
+    if (game->platform != NULL) {
+        vf2_status status = vf2_model2a_set_copro_callbacks(
+            machine, NULL, game_capture_copro_write, game
+        );
+        if (status == VF2_OK && game->input_set != 0) {
+            status = vf2_model2a_set_input(machine, game->input);
+        }
+        return status;
+    }
     return VF2_OK;
 }
 
@@ -243,6 +293,12 @@ vf2_status vf2_game_run_native_frame(
     if (status != VF2_OK || max_blocks == 0u) {
         return status != VF2_OK ? status : VF2_ERROR_INVALID_ARGUMENT;
     }
+    if (game->input_set != 0) {
+        status = vf2_model2a_set_input(game->native_machine, game->input);
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
     if (game->platform != NULL || game->tgp != NULL) {
         if (game->platform == NULL || game->tgp == NULL) {
             return VF2_ERROR_INVALID_ARGUMENT;
@@ -252,6 +308,8 @@ vf2_status vf2_game_run_native_frame(
             return status;
         }
         frame_open = 1;
+        game->native_copro_word_count = 0u;
+        game->native_copro_capture_enabled = 1;
     }
     status = vf2_native_runtime_run_frame(
         game->native_machine,
@@ -263,6 +321,7 @@ vf2_status vf2_game_run_native_frame(
     if (report != NULL) {
         *report = game->native_report;
     }
+    game->native_copro_capture_enabled = 0;
     if (status == VF2_OK && frame_open) {
         status = game_render_native_geometry(game);
     }
@@ -385,12 +444,18 @@ vf2_status vf2_game_update(vf2_game *game)
 void vf2_game_shutdown(vf2_game *game)
 {
     if (game != 0) {
+        if (game->native_machine != NULL) {
+            (void)vf2_model2a_set_copro_callbacks(
+                game->native_machine, NULL, NULL, NULL
+            );
+        }
         if (game->platform != NULL) {
             vf2_platform_shutdown(game->platform);
             free(game->platform);
         }
         free(game->tgp);
         free(game->sound);
+        free(game->native_copro_words);
         game->platform = NULL;
         game->tgp = NULL;
         game->sound = NULL;
@@ -398,6 +463,12 @@ void vf2_game_shutdown(vf2_game *game)
         game->native_cpu = NULL;
         game->native_runtime = NULL;
         memset(&game->native_report, 0, sizeof(game->native_report));
+        game->native_copro_words = NULL;
+        game->native_copro_word_count = 0u;
+        game->native_copro_word_capacity = 0u;
+        game->native_copro_capture_enabled = 0;
+        game->input = 0u;
+        game->input_set = 0;
         game->initialized = 0;
     }
 }

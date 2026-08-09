@@ -46,6 +46,43 @@ static void test_native_attachment(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_native_input_attachment(void)
+{
+    static uint8_t tables[VF2_TGP_TABLE_WORD_COUNT * sizeof(uint32_t)];
+    vf2_game game = {0};
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state runtime;
+    uint8_t port = 0u;
+
+    EXPECT_TRUE(vf2_model2a_initialize(&machine) != 0);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x0000dead));
+    EXPECT_TRUE(vf2_native_runtime_initialize(&runtime, 4u) == VF2_OK);
+    EXPECT_TRUE(vf2_game_initialize(&game) == VF2_OK);
+    EXPECT_TRUE(vf2_game_attach_graphics(
+        &game, 16u, 16u, tables, sizeof(tables), NULL, 0u, NULL, 0u
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_game_set_input(
+        &game,
+        VF2_PLATFORM_BUTTON_PUNCH | VF2_PLATFORM_BUTTON_KICK |
+        VF2_PLATFORM_BUTTON_GUARD | VF2_PLATFORM_BUTTON_UP
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_game_attach_native_runtime(
+        &game, &machine, &cpu, &runtime
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 4u, &port, sizeof(port)
+    ) == VF2_OK);
+    EXPECT_TRUE(port == UINT8_C(0xd8));
+    EXPECT_TRUE(vf2_game_set_input(&game, 0u) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(
+        &machine, VF2_IO_CONTROL_BASE + 4u, &port, sizeof(port)
+    ) == VF2_OK);
+    EXPECT_TRUE(port == UINT8_C(0xff));
+    vf2_game_shutdown(&game);
+    vf2_model2a_shutdown(&machine);
+}
+
 int main(void)
 {
     static uint8_t tables[VF2_TGP_TABLE_WORD_COUNT * sizeof(uint32_t)];
@@ -65,6 +102,7 @@ int main(void)
     };
 
     test_native_attachment();
+    test_native_input_attachment();
 
     stream[3] = float_bits(-1.0f);
     stream[4] = float_bits(-1.0f);

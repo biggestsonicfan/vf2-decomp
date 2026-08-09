@@ -40,7 +40,7 @@ static void usage(const char *program)
         "  %s task-profile <rom-directory> [output.csv]\n"
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
-        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or]\n"
+        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [output.vf2snap]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
         "  %s compare-boot <rom-directory>\n"
         "  %s compare-init <rom-directory>\n"
@@ -2578,7 +2578,8 @@ static int command_resume_trace(
     const char *snapshot_path,
     uint32_t max_steps,
     uint32_t clear_task_index,
-    uint32_t fighter_flags_or
+    uint32_t fighter_flags_or,
+    const char *output_snapshot_path
 )
 {
     uint8_t *image = NULL;
@@ -2587,6 +2588,7 @@ static int command_resume_trace(
     vf2_model2a machine;
     vf2_i960_cpu cpu;
     vf2_i960_snapshot snapshot;
+    vf2_i960_snapshot output_snapshot;
     vf2_i960_trace_event event;
     vf2_status status = VF2_OK;
     uint32_t frame_wait_visits = 0u;
@@ -2600,6 +2602,7 @@ static int command_resume_trace(
     memset(&machine, 0, sizeof(machine));
     memset(&cpu, 0, sizeof(cpu));
     vf2_i960_snapshot_init(&snapshot);
+    vf2_i960_snapshot_init(&output_snapshot);
     status = load_maincpu(rom_directory, &image, &image_size, &vectors);
     if (status == VF2_OK) {
         status = initialize_boot_machine(
@@ -2779,7 +2782,127 @@ static int command_resume_trace(
            (unsigned)calls, (unsigned)frame_interrupts,
            (unsigned)timer_interrupts, (unsigned)steps);
 
+    if (status == VF2_OK && output_snapshot_path != NULL) {
+        uint32_t previous = 0u;
+        uint32_t read = 0u;
+        uint32_t write = 0u;
+        size_t copro_nonzero_words = 0u;
+        uint32_t first_copro_nonzero = 0u;
+        int found_copro_nonzero = 0;
+        size_t geometry_nonzero_words = 0u;
+        uint32_t first_geometry_nonzero = 0u;
+        int found_geometry_nonzero = 0;
+        size_t nonzero_words = 0u;
+        size_t stream_nonzero_words = 0u;
+        size_t readable_nonzero_words = 0u;
+        uint32_t first_nonzero = 0u;
+        uint32_t first_stream_nonzero = 0u;
+        uint32_t first_readable_nonzero = 0u;
+        int found_nonzero = 0;
+        int found_stream_nonzero = 0;
+        int found_readable_nonzero = 0;
+        size_t printed_nonzero = 0u;
+        if (vf2_model2a_read_u32(
+                &machine, UINT32_C(0x00803008), &previous
+            ) == VF2_OK &&
+            vf2_model2a_read_u32(
+                &machine, UINT32_C(0x00802008), &read
+            ) == VF2_OK &&
+            vf2_model2a_read_u32(
+                &machine, UINT32_C(0x00801008), &write
+            ) == VF2_OK) {
+            for (uint32_t address = UINT32_C(0x00900000);
+                 address < UINT32_C(0x00980000); address += 4u) {
+                uint32_t value = 0u;
+                if (vf2_model2a_read_u32(&machine, address, &value) != VF2_OK) {
+                    break;
+                }
+                if (value != 0u) {
+                    ++nonzero_words;
+                    if (!found_nonzero) {
+                        first_nonzero = address;
+                        found_nonzero = 1;
+                    }
+                    if (printed_nonzero < 32u) {
+                        printf("  geometry[0x%08x]=0x%08x\n",
+                               (unsigned)address, (unsigned)value);
+                        ++printed_nonzero;
+                    }
+                }
+                const int in_stream = previous <= write
+                    ? address >= previous && address < write
+                    : address >= previous || address < write;
+                if (in_stream && value != 0u) {
+                    ++stream_nonzero_words;
+                    if (!found_stream_nonzero) {
+                        first_stream_nonzero = address;
+                        found_stream_nonzero = 1;
+                    }
+                }
+                const int in_readable = read <= write
+                    ? address >= read && address < write
+                    : address >= read || address < write;
+                if (in_readable && value != 0u) {
+                    ++readable_nonzero_words;
+                    if (!found_readable_nonzero) {
+                        first_readable_nonzero = address;
+                        found_readable_nonzero = 1;
+                    }
+                }
+            }
+            printf("Geometry buffer: read=0x%08x previous=0x%08x write=0x%08x nonzero_words=%zu first=0x%08x stream_nonzero=%zu stream_first=0x%08x readable_nonzero=%zu readable_first=0x%08x\n",
+                   (unsigned)read, (unsigned)previous, (unsigned)write,
+                   nonzero_words, (unsigned)first_nonzero,
+                   stream_nonzero_words, (unsigned)first_stream_nonzero,
+                   readable_nonzero_words, (unsigned)first_readable_nonzero);
+            for (uint32_t address = UINT32_C(0x00880000);
+                 address < UINT32_C(0x00888000); address += 4u) {
+                uint32_t value = 0u;
+                if (vf2_model2a_read_u32(&machine, address, &value) != VF2_OK) {
+                    break;
+                }
+                if (value != 0u) {
+                    ++copro_nonzero_words;
+                    if (!found_copro_nonzero) {
+                        first_copro_nonzero = address;
+                        found_copro_nonzero = 1;
+                    }
+                }
+            }
+            printf("Copro port: nonzero_words=%zu first=0x%08x\n",
+                   copro_nonzero_words, (unsigned)first_copro_nonzero);
+            for (uint32_t address = UINT32_C(0x00800000);
+                 address < UINT32_C(0x00808000); address += 4u) {
+                uint32_t value = 0u;
+                if (vf2_model2a_read_u32(&machine, address, &value) != VF2_OK) {
+                    break;
+                }
+                if (value != 0u) {
+                    ++geometry_nonzero_words;
+                    if (!found_geometry_nonzero) {
+                        first_geometry_nonzero = address;
+                        found_geometry_nonzero = 1;
+                    }
+                }
+            }
+            printf("Geometry RAM: nonzero_words=%zu first=0x%08x\n",
+                   geometry_nonzero_words, (unsigned)first_geometry_nonzero);
+        }
+        status = vf2_i960_snapshot_capture(
+            &output_snapshot, &cpu, &machine
+        );
+        if (status == VF2_OK) {
+            status = vf2_i960_snapshot_write_file(
+                &output_snapshot, output_snapshot_path
+            );
+        }
+        if (status == VF2_OK) {
+            printf("Resume snapshot written to %s\n", output_snapshot_path);
+        }
+    }
+
     vf2_i960_snapshot_destroy(&snapshot);
+    vf2_i960_snapshot_destroy(&output_snapshot);
     if (machine.work_ram != NULL) {
         vf2_model2a_shutdown(&machine);
     }
@@ -5997,7 +6120,7 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
-        (argc == 4 || argc == 5 || argc == 6 || argc == 7)) {
+        (argc == 4 || argc == 5 || argc == 6 || argc == 7 || argc == 8)) {
         uint32_t max_steps = UINT32_C(10000000);
         uint32_t clear_task_index = UINT32_MAX;
         uint32_t fighter_flags_or = UINT32_MAX;
@@ -6011,7 +6134,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "Invalid resume-trace options\n");
             return EXIT_FAILURE;
         }
-        if (argc == 7 &&
+        if (argc >= 7 &&
             (!parse_u32(argv[4], &max_steps) ||
              !parse_u32(argv[5], &clear_task_index) ||
              !parse_u32(argv[6], &fighter_flags_or))) {
@@ -6019,7 +6142,8 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         return command_resume_trace(
-            argv[2], argv[3], max_steps, clear_task_index, fighter_flags_or
+            argv[2], argv[3], max_steps, clear_task_index, fighter_flags_or,
+            argc == 8 ? argv[7] : NULL
         );
     }
 

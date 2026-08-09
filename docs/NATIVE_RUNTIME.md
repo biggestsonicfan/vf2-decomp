@@ -115,6 +115,25 @@ reported native instruction count, mirrors deterministic host frame events and
 compares complete CPU state, local frames and all mutable Model 2 memory after
 every block.
 
+## Native game-frame boundary
+
+`vf2_game_attach_native_runtime` can now be paired with the software graphics
+and sound backends. During a native frame, Model 2A coprocessor-port writes are
+captured as an ordered stream: function-port writes receive the Model 2 address
+tag and FIFO writes remain raw words. The stream is handed to the existing TGP
+geometry decoder before the software frame is closed. The capture deliberately
+falls back to the Model 2A flat backing store after observing each write, so
+the still-incomplete TGP device does not perturb the recovered runtime.
+
+This is an integration boundary, not a claim of a playable game: gameplay input
+semantics, the complete TGP packet/microcode protocol, gameplay state and full
+sound behavior remain open.
+
+The Model 2A input facade now exposes the active-low 315-5649 B/C/D input
+ports at `0x01c00002`, `0x01c00004` and `0x01c00006`. `vf2_game_set_input`
+updates the platform surface and synchronizes the native machine, including
+VF2 P1 joystick, punch, kick, guard, start, coin and service controls.
+
 The current CMake configuration exposes 16 ROM-independent and 26 ROM-backed
 tests. All configured tests pass against the supported ROM set, and the ROM-independent suite
 passes under ASan, UBSan and LeakSanitizer.

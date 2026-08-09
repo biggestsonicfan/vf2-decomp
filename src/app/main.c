@@ -172,6 +172,13 @@ static vf2_status run_native_session(
                 (unsigned long long)report.recovered_instruction_count,
                 (unsigned)report.final_address
             );
+        } else {
+            fprintf(
+                stderr,
+                "Native frame failed: %s blocks=%zu ip=0x%08x captured=%zu\n",
+                vf2_status_string(status), report.blocks_executed,
+                (unsigned)report.final_address, game.native_copro_word_count
+            );
         }
     }
     if (status == VF2_OK) {

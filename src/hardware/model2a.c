@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "vf2/platform.h"
+
 typedef struct vf2_memory_view {
     const uint8_t *read_data;
     uint8_t *write_data;
@@ -215,6 +217,74 @@ static int find_view(
     return 0;
 }
 
+static uint8_t model2a_host_input_port(
+    const vf2_model2a *machine,
+    uint32_t port
+)
+{
+    uint8_t value = UINT8_C(0xff);
+    const uint32_t input = machine->input;
+
+    if (port == 1u) {
+        if ((input & VF2_PLATFORM_BUTTON_COIN) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x01);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_SERVICE) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x08);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_START) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x10);
+        }
+    } else if (port == 2u) {
+        if ((input & VF2_PLATFORM_BUTTON_PUNCH) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x01);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_KICK) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x02);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_GUARD) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x04);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_DOWN) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x10);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_UP) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x20);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_RIGHT) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x40);
+        }
+        if ((input & VF2_PLATFORM_BUTTON_LEFT) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x80);
+        }
+    }
+    return value;
+}
+
+static vf2_status model2a_read_input_port(
+    const vf2_model2a *machine,
+    uint32_t address,
+    void *destination,
+    size_t size
+)
+{
+    const uint32_t relative = address - VF2_IO_CONTROL_BASE;
+    const uint32_t port = relative / 2u;
+    uint8_t value = 0u;
+
+    if (size != sizeof(uint8_t) || (relative & 1u) != 0u ||
+        port < 1u || port > 3u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((machine->io_control[0x10u] & (UINT8_C(1) << port)) != 0u) {
+        value = model2a_host_input_port(machine, port);
+    } else {
+        value = machine->io_control[relative];
+    }
+    *(uint8_t *)destination = value;
+    return VF2_OK;
+}
+
 int vf2_model2a_initialize(vf2_model2a *machine)
 {
     if (machine == NULL) {
@@ -292,6 +362,13 @@ int vf2_model2a_initialize(vf2_model2a *machine)
      * input, not recovered game logic. */
     machine->io_control[0x42u] = 0x40u;
     machine->io_control[0x43u] = 0x00u;
+    machine->io_control[0x10u] = 0xffu;
+    machine->io_control[0x02u] = 0xffu;
+    machine->io_control[0x04u] = 0xffu;
+    machine->io_control[0x06u] = 0xffu;
+    machine->io_control[0x16u] = 0xffu;
+    machine->io_control[0x18u] = 0xffu;
+    machine->io_control[0x1au] = 0x0cu;
     return 1;
 }
 
@@ -368,6 +445,31 @@ vf2_status vf2_model2a_take_main_data(
     return status;
 }
 
+vf2_status vf2_model2a_set_copro_callbacks(
+    vf2_model2a *machine,
+    vf2_model2a_copro_read_callback read_callback,
+    vf2_model2a_copro_write_callback write_callback,
+    void *context
+)
+{
+    if (machine == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    machine->copro_read_callback = read_callback;
+    machine->copro_write_callback = write_callback;
+    machine->copro_callback_context = context;
+    return VF2_OK;
+}
+
+vf2_status vf2_model2a_set_input(vf2_model2a *machine, uint32_t input)
+{
+    if (machine == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    machine->input = input;
+    return VF2_OK;
+}
+
 vf2_status vf2_model2a_read(
     const vf2_model2a *machine,
     uint32_t address,
@@ -379,6 +481,25 @@ vf2_status vf2_model2a_read(
     size_t offset = 0u;
     if (machine == NULL || destination == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (range_contains(
+            VF2_IO_CONTROL_BASE, machine->io_control_size, address, size)) {
+        vf2_status input_status = model2a_read_input_port(
+            machine, address, destination, size
+        );
+        if (input_status != VF2_ERROR_UNSUPPORTED) {
+            return input_status;
+        }
+    }
+    if (range_contains(
+            VF2_COPRO_PORT_BASE, machine->copro_port_size, address, size) &&
+        machine->copro_read_callback != NULL) {
+        vf2_status callback_status = machine->copro_read_callback(
+            machine->copro_callback_context, address, destination, size
+        );
+        if (callback_status != VF2_ERROR_UNSUPPORTED) {
+            return callback_status;
+        }
     }
     if ((address == VF2_INTERRUPT_CONTROL_BASE ||
          address == VF2_INTERRUPT_CONTROL_BASE + 4u) && size == sizeof(uint32_t)) {
@@ -434,6 +555,16 @@ vf2_status vf2_model2a_write(
     if (address >= VF2_IO_CONTROL_BASE + 0x40u &&
         (uint64_t)address + size <= (uint64_t)VF2_IO_CONTROL_BASE + 0x44u) {
         return VF2_OK;
+    }
+    if (range_contains(
+            VF2_COPRO_PORT_BASE, machine->copro_port_size, address, size) &&
+        machine->copro_write_callback != NULL) {
+        vf2_status callback_status = machine->copro_write_callback(
+            machine->copro_callback_context, address, source, size
+        );
+        if (callback_status != VF2_ERROR_UNSUPPORTED) {
+            return callback_status;
+        }
     }
     if (!find_view(machine, address, size, &view) || view.write_data == NULL) {
         return VF2_ERROR_OUT_OF_BOUNDS;
