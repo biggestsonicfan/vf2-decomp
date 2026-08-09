@@ -3200,8 +3200,16 @@ vf2_status execute_interrupt_buffer_gate(
     }
     cpu->registers[13] = first;
     cpu->registers[14] = second;
-    if (status != VF2_OK || first != second) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (first != second) {
+        status = vf2_model2a_write(
+            machine, pointer + UINT32_C(0x69d), &first, sizeof(first)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &pointer);
     cpu->registers[3] = pointer;
@@ -3213,8 +3221,16 @@ vf2_status execute_interrupt_buffer_gate(
     }
     cpu->registers[13] = first;
     cpu->registers[14] = second;
-    if (status != VF2_OK || first != second) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (first != second) {
+        status = vf2_model2a_write(
+            machine, pointer + UINT32_C(0x69d), &first, sizeof(first)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &runtime_flags);
     if (status != VF2_OK || (runtime_flags & (UINT32_C(1) << 13u)) != 0u) {

@@ -17,6 +17,7 @@
 #define VF2_TASK_SOUND_ENTRY UINT32_C(0x000439fc)
 #define VF2_TASK_KILL_OSAGE_ENTRY UINT32_C(0x000657dc)
 #define VF2_TASK_OSAGE_ENTRY UINT32_C(0x000640f4)
+#define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
 
@@ -653,6 +654,7 @@ static int hybrid_second_scheduler_task_supported(uint32_t entry_address)
     switch (entry_address) {
     case VF2_TASK_GAME_INFO_ENTRY:
     case VF2_PLAYER_TASK_ENTRY:
+    case VF2_PLAYER_TASK_WRAPPER_ENTRY:
     case VF2_TASK_CAMERA_ENTRY:
     case VF2_TASK_USER_ENTRY:
     case VF2_TASK_SOUND_ENTRY:
@@ -684,9 +686,7 @@ vf2_status vf2_hybrid_second_scheduler_enter(
 
     if (machine == NULL || cpu == NULL ||
         cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE ||
-        cpu->local_frame_depth != 0u ||
-        cpu->registers[VF2_I960_FP_REGISTER] != UINT32_C(0x005ff500) ||
-        cpu->registers[1] != UINT32_C(0x005ff580)) {
+        cpu->local_frame_depth > 1u) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 

@@ -4834,6 +4834,130 @@ execute_texture_counter_interpreter(vf2_model2a *machine,
     return VF2_OK;
 }
 
+typedef struct vf2_native_wrapper_boundary_context {
+    uint32_t hit_address;
+} vf2_native_wrapper_boundary_context;
+
+static void vf2_native_wrapper_boundary_trace(
+    const vf2_i960_trace_event *event,
+    const vf2_i960_cpu *cpu,
+    void *user_data
+)
+{
+    vf2_native_wrapper_boundary_context *context =
+        (vf2_native_wrapper_boundary_context *)user_data;
+    static const uint32_t boundaries[] = {
+        VF2_NATIVE_FRAME_WAIT_POLL_ENTRY,
+        VF2_NATIVE_PLAYER_TASK_ENTRY,
+        VF2_TEXTURE_BYTE_RUN_ENTRY,
+        VF2_TEXTURE_UPLOAD_DISPATCH_ENTRY,
+        VF2_TEXTURE_BYTE_DECODE_ENTRY
+    };
+    size_t index = 0u;
+
+    (void)cpu;
+    if (event == NULL || context == NULL || context->hit_address != 0u) {
+        return;
+    }
+    for (index = 0u; index < sizeof(boundaries) / sizeof(boundaries[0]); ++index) {
+        if (event->ip_after == boundaries[index]) {
+            context->hit_address = boundaries[index];
+            ((vf2_i960_cpu *)cpu)->ip = UINT32_MAX;
+            break;
+        }
+    }
+}
+
+static vf2_status
+execute_second_scheduler_wrapper_interpreter(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report)
+{
+    vf2_native_wrapper_boundary_context boundary;
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    memset(&boundary, 0, sizeof(boundary));
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != UINT32_C(0x000142f4) || cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&options, 0, sizeof(options));
+    options.stop_address = UINT32_MAX;
+    options.max_steps = UINT64_C(1000000);
+    options.stop_on_self_branch = false;
+    options.trace_callback = vf2_native_wrapper_boundary_trace;
+    options.trace_user_data = &boundary;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+        boundary.hit_address == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->ip = boundary.hit_address;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+    report->bridge_kind =
+        VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_WRAPPER_INTERPRETER;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_texture_decoder_continuation_interpreter(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_step_report *report)
+{
+    vf2_native_wrapper_boundary_context boundary;
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_TEXTURE_BYTE_RUN_EXIT || cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&boundary, 0, sizeof(boundary));
+    memset(&options, 0, sizeof(options));
+    options.stop_address = UINT32_MAX;
+    options.max_steps = UINT64_C(20000000);
+    options.stop_on_self_branch = false;
+    options.trace_callback = vf2_native_wrapper_boundary_trace;
+    options.trace_user_data = &boundary;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK || result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+        boundary.hit_address == 0u) {
+        return status != VF2_OK ? status : VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->ip = boundary.hit_address;
+    report->kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+    report->bridge_kind =
+        VF2_HYBRID_BRIDGE_TEXTURE_DECODER_CONTINUATION_INTERPRETER;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    return VF2_OK;
+}
+
 static vf2_status
 execute_sound_continuation_task(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                 vf2_native_runtime_step_report *report) {
@@ -5499,6 +5623,14 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
                     bridge_report.recovered_procedure_returns;
             }
         }
+    } else if (cpu->ip == UINT32_C(0x000142f4)) {
+        status = execute_second_scheduler_wrapper_interpreter(
+            machine, cpu, &local_report
+        );
+    } else if (cpu->ip == VF2_TEXTURE_BYTE_RUN_EXIT) {
+        status = execute_texture_decoder_continuation_interpreter(
+            machine, cpu, &local_report
+        );
     } else if (cpu->ip == VF2_NATIVE_GAME_INFO_TASK_ENTRY ||
                cpu->ip == VF2_NATIVE_PLAYER_TASK_ENTRY ||
                cpu->ip == VF2_NATIVE_USER_TASK_ENTRY ||
@@ -5623,6 +5755,71 @@ vf2_status vf2_native_runtime_run_until(vf2_model2a *machine, vf2_i960_cpu *cpu,
     }
 
     if (status == VF2_OK && cpu->ip == stop_address) {
+        local_report.reached_stop = 1;
+    } else if (status == VF2_OK) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    local_report.final_address = cpu->ip;
+    if (report != NULL) {
+        *report = local_report;
+    }
+    return status;
+}
+
+vf2_status vf2_native_runtime_run_frame(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                        vf2_native_runtime_state *state,
+                                        size_t max_blocks,
+                                        vf2_native_runtime_run_report *report) {
+    vf2_native_runtime_run_report local_report;
+    const size_t starting_frame_phases =
+        state != NULL ? state->frame_wait_phases : 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || state == NULL || max_blocks == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&local_report, 0, sizeof(local_report));
+    local_report.start_address = cpu->ip;
+    /* A frame run is phase-bounded rather than address-bounded. UINT32_MAX
+     * makes that distinction visible to callers inspecting the report. */
+    local_report.stop_address = UINT32_MAX;
+    local_report.final_address = cpu->ip;
+
+    while (state->frame_wait_phases == starting_frame_phases &&
+           local_report.blocks_executed < max_blocks) {
+        vf2_native_runtime_step_report step_report;
+
+        memset(&step_report, 0, sizeof(step_report));
+        local_report.last_entry_address = cpu->ip;
+        status = vf2_native_runtime_step(machine, cpu, state, &step_report);
+        local_report.last_step_kind = step_report.kind;
+        local_report.last_bridge_kind = step_report.bridge_kind;
+        local_report.last_task_kind = step_report.task_kind;
+        local_report.final_address = cpu->ip;
+        if (status != VF2_OK) {
+            break;
+        }
+        ++local_report.blocks_executed;
+        local_report.recovered_instruction_count +=
+            step_report.recovered_instruction_count;
+        local_report.recovered_procedure_calls +=
+            step_report.recovered_procedure_calls;
+        local_report.recovered_procedure_returns +=
+            step_report.recovered_procedure_returns;
+        if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_TASK) {
+            ++local_report.task_bodies_executed;
+        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_FRAME_WAIT) {
+            ++local_report.frame_wait_phases;
+        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER) {
+            ++local_report.scheduler_entries;
+        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION) {
+            ++local_report.scheduler_transitions;
+        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH) {
+            ++local_report.scheduler_finishes;
+        }
+    }
+
+    if (status == VF2_OK && state->frame_wait_phases > starting_frame_phases) {
         local_report.reached_stop = 1;
     } else if (status == VF2_OK) {
         status = VF2_ERROR_UNSUPPORTED;

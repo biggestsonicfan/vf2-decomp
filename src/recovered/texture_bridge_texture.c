@@ -165,8 +165,20 @@ vf2_status execute_texture_maintenance(
             );
         }
         cpu->registers[4] = record_value;
-        if (status != VF2_OK || cpu->registers[3] == cpu->registers[4]) {
-            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (cpu->registers[3] == cpu->registers[4]) {
+            uint8_t enabled = 1u;
+            status = vf2_model2a_write(
+                machine,
+                cpu->registers[VF2_I960_G0_REGISTER + 1u] + UINT32_C(0x44),
+                &enabled,
+                sizeof(enabled)
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
         }
         status = finish_recovered_procedure(machine, cpu, UINT64_C(4));
         if (status != VF2_OK) {
@@ -272,6 +284,9 @@ vf2_status execute_texture_upload_dispatch(
     uint32_t index = 0u;
     uint32_t pending_index = UINT32_C(3);
     uint16_t value = 0u;
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
     vf2_status status = VF2_OK;
 
     if (cpu->local_frame_depth == 0u) {
@@ -294,9 +309,6 @@ vf2_status execute_texture_upload_dispatch(
         uint16_t argument0 = 0u;
         uint16_t argument1 = 0u;
 
-        if (pending_index != UINT32_C(2)) {
-            return VF2_ERROR_UNSUPPORTED;
-        }
         status = read_u16(
             machine, addresses[pending_index] + UINT32_C(2), &argument0
         );
@@ -305,16 +317,88 @@ vf2_status execute_texture_upload_dispatch(
                 machine, addresses[pending_index] + UINT32_C(4), &argument1
             );
         }
-        if (status != VF2_OK || argument0 != 0u ||
-            argument1 != UINT16_C(0x000b)) {
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (pending_index == UINT32_C(2) &&
+            (argument0 != 0u || argument1 != UINT16_C(0x000b))) {
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
         status = write_u16(machine, addresses[pending_index], 0u);
         if (status == VF2_OK) {
-            status = execute_pending_texture_palette_upload(machine);
+            if (pending_index == UINT32_C(2)) {
+                status = execute_pending_texture_palette_upload(machine);
+            } else {
+                vf2_i960_run_options options;
+                vf2_i960_run_result result;
+
+                /* The first two queues use the original tile upload helpers.
+                 * Keep their device-facing loops in the interpreter, but
+                 * stop at each architectural return so the surrounding
+                 * recovered procedure frame remains intact. */
+                status = vf2_i960_cpu_enter_procedure(
+                    cpu, UINT32_C(0x000008e0), UINT32_C(0x0004bae4)
+                );
+                if (status == VF2_OK) {
+                    cpu->registers[VF2_I960_G0_REGISTER] = argument0;
+                    cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
+                    memset(&options, 0, sizeof(options));
+                    options.stop_address = UINT32_C(0x0004bae4);
+                    options.max_steps = UINT64_C(20000000);
+                    options.stop_on_self_branch = false;
+                    memset(&result, 0, sizeof(result));
+                    status = vf2_i960_run(cpu, machine, &options, &result);
+                    if (status == VF2_OK &&
+                        (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+                         cpu->ip != UINT32_C(0x0004bae4))) {
+                        status = VF2_ERROR_UNSUPPORTED;
+                    }
+                }
+                if (status == VF2_OK) {
+                    status = vf2_i960_cpu_enter_procedure(
+                        cpu, UINT32_C(0x00000754), UINT32_C(0x0004baf4)
+                    );
+                }
+                if (status == VF2_OK) {
+                    cpu->registers[VF2_I960_G0_REGISTER] = argument0;
+                    cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
+                    memset(&options, 0, sizeof(options));
+                    options.stop_address = UINT32_C(0x0004baf4);
+                    options.max_steps = UINT64_C(20000000);
+                    options.stop_on_self_branch = false;
+                    memset(&result, 0, sizeof(result));
+                    status = vf2_i960_run(cpu, machine, &options, &result);
+                    if (status == VF2_OK &&
+                        (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+                         cpu->ip != UINT32_C(0x0004baf4))) {
+                        status = VF2_ERROR_UNSUPPORTED;
+                    }
+                }
+            }
         }
         if (status != VF2_OK) {
             return status;
+        }
+
+        if (pending_index != UINT32_C(2)) {
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+            if (status != VF2_OK) {
+                return status;
+            }
+            report->kind = VF2_HYBRID_BRIDGE_TEXTURE_UPLOAD_DISPATCH;
+            report->entry_address = VF2_TEXTURE_UPLOAD_DISPATCH_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->changed_values = UINT64_C(1);
+            report->bytes_written = 2u;
+            report->recovered_instruction_count =
+                cpu->executed_instructions - start_instructions;
+            report->recovered_procedure_calls =
+                cpu->procedure_calls - start_calls;
+            report->recovered_procedure_returns =
+                cpu->procedure_returns - start_returns;
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
         }
 
         cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x10);
@@ -2722,7 +2806,46 @@ vf2_status execute_texture_header_decode(
     }
     cpu->registers[VF2_I960_G0_REGISTER] = child_state;
     if (child_state != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
+        uint32_t restore_base = UINT32_C(0x00550084);
+        uint32_t target = 0u;
+        size_t index = 0u;
+
+        /* The nonzero-state arm is the ROM's small context dispatcher. It
+         * clears the child state, reloads g1..g14 and r3..r15 from the
+         * saved register image, then branches through the saved g0. */
+        status = vf2_model2a_write_u32(machine, VF2_TEXTURE_HEADER_STATE, 0u);
+        for (index = 0u; status == VF2_OK && index < 14u; ++index) {
+            status = vf2_model2a_read_u32(
+                machine, restore_base + (uint32_t)index * UINT32_C(4),
+                &cpu->registers[VF2_I960_G0_REGISTER + 1u + index]
+            );
+        }
+        for (index = 0u; status == VF2_OK && index < 13u; ++index) {
+            status = vf2_model2a_read_u32(
+                machine, restore_base + UINT32_C(56) +
+                    (uint32_t)index * UINT32_C(4),
+                &cpu->registers[3u + index]
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, restore_base + UINT32_C(108), &target
+            );
+        }
+        if (status != VF2_OK || target == 0u) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER] = target;
+        cpu->ip = target;
+        cpu->executed_instructions += UINT64_C(62);
+        report->kind = VF2_HYBRID_BRIDGE_TEXTURE_HEADER_DECODE;
+        report->entry_address = VF2_TEXTURE_HEADER_DECODE_ENTRY;
+        report->exit_address = cpu->ip;
+        report->changed_values = UINT64_C(28);
+        report->bytes_written = sizeof(uint32_t);
+        report->recovered_instruction_count = UINT64_C(62);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
     }
 
     status = texture_bit_reader_initialize(

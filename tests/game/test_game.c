@@ -22,6 +22,30 @@ static uint32_t float_bits(float value)
     return bits;
 }
 
+static void test_native_attachment(void)
+{
+    vf2_game game = {0};
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_native_runtime_state runtime;
+    vf2_native_runtime_run_report report;
+
+    EXPECT_TRUE(vf2_model2a_initialize(&machine) != 0);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x0000dead));
+    EXPECT_TRUE(vf2_native_runtime_initialize(&runtime, 4u) == VF2_OK);
+    EXPECT_TRUE(vf2_game_initialize(&game) == VF2_OK);
+    EXPECT_TRUE(vf2_game_attach_native_runtime(
+        &game, &machine, &cpu, &runtime
+    ) == VF2_OK);
+    EXPECT_TRUE(vf2_game_run_native_frame(&game, 0u, &report) ==
+                VF2_ERROR_INVALID_ARGUMENT);
+    EXPECT_TRUE(vf2_game_run_native_frame(&game, 1u, &report) ==
+                VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(report.start_address == UINT32_C(0x0000dead));
+    vf2_game_shutdown(&game);
+    vf2_model2a_shutdown(&machine);
+}
+
 int main(void)
 {
     static uint8_t tables[VF2_TGP_TABLE_WORD_COUNT * sizeof(uint32_t)];
@@ -39,6 +63,8 @@ int main(void)
         0u, 0u, 0u, 0u,
         UINT32_C(0x07800000)
     };
+
+    test_native_attachment();
 
     stream[3] = float_bits(-1.0f);
     stream[4] = float_bits(-1.0f);

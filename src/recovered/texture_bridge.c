@@ -534,6 +534,10 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-selector-interpreter";
     case VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_INTERPRETER:
         return "texture-counter-interpreter";
+    case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_WRAPPER_INTERPRETER:
+        return "second-scheduler-wrapper-interpreter";
+    case VF2_HYBRID_BRIDGE_TEXTURE_DECODER_CONTINUATION_INTERPRETER:
+        return "texture-decoder-continuation-interpreter";
     case VF2_HYBRID_BRIDGE_NONE:
     default:
         return "none";

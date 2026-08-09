@@ -142,6 +142,14 @@ vf2_status vf2_native_runtime_run_until(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                         uint32_t stop_address, size_t max_blocks,
                                         vf2_native_runtime_run_report *report);
 
+/* Execute recovered blocks until one complete recovered frame-wait phase has
+ * completed. The machine, CPU and runtime state remain owned by the caller;
+ * this is the frame-oriented entry point used by the game facade. */
+vf2_status vf2_native_runtime_run_frame(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                        vf2_native_runtime_state *state,
+                                        size_t max_blocks,
+                                        vf2_native_runtime_run_report *report);
+
 /* Persist the host-side state that is intentionally outside the
  * architectural i960 snapshot. The fixed-width, little-endian
  * format is versioned and protected by CRC32. */

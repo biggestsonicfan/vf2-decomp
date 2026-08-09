@@ -320,6 +320,53 @@ static void test_header_decode_dispatch(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_header_decode_context_restore(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint32_t value = 0u;
+    size_t index = 0u;
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    enter_parent(&cpu, UINT32_C(0x0004c180));
+    cpu.registers[19] = UINT32_C(0x00551000);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00550080), 1u) == VF2_OK);
+    for (index = 0u; index < 14u; ++index) {
+        CHECK(vf2_model2a_write_u32(
+                  &machine, UINT32_C(0x00550084) + (uint32_t)index * 4u,
+                  UINT32_C(0x11000000) + (uint32_t)index) == VF2_OK);
+    }
+    for (index = 0u; index < 13u; ++index) {
+        CHECK(vf2_model2a_write_u32(
+                  &machine, UINT32_C(0x00550084) + UINT32_C(56) +
+                      (uint32_t)index * 4u,
+                  UINT32_C(0x22000000) + (uint32_t)index) == VF2_OK);
+    }
+    CHECK(vf2_model2a_write_u32(
+              &machine, UINT32_C(0x00550084) + UINT32_C(108),
+              UINT32_C(0x0004c3f0)) == VF2_OK);
+
+    CHECK(vf2_hybrid_post_frame_bridge_execute(
+              &machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_TEXTURE_HEADER_DECODE);
+    CHECK(report.entry_address == UINT32_C(0x0004c180));
+    CHECK(report.exit_address == UINT32_C(0x0004c3f0));
+    CHECK(report.recovered_instruction_count == UINT64_C(62));
+    CHECK(cpu.ip == UINT32_C(0x0004c3f0));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x0004c3f0));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 1u] == UINT32_C(0x11000000));
+    CHECK(cpu.registers[3] == UINT32_C(0x22000000));
+    CHECK(vf2_model2a_read_u32(
+              &machine, UINT32_C(0x00550080), &value) == VF2_OK);
+    CHECK(value == 0u);
+
+    vf2_model2a_shutdown(&machine);
+}
+
 
 static void test_system_memory_diagnostic(void)
 {
@@ -2950,6 +2997,7 @@ int main(void)
     );
     test_loop_gate_dispatch();
     test_header_decode_dispatch();
+    test_header_decode_context_restore();
     test_color_prepare_dispatch();
     test_word_prepare_dispatch();
     test_tree_dispatch();

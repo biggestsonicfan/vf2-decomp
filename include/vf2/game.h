@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vf2/i960/executor.h"
+#include "vf2/model2a.h"
+#include "vf2/native_runtime.h"
 #include "vf2/platform.h"
 #include "vf2/sound_board.h"
 #include "vf2/status.h"
@@ -15,6 +18,11 @@ typedef struct vf2_game {
     vf2_platform *platform;
     vf2_tgp *tgp;
     vf2_sound_board *sound;
+    /* Native runtime objects are borrowed, never freed by vf2_game. */
+    vf2_model2a *native_machine;
+    vf2_i960_cpu *native_cpu;
+    vf2_native_runtime_state *native_runtime;
+    vf2_native_runtime_run_report native_report;
 } vf2_game;
 
 vf2_status vf2_game_initialize(vf2_game *game);
@@ -32,6 +40,17 @@ vf2_status vf2_game_attach_graphics(
 );
 
 vf2_status vf2_game_set_input(vf2_game *game, uint32_t input);
+vf2_status vf2_game_attach_native_runtime(
+    vf2_game *game,
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_state *runtime
+);
+vf2_status vf2_game_run_native_frame(
+    vf2_game *game,
+    size_t max_blocks,
+    vf2_native_runtime_run_report *report
+);
 vf2_status vf2_game_attach_audio(
     vf2_game *game,
     const uint8_t *audio_rom,

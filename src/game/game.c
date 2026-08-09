@@ -1,6 +1,9 @@
 #include "vf2/game.h"
 
 #include <stdlib.h>
+#include <string.h>
+
+#include "vf2/geometry.h"
 
 static vf2_status game_require_graphics(const vf2_game *game)
 {
@@ -19,6 +22,84 @@ static vf2_status game_require_audio(const vf2_game *game)
     return VF2_OK;
 }
 
+static vf2_status game_require_native(const vf2_game *game)
+{
+    if (game == NULL || game->initialized == 0 ||
+        game->native_machine == NULL || game->native_cpu == NULL ||
+        game->native_runtime == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    return VF2_OK;
+}
+
+static vf2_status game_render_native_geometry(vf2_game *game)
+{
+    uint32_t previous = 0u;
+    uint32_t write = 0u;
+    uint32_t distance = 0u;
+    size_t word_count = 0u;
+    uint32_t *words = NULL;
+    vf2_tgp_geometry_stream_report report;
+    vf2_status status = VF2_OK;
+
+    if (game == NULL || game->native_machine == NULL ||
+        game->platform == NULL || game->tgp == NULL) {
+        return VF2_OK;
+    }
+    status = vf2_model2a_read_u32(
+        game->native_machine,
+        VF2_GEOMETRY_BASE + VF2_GEOMETRY_PREVIOUS_OFFSET,
+        &previous
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            game->native_machine,
+            VF2_GEOMETRY_BASE + VF2_GEOMETRY_WRITE_OFFSET,
+            &write
+        );
+    }
+    if (status != VF2_OK || previous < VF2_BUFFER_RAM_BASE ||
+        previous >= VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE ||
+        write < VF2_BUFFER_RAM_BASE ||
+        write >= VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE) {
+        return status != VF2_OK ? status : VF2_ERROR_UNSUPPORTED;
+    }
+    distance = write >= previous
+        ? write - previous
+        : (VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE - previous) +
+          (write - VF2_BUFFER_RAM_BASE);
+    if ((distance & (sizeof(uint32_t) - 1u)) != 0u ||
+        distance > VF2_BUFFER_RAM_SIZE) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    word_count = distance / sizeof(uint32_t);
+    if (word_count == 0u) {
+        return VF2_OK;
+    }
+    words = (uint32_t *)calloc(word_count, sizeof(*words));
+    if (words == NULL) {
+        return VF2_ERROR_OUT_OF_MEMORY;
+    }
+    for (size_t index = 0u; index < word_count; ++index) {
+        const uint32_t address = previous + (uint32_t)(index * sizeof(uint32_t));
+        const uint32_t wrapped = address < VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE
+            ? address
+            : VF2_BUFFER_RAM_BASE + (address - (VF2_BUFFER_RAM_BASE + VF2_BUFFER_RAM_SIZE));
+        status = vf2_model2a_read_u32(game->native_machine, wrapped, &words[index]);
+        if (status != VF2_OK) {
+            break;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_tgp_execute_geometry_stream(
+            game->tgp, words, word_count, game->platform,
+            UINT32_C(0xffffffff), &report
+        );
+    }
+    free(words);
+    return status;
+}
+
 vf2_status vf2_game_initialize(vf2_game *game)
 {
     if (game == 0) {
@@ -30,6 +111,10 @@ vf2_status vf2_game_initialize(vf2_game *game)
     game->platform = NULL;
     game->tgp = NULL;
     game->sound = NULL;
+    game->native_machine = NULL;
+    game->native_cpu = NULL;
+    game->native_runtime = NULL;
+    memset(&game->native_report, 0, sizeof(game->native_report));
     return VF2_OK;
 }
 
@@ -128,6 +213,71 @@ vf2_status vf2_game_set_input(vf2_game *game, uint32_t input)
     return vf2_platform_set_input(game->platform, input);
 }
 
+vf2_status vf2_game_attach_native_runtime(
+    vf2_game *game,
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_state *runtime
+)
+{
+    if (game == NULL || game->initialized == 0 || machine == NULL ||
+        cpu == NULL || runtime == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    game->native_machine = machine;
+    game->native_cpu = cpu;
+    game->native_runtime = runtime;
+    memset(&game->native_report, 0, sizeof(game->native_report));
+    return VF2_OK;
+}
+
+vf2_status vf2_game_run_native_frame(
+    vf2_game *game,
+    size_t max_blocks,
+    vf2_native_runtime_run_report *report
+)
+{
+    vf2_status status = game_require_native(game);
+    int frame_open = 0;
+
+    if (status != VF2_OK || max_blocks == 0u) {
+        return status != VF2_OK ? status : VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (game->platform != NULL || game->tgp != NULL) {
+        if (game->platform == NULL || game->tgp == NULL) {
+            return VF2_ERROR_INVALID_ARGUMENT;
+        }
+        status = vf2_platform_begin_frame(game->platform, 0u);
+        if (status != VF2_OK) {
+            return status;
+        }
+        frame_open = 1;
+    }
+    status = vf2_native_runtime_run_frame(
+        game->native_machine,
+        game->native_cpu,
+        game->native_runtime,
+        max_blocks,
+        &game->native_report
+    );
+    if (report != NULL) {
+        *report = game->native_report;
+    }
+    if (status == VF2_OK && frame_open) {
+        status = game_render_native_geometry(game);
+    }
+    if (frame_open) {
+        vf2_status end_status = vf2_platform_end_frame(game->platform);
+        if (status == VF2_OK) {
+            status = end_status;
+        }
+    }
+    if (status == VF2_OK) {
+        ++game->frame_number;
+    }
+    return status;
+}
+
 vf2_status vf2_game_begin_frame(vf2_game *game, uint32_t color)
 {
     vf2_status status = game_require_graphics(game);
@@ -223,6 +373,11 @@ vf2_status vf2_game_update(vf2_game *game)
         }
     }
 
+    if (game->native_machine != NULL || game->native_cpu != NULL ||
+        game->native_runtime != NULL) {
+        return vf2_game_run_native_frame(game, 100000u, NULL);
+    }
+
     ++game->frame_number;
     return VF2_OK;
 }
@@ -239,6 +394,10 @@ void vf2_game_shutdown(vf2_game *game)
         game->platform = NULL;
         game->tgp = NULL;
         game->sound = NULL;
+        game->native_machine = NULL;
+        game->native_cpu = NULL;
+        game->native_runtime = NULL;
+        memset(&game->native_report, 0, sizeof(game->native_report));
         game->initialized = 0;
     }
 }
