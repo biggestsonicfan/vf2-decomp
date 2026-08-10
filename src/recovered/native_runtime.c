@@ -6092,6 +6092,11 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
         memset(&bridge_report, 0, sizeof(bridge_report));
         status = vf2_hybrid_post_frame_bridge_execute(machine, cpu, &bridge_report);
         if (status == VF2_OK &&
+            bridge_report.kind == VF2_HYBRID_BRIDGE_INTERRUPT_INITIAL_CLUSTER &&
+            cpu->ip == VF2_TEXTURE_UPLOAD_DISPATCH_RETURN) {
+            cpu->ip = VF2_TEXTURE_UPLOAD_DISPATCH_RETURN;
+        }
+        if (status == VF2_OK &&
             bridge_report.kind == VF2_HYBRID_BRIDGE_INTERRUPT_GAME_STATE &&
             cpu->ip == VF2_NATIVE_GAME_STATE_RETURN_STUB) {
             status = vf2_i960_step(cpu, machine, NULL);
@@ -6102,8 +6107,28 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
                 status = vf2_i960_step(cpu, machine, NULL);
             }
             if (status == VF2_OK) {
-                bridge_report.recovered_instruction_count += UINT64_C(2);
-                ++bridge_report.recovered_procedure_returns;
+                uint64_t continuation_instructions =
+                    cpu->executed_instructions;
+                const uint64_t continuation_calls = cpu->procedure_calls;
+                const uint64_t continuation_returns = cpu->procedure_returns;
+                while (status == VF2_OK && cpu->ip != VF2_INTERRUPT_TILE_SYNC_ENTRY &&
+                       cpu->executed_instructions - continuation_instructions <
+                           UINT64_C(64)) {
+                    status = vf2_i960_step(cpu, machine, NULL);
+                }
+                if (status == VF2_OK &&
+                    cpu->ip != VF2_INTERRUPT_TILE_SYNC_ENTRY) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                }
+                if (status == VF2_OK) {
+                    bridge_report.recovered_instruction_count += UINT64_C(2) +
+                        cpu->executed_instructions - continuation_instructions;
+                    bridge_report.recovered_procedure_calls +=
+                        cpu->procedure_calls - continuation_calls;
+                    bridge_report.recovered_procedure_returns += UINT64_C(1) +
+                        cpu->procedure_returns - continuation_returns;
+                    --cpu->executed_instructions;
+                }
             }
         }
         if (status == VF2_OK) {
