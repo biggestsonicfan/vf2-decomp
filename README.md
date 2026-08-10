@@ -81,10 +81,11 @@ prefixes and the observed bit-4/6/8/14/15/16 dependent `0x18644` flag paths are
 also native; the
 shared `0x18e08`/`0x18e00` command-port helpers are also native; observed
 state-4/bit-15 and non-state-4 bit-15 prefixes are native, while unobserved
-child branches and the unrecovered `fa_player` body remain explicitly
-ROM-backed. The observed `fa_player` bootstrap through `0x14288` and accepted
-`0x19ef8` corridor through `0x1428c` are now native and differentially exact;
-its downstream body still uses the ROM continuation.
+child branches remain explicitly ROM-backed. The observed `fa_player`
+bootstrap through `0x14288`, accepted `0x19ef8` corridor through `0x1428c`,
+the downstream `0x1428c -> 0x142c0` geometry-expansion corridor, and the small
+`0x142c0 -> 0x14310` player setup corridor are now native and differentially
+exact; its later unobserved branches still use the ROM continuation.
 Other unknown paths remain explicit failures.
 
 ## v0.1.0 repeated-frame acceptance

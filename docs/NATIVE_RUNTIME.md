@@ -6,10 +6,11 @@
 blocks. It is independent from the ROM-backed differential CLI. Recovered
 blocks run natively; the fighter-state bit-31 dispatcher and the controlled
 `0x18144`/`0x18644` fighter corridors now run in C. The observed `fa_player`
-bootstrap from `0x00013f08` through its first nested call at `0x00014288`, plus
-the accepted `0x19ef8` corridor through return to `0x0001428c`, is also native;
-its remaining body and unobserved fighter branches remain explicit ROM-backed
-execution boundaries.
+bootstrap from `0x00013f08` through its first nested call at `0x00014288`, the
+accepted `0x19ef8` corridor through return to `0x0001428c`, and the downstream
+geometry expansion through `0x000142c0` and the small setup corridor through
+`0x00014310` are also native; later unobserved fighter branches remain explicit
+ROM-backed execution boundaries.
 
 It routes accepted bridge, task, frame-wait, interrupt and scheduler states,
 uses live task-registry strides, preserves persistent task contexts and reports
@@ -44,12 +45,13 @@ This is evidence-bounded native recovery,
 not a claim that those large fighter procedures are fully translated.
 
 The following scheduler task at `0x00013f08` uses a native 842-instruction
-bootstrap through `0x00014288` and the accepted 1,652-instruction `0x19ef8`
-corridor through `0x0001428c`, then an explicit ROM continuation for the
-remaining player body. A real sixth-entry snapshot with both fighter bit-31
-flags forced now advances from `fa_game_info` through the player tasks and
-returns to `0x0000a014`; the native-resume command is the reproducible smoke
-test for that continuation:
+bootstrap through `0x00014288`, the accepted 1,652-instruction `0x19ef8`
+corridor through `0x0001428c`, the observed downstream geometry expansion
+through `0x000142c0`, and the small setup corridor through `0x00014310`, then
+an explicit ROM continuation for later player branches. A real sixth-entry
+snapshot with both fighter bit-31 flags forced now advances from `fa_game_info`
+through the player tasks and returns to `0x0000a014`; the native-resume command
+is the reproducible smoke test for that continuation:
 
 ```sh
 vf2i960 native-resume /path/to/vf2 sixth-entry.vf2snap 20 0x80000000 0xa014
