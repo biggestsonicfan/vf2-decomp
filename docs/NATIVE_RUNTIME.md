@@ -162,8 +162,10 @@ phase-zero mode-table worker. That worker includes the live `0xae78` fallback,
 the alternate zero-derived profile path, both small descriptor expanders and
 the two ROM text sources. Selector 3 phases 1 through 7 now cover the profile
 gate/countdown, timer/terminal gate, descriptor setup and task-resource handoff;
-phase 9's delayed timer/text branch is also covered. Phase 8's `0x9444` handoff
-and phase 10 and above remain the next boundary.
+phase 9's delayed timer/text branch and phases 10 through 15's timer/task
+workers are also covered. The subsequent `0x2de4` palette-page worker now
+covers its inactive return and active 28-page RGB upload. Phase 8's `0x9444`
+handoff and phase 16 and above remain the next boundary.
 Longer endurance runs remain after that branch. Each new branch should retain an exact differential
 contract and a synthetic state regression where practical before broader
 fighter, object, match, animation, collision and input types are introduced.

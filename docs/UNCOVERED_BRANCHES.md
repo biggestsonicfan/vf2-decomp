@@ -135,9 +135,11 @@ frame-dispatch bridge now covers selector 2's `0x0000ab0c` reset and advances
 to selector 3. Selector 3's phase-zero `0x0000ae78` mode-table worker is now
 recovered for both the live fallback profile and the zero-derived alternate
 profile, including its two descriptor expanders and both ROM text sources.
-Selector 3 phase 8's opaque `0x00009444` handoff and phase 10 and above, the subsequent `0x00002de4` hardware-command/
-palette return, alternate input modes, other bit-7 indirect table entries and
-phase-state-zero continuation remain unsupported.
+Selector 3 phase 8's opaque `0x00009444` handoff and phase 16 and above,
+alternate input modes, other bit-7 indirect table entries and phase-state-zero
+continuation remain unsupported. The subsequent `0x00002de4` palette-page
+upload is now covered for both its inactive condition-preserving return and its
+active 28-page RGB upload path.
 
 ## 5. Audio and platform
 

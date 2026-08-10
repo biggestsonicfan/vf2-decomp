@@ -181,7 +181,7 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         status = execute_game_input_update(machine, cpu, &local_report);
         break;
     case VF2_GAME_STATE_UPDATE_ENTRY:
-        status = execute_game_state_update(machine, cpu, &local_report);
+        status = execute_game_state_update(machine, cpu, &local_report, false);
         break;
     case VF2_TILE_CONTROLLER_UPDATE_ENTRY:
         status = execute_tile_controller_update(machine, cpu, &local_report);

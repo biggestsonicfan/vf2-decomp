@@ -332,6 +332,7 @@ recovered instructions, followed by its one-instruction return stub to
 `0x0001fe64`. Its resumed prefix now loads the table pair, reproduces the
 `0x4b410` registration helper, clears `0x0050a014`–`0x0050a026`, and reaches
 `0x0002eab8`; the 90-instruction initializer and nested `0x31004` setup are
-also recovered. The subsequent hardware-command routine, alternate input
-modes, phase-state-zero and other bit-7 indirect table entries remain
-additional controlled-state targets.
+also recovered. The subsequent `0x2de4` palette-page worker is now covered
+for its inactive condition-preserving return and active 28-page RGB upload.
+Alternate input modes, phase-state-zero and other bit-7 indirect table entries
+remain additional controlled-state targets.

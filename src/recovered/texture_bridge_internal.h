@@ -297,7 +297,12 @@ vf2_status execute_game_state_classify(vf2_model2a *machine, vf2_i960_cpu *cpu, 
 vf2_status execute_game_color_lookup(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_game_threshold_evaluate(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_game_meter_update(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
-vf2_status execute_game_state_update(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
+vf2_status execute_game_state_update(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report,
+    bool leave_return_stub
+);
 vf2_status execute_inline_text_thunk(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_texture_status_line(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_system_memory_diagnostic(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);

@@ -1478,6 +1478,23 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x0050a00c), &value) == VF2_OK);
     CHECK(value == VF2_MAIN_DATA_BASE + UINT32_C(4));
 
+    /* Phase eight is the delayed inline-text worker: its timer expires but
+     * the opaque 0x9444 callback does not store a new phase here. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(8 * 4), UINT32_C(0x0000b9b8)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){8}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00550000), UINT32_C(1)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(8));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00520050), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0));
+
     /* Phase nine (0xbaec) performs the delayed timer/state handoff and uses
      * the normal text branch when the profile phase flag is clear. */
     write_rom_u32(
@@ -1488,6 +1505,7 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500864), UINT32_C(0x00521400)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00521400), UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00550000), UINT32_C(0)) == VF2_OK);
     enter_parent(&cpu, UINT32_C(0x0000a6c0));
     memset(&report, 0, sizeof(report));
     CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
@@ -1523,6 +1541,7 @@ static void test_frame_dispatch_tick(void)
     CHECK((value & (UINT32_C(1) << 29u)) == 0u);
     CHECK((value & (UINT32_C(1) << 28u)) != 0u);
 
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){11}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
     enter_parent(&cpu, UINT32_C(0x0000a6c0));
@@ -1531,6 +1550,7 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
     CHECK(selector == UINT8_C(12));
 
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){12}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068), 0u) == VF2_OK);
     enter_parent(&cpu, UINT32_C(0x0000a6c0));
@@ -1540,6 +1560,55 @@ static void test_frame_dispatch_tick(void)
     CHECK(selector == UINT8_C(13));
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500068), &value) == VF2_OK);
     CHECK((value & (UINT32_C(1) << 14u)) != 0u);
+
+    /* Phase thirteen uses the ROM PRNG table and reuses the gameplay task
+     * handoff with its two generated modes. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(13 * 4), UINT32_C(0x0000bdc8)
+    );
+    write_rom_u32(main_data, UINT32_C(0x00800000), UINT32_C(0));
+    write_rom_u32(main_data, UINT32_C(0x00800004), UINT32_C(0));
+    write_rom_u32(main_data, UINT32_C(0x00800008), UINT32_C(0));
+    write_rom_u32(main_data, UINT32_C(0x0080000c), UINT32_C(0));
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){13}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500098), UINT32_C(0x28)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500168), VF2_MAIN_DATA_BASE) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(14));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500098), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x28));
+
+    /* Phase fourteen exposes only the delayed 0x9444 text handoff; the timer
+     * decrements while the phase remains stable. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(14 * 4), UINT32_C(0x0000c0a4)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){14}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068), 0u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(14));
+
+    /* Phase fifteen's task-gated countdown reaches phase sixteen at zero. */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(15 * 4), UINT32_C(0x0000c268)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){15}, 1u) == VF2_OK);
+    write_test_u16(&machine, UINT32_C(0x00500028), UINT16_C(1));
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(16));
 
     vf2_model2a_shutdown(&machine);
     free(main_data);

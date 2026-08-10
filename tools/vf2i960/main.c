@@ -4722,6 +4722,9 @@ static int command_native_dispatch_ex(
                     &native_machine, &native_cpu, &bridge_report
                 );
                 if (status != VF2_OK) {
+                    fprintf(stderr, "second-pass bridge failed ip=0x%08x status=%s kind=%d\\n",
+                            (unsigned)native_ip_before,
+                            vf2_status_string(status), (int)bridge_report.kind);
                     break;
                 }
                 for (reference_step = 0u;
@@ -4742,11 +4745,15 @@ static int command_native_dispatch_ex(
                     fprintf(
                         stderr,
                         "Bridge block %s post-state address mismatch: "
-                        "IP=0x%08x/0x%08x depth=%u/%u\n",
+                        "IP=0x%08x/0x%08x depth=%u/%u report-ins=%llu "
+                        "cpu-ins=%llu/%llu\n",
                         vf2_hybrid_bridge_kind_name(bridge_report.kind),
                         (unsigned)original_cpu.ip, (unsigned)native_cpu.ip,
                         original_cpu.local_frame_depth,
-                        native_cpu.local_frame_depth
+                        native_cpu.local_frame_depth,
+                        (unsigned long long)bridge_report.recovered_instruction_count,
+                        (unsigned long long)original_cpu.executed_instructions,
+                        (unsigned long long)native_cpu.executed_instructions
                     );
                     status = VF2_ERROR_UNSUPPORTED;
                 }
