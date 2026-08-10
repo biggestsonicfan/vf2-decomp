@@ -5511,12 +5511,12 @@ static int command_native_dispatch_ex(
                 ? 830u
                 : (native_fourth_dispatch ? 78u : 42u));
         const uint64_t expected_instructions = native_sixth_dispatch
-            ? UINT64_C(7404913)
+            ? UINT64_C(7404917)
             : (native_fifth_dispatch
-                ? UINT64_C(7402741)
+                ? UINT64_C(7402744)
                 : (native_fourth_dispatch
-                    ? UINT64_C(58869)
-                    : UINT64_C(55239)));
+                    ? UINT64_C(58871)
+                    : UINT64_C(55240)));
         const char *dispatch_label = native_sixth_dispatch
             ? "sixth"
             : (native_fifth_dispatch

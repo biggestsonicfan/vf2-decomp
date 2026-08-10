@@ -1,6 +1,5 @@
 #include "vf2/native_differential.h"
 
-#include <stdio.h>
 #include <string.h>
 
 static void compare_execution_counters(
@@ -305,34 +304,6 @@ vf2_status vf2_native_differential_run_until_after(
             break;
         }
         if (!local_report.diff.equal) {
-            if (step_report.bridge_kind ==
-                    VF2_HYBRID_BRIDGE_INTERRUPT_INITIAL_CLUSTER) {
-                fprintf(
-                    stderr,
-                    "INITIAL mismatch ref_ip=%08x native_ip=%08x "
-                    "ref_depth=%u native_depth=%u "
-                    "ref_r0=%08x native_r0=%08x "
-                    "ref_r5=%08x native_r5=%08x "
-                    "ref_r29=%08x native_r29=%08x "
-                    "ref_i=%llu native_i=%llu report_i=%llu "
-                    "report_calls=%llu report_returns=%llu\n",
-                    (unsigned)reference_cpu->ip,
-                    (unsigned)native_cpu->ip,
-                    reference_cpu->local_frame_depth,
-                    native_cpu->local_frame_depth,
-                    (unsigned)reference_cpu->registers[0],
-                    (unsigned)native_cpu->registers[0],
-                    (unsigned)reference_cpu->registers[5],
-                    (unsigned)native_cpu->registers[5],
-                    (unsigned)reference_cpu->registers[29],
-                    (unsigned)native_cpu->registers[29],
-                    (unsigned long long)reference_cpu->executed_instructions,
-                    (unsigned long long)native_cpu->executed_instructions,
-                    (unsigned long long)step_report.recovered_instruction_count,
-                    (unsigned long long)step_report.recovered_procedure_calls,
-                    (unsigned long long)step_report.recovered_procedure_returns
-                );
-            }
             status = VF2_ERROR_UNSUPPORTED;
             break;
         }

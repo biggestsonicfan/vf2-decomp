@@ -287,6 +287,7 @@ vf2_status execute_texture_upload_dispatch(
     const uint64_t start_instructions = cpu->executed_instructions;
     const uint64_t start_calls = cpu->procedure_calls;
     const uint64_t start_returns = cpu->procedure_returns;
+    const uint32_t preserve_dispatch_frame = cpu->local_frame_depth >= 3u;
     vf2_status status = VF2_OK;
 
     if (cpu->local_frame_depth == 0u) {
@@ -406,9 +407,17 @@ vf2_status execute_texture_upload_dispatch(
         cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(6);
         cpu->registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(0x02109700);
         account_nested_procedure(cpu, UINT64_C(2), UINT64_C(2));
-        status = vf2_i960_cpu_return_procedure(cpu, machine);
-        if (status != VF2_OK) {
-            return status;
+        if (preserve_dispatch_frame) {
+            /* The pending third queue does not return from the dispatch frame
+             * at this boundary. The ROM continues at 0x0004bb14 with the
+             * frame live; the following interrupt bridge consumes it. */
+            cpu->registers[2] = UINT32_C(0x0004bb14);
+            cpu->ip = UINT32_C(0x0004bb14);
+        } else {
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+            if (status != VF2_OK) {
+                return status;
+            }
         }
         cpu->executed_instructions += UINT64_C(2035);
 
@@ -420,7 +429,8 @@ vf2_status execute_texture_upload_dispatch(
         report->bytes_written = 674u;
         report->recovered_instruction_count = UINT64_C(2035);
         report->recovered_procedure_calls = UINT64_C(2);
-        report->recovered_procedure_returns = UINT64_C(3);
+        report->recovered_procedure_returns =
+            preserve_dispatch_frame ? UINT64_C(2) : UINT64_C(3);
         report->cpu_poststate_applied = 1;
         return VF2_OK;
     }

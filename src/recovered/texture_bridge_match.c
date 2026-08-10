@@ -7922,7 +7922,8 @@ vf2_status execute_interrupt_initial_cluster(
     if (status != VF2_OK) {
         return status;
     }
-    if (cpu->ip == UINT32_C(0x00000c0c)) {
+    if (cpu->ip == UINT32_C(0x00000c0c) ||
+        cpu->ip == UINT32_C(0x0004bb14)) {
         cpu->executed_instructions += UINT64_C(3);
         report->kind = VF2_HYBRID_BRIDGE_INTERRUPT_INITIAL_CLUSTER;
         report->entry_address = VF2_INTERRUPT_INITIAL_CLUSTER_ENTRY;
