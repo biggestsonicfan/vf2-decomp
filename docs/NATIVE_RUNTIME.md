@@ -26,15 +26,19 @@ observed return boundary at `0x0001647c`, `0x00016494`, `0x000164b0` or
 and the observed `0x18c64` plus post-call suffix through `0x18640`. Both
 observed `0x18644` shared-fighter invocations are also recovered, including the
 second call's `0x5b8`-dependent path; unobserved branches continue through
-original i960 code. Controlled bit-14, bit-16 and bit-6 probes now translate
+original i960 code. Controlled bit-14, bit-15, bit-16 and bit-6 probes now translate
 the conditional `0x181c0` through `0x184ec` body in C, including its
 command-port protocol, state-flag update and controlled `g0 == 0`, `g0 == 1`,
 `g0 == 2` and `g0 == 3` directions.
-Their dependent `0x18644` calls also use the native flag-accumulation path,
-including the high-result `+0x5b6` update. The small `0x18e08`/`0x18e00`
-helpers remain ROM-backed call boundaries; state-4 and bit-15 `0x18144`
-directions, other conditional comparisons and later fighter branches remain
-bounded or explicitly unsupported. This is evidence-bounded native recovery,
+The observed bit-6/14/15/16 dependent `0x18644` calls also use the native
+flag-accumulation path,
+including the high-result `+0x5b6` update and a controlled low-result threshold
+outcome. The shared `0x18e08`/`0x18e00` command-port helper body is also native
+on this corridor; observed state-4/bit-15 and non-state-4 bit-15 prefixes,
+including the state-4 nonzero-countdown dependent call, are native, while other
+downstream comparisons and later fighter branches remain
+bounded or explicitly unsupported.
+This is evidence-bounded native recovery,
 not a claim that those large fighter procedures are fully translated.
 
 The following scheduler task at `0x00013f08` is also routed through the same

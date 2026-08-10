@@ -76,10 +76,13 @@ Unsupported texture variants and unobserved state combinations still fail with
 `VF2_ERROR_UNSUPPORTED`. The native runtime has a recovered C dispatcher and
 the observed `0x18144` fighter corridors: its 118-instruction prefix,
 the `0x17b68` helper, both observed `0x18d44` floating-port paths, and the
-observed `0x18c64`/post-call suffix. Controlled bit-14/16/6 conditional
-prefixes and their dependent `0x18644` flag paths are also native; the
-`0x18e08`/`0x18e00` helpers, state-4/bit-15 directions, unobserved child
-branches, and the separate `fa_player` bridge remain explicitly ROM-backed.
+observed `0x18c64`/post-call suffix. Controlled bit-14/15/16/6 conditional
+prefixes and the observed bit-6/14/15/16 dependent `0x18644` flag paths are
+also native; the
+shared `0x18e08`/`0x18e00` command-port helpers are also native; observed
+state-4/bit-15 and non-state-4 bit-15 prefixes are native, while unobserved
+child branches and the separate `fa_player`
+bridge remain explicitly ROM-backed.
 Other unknown paths remain explicit failures.
 
 ## v0.1.0 repeated-frame acceptance

@@ -31,12 +31,15 @@ recovered in C. Both observed `0x18144` invocations now recover the
 `0x18c64`/post-call suffix through `0x18640`, and both observed `0x18644`
 shared-fighter corridors returning at `0x164b0` and `0x164c4`; unobserved
 branches remain explicit ROM-backed boundaries and remain unrecovered as
-native C. Controlled bit-14/16/6 probes now cover the `0x181c0` through
-`0x184ec` conditional body and its dependent `0x18644` flag-accumulation path
-in native C, including the high-result `+0x5b6` update. The controlled probes
-now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; alternate comparison
-outcomes, the `0x18e08`/`0x18e00` helper internals, state-4/bit-15 directions
-and other conditional branches remain ROM-backed or unsupported.
+native C. The observed state-4/bit-15 and non-state-4 bit-15 prefixes are now native. Controlled bit-14/15/16/6 probes now cover the `0x181c0` through
+`0x184ec` conditional body; the observed bit-6/14/15/16 dependent `0x18644`
+flag-accumulation paths are native. This includes the high-result `+0x5b6`
+update. The controlled probes
+now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
+`0x18e08`/`0x18e00` command-port helper body and a controlled low-result
+`0x18644` threshold outcome are also covered. Unobserved downstream comparisons
+and other conditional branches remain
+ROM-backed or unsupported.
 
 The same bridge now covers the following `fa_player` task entry at
 `0x00013f08`, allowing a real sixth-entry snapshot to advance through both
