@@ -40,7 +40,7 @@ static void usage(const char *program)
         "  %s task-profile <rom-directory> [output.csv]\n"
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
-        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap]\n"
+        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
         "  %s compare-game-info <rom-directory> <input.vf2snap> [fighter-flags-or] [stop-address]\n"
         "  %s compare-boot <rom-directory>\n"
@@ -2583,7 +2583,8 @@ static int command_resume_trace(
     uint32_t fighter_flags_or,
     uint32_t write_address,
     uint32_t write_value,
-    const char *output_snapshot_path
+    const char *output_snapshot_path,
+    uint32_t stop_address
 )
 {
     uint8_t *image = NULL;
@@ -2786,6 +2787,12 @@ static int command_resume_trace(
                 );
             }
             ++timer_interrupts;
+        }
+        if (stop_address != UINT32_MAX && cpu.ip == stop_address) {
+            printf("Resume trace stop address reached at IP=0x%08x instructions=%llu\n",
+                   (unsigned)cpu.ip,
+                   (unsigned long long)cpu.executed_instructions);
+            break;
         }
     }
 
@@ -6298,12 +6305,13 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
         (argc == 4 || argc == 5 || argc == 6 || argc == 7 || argc == 8 ||
-         argc == 10)) {
+         argc == 10 || argc == 11)) {
         uint32_t max_steps = UINT32_C(10000000);
         uint32_t clear_task_index = UINT32_MAX;
         uint32_t fighter_flags_or = UINT32_MAX;
         uint32_t write_address = UINT32_MAX;
         uint32_t write_value = 0u;
+        uint32_t stop_address = UINT32_MAX;
         if (argc == 5 && !parse_u32(argv[4], &max_steps)) {
             fprintf(stderr, "Invalid maximum steps: %s\n", argv[4]);
             return EXIT_FAILURE;
@@ -6327,10 +6335,18 @@ int main(int argc, char **argv)
             fprintf(stderr, "Invalid resume-trace memory write\n");
             return EXIT_FAILURE;
         }
+        if (argc == 11 &&
+            (!parse_u32(argv[7], &write_address) ||
+             !parse_u32(argv[8], &write_value) ||
+             !parse_u32(argv[10], &stop_address))) {
+            fprintf(stderr, "Invalid resume-trace options\n");
+            return EXIT_FAILURE;
+        }
         return command_resume_trace(
             argv[2], argv[3], max_steps, clear_task_index, fighter_flags_or,
             write_address, write_value,
-            argc == 8 ? argv[7] : (argc == 10 ? argv[9] : NULL)
+            argc == 8 ? argv[7] : (argc == 10 || argc == 11 ? argv[9] : NULL),
+            stop_address
         );
     }
 

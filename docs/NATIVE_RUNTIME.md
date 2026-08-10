@@ -5,9 +5,10 @@
 `vf2_native_runtime` is the reusable execution layer above individual recovered
 blocks. It is independent from the ROM-backed differential CLI. Recovered
 blocks run natively; the fighter-state bit-31 dispatcher and the controlled
-`0x18144`/`0x18644` fighter corridors now run in C, while the remaining
-fighter branches and the `fa_player` task remain explicit ROM-backed
-execution boundaries.
+`0x18144`/`0x18644` fighter corridors now run in C. The observed `fa_player`
+bootstrap from `0x00013f08` through its first nested call at `0x00014288` is
+also native; its remaining body and unobserved fighter branches remain
+explicit ROM-backed execution boundaries.
 
 It routes accepted bridge, task, frame-wait, interrupt and scheduler states,
 uses live task-registry strides, preserves persistent task contexts and reports
@@ -41,11 +42,12 @@ bounded or explicitly unsupported.
 This is evidence-bounded native recovery,
 not a claim that those large fighter procedures are fully translated.
 
-The following scheduler task at `0x00013f08` is also routed through the same
-explicit bridge as `fa_player`. A real sixth-entry snapshot with both fighter
-bit-31 flags forced now advances from `fa_game_info` through the player tasks
-and returns to `0x0000a014`; the native-resume command is the reproducible
-smoke test for that continuation:
+The following scheduler task at `0x00013f08` uses a native 842-instruction
+bootstrap through `0x00014288`, then an explicit ROM continuation for the
+remaining player body. A real sixth-entry snapshot with both fighter bit-31
+flags forced now advances from `fa_game_info` through the player tasks and
+returns to `0x0000a014`; the native-resume command is the reproducible smoke
+test for that continuation:
 
 ```sh
 vf2i960 native-resume /path/to/vf2 sixth-entry.vf2snap 20 0x80000000 0xa014
