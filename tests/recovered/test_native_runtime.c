@@ -1828,9 +1828,9 @@ static void test_game_info_bit31_native_dispatch(void) {
     CHECK(report.reached_stop == 1);
     CHECK(report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_TASK);
     CHECK(report.last_task_kind == VF2_HYBRID_TASK_GAME_INFO);
-    CHECK(report.recovered_instruction_count == UINT64_C(453));
-    CHECK(report.recovered_procedure_calls == UINT64_C(8));
-    CHECK(report.recovered_procedure_returns == UINT64_C(9));
+    CHECK(report.recovered_instruction_count == UINT64_C(678));
+    CHECK(report.recovered_procedure_calls == UINT64_C(12));
+    CHECK(report.recovered_procedure_returns == UINT64_C(13));
     CHECK(cpu.ip == UINT32_C(0x00010dcc));
     CHECK(state.task_bodies_executed == 1u);
 

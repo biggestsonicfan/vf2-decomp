@@ -40,7 +40,7 @@ static void usage(const char *program)
         "  %s task-profile <rom-directory> [output.csv]\n"
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
-        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [output.vf2snap]\n"
+        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
         "  %s compare-game-info <rom-directory> <input.vf2snap> [fighter-flags-or] [stop-address]\n"
         "  %s compare-boot <rom-directory>\n"
@@ -2581,6 +2581,8 @@ static int command_resume_trace(
     uint32_t max_steps,
     uint32_t clear_task_index,
     uint32_t fighter_flags_or,
+    uint32_t write_address,
+    uint32_t write_value,
     const char *output_snapshot_path
 )
 {
@@ -2667,6 +2669,9 @@ static int command_resume_trace(
             );
         }
     }
+    if (status == VF2_OK && write_address != UINT32_MAX) {
+        status = vf2_model2a_write_u32(&machine, write_address, write_value);
+    }
     if (status == VF2_OK) {
         printf("Resume trace start: IP=0x%08x instructions=%llu\n",
                (unsigned)cpu.ip,
@@ -2695,6 +2700,10 @@ static int command_resume_trace(
             uint32_t fighter1 = 0u;
             uint32_t flags0 = 0u;
             uint32_t flags1 = 0u;
+            uint32_t state_flags0 = 0u;
+            uint32_t state_flags1 = 0u;
+            uint8_t state0 = 0u;
+            uint8_t state1 = 0u;
             if (vf2_model2a_read_u32(
                     &machine, UINT32_C(0x00500804), &fighter0
                 ) == VF2_OK &&
@@ -2702,10 +2711,26 @@ static int command_resume_trace(
                     &machine, UINT32_C(0x00500808), &fighter1
                 ) == VF2_OK &&
                 vf2_model2a_read_u32(&machine, fighter0, &flags0) == VF2_OK &&
-                vf2_model2a_read_u32(&machine, fighter1, &flags1) == VF2_OK) {
-                printf("  fighters: p0=0x%08x flags=0x%08x p1=0x%08x flags=0x%08x\n",
+                vf2_model2a_read_u32(&machine, fighter1, &flags1) == VF2_OK &&
+                vf2_model2a_read_u32(
+                    &machine, fighter0 + UINT32_C(0x000001a4), &state_flags0
+                ) == VF2_OK &&
+                vf2_model2a_read_u32(
+                    &machine, fighter1 + UINT32_C(0x000001a4), &state_flags1
+                ) == VF2_OK &&
+                vf2_model2a_read(
+                    &machine, fighter0 + UINT32_C(0x00000a00), &state0,
+                    sizeof(state0)
+                ) == VF2_OK &&
+                vf2_model2a_read(
+                    &machine, fighter1 + UINT32_C(0x00000a00), &state1,
+                    sizeof(state1)
+                ) == VF2_OK) {
+                printf("  fighters: p0=0x%08x flags=0x%08x state=0x%08x/%u p1=0x%08x flags=0x%08x state=0x%08x/%u\n",
                        (unsigned)fighter0, (unsigned)flags0,
-                       (unsigned)fighter1, (unsigned)flags1);
+                       (unsigned)state_flags0, (unsigned)state0,
+                       (unsigned)fighter1, (unsigned)flags1,
+                       (unsigned)state_flags1, (unsigned)state1);
             }
         }
     }
@@ -2730,6 +2755,27 @@ static int command_resume_trace(
                        (unsigned)cpu.registers[29],
                        (unsigned)cpu.local_frame_depth);
             }
+        }
+        if (ip_before == UINT32_C(0x000181c0) ||
+            ip_before == UINT32_C(0x00018208) ||
+            ip_before == UINT32_C(0x00018240) ||
+            ip_before == UINT32_C(0x00018278) ||
+            ip_before == UINT32_C(0x000182c8) ||
+            ip_before == UINT32_C(0x000184ec) ||
+            ip_before == UINT32_C(0x00018538)) {
+            printf("  probe 0x%08x r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x r11=%08x r12=%08x r13=%08x r14=%08x r15=%08x g0=%08x g1=%08x g2=%08x g3=%08x\n",
+                   (unsigned)ip_before,
+                   (unsigned)cpu.registers[3], (unsigned)cpu.registers[4],
+                   (unsigned)cpu.registers[5], (unsigned)cpu.registers[6],
+                   (unsigned)cpu.registers[7], (unsigned)cpu.registers[8],
+                   (unsigned)cpu.registers[9], (unsigned)cpu.registers[10],
+                   (unsigned)cpu.registers[11], (unsigned)cpu.registers[12],
+                   (unsigned)cpu.registers[13], (unsigned)cpu.registers[14],
+                   (unsigned)cpu.registers[15],
+                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 0u],
+                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 1u],
+                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 2u],
+                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 3u]);
         }
         if (ip_before == UINT32_C(0x0000a010)) {
             printf("  scheduler call at instructions=%llu\n",
@@ -6272,10 +6318,13 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
-        (argc == 4 || argc == 5 || argc == 6 || argc == 7 || argc == 8)) {
+        (argc == 4 || argc == 5 || argc == 6 || argc == 7 || argc == 8 ||
+         argc == 10)) {
         uint32_t max_steps = UINT32_C(10000000);
         uint32_t clear_task_index = UINT32_MAX;
         uint32_t fighter_flags_or = UINT32_MAX;
+        uint32_t write_address = UINT32_MAX;
+        uint32_t write_value = 0u;
         if (argc == 5 && !parse_u32(argv[4], &max_steps)) {
             fprintf(stderr, "Invalid maximum steps: %s\n", argv[4]);
             return EXIT_FAILURE;
@@ -6293,9 +6342,16 @@ int main(int argc, char **argv)
             fprintf(stderr, "Invalid resume-trace options\n");
             return EXIT_FAILURE;
         }
+        if (argc == 10 &&
+            (!parse_u32(argv[7], &write_address) ||
+             !parse_u32(argv[8], &write_value))) {
+            fprintf(stderr, "Invalid resume-trace memory write\n");
+            return EXIT_FAILURE;
+        }
         return command_resume_trace(
             argv[2], argv[3], max_steps, clear_task_index, fighter_flags_or,
-            argc == 8 ? argv[7] : NULL
+            write_address, write_value,
+            argc == 8 ? argv[7] : (argc == 10 ? argv[9] : NULL)
         );
     }
 

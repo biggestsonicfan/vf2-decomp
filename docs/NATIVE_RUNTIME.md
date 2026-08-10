@@ -23,10 +23,14 @@ observed return boundary at `0x0001647c`, `0x00016494`, `0x000164b0` or
 `0x000164c4`. The first `0x18144` invocation now recovers its observed
 118-instruction prefix through the nested `0x18538` call and its observed
 `0x17b68` `ld`/`bbc`/`ret` helper, both observed `0x18d44` floating-port paths,
-and the observed `0x18c64` plus post-call suffix through `0x18640`; the
-unobserved branches and other child invocations continue through original i960
-code. This is a narrower completion bridge, not a claim that those large
-fighter procedures have been translated to native C.
+and the observed `0x18c64` plus post-call suffix through `0x18640`. Both
+observed `0x18644` shared-fighter invocations are also recovered, including the
+second call's `0x5b8`-dependent path; unobserved branches continue through
+original i960 code. The conditional `0x18144` entries are now bounded: their
+ROM prefix rejoins the native suffix at `0x18550`, and their altered state
+forces the dependent `0x18644` calls to remain ROM-backed. This is a narrower
+completion bridge, not a claim that those large fighter procedures have been
+translated to native C.
 
 The following scheduler task at `0x00013f08` is also routed through the same
 explicit bridge as `fa_player`. A real sixth-entry snapshot with both fighter
