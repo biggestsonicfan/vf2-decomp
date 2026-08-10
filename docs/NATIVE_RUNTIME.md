@@ -30,7 +30,7 @@ original i960 code. Controlled bit-14, bit-15, bit-16 and bit-6 probes now trans
 the conditional `0x181c0` through `0x184ec` body in C, including its
 command-port protocol, state-flag update and controlled `g0 == 0`, `g0 == 1`,
 `g0 == 2` and `g0 == 3` directions.
-The observed bit-6/14/15/16 dependent `0x18644` calls also use the native
+The observed bit-4/6/8/14/15/16 dependent `0x18644` calls also use the native
 flag-accumulation path,
 including the high-result `+0x5b6` update and a controlled low-result threshold
 outcome. The shared `0x18e08`/`0x18e00` command-port helper body is also native

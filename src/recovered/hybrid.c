@@ -818,13 +818,11 @@ static vf2_status hybrid_execute_game_info_18144_suffix(
         r10 = (uint32_t)(int32_t)(int16_t)short_value;
         (void)r9;
         (void)r10;
-        if ((r7 & (UINT32_C(1) << 8u)) != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
-        }
     }
     if (status == VF2_OK) {
         status = vf2_model2a_write_u32(
-            machine, fighter + UINT32_C(0x000006b4), 0u
+            machine, fighter + UINT32_C(0x000006b4),
+            (r7 & (UINT32_C(1) << 8u)) != 0u ? UINT32_C(5) : 0u
         );
     }
     if (status == VF2_OK) {
@@ -865,7 +863,7 @@ static vf2_status hybrid_execute_game_info_18144_suffix(
 }
 
 /* Recover the observed shared-fighter 0x18644 port/flag corridors at both
- * dispatcher call sites. The controlled bit-14/16/6 probes also take the
+ * dispatcher call sites. The controlled bit-4/8/14/16/6 probes also take the
  * high-result branch, including its 0x5b6 update; the remaining directions
  * stay explicitly guarded below. */
 static vf2_status hybrid_execute_game_info_18644(
@@ -1002,11 +1000,6 @@ static vf2_status hybrid_execute_game_info_18644(
         status = vf2_model2a_read_u32(machine, port, &r11);
     }
     high_result = (int32_t)r9 > (int32_t)UINT32_C(0x3ecccccd);
-    if (status == VF2_OK &&
-        ((r7 & (UINT32_C(1) << 4u)) != 0u ||
-         (r8 & (UINT32_C(1) << 4u)) != 0u)) {
-        status = VF2_ERROR_UNSUPPORTED;
-    }
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
             machine, UINT32_C(0x0050a028), &r3
@@ -1050,11 +1043,6 @@ static vf2_status hybrid_execute_game_info_18644(
         countdown_path = byte_value != 0u;
     }
     /* The nonzero countdown corridor enters the shared 0x18890 tail. */
-    if (status == VF2_OK &&
-        ((r7 & (UINT32_C(1) << 4u)) != 0u ||
-         (r8 & (UINT32_C(1) << 4u)) != 0u)) {
-        status = VF2_ERROR_UNSUPPORTED;
-    }
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
             machine, UINT32_C(0x0050016c), &r13
@@ -1066,9 +1054,6 @@ static vf2_status hybrid_execute_game_info_18644(
         );
     }
     if (status == VF2_OK && byte_value != 0u) {
-        status = VF2_ERROR_UNSUPPORTED;
-    }
-    if (status == VF2_OK && (r8 & (UINT32_C(1) << 8u)) != 0u) {
         status = VF2_ERROR_UNSUPPORTED;
     }
     if (status == VF2_OK && (r8 & (UINT32_C(1) << 14u)) != 0u) {
@@ -1152,6 +1137,12 @@ static vf2_status hybrid_execute_game_info_18644(
         }
         if ((r8 & (UINT32_C(1) << 15u)) != 0u) {
             body_instructions = 84u;
+        }
+        if (((r7 | r8) & (UINT32_C(1) << 4u)) != 0u) {
+            body_instructions = 92u;
+        }
+        if (((r7 | r8) & (UINT32_C(1) << 8u)) != 0u) {
+            body_instructions = 101u;
         }
         if (countdown_path && (r8 & (UINT32_C(1) << 15u)) == 0u) {
             body_instructions = 85u;
@@ -2260,6 +2251,10 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_instructions += UINT64_C(1);
     }
     if (native_state4_bit15_fighter_path) {
+        native_instructions += UINT64_C(1);
+    }
+    if (((fighter0_state_flags | fighter1_state_flags) &
+         (UINT32_C(1) << 8u)) != 0u) {
         native_instructions += UINT64_C(1);
     }
     native_instructions += UINT64_C(1); /* task RET */

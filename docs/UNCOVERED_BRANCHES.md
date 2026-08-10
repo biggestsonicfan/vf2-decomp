@@ -32,7 +32,7 @@ recovered in C. Both observed `0x18144` invocations now recover the
 shared-fighter corridors returning at `0x164b0` and `0x164c4`; unobserved
 branches remain explicit ROM-backed boundaries and remain unrecovered as
 native C. The observed state-4/bit-15 and non-state-4 bit-15 prefixes are now native. Controlled bit-14/15/16/6 probes now cover the `0x181c0` through
-`0x184ec` conditional body; the observed bit-6/14/15/16 dependent `0x18644`
+`0x184ec` conditional body; the observed bit-4/6/8/14/15/16 dependent `0x18644`
 flag-accumulation paths are native. This includes the high-result `+0x5b6`
 update. The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared

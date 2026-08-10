@@ -77,7 +77,7 @@ Unsupported texture variants and unobserved state combinations still fail with
 the observed `0x18144` fighter corridors: its 118-instruction prefix,
 the `0x17b68` helper, both observed `0x18d44` floating-port paths, and the
 observed `0x18c64`/post-call suffix. Controlled bit-14/15/16/6 conditional
-prefixes and the observed bit-6/14/15/16 dependent `0x18644` flag paths are
+prefixes and the observed bit-4/6/8/14/15/16 dependent `0x18644` flag paths are
 also native; the
 shared `0x18e08`/`0x18e00` command-port helpers are also native; observed
 state-4/bit-15 and non-state-4 bit-15 prefixes are native, while unobserved
