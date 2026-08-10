@@ -2756,15 +2756,13 @@ static int command_resume_trace(
                        (unsigned)cpu.local_frame_depth);
             }
         }
-        if (ip_before == UINT32_C(0x000181c0) ||
-            ip_before == UINT32_C(0x00018208) ||
-            ip_before == UINT32_C(0x00018240) ||
-            ip_before == UINT32_C(0x00018278) ||
-            ip_before == UINT32_C(0x000182c8) ||
-            ip_before == UINT32_C(0x000184ec) ||
-            ip_before == UINT32_C(0x00018538)) {
-            printf("  probe 0x%08x r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x r11=%08x r12=%08x r13=%08x r14=%08x r15=%08x g0=%08x g1=%08x g2=%08x g3=%08x\n",
+        if (ip_before == UINT32_C(0x00018e00) ||
+            ip_before == UINT32_C(0x00018e08) ||
+            ip_before == UINT32_C(0x00018ed8)) {
+            printf("  helper 0x%08x g0=%08x g1=%08x r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x r11=%08x r12=%08x r13=%08x r14=%08x r15=%08x ins=%llu\n",
                    (unsigned)ip_before,
+                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER],
+                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 1u],
                    (unsigned)cpu.registers[3], (unsigned)cpu.registers[4],
                    (unsigned)cpu.registers[5], (unsigned)cpu.registers[6],
                    (unsigned)cpu.registers[7], (unsigned)cpu.registers[8],
@@ -2772,10 +2770,7 @@ static int command_resume_trace(
                    (unsigned)cpu.registers[11], (unsigned)cpu.registers[12],
                    (unsigned)cpu.registers[13], (unsigned)cpu.registers[14],
                    (unsigned)cpu.registers[15],
-                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 0u],
-                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 1u],
-                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 2u],
-                   (unsigned)cpu.registers[VF2_I960_G0_REGISTER + 3u]);
+                   (unsigned long long)cpu.executed_instructions);
         }
         if (ip_before == UINT32_C(0x0000a010)) {
             printf("  scheduler call at instructions=%llu\n",

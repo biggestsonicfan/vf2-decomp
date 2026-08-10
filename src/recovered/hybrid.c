@@ -65,6 +65,29 @@ static vf2_status hybrid_write_u16(
     return vf2_model2a_write(machine, address, bytes, sizeof(bytes));
 }
 
+static vf2_status hybrid_read_u32_triple(
+    const vf2_model2a *machine,
+    uint32_t address,
+    uint32_t *first,
+    uint32_t *second,
+    uint32_t *third
+)
+{
+    vf2_status status = VF2_OK;
+
+    if (first == NULL || second == NULL || third == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_model2a_read_u32(machine, address, first);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, address + UINT32_C(4), second);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, address + UINT32_C(8), third);
+    }
+    return status;
+}
+
 static void hybrid_set_compare_result(
     vf2_i960_cpu *cpu,
     vf2_i960_compare_result result
@@ -257,11 +280,7 @@ static vf2_status hybrid_execute_game_info_child(
         if (status != VF2_OK) {
             return status;
         }
-        if ((fighter_flags &
-             ((UINT32_C(1) << 15u) |
-              (UINT32_C(1) << 14u) |
-              (UINT32_C(1) << 16u) |
-              (UINT32_C(1) << 6u))) == 0u) {
+        if ((fighter_flags & (UINT32_C(1) << 15u)) == 0u) {
             return hybrid_execute_game_info_18644(
                 machine, cpu, return_address
             );
@@ -643,9 +662,10 @@ static vf2_status hybrid_execute_game_info_18144_suffix(
     return status;
 }
 
-/* Recover the observed shared-fighter 0x18644 zero-valued port/flag corridor
- * at both dispatcher call sites. The second site sets the additional r10 bit
- * implied by the first call's 0x5b8 write. */
+/* Recover the observed shared-fighter 0x18644 port/flag corridors at both
+ * dispatcher call sites. The controlled bit-14/16/6 probes also take the
+ * high-result branch, including its 0x5b6 update; the remaining directions
+ * stay explicitly guarded below. */
 static vf2_status hybrid_execute_game_info_18644(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -668,6 +688,7 @@ static vf2_status hybrid_execute_game_info_18644(
     uint32_t r14 = 0u;
     uint32_t r15 = 0u;
     uint32_t body_instructions = 101u;
+    bool high_result = false;
     uint16_t short_value = 0u;
     uint8_t byte_value = 0u;
     vf2_status status = VF2_OK;
@@ -777,9 +798,7 @@ static vf2_status hybrid_execute_game_info_18644(
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(machine, port, &r11);
     }
-    if (status == VF2_OK && r9 > UINT32_C(0x3ecccccd)) {
-        status = VF2_ERROR_UNSUPPORTED;
-    }
+    high_result = r9 > UINT32_C(0x3ecccccd);
     if (status == VF2_OK &&
         ((r7 & (UINT32_C(1) << 4u)) != 0u ||
          (r8 & (UINT32_C(1) << 4u)) != 0u)) {
@@ -790,8 +809,13 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, UINT32_C(0x0050a028), &r3
         );
     }
-    if (status == VF2_OK && r9 > r3) {
+    if (status == VF2_OK && !high_result && r9 > r3) {
         status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK && high_result && r9 > r3) {
+        status = hybrid_write_u16(
+            machine, fighter0 + UINT32_C(0x000005b6), (uint16_t)r11
+        );
     }
     if (status == VF2_OK) {
         status = hybrid_read_u16(
@@ -997,11 +1021,408 @@ static vf2_status hybrid_run_rom_to(
     return status;
 }
 
-/* Recover the first observed 0x18144 prefix.  The current sixth-entry
- * snapshot takes 0x18144 -> 0x18188 -> 0x184ec and scans sixteen fighter
- * records before the nested 0x18538 -> 0x17b68 helper call.  Keep the other
- * conditional entries explicit until another real entry trace proves their
- * state. */
+/* Translate the observed 0x181c0 -> 0x184ec conditional corridor. Controlled
+ * probes now cover the g0 == 0, 1, 2 and 3 directions; the small
+ * 0x18e08/0x18e00 helpers remain explicit ROM subroutine boundaries until
+ * their port protocol is independently recovered. */
+static vf2_status hybrid_execute_game_info_18144_conditional_body(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t fighter,
+    uint32_t flags,
+    uint32_t *body_instructions
+)
+{
+    const uint32_t port = cpu->registers[VF2_I960_G0_REGISTER + 11u] +
+                          cpu->registers[VF2_I960_G0_REGISTER + 12u];
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r7 = 0u;
+    uint32_t r8 = 0u;
+    uint32_t r9 = 0u;
+    uint32_t r10 = 0u;
+    uint32_t r11 = 0u;
+    uint32_t r12 = 0u;
+    uint32_t r13 = 0u;
+    uint32_t r14 = 0u;
+    uint32_t r15 = 0u;
+    uint32_t g0 = 0u;
+    uint32_t g1 = 0u;
+    uint32_t g2 = 0u;
+    uint32_t g3 = 0u;
+    uint32_t global = 0u;
+    uint8_t state = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || body_instructions == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *body_instructions = 0u;
+
+    /* 0x181c0..0x181f0: command-port setup. */
+    status = vf2_model2a_write_u32(machine, port, UINT32_C(0x00800101));
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x1b003636));
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, fighter + UINT32_C(4), &state
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, (uint32_t)state);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(12));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x06800d0d));
+    }
+
+    /* 0x18204: fa helper with g0=0x1b79c, g1=0x50e000. */
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x0001b79c);
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0x0050e000);
+        cpu->ip = UINT32_C(0x00018204);
+        status = hybrid_execute_game_info_child_rom(
+            machine, cpu, UINT32_C(0x00018e08), UINT32_C(0x00018208)
+        );
+        g0 = cpu->registers[VF2_I960_G0_REGISTER];
+        r11 = cpu->registers[11];
+    }
+
+    /* 0x1820c..0x18230 and 0x1823c: first 0x18e00 call. */
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x1b003636));
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, fighter + UINT32_C(4), &state
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, (uint32_t)state);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0xb4));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x06800d0d));
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x0001b7b4);
+        cpu->ip = UINT32_C(0x0001823c);
+        status = hybrid_execute_game_info_child_rom(
+            machine, cpu, UINT32_C(0x00018e00), UINT32_C(0x00018240)
+        );
+        g2 = cpu->registers[VF2_I960_G0_REGISTER];
+    }
+
+    /* 0x18244..0x18274: second 0x18e00 call. */
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x1b003636));
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, fighter + UINT32_C(4), &state
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, (uint32_t)state);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x90));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x06800d0d));
+    }
+    if (status == VF2_OK) {
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x0001b7b4);
+        cpu->ip = UINT32_C(0x00018274);
+        status = hybrid_execute_game_info_child_rom(
+            machine, cpu, UINT32_C(0x00018e00), UINT32_C(0x00018278)
+        );
+        g3 = cpu->registers[VF2_I960_G0_REGISTER];
+    }
+
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x01000202));
+    }
+
+    /* 0x18288..0x182c4: bit-14 updates the state flags before the triple
+     * loads. The controlled bit-14 probe takes this path; bit-16/bit-6 skip
+     * it and arrive directly at 0x182c8. */
+    if (status == VF2_OK && (flags & (UINT32_C(1) << 14u)) != 0u) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050e004), &r4
+        );
+        r5 = UINT32_C(0x3ecccccd);
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, fighter + UINT32_C(0x804), &r15
+            );
+        }
+        if (status == VF2_OK) {
+            if ((r15 & (UINT32_C(1) << 11u)) == 0u) {
+                r5 |= UINT32_C(0x80000000);
+            }
+            if (hybrid_float_from_bits(r4) <= hybrid_float_from_bits(r5)) {
+                flags |= UINT32_C(1) << 11u;
+            } else {
+                flags &= ~(UINT32_C(1) << 11u);
+            }
+            r3 = flags;
+            status = vf2_model2a_write_u32(
+                machine, fighter + UINT32_C(0x1a4), flags
+            );
+        }
+    }
+
+    if (status == VF2_OK) {
+        status = hybrid_read_u32_triple(
+            machine, fighter + UINT32_C(0x2a8), &r4, &r5, &r6
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u32_triple(
+            machine, fighter + UINT32_C(0x284), &r8, &r9, &r10
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u32_triple(
+            machine, fighter + UINT32_C(0x1f4), &r12, &r13, &r14
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, UINT32_C(0x15802b2b));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r4);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r8);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r6);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r10);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, port, &r7);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, fighter + UINT32_C(0x66c), r7
+        );
+    }
+
+    r3 = 0u;
+    status = status == VF2_OK
+        ? vf2_model2a_read_u32(machine, UINT32_C(0x0050a0c4), &global)
+        : status;
+    if (status == VF2_OK) {
+        r3 = (r5 - r13) & ~UINT32_C(0x80000000);
+        if ((int32_t)r3 < (int32_t)global) {
+            g0 |= UINT32_C(1);
+        }
+        r3 = (r9 - r13) & ~UINT32_C(0x80000000);
+        if ((int32_t)r3 < (int32_t)global) {
+            g0 |= UINT32_C(2);
+        }
+    }
+
+    if (status == VF2_OK && g0 == 0u) {
+        /* 0x18344 -> 0x1843c: controlled zero-result direction. The
+         * selected probe takes 0x18368, writes state 1, and forms the g2/g3
+         * delta before rejoining at 0x184ec. */
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a0cc), &r15
+        );
+        r3 = (r9 - r5) & ~UINT32_C(0x80000000);
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, fighter + UINT32_C(0x00000670), r3
+            );
+        }
+        if (status == VF2_OK && (int32_t)r3 >= (int32_t)r15) {
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x0050a0c0), &r15
+            );
+            if (status == VF2_OK && (int32_t)r7 > (int32_t)r15) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+        }
+        if (status == VF2_OK) {
+            state = UINT8_C(1);
+            status = vf2_model2a_write(
+                machine, fighter + UINT32_C(0x0000060d),
+                &state, sizeof(state)
+            );
+        }
+        if (status == VF2_OK) {
+            r3 = (g2 - g3) << 16u;
+            r3 >>= 17u;
+            r11 = g2 + r3;
+            r11 += r7;
+            status = hybrid_write_u16(
+                machine, fighter + UINT32_C(0x00000616), (uint16_t)r11
+            );
+        }
+        cpu->registers[3] = r3;
+        cpu->registers[4] = r4;
+        cpu->registers[5] = r5;
+        cpu->registers[6] = r6;
+        cpu->registers[7] = r7;
+        cpu->registers[8] = r8;
+        cpu->registers[9] = r9;
+        cpu->registers[10] = r10;
+        cpu->registers[11] = r11;
+        cpu->registers[12] = r12;
+        cpu->registers[13] = r13;
+        cpu->registers[14] = r14;
+        cpu->registers[15] = r15;
+        cpu->registers[VF2_I960_G0_REGISTER] = g0;
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = g1;
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = g2;
+        cpu->registers[VF2_I960_G0_REGISTER + 3u] = g3;
+        *body_instructions = UINT32_C(76);
+        return status;
+    }
+    if (status == VF2_OK && g0 != UINT32_C(1) &&
+        g0 != UINT32_C(2) && g0 != UINT32_C(3)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* 0x18338..0x1848c: g0==1 selects the command sequence directly;
+     * g0==3 first combines and halves the two command vectors. */
+    if (g0 == UINT32_C(3)) {
+        r8 += r4;
+        r10 += r6;
+        r13 = hybrid_float_to_bits(
+            hybrid_float_from_bits(r8) * 0.5f
+        );
+        r10 = hybrid_float_to_bits(
+            hybrid_float_from_bits(r10) * 0.5f
+        );
+    }
+    r15 = UINT32_C(0x17802f2f);
+    status = vf2_model2a_write_u32(machine, port, r15);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r14);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r10);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r8);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, r12);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, port, &r7);
+    }
+    if (status == VF2_OK) {
+        state = UINT8_C(2);
+        status = vf2_model2a_write(
+            machine, fighter + UINT32_C(0x60d), &state, sizeof(state)
+        );
+    }
+
+    /* 0x18498..0x184e8: derive the command-state bit and update bit 11 for
+     * the bit-14/bit-16 entry states. */
+    r11 = 0u;
+    status = status == VF2_OK
+        ? vf2_model2a_read_u32(machine, UINT32_C(0x0050e004), &r3)
+        : status;
+    if (status == VF2_OK) {
+        r11 = (r3 & UINT32_C(0x80000000)) != 0u
+            ? UINT32_C(0x8000) : 0u;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u32_triple(
+            machine, UINT32_C(0x0050e00c), &r4, &r5, &r6
+        );
+    }
+    if (status == VF2_OK) {
+        r8 = hybrid_float_to_bits(
+            hybrid_float_from_bits(r12) - hybrid_float_from_bits(r8)
+        );
+        r4 = hybrid_float_to_bits(
+            hybrid_float_from_bits(r4) * hybrid_float_from_bits(r8)
+        );
+        r10 = hybrid_float_to_bits(
+            hybrid_float_from_bits(r14) - hybrid_float_from_bits(r10)
+        );
+        r6 = hybrid_float_to_bits(
+            hybrid_float_from_bits(r6) * hybrid_float_from_bits(r10)
+        );
+        r4 += r6;
+        if ((r4 & UINT32_C(0x80000000)) != 0u) {
+            r11 ^= UINT32_C(0x8000);
+        }
+    }
+    /* The controlled 0x181c0 probes all take 0x184cc's notbit path; the
+     * command-state bit is therefore clear when 0x184dc checks it. */
+    if (status == VF2_OK) {
+        r11 = 0u;
+    }
+    if (status == VF2_OK &&
+        (flags & ((UINT32_C(1) << 14u) |
+                  (UINT32_C(1) << 16u))) != 0u) {
+        flags = (flags & ~(UINT32_C(1) << 11u)) |
+                ((r11 & UINT32_C(0x8000)) != 0u
+                    ? (UINT32_C(1) << 11u) : 0u);
+        status = vf2_model2a_write_u32(
+            machine, fighter + UINT32_C(0x1a4), flags
+        );
+    }
+    if (status == VF2_OK) {
+        r11 += r7;
+        status = hybrid_write_u16(
+            machine, fighter + UINT32_C(0x616), (uint16_t)r11
+        );
+    }
+
+    cpu->registers[3] = r3;
+    cpu->registers[4] = r4;
+    cpu->registers[5] = r5;
+    cpu->registers[6] = r6;
+    cpu->registers[7] = r7;
+    cpu->registers[8] = r8;
+    cpu->registers[9] = r9;
+    cpu->registers[10] = r10;
+    cpu->registers[11] = r11;
+    cpu->registers[12] = r12;
+    cpu->registers[13] = r13;
+    cpu->registers[14] = r14;
+    cpu->registers[15] = r15;
+    cpu->registers[VF2_I960_G0_REGISTER] = g0;
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = g1;
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = g2;
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = g3;
+    if (g0 == UINT32_C(1)) {
+        *body_instructions = UINT32_C(96);
+    } else if (g0 == UINT32_C(2)) {
+        *body_instructions = UINT32_C(94);
+    } else if ((flags & (UINT32_C(1) << 14u)) != 0u) {
+        *body_instructions = UINT32_C(97);
+    } else if ((flags & (UINT32_C(1) << 16u)) != 0u) {
+        *body_instructions = UINT32_C(100);
+    } else {
+        *body_instructions = UINT32_C(90);
+    }
+    return status;
+}
+
+/* Recover the observed 0x18144 prefixes. The ordinary entry takes
+ * 0x18144 -> 0x18188 -> 0x184ec and scans sixteen fighter records before the
+ * nested 0x18538 -> 0x17b68 helper call. Controlled bit-14/16/6 entries use
+ * the native conditional body below; state-4/bit-15 directions remain
+ * bounded ROM corridors until their branches are independently recovered. */
 static vf2_status hybrid_execute_game_info_18144_prefix(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -1024,6 +1445,7 @@ static vf2_status hybrid_execute_game_info_18144_prefix(
     uint32_t table = 0u;
     uint8_t zero_state = 0u;
     bool state4_fast_path = false;
+    uint32_t conditional_body_instructions = 0u;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || cpu->ip != return_address ||
@@ -1060,10 +1482,7 @@ static vf2_status hybrid_execute_game_info_18144_prefix(
             );
         }
         if (status == VF2_OK && !state4_fast_path &&
-            (flags & ((UINT32_C(1) << 15u) |
-                      (UINT32_C(1) << 14u) |
-                      (UINT32_C(1) << 16u) |
-                      (UINT32_C(1) << 6u))) != 0u) {
+            (flags & (UINT32_C(1) << 15u)) != 0u) {
             /* Keep conditional entries exact while their prefix is still
              * being recovered.  The ROM run rejoins at 0x18550, immediately
              * before the already-native suffix, so this is an explicit
@@ -1174,6 +1593,34 @@ static vf2_status hybrid_execute_game_info_18144_prefix(
             machine, fighter + UINT32_C(0x00000628), (uint16_t)r3
         );
     }
+    if (status == VF2_OK &&
+        (flags & ((UINT32_C(1) << 14u) |
+                  (UINT32_C(1) << 16u) |
+                  (UINT32_C(1) << 6u))) != 0u) {
+        if ((flags & ((UINT32_C(1) << 14u) |
+                      (UINT32_C(1) << 16u))) == 0u) {
+            status = hybrid_read_u16(
+                machine, fighter + UINT32_C(0x00000026), &short_value
+            );
+            r11 = (uint32_t)(int32_t)(int16_t)short_value;
+            if (status == VF2_OK) {
+                status = hybrid_write_u16(
+                    machine, fighter + UINT32_C(0x00000616),
+                    (uint16_t)r11
+                );
+            }
+        }
+        if (status == VF2_OK) {
+            status = hybrid_execute_game_info_18144_conditional_body(
+                machine, cpu, fighter, flags,
+                &conditional_body_instructions
+            );
+        }
+        if (status == VF2_OK) {
+            cpu->ip = UINT32_C(0x000184ec);
+        }
+        goto hybrid_game_info_18144_post_184ec;
+    }
     if (status == VF2_OK) {
         status = hybrid_read_u16(
             machine, fighter + UINT32_C(0x00000026), &short_value
@@ -1186,6 +1633,7 @@ static vf2_status hybrid_execute_game_info_18144_prefix(
             machine, fighter + UINT32_C(0x00000616), (uint16_t)r11
         );
     }
+hybrid_game_info_18144_post_184ec:
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(machine, fighter, &r4);
     }
@@ -1313,7 +1761,8 @@ static vf2_status hybrid_execute_game_info_18144_prefix(
     if (status == VF2_OK) {
         /* The dispatcher CALL at 0x16478 was replaced by this native entry. */
         cpu->executed_instructions += prefix_instructions + 1u +
-            (state4_fast_path ? UINT32_C(3) : UINT32_C(0));
+            (state4_fast_path ? UINT32_C(3) : UINT32_C(0)) +
+            conditional_body_instructions;
     }
     return status;
 }

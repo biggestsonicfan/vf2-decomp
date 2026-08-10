@@ -14,7 +14,7 @@
 | Second through fourth scheduler sweeps | Completely recovered for the observed corridor |
 | Fifth scheduler entry | Recovered and ROM-validated |
 | Current ROM-proven native boundary | Sixth `fa_game_info` at `0x0001645c` |
-| Fighter-state bit-31 runtime path | Native dispatcher, both observed `0x18144` corridors through `0x18d44`, `0x18c64` and `0x18640`, plus both observed `0x18644` shared-fighter corridors; conditional `0x18144` prefixes are bounded ROM bridges to `0x18550`, and `fa_player` remains an explicit i960 bridge |
+| Fighter-state bit-31 runtime path | Native dispatcher; observed `0x18144` corridors through `0x18d44`, `0x18c64` and `0x18640`; controlled bit-14/16/6 `0x181c0` bodies and dependent `0x18644` flag paths are native, while `0x18e08`/`0x18e00`, state-4/bit-15 directions and `fa_player` remain explicit ROM-backed boundaries |
 | `vf2i960 native-third-dispatch` | `MATCH`: 42 blocks / 55,239 instructions |
 | `vf2i960 native-fourth-dispatch` | `MATCH`: 78 blocks / 58,869 instructions |
 | `vf2i960 native-fifth-dispatch` | `MATCH`: 830 blocks / 7,402,741 instructions |

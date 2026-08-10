@@ -4,9 +4,9 @@
 
 `vf2_native_runtime` is the reusable execution layer above individual recovered
 blocks. It is independent from the ROM-backed differential CLI. Recovered
-blocks run natively; the fighter-state bit-31 dispatcher and the first
-evidence-bounded `0x18144` fighter corridor now run in C, while the remaining
-fighter procedures and the `fa_player` task remain explicit ROM-backed
+blocks run natively; the fighter-state bit-31 dispatcher and the controlled
+`0x18144`/`0x18644` fighter corridors now run in C, while the remaining
+fighter branches and the `fa_player` task remain explicit ROM-backed
 execution boundaries.
 
 It routes accepted bridge, task, frame-wait, interrupt and scheduler states,
@@ -26,11 +26,16 @@ observed return boundary at `0x0001647c`, `0x00016494`, `0x000164b0` or
 and the observed `0x18c64` plus post-call suffix through `0x18640`. Both
 observed `0x18644` shared-fighter invocations are also recovered, including the
 second call's `0x5b8`-dependent path; unobserved branches continue through
-original i960 code. The conditional `0x18144` entries are now bounded: their
-ROM prefix rejoins the native suffix at `0x18550`, and their altered state
-forces the dependent `0x18644` calls to remain ROM-backed. This is a narrower
-completion bridge, not a claim that those large fighter procedures have been
-translated to native C.
+original i960 code. Controlled bit-14, bit-16 and bit-6 probes now translate
+the conditional `0x181c0` through `0x184ec` body in C, including its
+command-port protocol, state-flag update and controlled `g0 == 0`, `g0 == 1`,
+`g0 == 2` and `g0 == 3` directions.
+Their dependent `0x18644` calls also use the native flag-accumulation path,
+including the high-result `+0x5b6` update. The small `0x18e08`/`0x18e00`
+helpers remain ROM-backed call boundaries; state-4 and bit-15 `0x18144`
+directions, other conditional comparisons and later fighter branches remain
+bounded or explicitly unsupported. This is evidence-bounded native recovery,
+not a claim that those large fighter procedures are fully translated.
 
 The following scheduler task at `0x00013f08` is also routed through the same
 explicit bridge as `fa_player`. A real sixth-entry snapshot with both fighter
