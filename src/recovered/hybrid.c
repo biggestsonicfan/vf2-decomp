@@ -102,6 +102,211 @@ static vf2_status hybrid_execute_interpreted_task(
     return VF2_OK;
 }
 
+/* The bit-31 fa_game_info path is a dispatcher around the two large fighter
+ * procedures at 0x18144 and 0x18644.  Keep those procedures ROM-backed for
+ * now, but recover the dispatcher and its small post-call tail in C.  Each
+ * child is entered with the same architectural call frame the ROM CALL would
+ * create and is run only to its observed return address. */
+static vf2_status hybrid_execute_game_info_child(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t target,
+    uint32_t return_address
+)
+{
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != return_address) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_i960_cpu_enter_procedure(cpu, target, return_address);
+    if (status != VF2_OK) {
+        return status;
+    }
+    memset(&options, 0, sizeof(options));
+    options.stop_address = return_address;
+    options.max_steps = VF2_INTERPRETED_TASK_STEP_LIMIT;
+    options.stop_on_self_branch = false;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+        cpu->ip != return_address) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* vf2_i960_cpu_enter_procedure accounts the architectural frame/call;
+     * account the CALL instruction itself here because the caller is native. */
+    ++cpu->executed_instructions;
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_game_info_bit31_native(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_recovered_task_report *report
+)
+{
+    const uint32_t entry_address = UINT32_C(0x0001645c);
+    const uint32_t first_child = UINT32_C(0x00018144);
+    const uint32_t second_child = UINT32_C(0x00018644);
+    const uint32_t first_return = UINT32_C(0x0001647c);
+    const uint32_t second_return = UINT32_C(0x00016494);
+    const uint32_t third_return = UINT32_C(0x000164b0);
+    const uint32_t task_return = UINT32_C(0x00010dcc);
+    const uint32_t fighter0_slot = UINT32_C(0x00500804);
+    const uint32_t fighter1_slot = UINT32_C(0x00500808);
+    const uint32_t runtime_flags_address = UINT32_C(0x00508000);
+    uint32_t fighter0 = 0u;
+    uint32_t fighter1 = 0u;
+    uint32_t fighter0_flags = 0u;
+    uint32_t fighter1_flags = 0u;
+    uint32_t runtime_flags = 0u;
+    uint32_t combined_flags = 0u;
+    uint8_t countdown = 0u;
+    uint8_t zero = 0u;
+    uint64_t native_instructions = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != entry_address || cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = vf2_model2a_read_u32(machine, fighter0_slot, &fighter0);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter1_slot, &fighter1);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter0, &fighter0_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter1, &fighter1_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, runtime_flags_address, &runtime_flags);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* 0x1645c..0x16470: four loads; the register values are observable at
+     * each child boundary, so preserve the ROM aliases explicitly. */
+    cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    native_instructions += UINT64_C(4);
+    cpu->registers[7] = fighter0_flags;
+    cpu->registers[8] = fighter1_flags;
+
+    if ((fighter0_flags & UINT32_C(0x80000000)) != 0u) {
+        cpu->ip = first_return;
+        status = hybrid_execute_game_info_child(
+            machine, cpu, first_child, first_return
+        );
+        native_instructions += UINT64_C(1); /* bbc */
+        if (status != VF2_OK) {
+            return status;
+        }
+    } else {
+        native_instructions += UINT64_C(1); /* bbc */
+    }
+
+    /* The second pointer pair is loaded in the opposite order by the ROM. */
+    cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
+    cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
+    native_instructions += UINT64_C(2);
+    native_instructions += UINT64_C(1); /* second bit-31 test */
+    if ((fighter1_flags & UINT32_C(0x80000000)) != 0u) {
+        cpu->ip = second_return;
+        status = hybrid_execute_game_info_child(
+            machine, cpu, first_child, second_return
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+
+    combined_flags = fighter0_flags & fighter1_flags;
+    cpu->registers[3] = combined_flags;
+    native_instructions += UINT64_C(2); /* and + bbc */
+    if ((combined_flags & UINT32_C(0x80000000)) != 0u) {
+        cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+        cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+        native_instructions += UINT64_C(2);
+        cpu->ip = third_return;
+        status = hybrid_execute_game_info_child(
+            machine, cpu, second_child, third_return
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
+        cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
+        native_instructions += UINT64_C(2);
+        cpu->ip = UINT32_C(0x000164c4);
+        status = hybrid_execute_game_info_child(
+            machine, cpu, second_child, UINT32_C(0x000164c4)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+
+    cpu->registers[15] = runtime_flags;
+    native_instructions += UINT64_C(2); /* runtime load + bit-5 branch */
+    if ((runtime_flags & (UINT32_C(1) << 5u)) == 0u) {
+        status = vf2_model2a_write(
+            machine, fighter1 + UINT32_C(0x1200), &zero, sizeof(zero)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, fighter0 + UINT32_C(0x1200), &zero, sizeof(zero)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x0050a0b6), &countdown, sizeof(countdown)
+            );
+        }
+        if (status == VF2_OK) {
+            native_instructions += UINT64_C(6); /* mov/stib, mov/stib, ldob/cmpobe */
+            if (countdown != 0u) {
+                --countdown;
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x0050a0b6), &countdown, sizeof(countdown)
+                );
+                native_instructions += UINT64_C(2); /* subo/stob */
+            }
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+
+    if (cpu->ip != UINT32_C(0x000164c4) &&
+        cpu->ip != UINT32_C(0x000164c8) &&
+        cpu->ip != UINT32_C(0x000164cc)) {
+        /* The child helper returns to 0x164c4 only on the shared-fighter
+         * branch; otherwise the dispatcher is already at the runtime load. */
+        cpu->ip = UINT32_C(0x000164c4);
+    }
+    native_instructions += UINT64_C(1); /* task RET */
+    cpu->executed_instructions += native_instructions;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK || cpu->ip != task_return) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    memset(report, 0, sizeof(*report));
+    report->entry_point = entry_address;
+    report->continuation = task_return;
+    return VF2_OK;
+}
+
 static vf2_status hybrid_camera_fast_gate_supported(
     const vf2_model2a *machine
 )
@@ -1028,10 +1233,12 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
             machine, &interpreted_task
         );
         if (status == VF2_OK && interpreted_task) {
-            status = hybrid_execute_interpreted_task(
-                machine, cpu, registry_address, VF2_GAME_INFO_ENTRY,
-                &task_report
+            status = hybrid_execute_game_info_bit31_native(
+                machine, cpu, &task_report
             );
+            if (status == VF2_OK) {
+                task_report.registry_address = registry_address;
+            }
         } else if (status == VF2_OK) {
             status = vf2_recovered_task_game_info_first_dispatch(
                 machine, registry_address, &task_report

@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "vf2/model2a.h"
@@ -85,7 +86,7 @@ static void test_tgp_fifos_and_banked_memory(void)
     static uint8_t tables[VF2_TGP_TABLE_WORD_COUNT * sizeof(uint32_t)];
     static uint8_t copro_data[8u * sizeof(uint32_t)];
     vf2_tgp tgp;
-    vf2_model2a machine;
+    vf2_model2a *machine = NULL;
     uint32_t value = 0u;
     uint32_t index = 0u;
     const uint32_t expected_packet =
@@ -114,22 +115,28 @@ static void test_tgp_fifos_and_banked_memory(void)
     CHECK(vf2_tgp_read_output(&tgp, &value) == VF2_OK);
     CHECK(value == UINT32_C(0x100));
 
-    CHECK(vf2_model2a_initialize(&machine) != 0);
+    machine = (vf2_model2a *)calloc(1u, sizeof(*machine));
+    CHECK(machine != NULL);
+    if (machine == NULL) {
+        return;
+    }
+    CHECK(vf2_model2a_initialize(machine) != 0);
     CHECK(vf2_tgp_set_bank(&tgp, UINT32_C(0x400000)) == VF2_OK);
     CHECK(
         vf2_tgp_write_banked_memory(
-            &tgp, &machine, 3u, UINT32_C(0x11223344)
+            &tgp, machine, 3u, UINT32_C(0x11223344)
         ) == VF2_OK
     );
-    CHECK(vf2_tgp_read_banked_memory(&tgp, &machine, 3u, &value) == VF2_OK);
+    CHECK(vf2_tgp_read_banked_memory(&tgp, machine, 3u, &value) == VF2_OK);
     CHECK(value == UINT32_C(0x11223344));
 
     CHECK(vf2_tgp_set_bank(&tgp, UINT32_C(0x800000)) == VF2_OK);
-    CHECK(vf2_tgp_read_banked_memory(&tgp, &machine, 2u, &value) == VF2_OK);
+    CHECK(vf2_tgp_read_banked_memory(&tgp, machine, 2u, &value) == VF2_OK);
     CHECK(value == UINT32_C(0xaabbccdd));
     CHECK(vf2_tgp_upload_program_word(&tgp, 0u, UINT32_C(0xfeedface)) == VF2_OK);
     CHECK(vf2_tgp_upload_program_word(&tgp, VF2_TGP_PROGRAM_WORD_COUNT, 0u) == VF2_ERROR_OUT_OF_BOUNDS);
-    vf2_model2a_shutdown(&machine);
+    vf2_model2a_shutdown(machine);
+    free(machine);
 }
 
 static void test_tgp_polygon_rom_window(void)

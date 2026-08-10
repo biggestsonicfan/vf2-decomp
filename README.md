@@ -73,9 +73,10 @@ first dynamic states exposed by continued execution:
 - aligned CMake, public header, executable and documentation versioning.
 
 Unsupported texture variants and unobserved state combinations still fail with
-`VF2_ERROR_UNSUPPORTED`. The native runtime has one explicit interpreter-backed
-bridge for the fighter-state `fa_game_info`/`fa_player` tasks; other unknown
-paths remain explicit failures.
+`VF2_ERROR_UNSUPPORTED`. The native runtime has a recovered C dispatcher for
+the fighter-state `fa_game_info` path, with explicit ROM-backed child-procedure
+boundaries and a separate `fa_player` bridge; other unknown paths remain
+explicit failures.
 
 ## v0.1.0 repeated-frame acceptance
 

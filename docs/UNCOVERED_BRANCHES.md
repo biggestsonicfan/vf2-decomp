@@ -24,9 +24,10 @@ the player-update bit-14 exit and their observed sequence gates. Still missing:
 
 The reference i960 executor now covers the conditional range comparisons and
 single-precision integer/real conversions encountered when the fighter-state
-bit-31 path is forced. The runtime has an explicit interpreter-backed bridge
-for this task through its scheduler return; the corresponding large fighter
-procedures remain unrecovered as native C.
+bit-31 path is forced. The `fa_game_info` dispatcher and its post-call tail are
+recovered in C; its four observed calls into the large fighter procedures remain
+explicit ROM-backed boundaries, and those procedures remain unrecovered as
+native C.
 
 The same bridge now covers the following `fa_player` task entry at
 `0x00013f08`, allowing a real sixth-entry snapshot to advance through both

@@ -4,8 +4,9 @@
 
 `vf2_native_runtime` is the reusable execution layer above individual recovered
 blocks. It is independent from the ROM-backed differential CLI. Recovered
-blocks run natively; the fighter-state bit-31 branch has one explicit,
-interpreter-backed task bridge while its C recovery is still open.
+blocks run natively; the fighter-state bit-31 dispatcher now runs in C, while
+its large fighter procedures and the `fa_player` task remain explicit
+ROM-backed execution boundaries.
 
 It routes accepted bridge, task, frame-wait, interrupt and scheduler states,
 uses live task-registry strides, preserves persistent task contexts and reports
@@ -14,11 +15,12 @@ unknown or unobserved paths as `VF2_ERROR_UNSUPPORTED`.
 ## Fighter-state bridge
 
 When either fighter record carries bit 31, `fa_game_info` selects the ROM
-updates at `0x00018144` and `0x00018644`. The runtime now executes that task
-through the reference i960 executor until the architectural `RET` reaches the
-scheduler at `0x00010dcc`, preserving exact CPU, frame and mutable-memory
-behavior. This is a runtime completion bridge, not a claim that those large
-fighter procedures have been translated to native C.
+updates at `0x00018144` and `0x00018644`. Its dispatcher, call sequencing and
+post-call countdown tail now run in recovered C. Each large fighter procedure
+is entered with an architectural i960 call frame and executed only to its
+observed return boundary at `0x0001647c`, `0x00016494`, `0x000164b0` or
+`0x000164c4`. This is a narrower completion bridge, not a claim that those
+large fighter procedures have been translated to native C.
 
 The following scheduler task at `0x00013f08` is also routed through the same
 explicit bridge as `fa_player`. A real sixth-entry snapshot with both fighter
