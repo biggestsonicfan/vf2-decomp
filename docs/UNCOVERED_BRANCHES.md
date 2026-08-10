@@ -43,10 +43,11 @@ ROM-backed or unsupported.
 
 The same bridge now covers the following `fa_player` task entry at
 `0x00013f08`. Its observed 842-instruction bootstrap through the first nested
-call at `0x00014288` is native C and matches the ROM endpoint exactly; the
-remaining player body is still an explicit original-i960 continuation. A real
-sixth-entry snapshot therefore advances through both fighter task records and
-back to the main loop while retaining a clearly marked ROM-backed boundary.
+call at `0x00014288`, followed by the accepted 1,652-instruction `0x19ef8`
+corridor through `0x0001428c`, is native C and matches the ROM endpoint exactly;
+the remaining player body is still an explicit original-i960 continuation. A
+real sixth-entry snapshot therefore advances through both fighter task records
+and back to the main loop while retaining a clearly marked ROM-backed boundary.
 
 - character and arena selection;
 - the complete match state machine, timeout and game-over transitions;
