@@ -4722,9 +4722,6 @@ static int command_native_dispatch_ex(
                     &native_machine, &native_cpu, &bridge_report
                 );
                 if (status != VF2_OK) {
-                    fprintf(stderr, "second-pass bridge failed ip=0x%08x status=%s kind=%d\\n",
-                            (unsigned)native_ip_before,
-                            vf2_status_string(status), (int)bridge_report.kind);
                     break;
                 }
                 for (reference_step = 0u;
@@ -4745,15 +4742,11 @@ static int command_native_dispatch_ex(
                     fprintf(
                         stderr,
                         "Bridge block %s post-state address mismatch: "
-                        "IP=0x%08x/0x%08x depth=%u/%u report-ins=%llu "
-                        "cpu-ins=%llu/%llu\n",
+                        "IP=0x%08x/0x%08x depth=%u/%u\n",
                         vf2_hybrid_bridge_kind_name(bridge_report.kind),
                         (unsigned)original_cpu.ip, (unsigned)native_cpu.ip,
                         original_cpu.local_frame_depth,
-                        native_cpu.local_frame_depth,
-                        (unsigned long long)bridge_report.recovered_instruction_count,
-                        (unsigned long long)original_cpu.executed_instructions,
-                        (unsigned long long)native_cpu.executed_instructions
+                        native_cpu.local_frame_depth
                     );
                     status = VF2_ERROR_UNSUPPORTED;
                 }
@@ -5156,13 +5149,13 @@ static int command_native_dispatch_ex(
             status = VF2_ERROR_UNSUPPORTED;
         }
         if (status == VF2_OK &&
-            (bridge_steps != UINT64_C(1270822) ||
+            (bridge_steps != UINT64_C(1270824) ||
              bridge_recovered_instructions != UINT64_C(1270822) ||
-             bridge_interpreted_instructions != UINT64_C(0) ||
+             bridge_interpreted_instructions != UINT64_C(2) ||
              bridge_validated_blocks != 190u ||
              bridge_memory_checkpoints != 190u ||
              bridge_recovered_calls != UINT64_C(342) ||
-             bridge_recovered_returns != UINT64_C(340) ||
+             bridge_recovered_returns != UINT64_C(338) ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 0u ||

@@ -1,5 +1,4 @@
 #include "texture_bridge_internal.h"
-#include <stdio.h>
 
 
 vf2_status execute_video_register_compose(
@@ -37,7 +36,6 @@ vf2_status execute_video_register_compose(
         status = vf2_model2a_read(machine, UINT32_C(0x00500f00), &mode, 1u);
     }
     if (status != VF2_OK || mode == UINT8_C(1)) {
-        fprintf(stderr, "compose mode gate status=%d mode=%u\\n", (int)status, (unsigned)mode);
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
@@ -56,7 +54,6 @@ vf2_status execute_video_register_compose(
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &runtime_flags);
     if (status != VF2_OK || (runtime_flags & (UINT32_C(1) << 14u)) != 0u) {
-        fprintf(stderr, "compose runtime gate status=%d flags=%08x\\n", (int)status, runtime_flags);
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
     packed_mask = (~packed_mask) & UINT32_C(8);
@@ -120,7 +117,6 @@ vf2_status execute_video_register_compose(
          * two more instructions than the initial installation path. */
         instructions += UINT64_C(2);
     } else {
-        fprintf(stderr, "compose callback gate callback=%08x newly=%08x\\n", callback, newly_enabled);
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_write_u32(

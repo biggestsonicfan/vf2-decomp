@@ -1,6 +1,5 @@
 #include "texture_bridge_internal.h"
 #include "recovery_internal.h"
-#include <stdio.h>
 vf2_status finish_recovered_procedure(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -1280,7 +1279,7 @@ static vf2_status execute_frame_phase16(
             return status;
         }
     }
-        status = vf2_model2a_read_u32(
+    status = vf2_model2a_read_u32(
         machine, UINT32_C(0x00508000), &runtime_flags
     );
     if (status != VF2_OK || (runtime_flags & (UINT32_C(1) << 9u)) == 0u) {
@@ -7749,29 +7748,19 @@ vf2_status execute_main_final_cluster(
 {
     vf2_hybrid_bridge_report a={0},b={0},d={0},e={0},f={0}; uint64_t i=cpu->executed_instructions,c=cpu->procedure_calls,r=cpu->procedure_returns;
     const uint32_t start_depth=cpu->local_frame_depth;
-    uint8_t debug_selector=0u;
-    (void)vf2_model2a_read(machine,UINT32_C(0x0050002a),&debug_selector,sizeof(debug_selector));
-    cpu->registers[15]=(uint32_t)debug_selector;
-    cpu->registers[14]=UINT32_C(0x9ff801);
     vf2_status status=vf2_i960_cpu_enter_procedure(cpu,VF2_FRAME_SHADOW_VERIFY_ENTRY,UINT32_C(0x00009ffc));
     if(status==VF2_OK)status=execute_frame_shadow_verify(machine,cpu,&a);
-    cpu->registers[14]=UINT32_C(0x9ff802);
     if(status!=VF2_OK||cpu->ip!=UINT32_C(0x00009ffc))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     status=vf2_i960_cpu_enter_procedure(cpu,UINT32_C(0x00029744),UINT32_C(0x0000a000));
     if(status==VF2_OK)status=vf2_i960_cpu_return_procedure(cpu,machine);
-    cpu->registers[14]=UINT32_C(0x9ff803);
     if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a000))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     status=vf2_i960_cpu_enter_procedure(cpu,VF2_FRAME_BUFFER_GATE_ENTRY,UINT32_C(0x0000a004)); if(status==VF2_OK)status=execute_frame_buffer_gate(machine,cpu,&b);
-    cpu->registers[14]=UINT32_C(0x9ff804);
     if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a004))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     status=vf2_i960_cpu_enter_procedure(cpu,VF2_GEOMETRY_COMMAND_SETUP_ENTRY,UINT32_C(0x0000a008)); if(status==VF2_OK)status=execute_geometry_command_setup(machine,cpu,&d);
-    cpu->registers[14]=UINT32_C(0x9ff805);
     if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a008))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     status=vf2_i960_cpu_enter_procedure(cpu,VF2_FRAME_SCRATCH_CLEAR_ENTRY,UINT32_C(0x0000a00c)); if(status==VF2_OK)status=execute_frame_scratch_clear(machine,cpu,&e);
-    cpu->registers[14]=UINT32_C(0x9ff806);
     if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a00c))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     status=vf2_i960_cpu_enter_procedure(cpu,VF2_FRAME_DISPATCH_TICK_ENTRY,UINT32_C(0x0000a010)); if(status==VF2_OK)status=execute_frame_dispatch_tick(machine,cpu,&f);
-    cpu->registers[14]=UINT32_C(0x9ff807);
     if(status!=VF2_OK)return status;
     if(cpu->ip!=UINT32_C(0x000000b0) &&
        cpu->ip!=UINT32_C(0x0000a010))return VF2_ERROR_UNSUPPORTED;
@@ -7903,7 +7892,6 @@ vf2_status execute_interrupt_initial_cluster(
         );
     }
     if (status != VF2_OK || cpu->ip != UINT32_C(0x00000c04)) {
-        fprintf(stderr, "initial compose status=%d ip=%08x\\n", (int)status, cpu->ip);
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
@@ -7918,7 +7906,6 @@ vf2_status execute_interrupt_initial_cluster(
         );
     }
     if (status != VF2_OK || cpu->ip != UINT32_C(0x00000c08)) {
-        fprintf(stderr, "initial latch status=%d ip=%08x\\n", (int)status, cpu->ip);
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
@@ -7933,7 +7920,6 @@ vf2_status execute_interrupt_initial_cluster(
         );
     }
     if (status != VF2_OK) {
-        fprintf(stderr, "initial dispatch status=%d ip=%08x\\n", (int)status, cpu->ip);
         return status;
     }
     if (cpu->ip == UINT32_C(0x00000c0c)) {
@@ -7955,7 +7941,6 @@ vf2_status execute_interrupt_initial_cluster(
         return VF2_OK;
     }
     if (cpu->ip != VF2_PALETTE_PAGE_UPLOAD_ENTRY) {
-        fprintf(stderr, "initial post-dispatch ip=%08x\\n", cpu->ip);
         return VF2_ERROR_UNSUPPORTED;
     }
     status = execute_palette_page_upload(machine, cpu, &upload_report);

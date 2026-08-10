@@ -143,6 +143,7 @@
 #define VF2_NATIVE_KILL_OSAGE_TASK_ENTRY UINT32_C(0x000657dc)
 #define VF2_NATIVE_OSAGE_TASK_ENTRY UINT32_C(0x000640f4)
 #define VF2_NATIVE_TASK_COUNT_ADDRESS UINT32_C(0x00011d94)
+#define VF2_NATIVE_GAME_STATE_RETURN_STUB UINT32_C(0x000020ec)
 #define VF2_NATIVE_RUNTIME_FLAGS UINT32_C(0x00508000)
 #define VF2_NATIVE_CURRENT_INDEX UINT32_C(0x00500038)
 #define VF2_NATIVE_TIMER1 UINT32_C(0x00f00004)
@@ -5690,7 +5691,23 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
     memset(&local_report, 0, sizeof(local_report));
     local_report.entry_address = cpu->ip;
 
-    if (cpu->ip == VF2_NATIVE_BOOT_STAGE1_ENTRY) {
+    if (cpu->ip == VF2_TEXTURE_UPLOAD_DISPATCH_RETURN ||
+        cpu->ip == VF2_NATIVE_GAME_STATE_RETURN_STUB) {
+        const uint64_t start_instructions = cpu->executed_instructions;
+        const uint64_t start_calls = cpu->procedure_calls;
+        const uint64_t start_returns = cpu->procedure_returns;
+        status = vf2_i960_step(cpu, machine, NULL);
+        if (status == VF2_OK) {
+            local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
+            local_report.exit_address = cpu->ip;
+            local_report.recovered_instruction_count =
+                cpu->executed_instructions - start_instructions;
+            local_report.recovered_procedure_calls =
+                cpu->procedure_calls - start_calls;
+            local_report.recovered_procedure_returns =
+                cpu->procedure_returns - start_returns;
+        }
+    } else if (cpu->ip == VF2_NATIVE_BOOT_STAGE1_ENTRY) {
         status = execute_boot_stage1(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_BOOT_STAGE2_ENTRY) {
         status = execute_boot_stage2(machine, cpu, &local_report);
@@ -6074,6 +6091,21 @@ vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
         vf2_hybrid_bridge_report bridge_report;
         memset(&bridge_report, 0, sizeof(bridge_report));
         status = vf2_hybrid_post_frame_bridge_execute(machine, cpu, &bridge_report);
+        if (status == VF2_OK &&
+            bridge_report.kind == VF2_HYBRID_BRIDGE_INTERRUPT_GAME_STATE &&
+            cpu->ip == VF2_NATIVE_GAME_STATE_RETURN_STUB) {
+            status = vf2_i960_step(cpu, machine, NULL);
+            if (status == VF2_OK) {
+                status = vf2_i960_step(cpu, machine, NULL);
+            }
+            if (status == VF2_OK) {
+                status = vf2_i960_step(cpu, machine, NULL);
+            }
+            if (status == VF2_OK) {
+                bridge_report.recovered_instruction_count += UINT64_C(2);
+                ++bridge_report.recovered_procedure_returns;
+            }
+        }
         if (status == VF2_OK) {
             local_report.kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
             local_report.bridge_kind = bridge_report.kind;

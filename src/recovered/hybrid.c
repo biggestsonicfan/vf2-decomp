@@ -846,7 +846,7 @@ vf2_status vf2_hybrid_second_scheduler_enter(
      * task entry itself receives a fresh local frame, while this state remains
      * cached for the task's later RET to 0x10dcc. */
     memset(&cpu->registers[2], 0, 14u * sizeof(cpu->registers[0]));
-    cpu->registers[0] = 0u;
+    cpu->registers[0] = UINT32_C(0x005ff500);
     cpu->registers[2] = UINT32_C(0x00010d64);
     cpu->registers[3] = task_count;
     cpu->registers[4] = selected_entry;
