@@ -42,6 +42,7 @@ static void usage(const char *program)
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
         "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [output.vf2snap]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
+        "  %s compare-game-info <rom-directory> <input.vf2snap> [fighter-flags-or] [stop-address]\n"
         "  %s compare-boot <rom-directory>\n"
         "  %s compare-init <rom-directory>\n"
         "  %s compare-task-registry <rom-directory>\n"
@@ -66,6 +67,7 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program,
         program,
         program,
         program,
@@ -3072,6 +3074,150 @@ static int command_native_resume(
     vf2_i960_snapshot_destroy(&output_snapshot);
     if (machine.work_ram != NULL) {
         vf2_model2a_shutdown(&machine);
+    }
+    free(image);
+    return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+static int command_compare_game_info(
+    const char *rom_directory,
+    const char *snapshot_path,
+    uint32_t fighter_flags_or,
+    uint32_t stop_address
+)
+{
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    vf2_model2a reference_machine;
+    vf2_model2a native_machine;
+    vf2_i960_cpu reference_cpu;
+    vf2_i960_cpu native_cpu;
+    vf2_i960_snapshot snapshot;
+    vf2_native_runtime_state native_state;
+    vf2_native_differential_report report;
+    vf2_status status = VF2_OK;
+    int reference_initialized = 0;
+    int native_initialized = 0;
+
+    memset(&reference_machine, 0, sizeof(reference_machine));
+    memset(&native_machine, 0, sizeof(native_machine));
+    memset(&reference_cpu, 0, sizeof(reference_cpu));
+    memset(&native_cpu, 0, sizeof(native_cpu));
+    memset(&native_state, 0, sizeof(native_state));
+    memset(&report, 0, sizeof(report));
+    vf2_i960_snapshot_init(&snapshot);
+
+    status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(
+            rom_directory, &reference_machine, image, image_size
+        );
+        reference_initialized = status == VF2_OK;
+    }
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(
+            rom_directory, &native_machine, image, image_size
+        );
+        native_initialized = status == VF2_OK;
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_read_file(&snapshot, snapshot_path);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_restore(
+            &snapshot, &reference_cpu, &reference_machine
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_snapshot_restore(
+            &snapshot, &native_cpu, &native_machine
+        );
+    }
+    if (status == VF2_OK && fighter_flags_or != UINT32_MAX) {
+        uint32_t fighter0 = 0u;
+        uint32_t fighter1 = 0u;
+        uint32_t flags = 0u;
+        vf2_model2a *machines[2] = {
+            &reference_machine, &native_machine
+        };
+        size_t machine_index = 0u;
+
+        for (machine_index = 0u; machine_index < 2u && status == VF2_OK;
+             ++machine_index) {
+            status = vf2_model2a_read_u32(
+                machines[machine_index], UINT32_C(0x00500804), &fighter0
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machines[machine_index], UINT32_C(0x00500808), &fighter1
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machines[machine_index], fighter0, &flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machines[machine_index], fighter0,
+                    flags | fighter_flags_or
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machines[machine_index], fighter1, &flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machines[machine_index], fighter1,
+                    flags | fighter_flags_or
+                );
+            }
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_native_runtime_initialize(&native_state, 4u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_native_differential_run_until(
+            &reference_machine, &reference_cpu,
+            &native_machine, &native_cpu, &native_state,
+            stop_address, 1u, &report
+        );
+    }
+
+    if (status == VF2_OK) {
+        printf(
+            "Game-info differential: blocks=%zu instructions=%llu "
+            "entry=0x%08x exit=0x%08x match=%s\n",
+            report.blocks_compared,
+            (unsigned long long)report.native_recovered_instructions,
+            (unsigned)report.start_address,
+            (unsigned)report.final_native_address,
+            report.diff.equal ? "yes" : "no"
+        );
+    } else {
+        fprintf(
+            stderr,
+            "Game-info differential failed: %s at reference=0x%08x "
+            "native=0x%08x blocks=%zu diff=%s offset=0x%zx\n",
+            vf2_status_string(status),
+            (unsigned)report.final_reference_address,
+            (unsigned)report.final_native_address,
+            report.blocks_compared,
+            report.diff.component,
+            report.diff.first_offset
+        );
+    }
+
+    vf2_i960_snapshot_destroy(&snapshot);
+    if (native_initialized) {
+        vf2_model2a_shutdown(&native_machine);
+    }
+    if (reference_initialized) {
+        vf2_model2a_shutdown(&reference_machine);
     }
     free(image);
     return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -6181,6 +6327,23 @@ int main(int argc, char **argv)
         return command_native_resume(
             argv[2], argv[3], max_blocks, fighter_flags_or, stop_address,
             argc == 8 ? argv[7] : NULL
+        );
+    }
+
+    if (strcmp(argv[1], "compare-game-info") == 0 &&
+        (argc == 4 || argc == 5 || argc == 6)) {
+        uint32_t fighter_flags_or = UINT32_MAX;
+        uint32_t stop_address = UINT32_C(0x00010dcc);
+        if (argc >= 5 && !parse_u32(argv[4], &fighter_flags_or)) {
+            fprintf(stderr, "Invalid game-info fighter flags\n");
+            return EXIT_FAILURE;
+        }
+        if (argc == 6 && !parse_u32(argv[5], &stop_address)) {
+            fprintf(stderr, "Invalid game-info stop address\n");
+            return EXIT_FAILURE;
+        }
+        return command_compare_game_info(
+            argv[2], argv[3], fighter_flags_or, stop_address
         );
     }
 

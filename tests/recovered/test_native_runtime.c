@@ -1755,6 +1755,8 @@ static void test_game_info_bit31_native_dispatch(void) {
     const uint32_t registry = UINT32_C(0x00515200);
     const uint32_t fighter0 = UINT32_C(0x00502000);
     const uint32_t fighter1 = UINT32_C(0x00503000);
+    const uint32_t fighter0_table = UINT32_C(0x00504000);
+    uint32_t index = 0u;
 
     CHECK(rom != NULL);
     CHECK(vf2_model2a_initialize(&machine) != 0);
@@ -1762,9 +1764,9 @@ static void test_game_info_bit31_native_dispatch(void) {
         free(rom);
         return;
     }
-    /* Keep the observed dispatcher and use return-only child procedures. The
-     * child bodies remain ROM-backed; this fixture isolates the recovered
-     * dispatcher/tail without embedding the large fighter procedures. */
+    /* Keep the observed dispatcher, recovered fighter corridors and
+     * return-only ROM continuations. The fixture isolates the bounded native
+     * paths without embedding the large unobserved procedures. */
     write_u32_bytes(rom, UINT32_C(0x0001645c), UINT32_C(0x90b83000));
     write_u32_bytes(rom, UINT32_C(0x00016464), UINT32_C(0x90c03000));
     write_u32_bytes(rom, UINT32_C(0x0001646c), UINT32_C(0x903de000));
@@ -1788,14 +1790,33 @@ static void test_game_info_bit31_native_dispatch(void) {
     write_u32_bytes(rom, UINT32_C(0x00016500), UINT32_C(0x0a000000));
     write_u32_bytes(rom, UINT32_C(0x00018144), UINT32_C(0x0a000000));
     write_u32_bytes(rom, UINT32_C(0x00018644), UINT32_C(0x0a000000));
+    write_u32_bytes(rom, UINT32_C(0x00017b68), UINT32_C(0x907de000));
+    write_u32_bytes(rom, UINT32_C(0x00017b6c), UINT32_C(0x303be54c));
+    write_u32_bytes(rom, UINT32_C(0x000180b8), UINT32_C(0x0a000000));
+    write_u32_bytes(rom, UINT32_C(0x0001853c), UINT32_C(0xc885e5b4));
+    write_u32_bytes(rom, UINT32_C(0x00018544), UINT32_C(0x928de5f8));
+    write_u32_bytes(rom, UINT32_C(0x00018548), UINT32_C(0x5884080f));
+    write_u32_bytes(rom, UINT32_C(0x00018550), UINT32_C(0x0a000000));
+    write_u32_bytes(rom, UINT32_C(0x00018554), UINT32_C(0x0a000000));
+    write_u32_bytes(rom, UINT32_C(0x0001b7ec), UINT32_C(0x40400000));
     CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500804), fighter0) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500808), fighter1) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, fighter0, UINT32_C(0x80000000)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, fighter1, UINT32_C(0x80000000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(
+        &machine, fighter0 + UINT32_C(0x000001f8), fighter0_table
+    ) == VF2_OK);
+    for (index = 0u; index < 16u; ++index) {
+        CHECK(vf2_model2a_write_u32(
+            &machine, fighter0_table + index * UINT32_C(12), 0u
+        ) == VF2_OK);
+    }
 
     vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00010d54));
     cpu.registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x3000);
+    cpu.registers[VF2_I960_G0_REGISTER + 11u] = UINT32_C(0x00880000);
+    cpu.registers[VF2_I960_G0_REGISTER + 12u] = UINT32_C(0x00004000);
     cpu.registers[29] = registry;
     CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x0001645c),
                                        UINT32_C(0x00010dcc)) == VF2_OK);
@@ -1807,9 +1828,9 @@ static void test_game_info_bit31_native_dispatch(void) {
     CHECK(report.reached_stop == 1);
     CHECK(report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_TASK);
     CHECK(report.last_task_kind == VF2_HYBRID_TASK_GAME_INFO);
-    CHECK(report.recovered_instruction_count == UINT64_C(31));
-    CHECK(report.recovered_procedure_calls == UINT64_C(4));
-    CHECK(report.recovered_procedure_returns == UINT64_C(5));
+    CHECK(report.recovered_instruction_count == UINT64_C(453));
+    CHECK(report.recovered_procedure_calls == UINT64_C(8));
+    CHECK(report.recovered_procedure_returns == UINT64_C(9));
     CHECK(cpu.ip == UINT32_C(0x00010dcc));
     CHECK(state.task_bodies_executed == 1u);
 

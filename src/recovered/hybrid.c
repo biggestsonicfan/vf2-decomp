@@ -21,6 +21,83 @@
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
 
+static vf2_status hybrid_read_u8(
+    const vf2_model2a *machine,
+    uint32_t address,
+    uint8_t *value
+)
+{
+    return value == NULL
+        ? VF2_ERROR_INVALID_ARGUMENT
+        : vf2_model2a_read(machine, address, value, sizeof(*value));
+}
+
+static vf2_status hybrid_read_u16(
+    const vf2_model2a *machine,
+    uint32_t address,
+    uint16_t *value
+)
+{
+    uint8_t bytes[2] = {0u, 0u};
+    vf2_status status = VF2_OK;
+
+    if (value == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_model2a_read(machine, address, bytes, sizeof(bytes));
+    if (status == VF2_OK) {
+        *value = (uint16_t)((uint16_t)bytes[0] |
+                            ((uint16_t)bytes[1] << 8u));
+    }
+    return status;
+}
+
+static vf2_status hybrid_write_u16(
+    vf2_model2a *machine,
+    uint32_t address,
+    uint16_t value
+)
+{
+    const uint8_t bytes[2] = {
+        (uint8_t)value,
+        (uint8_t)(value >> 8u)
+    };
+    return vf2_model2a_write(machine, address, bytes, sizeof(bytes));
+}
+
+static void hybrid_set_compare_result(
+    vf2_i960_cpu *cpu,
+    vf2_i960_compare_result result
+)
+{
+    uint32_t condition_bits = 0u;
+
+    if (result == VF2_I960_COMPARE_LESS) {
+        condition_bits = 4u;
+    } else if (result == VF2_I960_COMPARE_EQUAL) {
+        condition_bits = 2u;
+    } else if (result == VF2_I960_COMPARE_GREATER) {
+        condition_bits = 1u;
+    }
+    cpu->compare_result = result;
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | condition_bits;
+}
+
+static float hybrid_float_from_bits(uint32_t bits)
+{
+    float value = 0.0f;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static uint32_t hybrid_float_to_bits(float value)
+{
+    uint32_t bits = 0u;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
 static vf2_status hybrid_game_info_interpreter_needed(
     const vf2_model2a *machine,
     int *needed
@@ -102,6 +179,18 @@ static vf2_status hybrid_execute_interpreted_task(
     return VF2_OK;
 }
 
+static vf2_status hybrid_execute_game_info_18144_prefix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t return_address
+);
+
+static vf2_status hybrid_execute_game_info_18644(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t return_address
+);
+
 /* The bit-31 fa_game_info path is a dispatcher around the two large fighter
  * procedures at 0x18144 and 0x18644.  Keep those procedures ROM-backed for
  * now, but recover the dispatcher and its small post-call tail in C.  Each
@@ -120,6 +209,19 @@ static vf2_status hybrid_execute_game_info_child(
 
     if (machine == NULL || cpu == NULL || cpu->ip != return_address) {
         return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (target == UINT32_C(0x00018144) &&
+        return_address == UINT32_C(0x0001647c)) {
+        return hybrid_execute_game_info_18144_prefix(
+            machine, cpu, return_address
+        );
+    }
+    if (target == UINT32_C(0x00018644) &&
+        (return_address == UINT32_C(0x000164b0) ||
+         return_address == UINT32_C(0x000164c4))) {
+        return hybrid_execute_game_info_18644(
+            machine, cpu, return_address
+        );
     }
     status = vf2_i960_cpu_enter_procedure(cpu, target, return_address);
     if (status != VF2_OK) {
@@ -143,6 +245,977 @@ static vf2_status hybrid_execute_game_info_child(
      * account the CALL instruction itself here because the caller is native. */
     ++cpu->executed_instructions;
     return VF2_OK;
+}
+
+/* The two observed 0x18d44 calls use the zero-result Model 2 command-port
+ * path.  Preserve the call frame and port writes, while rejecting the
+ * unobserved non-zero result branches. */
+static vf2_status hybrid_execute_game_info_18d44(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t return_address
+)
+{
+    uint32_t port = 0u;
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r7 = 0u;
+    uint32_t r8 = UINT32_C(0x461c4000);
+    uint32_t r9 = UINT32_C(0x461c4000);
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != return_address ||
+        (return_address != UINT32_C(0x00018544) &&
+         return_address != UINT32_C(0x00018550))) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    port = cpu->registers[VF2_I960_G0_REGISTER + 11u] +
+           cpu->registers[VF2_I960_G0_REGISTER + 12u];
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00018d44), return_address
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    ++cpu->executed_instructions;
+
+    cpu->registers[12] = 0u - cpu->registers[VF2_I960_G0_REGISTER];
+    cpu->registers[15] = UINT32_C(0x10802121);
+    status = vf2_model2a_write_u32(machine, port, cpu->registers[15]);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, cpu->registers[12]);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, port, &r5);
+    }
+    if (status == VF2_OK) {
+        cpu->registers[15] = UINT32_C(0x11002222);
+        status = vf2_model2a_write_u32(machine, port, cpu->registers[15]);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, cpu->registers[12]);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, port, &r6);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a00c), &r7
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[8] = r8;
+        cpu->registers[9] = r9;
+        status = vf2_model2a_read_u32(
+            machine,
+            cpu->registers[VF2_I960_G0_REGISTER + 7u] +
+                UINT32_C(0x000001f4),
+            &r3
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine,
+            cpu->registers[VF2_I960_G0_REGISTER + 7u] +
+                UINT32_C(0x000001fc),
+            &r4
+        );
+    }
+    if (status == VF2_OK) {
+        uint32_t body_instructions = 0u;
+
+        if (r5 != 0u) {
+            r3 = hybrid_float_to_bits(
+                hybrid_float_from_bits(r7) - hybrid_float_from_bits(r3)
+            );
+            r4 = hybrid_float_to_bits(
+                hybrid_float_from_bits(r6) / hybrid_float_from_bits(r5)
+            );
+            r4 = hybrid_float_to_bits(
+                hybrid_float_from_bits(r4) * hybrid_float_from_bits(r3)
+            );
+            cpu->registers[15] = UINT32_C(0x16802d2d);
+            status = vf2_model2a_write_u32(machine, port, cpu->registers[15]);
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(machine, port, r3);
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(machine, port, r4);
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(machine, port, &r8);
+            }
+            body_instructions += 10u;
+        }
+        if (status == VF2_OK && r6 != 0u) {
+            r4 = hybrid_float_to_bits(
+                hybrid_float_from_bits(r7) -
+                hybrid_float_from_bits(r4)
+            );
+            r3 = hybrid_float_to_bits(
+                hybrid_float_from_bits(r5) / hybrid_float_from_bits(r6)
+            );
+            r3 = hybrid_float_to_bits(
+                hybrid_float_from_bits(r3) * hybrid_float_from_bits(r4)
+            );
+            cpu->registers[15] = UINT32_C(0x16802d2d);
+            status = vf2_model2a_write_u32(machine, port, cpu->registers[15]);
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(machine, port, r3);
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(machine, port, r4);
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(machine, port, &r9);
+            }
+            body_instructions += 10u;
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = r8;
+        if (hybrid_float_from_bits(r8) < hybrid_float_from_bits(r9)) {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+        } else if (hybrid_float_from_bits(r8) > hybrid_float_from_bits(r9)) {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = r9;
+        } else {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        }
+        cpu->ip = UINT32_C(0x00018dfc);
+        cpu->executed_instructions += UINT64_C(19) + body_instructions;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
+        }
+    }
+    (void)r3;
+    (void)r4;
+    (void)r7;
+    return status;
+}
+
+static vf2_status hybrid_execute_game_info_18c64(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t return_address
+)
+{
+    uint32_t flags = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != return_address ||
+        return_address != UINT32_C(0x00018584)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00018c64), return_address
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    ++cpu->executed_instructions;
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+    status = vf2_model2a_read_u32(
+        machine,
+        cpu->registers[VF2_I960_G0_REGISTER + 7u],
+        &flags
+    );
+    if (status == VF2_OK && (flags & (UINT32_C(1) << 2u)) != 0u) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK) {
+        cpu->ip = UINT32_C(0x00018d40);
+        cpu->executed_instructions += UINT64_C(3);
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
+        }
+    }
+    return status;
+}
+
+static vf2_status hybrid_execute_game_info_18144_suffix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t fighter = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r7 = 0u;
+    uint32_t r9 = 0u;
+    uint32_t r10 = 0u;
+    uint32_t r12 = 0u;
+    uint32_t r13 = 0u;
+    uint32_t r14 = 0u;
+    uint32_t r15 = 0u;
+    uint16_t short_value = 0u;
+    uint8_t byte_value = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00018550)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = vf2_model2a_write_u32(
+        machine, fighter + UINT32_C(0x000005fc),
+        cpu->registers[VF2_I960_G0_REGISTER + 1u]
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a00c), &r7
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x000001f4), &r4
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x000001fc), &r6
+        );
+    }
+    if (status == VF2_OK) {
+        r4 &= ~UINT32_C(0x80000000);
+        r6 &= ~UINT32_C(0x80000000);
+        if ((int32_t)r4 < (int32_t)r6) {
+            status = VF2_ERROR_UNSUPPORTED;
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+        } else if ((int32_t)r4 > (int32_t)r6) {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+        } else {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        }
+    }
+    if (status == VF2_OK) {
+        r3 = hybrid_float_to_bits(
+            hybrid_float_from_bits(r7) - hybrid_float_from_bits(r4)
+        );
+        status = vf2_model2a_write_u32(
+            machine, fighter + UINT32_C(0x00000678), r3
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x0000081c),
+            &cpu->registers[VF2_I960_G0_REGISTER]
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->ip = UINT32_C(0x00018584);
+        status = hybrid_execute_game_info_18c64(
+            machine, cpu, UINT32_C(0x00018584)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_write_u16(
+            machine, fighter + UINT32_C(0x000005bc),
+            (uint16_t)cpu->registers[VF2_I960_G0_REGISTER + 1u]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500814), &r6
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(machine, r6 + UINT32_C(0x26), &short_value);
+        r13 = (uint32_t)(int32_t)(int16_t)short_value;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x000005b4), &short_value
+        );
+        r14 = (uint32_t)(int32_t)(int16_t)short_value;
+    }
+    if (status == VF2_OK) {
+        r4 = r14 - r13;
+        r5 = 0u;
+        status = vf2_model2a_read_u32(machine, fighter, &r5);
+    }
+    if (status == VF2_OK) {
+        r12 = r4 ^ UINT32_C(0x00008000);
+        hybrid_set_compare_result(
+            cpu,
+            (r12 & UINT32_C(0x00008000)) != 0u
+                ? VF2_I960_COMPARE_EQUAL
+                : VF2_I960_COMPARE_NONE
+        );
+        r5 = (cpu->arithmetic_control & UINT32_C(2)) != 0u
+            ? r5 | UINT32_C(2)
+            : r5 & ~UINT32_C(2);
+        status = vf2_model2a_write_u32(machine, fighter, r5);
+    }
+    if (status == VF2_OK) {
+        r7 = 0u;
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x000001a4), &r7
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, fighter + UINT32_C(0x00000821), &byte_value
+        );
+        r9 = byte_value;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x00000828), &short_value
+        );
+        r10 = (uint32_t)(int32_t)(int16_t)short_value;
+        (void)r9;
+        (void)r10;
+        if ((r7 & (UINT32_C(1) << 8u)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, fighter + UINT32_C(0x000006b4), 0u
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00508000), &r15
+        );
+        if (status == VF2_OK && (r15 & (UINT32_C(1) << 5u)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        r5 = 30u;
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x000001a4), &r4
+        );
+    }
+    if (status == VF2_OK && (r4 & (UINT32_C(1) << 29u)) != 0u) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x000006da), &short_value
+        );
+        r5 = (uint32_t)(int32_t)(int16_t)short_value;
+        if (r5 != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        cpu->ip = UINT32_C(0x00018640);
+        cpu->executed_instructions += UINT64_C(33);
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
+        }
+    }
+    return status;
+}
+
+/* Recover the observed shared-fighter 0x18644 zero-valued port/flag corridor
+ * at both dispatcher call sites. The second site sets the additional r10 bit
+ * implied by the first call's 0x5b8 write. */
+static vf2_status hybrid_execute_game_info_18644(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t return_address
+)
+{
+    const uint32_t fighter0 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    const uint32_t fighter1 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
+    const uint32_t port = cpu->registers[VF2_I960_G0_REGISTER + 11u] +
+                          cpu->registers[VF2_I960_G0_REGISTER + 12u];
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r7 = 0u;
+    uint32_t r8 = 0u;
+    uint32_t r9 = 0u;
+    uint32_t r10 = 0u;
+    uint32_t r11 = 0u;
+    uint32_t r12 = 0u;
+    uint32_t r13 = 0u;
+    uint32_t r14 = 0u;
+    uint32_t r15 = 0u;
+    uint32_t body_instructions = 101u;
+    uint16_t short_value = 0u;
+    uint8_t byte_value = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != return_address ||
+        (return_address != UINT32_C(0x000164b0) &&
+         return_address != UINT32_C(0x000164c4))) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00018644), return_address
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    ++cpu->executed_instructions;
+
+    status = vf2_model2a_read_u32(
+        machine, fighter0 + UINT32_C(0x000001a4), &r7
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x000001a4), &r8
+        );
+    }
+    if (status == VF2_OK) {
+        r10 = 0u;
+        r15 = UINT32_C(0x15802b2b);
+        status = vf2_model2a_write_u32(machine, port, r15);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter0 + UINT32_C(0x000001f4), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x000001f4), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter0 + UINT32_C(0x000001fc), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x000001fc), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, port, &r9);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, fighter0 + UINT32_C(0x000005f4), r9
+        );
+    }
+    if (status == VF2_OK) {
+        r15 = UINT32_C(0x17802f2f);
+        status = vf2_model2a_write_u32(machine, port, r15);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter0 + UINT32_C(0x000001fc), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x000001fc), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x000001f4), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter0 + UINT32_C(0x000001f4), &r15
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, port, r15);
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, port, &r11);
+    }
+    if (status == VF2_OK && r9 > UINT32_C(0x3ecccccd)) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK &&
+        ((r7 & (UINT32_C(1) << 4u)) != 0u ||
+         (r8 & (UINT32_C(1) << 4u)) != 0u)) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a028), &r3
+        );
+    }
+    if (status == VF2_OK && r9 > r3) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter0 + UINT32_C(0x000005b4), &short_value
+        );
+        r4 = (uint32_t)(int32_t)(int16_t)short_value;
+        r4 = (r11 - r4) + UINT32_C(0x00004000);
+        if ((r4 & UINT32_C(0x00008000)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter1 + UINT32_C(0x000005b4), &short_value
+        );
+        r4 = (uint32_t)(int32_t)(int16_t)short_value;
+        r4 = (r11 - r4) + UINT32_C(0x00004000);
+        if ((r4 & UINT32_C(0x00008000)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        r10 |= UINT32_C(2);
+        status = hybrid_read_u8(
+            machine, UINT32_C(0x0050a0b6), &byte_value
+        );
+    }
+    if (status == VF2_OK && byte_value != 0u) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK &&
+        ((r7 & (UINT32_C(1) << 4u)) != 0u ||
+         (r8 & (UINT32_C(1) << 4u)) != 0u)) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &r13
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, r13 + UINT32_C(0x00003351), &byte_value
+        );
+    }
+    if (status == VF2_OK && byte_value != 0u) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK &&
+        (r8 & (UINT32_C(1) << 15u | UINT32_C(1) << 8u |
+               UINT32_C(1) << 16u | UINT32_C(1) << 14u))) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x00000844), &r14
+        );
+        r3 = (UINT32_C(1) << 26u) & r14;
+        if (r3 != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        r3 = (UINT32_C(1) << 30u) & r14;
+        if (r3 != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter0 + UINT32_C(0x000005b4), &short_value
+        );
+        r3 = (uint32_t)(int32_t)(int16_t)short_value - r11;
+        r15 = r3 << 16u;
+        r3 = r15 >> 16u;
+        r4 = UINT32_C(0x00001554);
+        r15 = 0u - r4;
+        if ((int32_t)r3 <= (int32_t)r15) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine,
+            UINT32_C(0x0050016c) + UINT32_C(0x00003351),
+            &byte_value
+        );
+        if (status == VF2_OK && (byte_value & (UINT8_C(1) << 6u)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x00000844), &r14
+        );
+        r3 = (UINT32_C(1) << 26u) & r14;
+        if (r3 != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter0 + UINT32_C(0x000005b8), &r13
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter1 + UINT32_C(0x000005b8), &r14
+        );
+        r3 = r13 | r14;
+        if ((r3 & (UINT32_C(1) << 1u)) != 0u) {
+            r10 |= UINT32_C(4);
+            body_instructions = 96u;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0001b7ec), &r3
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &r15
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, r15 + UINT32_C(0x00003351), &byte_value
+        );
+        if (status == VF2_OK && byte_value != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter0 + UINT32_C(0x000005f4), &r13
+        );
+        if (status == VF2_OK && (int32_t)r13 >= (int32_t)r3) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter0, &r12);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter1, &r13);
+    }
+    if (status == VF2_OK) {
+        r12 ^= r13;
+        r12 <<= 15u;
+        r12 ^= r7;
+        r12 ^= r8;
+        if ((r12 & (UINT32_C(1) << 21u)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, fighter0 + UINT32_C(0x000005b8), r10
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, fighter1 + UINT32_C(0x0000019f), &byte_value
+        );
+        if (status == VF2_OK && byte_value == UINT8_C(22)) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+        cpu->ip = UINT32_C(0x00018a50);
+        cpu->executed_instructions += body_instructions;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
+        }
+    }
+    return status;
+}
+
+static vf2_status hybrid_run_rom_to(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t stop_address
+)
+{
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    vf2_status status = VF2_OK;
+
+    memset(&options, 0, sizeof(options));
+    options.stop_address = stop_address;
+    options.max_steps = VF2_INTERPRETED_TASK_STEP_LIMIT;
+    options.stop_on_self_branch = false;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status == VF2_OK &&
+        (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+         cpu->ip != stop_address)) {
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+    return status;
+}
+
+/* Recover the first observed 0x18144 prefix.  The current sixth-entry
+ * snapshot takes 0x18144 -> 0x18188 -> 0x184ec and scans sixteen fighter
+ * records before the nested 0x18538 -> 0x17b68 helper call.  Keep the other
+ * conditional entries explicit until another real entry trace proves their
+ * state. */
+static vf2_status hybrid_execute_game_info_18144_prefix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t return_address
+)
+{
+    const uint32_t fighter = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    const uint32_t nested_target = UINT32_C(0x00017b68);
+    const uint32_t nested_return = UINT32_C(0x0001853c);
+    const uint32_t prefix_instructions = UINT32_C(118);
+    uint8_t state_byte = 0u;
+    uint16_t short_value = 0u;
+    uint32_t flags = 0u;
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r11 = 0u;
+    uint32_t r15_value = 0u;
+    uint32_t table = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != return_address ||
+        return_address != UINT32_C(0x0001647c)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00018144), return_address
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    status = hybrid_read_u8(machine, fighter + UINT32_C(0x00000a00),
+                            &state_byte);
+    if (status == VF2_OK) {
+        cpu->registers[14] = state_byte;
+        if (state_byte == 4u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x000001a4), &flags
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->registers[5] = flags;
+        if ((flags & (UINT32_C(1) << 15u)) != 0u ||
+            (flags & (UINT32_C(1) << 14u)) != 0u ||
+            (flags & (UINT32_C(1) << 16u)) != 0u ||
+            (flags & (UINT32_C(1) << 6u)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x00000614), &short_value
+        );
+        r3 = short_value;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x00000624), &short_value
+        );
+        r4 = short_value;
+    }
+    if (status == VF2_OK) {
+        r5 = r3 | r4;
+        cpu->registers[5] = r5;
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x0000061c), &short_value
+        );
+        r6 = short_value;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_write_u16(
+            machine, fighter + UINT32_C(0x0000061c), (uint16_t)r5
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_write_u16(
+            machine, fighter + UINT32_C(0x0000060e), (uint16_t)r6
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x00000618), &short_value
+        );
+        r4 = short_value;
+        r3 = r5 & ~r4;
+        cpu->registers[3] = r3;
+        status = hybrid_write_u16(
+            machine, fighter + UINT32_C(0x00000628), (uint16_t)r3
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter + UINT32_C(0x00000026), &short_value
+        );
+        r11 = (uint32_t)(int32_t)(int16_t)short_value;
+        cpu->registers[11] = r11;
+    }
+    if (status == VF2_OK) {
+        status = hybrid_write_u16(
+            machine, fighter + UINT32_C(0x00000616), (uint16_t)r11
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, fighter, &r4);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x000001a4), &r3
+        );
+    }
+    if (status == VF2_OK) {
+        r3 = (r3 >> 15u) ^ r4;
+        hybrid_set_compare_result(
+            cpu,
+            (r3 & (UINT32_C(1) << 6u)) != 0u
+                ? VF2_I960_COMPARE_EQUAL
+                : VF2_I960_COMPARE_NONE
+        );
+        r4 = (cpu->arithmetic_control & UINT32_C(2)) != 0u
+            ? r4 | (UINT32_C(1) << 10u)
+            : r4 & ~(UINT32_C(1) << 10u);
+        cpu->registers[3] = r3;
+        cpu->registers[4] = r4;
+        status = vf2_model2a_write_u32(machine, fighter, r4);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x000001f8), &table
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, table, &r4);
+    }
+    r6 = 15u;
+    r5 = table;
+    while (status == VF2_OK && r6 != 0u) {
+        float left = hybrid_float_from_bits(r4);
+        float right = 0.0f;
+
+        r5 += UINT32_C(12);
+        status = vf2_model2a_read_u32(machine, r5, &r3);
+        if (status != VF2_OK) {
+            break;
+        }
+        right = hybrid_float_from_bits(r3);
+        if (left < right) {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+        } else if (left > right) {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+            r4 = r3;
+        } else {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        }
+        --r6;
+        if (r6 == 0u) {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        } else {
+            hybrid_set_compare_result(
+                cpu,
+                1u < r6 ? VF2_I960_COMPARE_LESS :
+                           (1u == r6 ? VF2_I960_COMPARE_EQUAL :
+                                       VF2_I960_COMPARE_GREATER)
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        cpu->registers[4] = r4;
+        cpu->registers[5] = r5;
+        cpu->registers[6] = r6;
+        status = hybrid_write_u16(
+            machine, fighter + UINT32_C(0x00000674), (uint16_t)r4
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->ip = UINT32_C(0x00018538);
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, nested_target, nested_return
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    ++cpu->executed_instructions;
+    status = vf2_model2a_read_u32(machine, fighter, &r15_value);
+    if (status == VF2_OK) {
+        cpu->registers[15] = r15_value;
+        if ((r15_value & (UINT32_C(1) << 7u)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        /* 0x17b68: ld, bbc, ret. */
+        cpu->ip = UINT32_C(0x000180b8);
+        cpu->executed_instructions += UINT64_C(2);
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
+        }
+    }
+    if (status == VF2_OK) {
+        status = hybrid_run_rom_to(
+            machine, cpu, UINT32_C(0x00018540)
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->ip = UINT32_C(0x00018544);
+        status = hybrid_execute_game_info_18d44(
+            machine, cpu, UINT32_C(0x00018544)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_run_rom_to(
+            machine, cpu, UINT32_C(0x0001854c)
+        );
+    }
+    if (status == VF2_OK) {
+        cpu->ip = UINT32_C(0x00018550);
+        status = hybrid_execute_game_info_18d44(
+            machine, cpu, UINT32_C(0x00018550)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_game_info_18144_suffix(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        /* The dispatcher CALL at 0x16478 was replaced by this native entry. */
+        cpu->executed_instructions += prefix_instructions + 1u;
+    }
+    return status;
 }
 
 static vf2_status hybrid_execute_game_info_bit31_native(
