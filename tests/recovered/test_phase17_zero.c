@@ -36,6 +36,87 @@ typedef struct phase17_zero_case {
     uint32_t expected_depth;
 } phase17_zero_case;
 
+typedef struct phase17_scalar_copro {
+    uint32_t words[3];
+    size_t count;
+    uint32_t result;
+    int ready;
+} phase17_scalar_copro;
+
+static float phase17_float_from_bits(uint32_t bits)
+{
+    float value = 0.0f;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static uint32_t phase17_float_to_bits(float value)
+{
+    uint32_t bits = 0u;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static vf2_status phase17_copro_write(
+    void *context,
+    uint32_t address,
+    const void *source,
+    size_t size
+)
+{
+    phase17_scalar_copro *copro = context;
+    uint32_t value = 0u;
+    float left = 0.0f;
+    float right = 0.0f;
+
+    if (copro == NULL || source == NULL || size != sizeof(value) ||
+        address < UINT32_C(0x00884000) ||
+        address >= UINT32_C(0x00888000) || copro->count >= 3u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memcpy(&value, source, sizeof(value));
+    copro->words[copro->count++] = value;
+    if (copro->count != 3u) {
+        return VF2_OK;
+    }
+
+    left = phase17_float_from_bits(copro->words[1]);
+    right = phase17_float_from_bits(copro->words[2]);
+    switch (copro->words[0]) {
+    case UINT32_C(0x09801313):
+        copro->result = phase17_float_to_bits(left + right);
+        break;
+    case UINT32_C(0x0a001414):
+        copro->result = phase17_float_to_bits(left - right);
+        break;
+    default:
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    copro->ready = 1;
+    return VF2_OK;
+}
+
+static vf2_status phase17_copro_read(
+    void *context,
+    uint32_t address,
+    void *destination,
+    size_t size
+)
+{
+    phase17_scalar_copro *copro = context;
+
+    if (copro == NULL || destination == NULL ||
+        size != sizeof(copro->result) ||
+        address < UINT32_C(0x00884000) ||
+        address >= UINT32_C(0x00888000) || !copro->ready) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memcpy(destination, &copro->result, sizeof(copro->result));
+    copro->count = 0u;
+    copro->ready = 0;
+    return VF2_OK;
+}
+
 static int check_status(vf2_status status)
 {
     return status == VF2_OK;
@@ -195,12 +276,24 @@ static void run_case(
     vf2_i960_run_result run_result;
     vf2_hybrid_bridge_report bridge_report;
     vf2_i960_snapshot_diff diff;
+    phase17_scalar_copro reference_copro;
+    phase17_scalar_copro native_copro;
     vf2_status reference_status = VF2_OK;
     vf2_status native_status = VF2_OK;
     vf2_status compare_status = VF2_OK;
+    const int use_copro_oracle =
+        test_case->runtime_flags == 0u &&
+        test_case->navigation_flags == 0u &&
+        test_case->previous_flags == test_case->input_flags &&
+        test_case->menu_state == UINT8_C(0x40) &&
+        (test_case->menu_index == UINT8_C(3) ||
+         test_case->menu_index == UINT8_C(5) ||
+         test_case->menu_index == UINT8_C(12));
 
     memset(&reference_machine, 0, sizeof(reference_machine));
     memset(&native_machine, 0, sizeof(native_machine));
+    memset(&reference_copro, 0, sizeof(reference_copro));
+    memset(&native_copro, 0, sizeof(native_copro));
     memset(&options, 0, sizeof(options));
     memset(&run_result, 0, sizeof(run_result));
     memset(&bridge_report, 0, sizeof(bridge_report));
@@ -221,12 +314,28 @@ static void run_case(
               &reference_machine, main_data, main_data_size) == VF2_OK);
     CHECK(vf2_model2a_attach_main_data(
               &native_machine, main_data, main_data_size) == VF2_OK);
+    if (use_copro_oracle) {
+        CHECK(vf2_model2a_set_copro_callbacks(
+                  &reference_machine, phase17_copro_read,
+                  phase17_copro_write, &reference_copro) == VF2_OK);
+        CHECK(vf2_model2a_set_copro_callbacks(
+                  &native_machine, phase17_copro_read,
+                  phase17_copro_write, &native_copro) == VF2_OK);
+    }
     CHECK(check_status(initialize_phase17_zero_state(
               &reference_machine, test_case)));
     CHECK(check_status(initialize_phase17_zero_state(
               &native_machine, test_case)));
     CHECK(enter_frame_dispatch(&reference_cpu) == VF2_OK);
     CHECK(enter_frame_dispatch(&native_cpu) == VF2_OK);
+    if (use_copro_oracle) {
+        reference_cpu.registers[VF2_I960_G0_REGISTER + 11u] =
+            UINT32_C(0x00884000);
+        reference_cpu.registers[VF2_I960_G0_REGISTER + 12u] = 0u;
+        native_cpu.registers[VF2_I960_G0_REGISTER + 11u] =
+            UINT32_C(0x00884000);
+        native_cpu.registers[VF2_I960_G0_REGISTER + 12u] = 0u;
+    }
 
     options.stop_address = UINT32_C(0x00001004);
     options.max_steps = UINT64_C(200000);
@@ -290,8 +399,58 @@ int main(int argc, char **argv)
         IDLE_CASE("index1-motion", 1, 0, 0, 0, 0, 534, 9, 10, 4),
         IDLE_CASE("index2-command", 2, 0, 0, 0, 0, 318, 8, 9, 4),
         IDLE_CASE("index3-robot-position", 3, 0, 0, 0, 0, 695, 12, 13, 4),
+        IDLE_CASE("index3-angle-mode", 3, (1u << 9u), 0, 0, 0,
+                  688, 12, 13, 4),
+        IDLE_CASE("index3-second-float-dec", 3, (1u << 12u), 0, 0, 0,
+                  700, 12, 13, 4),
+        IDLE_CASE("index3-second-float-inc", 3, (1u << 13u), 0, 0, 0,
+                  700, 12, 13, 4),
+        IDLE_CASE("index3-first-float-inc", 3, (1u << 14u), 0, 0, 0,
+                  700, 12, 13, 4),
+        IDLE_CASE("index3-first-float-dec", 3, (1u << 15u), 0, 0, 0,
+                  700, 12, 13, 4),
+        IDLE_CASE("index3-angle-ignore-dec", 3,
+                  (1u << 9u) | (1u << 12u), 0, 0, 0,
+                  688, 12, 13, 4),
+        IDLE_CASE("index3-angle-ignore-inc", 3,
+                  (1u << 9u) | (1u << 13u), 0, 0, 0,
+                  688, 12, 13, 4),
+        IDLE_CASE("index3-angle-inc", 3,
+                  (1u << 9u) | (1u << 14u), 0, 0, 0,
+                  699, 12, 13, 4),
+        IDLE_CASE("index3-angle-dec", 3,
+                  (1u << 9u) | (1u << 15u), 0, 0, 0,
+                  704, 12, 13, 4),
         IDLE_CASE("index4-camera-mode", 4, 0, 0, 0, 0, 37, 2, 3, 3),
         IDLE_CASE("index5-camera-position", 5, 0, 0, 0, 0, 695, 13, 14, 4),
+        IDLE_CASE("index5-select-y", 5, (1u << 8u), 0, 0, 0,
+                  694, 13, 14, 4),
+        IDLE_CASE("index5-step-tenth", 5, (1u << 9u), 0, 0, 0,
+                  697, 13, 14, 4),
+        IDLE_CASE("index5-second-dec", 5, (1u << 12u), 0, 0, 0,
+                  700, 13, 14, 4),
+        IDLE_CASE("index5-second-inc", 5, (1u << 13u), 0, 0, 0,
+                  700, 13, 14, 4),
+        IDLE_CASE("index5-first-inc", 5, (1u << 14u), 0, 0, 0,
+                  700, 13, 14, 4),
+        IDLE_CASE("index5-first-dec", 5, (1u << 15u), 0, 0, 0,
+                  700, 13, 14, 4),
+        IDLE_CASE("index5-y-dec", 5, (1u << 8u) | (1u << 12u), 0, 0, 0,
+                  699, 13, 14, 4),
+        IDLE_CASE("index5-y-inc", 5, (1u << 8u) | (1u << 13u), 0, 0, 0,
+                  699, 13, 14, 4),
+        IDLE_CASE("index5-tenth-second-dec", 5,
+                  (1u << 9u) | (1u << 12u), 0, 0, 0,
+                  702, 13, 14, 4),
+        IDLE_CASE("index5-tenth-second-inc", 5,
+                  (1u << 9u) | (1u << 13u), 0, 0, 0,
+                  702, 13, 14, 4),
+        IDLE_CASE("index5-tenth-first-inc", 5,
+                  (1u << 9u) | (1u << 14u), 0, 0, 0,
+                  702, 13, 14, 4),
+        IDLE_CASE("index5-tenth-first-dec", 5,
+                  (1u << 9u) | (1u << 15u), 0, 0, 0,
+                  702, 13, 14, 4),
         IDLE_CASE("index6-camera-position2", 6, 0, 0, 0, 0, 3063, 37, 38, 4),
         IDLE_CASE("index7-camera-average", 7, 0, 0, 0, 0, 146, 4, 5, 4),
         IDLE_CASE("index8-hiji", 8, 0, 0, 0, 0, 45, 2, 3, 3),
@@ -317,6 +476,10 @@ int main(int argc, char **argv)
         IDLE_CASE("index11-decrement", 11, (1u << 15u), 0,
                   0, 0, 41, 2, 3, 3),
         IDLE_CASE("index12-camera-xang", 12, 0, 0, 0, 0, 118, 4, 5, 4),
+        IDLE_CASE("index12-camera-xang-dec", 12, (1u << 12u), 0, 0, 0,
+                  119, 4, 5, 4),
+        IDLE_CASE("index12-camera-xang-inc", 12, (1u << 13u), 0, 0, 0,
+                  119, 4, 5, 4),
         IDLE_CASE("index13-texture", 13, 0, 0, 0, 0, 1745, 16, 17, 5),
         INPUT_EDGE_CASE("index0-release", 0, 0, (1u << 5u), 0x41,
                         270, 6, 7, 5),

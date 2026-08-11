@@ -3030,6 +3030,10 @@ static vf2_status execute_frame_phase17_zero_control_menu(
     const uint64_t start_calls = cpu->procedure_calls;
     const uint64_t start_returns = cpu->procedure_returns;
     const uint32_t outer_stack = cpu->registers[1];
+    const uint32_t entry_g11 =
+        cpu->registers[VF2_I960_G0_REGISTER + 11u];
+    const uint32_t entry_g12 =
+        cpu->registers[VF2_I960_G0_REGISTER + 12u];
     vf2_hybrid_bridge_report text_report;
     uint32_t runtime_flags = 0u;
     uint32_t player0 = 0u;
@@ -3695,6 +3699,7 @@ static vf2_status execute_frame_phase17_zero_control_menu(
         };
         uint32_t final_g0 = 0u;
         uint32_t final_g9 = 0u;
+        int32_t control_instruction_adjustment = 0;
 
         status = vf2_model2a_read_u32(
             machine, UINT32_C(0x00055128) +
@@ -3704,8 +3709,75 @@ static vf2_status execute_frame_phase17_zero_control_menu(
         if (status != VF2_OK || table_target != idle_targets[menu_index]) {
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
-        if (effective_input_flags != 0u || effective_previous_flags != 0u ||
+        if (effective_previous_flags != effective_input_flags ||
             navigation_flags != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (menu_index == UINT8_C(3)) {
+            switch (effective_input_flags) {
+            case 0u:
+                break;
+            case UINT32_C(1) << 12u:
+            case UINT32_C(1) << 13u:
+            case UINT32_C(1) << 14u:
+            case UINT32_C(1) << 15u:
+                control_instruction_adjustment = 5;
+                break;
+            case UINT32_C(1) << 9u:
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 12u):
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 13u):
+                control_instruction_adjustment = -7;
+                break;
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 14u):
+                control_instruction_adjustment = 4;
+                break;
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 15u):
+                control_instruction_adjustment = 9;
+                break;
+            default:
+                return VF2_ERROR_UNSUPPORTED;
+            }
+        } else if (menu_index == UINT8_C(5)) {
+            switch (effective_input_flags) {
+            case 0u:
+                break;
+            case UINT32_C(1) << 8u:
+                control_instruction_adjustment = -1;
+                break;
+            case UINT32_C(1) << 9u:
+                control_instruction_adjustment = 2;
+                break;
+            case UINT32_C(1) << 12u:
+            case UINT32_C(1) << 13u:
+            case UINT32_C(1) << 14u:
+            case UINT32_C(1) << 15u:
+                control_instruction_adjustment = 5;
+                break;
+            case (UINT32_C(1) << 8u) | (UINT32_C(1) << 12u):
+            case (UINT32_C(1) << 8u) | (UINT32_C(1) << 13u):
+                control_instruction_adjustment = 4;
+                break;
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 12u):
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 13u):
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 14u):
+            case (UINT32_C(1) << 9u) | (UINT32_C(1) << 15u):
+                control_instruction_adjustment = 7;
+                break;
+            default:
+                return VF2_ERROR_UNSUPPORTED;
+            }
+        } else if (menu_index == UINT8_C(12)) {
+            switch (effective_input_flags) {
+            case 0u:
+                break;
+            case UINT32_C(1) << 12u:
+            case UINT32_C(1) << 13u:
+                control_instruction_adjustment = 1;
+                break;
+            default:
+                return VF2_ERROR_UNSUPPORTED;
+            }
+        } else if (effective_input_flags != 0u) {
             return VF2_ERROR_UNSUPPORTED;
         }
         status = phase17_zero_render_missing_body(
@@ -3732,8 +3804,8 @@ static vf2_status execute_frame_phase17_zero_control_menu(
         cpu->registers[VF2_I960_G0_REGISTER + 8u] = player1;
         cpu->registers[VF2_I960_G0_REGISTER + 9u] = final_g9;
         cpu->registers[VF2_I960_G0_REGISTER + 10u] = 0u;
-        cpu->registers[VF2_I960_G0_REGISTER + 11u] = 0u;
-        cpu->registers[VF2_I960_G0_REGISTER + 12u] = 0u;
+        cpu->registers[VF2_I960_G0_REGISTER + 11u] = entry_g11;
+        cpu->registers[VF2_I960_G0_REGISTER + 12u] = entry_g12;
         cpu->registers[VF2_I960_G0_REGISTER + 13u] = 0u;
         cpu->registers[VF2_I960_G14_REGISTER] = UINT32_C(0x000550d4);
         cpu->registers[VF2_I960_G0_REGISTER + 15u] = 0u;
@@ -3746,8 +3818,11 @@ static vf2_status execute_frame_phase17_zero_control_menu(
             cpu->maximum_local_frame_depth =
                 cpu->local_frame_depth + depth_deltas[menu_index];
         }
-        expected_instructions =
-            instruction_counts[menu_index] + idle_wrapper_adjustment;
+        expected_instructions = (uint64_t)(
+            (int64_t)instruction_counts[menu_index] +
+            (int64_t)idle_wrapper_adjustment +
+            (int64_t)control_instruction_adjustment
+        );
         status = finish_recovered_procedure(
             machine, cpu,
             expected_instructions -
