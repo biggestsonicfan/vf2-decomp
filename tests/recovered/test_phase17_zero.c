@@ -20,24 +20,53 @@ static int failures = 0;
         }                                                           \
     } while (0)
 
+typedef struct phase17_zero_case {
+    const char *name;
+    uint8_t menu_index;
+    uint32_t runtime_flags;
+    uint32_t input_flags;
+    uint32_t navigation_flags;
+    uint32_t previous_flags;
+    uint8_t menu_state;
+    uint32_t seed_player0_offset;
+    uint16_t seed_player0_value;
+    uint64_t expected_instructions;
+    uint64_t expected_calls;
+    uint64_t expected_returns;
+    uint32_t expected_depth;
+} phase17_zero_case;
+
+static int check_status(vf2_status status)
+{
+    return status == VF2_OK;
+}
+
 static vf2_status write_u8(vf2_model2a *machine, uint32_t address, uint8_t value)
+{
+    return vf2_model2a_write(machine, address, &value, sizeof(value));
+}
+
+static vf2_status write_u16(vf2_model2a *machine, uint32_t address, uint16_t value)
 {
     return vf2_model2a_write(machine, address, &value, sizeof(value));
 }
 
 static vf2_status initialize_phase17_zero_state(
     vf2_model2a *machine,
-    uint32_t runtime_flags
+    const phase17_zero_case *test_case
 )
 {
     const uint32_t player0 = UINT32_C(0x00510000);
     const uint32_t player1 = UINT32_C(0x00512000);
     const uint32_t control = UINT32_C(0x00514000);
     const uint32_t descriptor = UINT32_C(0x00516000);
+    const uint32_t associated0 = UINT32_C(0x00518200);
+    const uint32_t associated1 = UINT32_C(0x00518300);
     uint16_t fighter_control = UINT16_C(0x1234);
     vf2_status status = VF2_OK;
 
-    status = vf2_model2a_write_u32(machine, UINT32_C(0x00508000), runtime_flags);
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x00508000), test_case->runtime_flags);
     if (status == VF2_OK) {
         status = write_u8(machine, UINT32_C(0x0050002a), UINT8_C(17));
     }
@@ -61,19 +90,24 @@ static vf2_status initialize_phase17_zero_state(
             machine, descriptor + UINT32_C(0x0c), UINT32_C(0x0001b9ac));
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500700), 0u);
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500700), test_case->input_flags);
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500704), 0u);
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500704), test_case->navigation_flags);
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050070c), 0u);
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x0050070c), test_case->previous_flags);
     }
     if (status == VF2_OK) {
-        status = write_u8(machine, UINT32_C(0x00508008), 0u);
+        status = write_u8(
+            machine, UINT32_C(0x00508008), test_case->menu_index);
     }
     if (status == VF2_OK) {
-        status = write_u8(machine, UINT32_C(0x00500085), UINT8_C(0x40));
+        status = write_u8(
+            machine, UINT32_C(0x00500085), test_case->menu_state);
     }
     if (status == VF2_OK) {
         status = vf2_model2a_write(
@@ -110,10 +144,29 @@ static vf2_status initialize_phase17_zero_state(
         status = vf2_model2a_write_u32(machine, UINT32_C(0x00518100), 0u);
     }
     if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500868), associated0);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x0050086c), associated1);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, associated0, 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, associated1, 0u);
+    }
+    if (status == VF2_OK) {
         status = write_u8(machine, UINT32_C(0x0050a0b8), 0u);
     }
     if (status == VF2_OK) {
         status = write_u8(machine, UINT32_C(0x0050a0b9), 0u);
+    }
+    if (status == VF2_OK && test_case->seed_player0_offset != 0u) {
+        status = write_u16(
+            machine, player0 + test_case->seed_player0_offset,
+            test_case->seed_player0_value);
     }
     return status;
 }
@@ -129,8 +182,7 @@ static vf2_status enter_frame_dispatch(vf2_i960_cpu *cpu)
 static void run_case(
     const uint8_t *main_rom,
     size_t main_rom_size,
-    uint32_t runtime_flags,
-    uint64_t expected_instructions
+    const phase17_zero_case *test_case
 )
 {
     vf2_model2a reference_machine;
@@ -163,10 +215,10 @@ static void run_case(
               &reference_machine, main_rom, main_rom_size) == VF2_OK);
     CHECK(vf2_model2a_attach_main_rom(
               &native_machine, main_rom, main_rom_size) == VF2_OK);
-    CHECK(initialize_phase17_zero_state(
-              &reference_machine, runtime_flags) == VF2_OK);
-    CHECK(initialize_phase17_zero_state(
-              &native_machine, runtime_flags) == VF2_OK);
+    CHECK(check_status(initialize_phase17_zero_state(
+              &reference_machine, test_case)));
+    CHECK(check_status(initialize_phase17_zero_state(
+              &native_machine, test_case)));
     CHECK(enter_frame_dispatch(&reference_cpu) == VF2_OK);
     CHECK(enter_frame_dispatch(&native_cpu) == VF2_OK);
 
@@ -184,20 +236,21 @@ static void run_case(
         compare_status != VF2_OK || !diff.equal) {
         fprintf(
             stderr,
-            "phase17-zero flags=0x%08x ref=%d native=%d compare=%d "
+            "phase17-zero %s ref=%d native=%d compare=%d "
             "component=%s offset=%zu expected=0x%08x actual=0x%08x\n",
-            (unsigned)runtime_flags, (int)reference_status, (int)native_status,
+            test_case->name, (int)reference_status, (int)native_status,
             (int)compare_status, diff.component, diff.first_offset,
             (unsigned)diff.expected_value, (unsigned)diff.actual_value);
     }
     CHECK(reference_status == VF2_OK);
     CHECK(run_result.halt_reason == VF2_I960_HALT_STOP_ADDRESS);
-    CHECK(reference_cpu.executed_instructions == expected_instructions);
+    CHECK(reference_cpu.executed_instructions == test_case->expected_instructions);
     CHECK(native_status == VF2_OK);
-    CHECK(bridge_report.recovered_instruction_count == expected_instructions);
-    CHECK(bridge_report.recovered_procedure_calls == UINT64_C(6));
-    CHECK(bridge_report.recovered_procedure_returns == UINT64_C(7));
-    CHECK(native_cpu.maximum_local_frame_depth == UINT32_C(5));
+    CHECK(bridge_report.recovered_instruction_count ==
+          test_case->expected_instructions);
+    CHECK(bridge_report.recovered_procedure_calls == test_case->expected_calls);
+    CHECK(bridge_report.recovered_procedure_returns == test_case->expected_returns);
+    CHECK(native_cpu.maximum_local_frame_depth == test_case->expected_depth);
     CHECK(compare_status == VF2_OK);
     CHECK(diff.equal);
 
@@ -205,10 +258,90 @@ static void run_case(
     vf2_model2a_shutdown(&native_machine);
 }
 
+#define IDLE_CASE(label, index, input, navigation, seed_offset, seed_value, instructions, calls, returns, depth) \
+    { label, UINT8_C(index), 0u, (uint32_t)(input), (uint32_t)(navigation), \
+      (uint32_t)(input), UINT8_C(0x40), (uint32_t)(seed_offset), \
+      (uint16_t)(seed_value), UINT64_C(instructions), UINT64_C(calls), \
+      UINT64_C(returns), UINT32_C(depth) }
+
+#define INPUT_EDGE_CASE(label, index, input, previous, state, instructions, calls, returns, depth) \
+    { label, UINT8_C(index), 0u, (uint32_t)(input), 0u, \
+      (uint32_t)(previous), UINT8_C(state), 0u, 0u, UINT64_C(instructions), \
+      UINT64_C(calls), UINT64_C(returns), UINT32_C(depth) }
+
+#define TRANSITION_CASE(label, index, runtime, navigation, instructions, calls, returns, depth) \
+    { label, UINT8_C(index), (uint32_t)(runtime), UINT32_C(1) << 5u, \
+      (uint32_t)(navigation), UINT32_C(1) << 5u, UINT8_C(0x40), 0u, 0u, \
+      UINT64_C(instructions), UINT64_C(calls), UINT64_C(returns), UINT32_C(depth) }
+
 int main(int argc, char **argv)
 {
+    static const phase17_zero_case cases[] = {
+        IDLE_CASE("index0-control-test", 0, 0, 0, 0, 0, 267, 6, 7, 5),
+        {"index0-control-test-blank", 0u, UINT32_C(1) << 9u,
+         0u, 0u, 0u, UINT8_C(0x40), 0u, 0u, UINT64_C(266), UINT64_C(6), UINT64_C(7),
+         UINT32_C(5)},
+        IDLE_CASE("index4-camera-mode", 4, 0, 0, 0, 0, 37, 2, 3, 3),
+        IDLE_CASE("index8-hiji", 8, 0, 0, 0, 0, 45, 2, 3, 3),
+        IDLE_CASE("index8-mode-buttons", 8, 0, (1u << 8u) | (1u << 9u),
+                  0, 0, 49, 2, 3, 3),
+        IDLE_CASE("index8-increment", 8, (1u << 14u), 0,
+                  0, 0, 50, 2, 3, 3),
+        IDLE_CASE("index8-decrement-noop", 8, (1u << 15u), 0,
+                  0, 0, 44, 2, 3, 3),
+        IDLE_CASE("index8-decrement-active", 8, (1u << 15u), 0,
+                  0x158, 0xa001, 49, 2, 3, 3),
+        IDLE_CASE("index8-increment-wrap", 8, (1u << 14u), 0,
+                  0x158, 0xfeff, 50, 2, 3, 3),
+        IDLE_CASE("index8-increment-limit", 8, (1u << 14u), 0,
+                  0x158, 0xff00, 45, 2, 3, 3),
+        IDLE_CASE("index11-ashi", 11, 0, 0, 0, 0, 40, 2, 3, 3),
+        IDLE_CASE("index11-mode-buttons", 11, 0,
+                  (1u << 8u) | (1u << 9u), 0, 0, 44, 2, 3, 3),
+        IDLE_CASE("index11-increment", 11, (1u << 14u), 0,
+                  0, 0, 42, 2, 3, 3),
+        IDLE_CASE("index11-decrement", 11, (1u << 15u), 0,
+                  0, 0, 41, 2, 3, 3),
+        INPUT_EDGE_CASE("index0-release", 0, 0, (1u << 5u), 0x41,
+                        270, 6, 7, 5),
+        INPUT_EDGE_CASE("index0-held", 0, (1u << 5u), (1u << 5u), 0x40,
+                        269, 6, 7, 5),
+        INPUT_EDGE_CASE("index0-held-latched", 0, (1u << 5u), (1u << 5u),
+                        0x41, 27, 2, 3, 3),
+        INPUT_EDGE_CASE("index4-release", 4, 0, (1u << 5u), 0x41,
+                        40, 2, 3, 3),
+        INPUT_EDGE_CASE("index4-held", 4, (1u << 5u), (1u << 5u), 0x40,
+                        39, 2, 3, 3),
+        INPUT_EDGE_CASE("index4-held-latched", 4, (1u << 5u), (1u << 5u),
+                        0x41, 27, 2, 3, 3),
+        INPUT_EDGE_CASE("index8-release", 8, 0, (1u << 5u), 0x41,
+                        48, 2, 3, 3),
+        INPUT_EDGE_CASE("index8-held", 8, (1u << 5u), (1u << 5u), 0x40,
+                        47, 2, 3, 3),
+        INPUT_EDGE_CASE("index8-held-latched", 8, (1u << 5u), (1u << 5u),
+                        0x41, 27, 2, 3, 3),
+        INPUT_EDGE_CASE("index11-release", 11, 0, (1u << 5u), 0x41,
+                        43, 2, 3, 3),
+        INPUT_EDGE_CASE("index11-held", 11, (1u << 5u), (1u << 5u), 0x40,
+                        42, 2, 3, 3),
+        INPUT_EDGE_CASE("index11-held-latched", 11, (1u << 5u), (1u << 5u),
+                        0x41, 27, 2, 3, 3),
+        TRANSITION_CASE("index7-to-8", 7, 0, (1u << 12u), 12254, 4, 5, 4),
+        TRANSITION_CASE("index9-to-8", 9, 0, (1u << 13u), 12254, 4, 5, 4),
+        TRANSITION_CASE("index10-to-11", 10, 0, (1u << 12u), 12249, 4, 5, 4),
+        TRANSITION_CASE("index12-to-11", 12, 0, (1u << 13u), 12249, 4, 5, 4),
+        TRANSITION_CASE("index12-to-13", 12, 0, (1u << 12u), 12288, 4, 5, 4),
+        TRANSITION_CASE("index0-to-13-wrap", 0, 0, (1u << 13u), 12289, 4, 5, 4),
+        TRANSITION_CASE("index13-to-0-wrap", 13, 0, (1u << 12u), 12475, 7, 8, 5),
+        TRANSITION_CASE("index1-to-0", 1, 0, (1u << 13u), 12473, 7, 8, 5),
+        TRANSITION_CASE("index13-to-0-wrap-blank", 13, (1u << 9u),
+                        (1u << 12u), 12348, 6, 7, 5),
+        TRANSITION_CASE("index1-to-0-blank", 1, (1u << 9u),
+                        (1u << 13u), 12346, 6, 7, 5),
+    };
     uint8_t *main_rom = NULL;
     size_t main_rom_size = 0u;
+    size_t index = 0u;
 
     if (argc != 2) {
         fprintf(stderr, "usage: %s ROM_DIR\n", argv[0]);
@@ -221,15 +354,16 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    run_case(main_rom, main_rom_size, 0u, UINT64_C(267));
-    run_case(
-        main_rom, main_rom_size, UINT32_C(1) << 9u, UINT64_C(266));
+    for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        run_case(main_rom, main_rom_size, &cases[index]);
+    }
     free(main_rom);
 
     if (failures != 0) {
         fprintf(stderr, "%d phase17-zero differential test(s) failed\n", failures);
         return EXIT_FAILURE;
     }
-    puts("phase17-zero differential tests passed");
+    printf("phase17-zero differential tests passed: %zu cases\n",
+           sizeof(cases) / sizeof(cases[0]));
     return EXIT_SUCCESS;
 }

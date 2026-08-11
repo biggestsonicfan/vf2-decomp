@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-- recovered selector 17's `phase_state == 0` idle control-test corridor through
-  `0x00010b5c -> 0x00055008 -> 0x00055330`: menu index 0 now composes the
-  recovered text thunk, mirrors the control halfword into both fighters, clears
-  their control bit 5 and executes the short `task_control0` initialization for
-  both sides; strict ROM-backed comparison matches complete CPU and mutable RAM
-  for both visible `CONTROL_TEST` (267 instructions) and runtime-bit-9 blanked
-  text (266 instructions) variants;
+- expanded selector 17's `phase_state == 0` control-menu recovery through
+  `0x00055008`: idle indices 0, 4, 8 and 11 are native, indices 8/11 cover the
+  observed mode and halfword-adjustment controls, input bit-5 release/held/latch
+  behavior is recovered for all four native idle indices, and navigation composes
+  entries for 8, 11 and 13 plus both directions into index 0; the
+  index-0 transition includes fighter/object initialization and the runtime-bit-9
+  text skip, while 36 controlled ROM-backed states match complete live CPU and
+  mutable-memory state;
 - recovered the post-boot `0x0001fcc0` input-profile selector for controlled
   modes 6, 10, 11 and 12, including both fighter-order mode-12 branches, the
   flag-driven mode-10 path, control-byte mode-11 redirect, mode-6/mode-10 float

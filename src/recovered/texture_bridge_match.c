@@ -1065,16 +1065,18 @@ static vf2_status phase16_queue_sound_command(
     return status;
 }
 
-static vf2_status clear_tile_plane_64x48(
+static vf2_status fill_tile_plane_spaces(
     vf2_model2a *machine,
-    uint32_t base
+    uint32_t base,
+    uint32_t columns,
+    uint32_t rows
 )
 {
     uint32_t row = 0u;
     uint32_t column = 0u;
 
-    for (row = 0u; row < UINT32_C(48); ++row) {
-        for (column = 0u; column < UINT32_C(64); ++column) {
+    for (row = 0u; row < rows; ++row) {
+        for (column = 0u; column < columns; ++column) {
             const vf2_status status = write_u16(
                 machine,
                 base + row * UINT32_C(0x80) + column * UINT32_C(2),
@@ -1086,6 +1088,16 @@ static vf2_status clear_tile_plane_64x48(
         }
     }
     return VF2_OK;
+}
+
+static vf2_status clear_tile_plane_64x48(
+    vf2_model2a *machine,
+    uint32_t base
+)
+{
+    return fill_tile_plane_spaces(
+        machine, base, UINT32_C(64), UINT32_C(48)
+    );
 }
 
 static vf2_status phase16_initialize_tile_patterns(vf2_model2a *machine)
@@ -2081,7 +2093,7 @@ static vf2_status phase17_zero_initialize_control_fighter(
     return status;
 }
 
-static vf2_status execute_frame_phase17_zero_idle(
+static vf2_status execute_frame_phase17_zero_control_menu(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
     vf2_hybrid_bridge_report *report
@@ -2101,12 +2113,16 @@ static vf2_status execute_frame_phase17_zero_idle(
     uint32_t table_target = 0u;
     uint32_t input_flags = 0u;
     uint32_t previous_flags = 0u;
+    uint32_t navigation_flags = 0u;
     uint32_t input_descriptor = 0u;
     uint16_t fighter_control = 0u;
     uint8_t menu_index = 0u;
     uint8_t control_a = 0u;
     uint8_t control_b = 0u;
     uint64_t expected_instructions = 0u;
+    uint64_t idle_wrapper_adjustment = 0u;
+    uint32_t effective_input_flags = 0u;
+    uint32_t effective_previous_flags = 0u;
     vf2_status status = VF2_OK;
 
     memset(&text_report, 0, sizeof(text_report));
@@ -2139,14 +2155,585 @@ static vf2_status execute_frame_phase17_zero_idle(
         );
     }
     if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500704), &navigation_flags
+        );
+    }
+    if (status == VF2_OK) {
         status = vf2_model2a_read(
             machine, UINT32_C(0x00508008), &menu_index, sizeof(menu_index)
         );
     }
-    if (status != VF2_OK || menu_index != 0u ||
-        (input_flags & (UINT32_C(1) << 5u)) != 0u ||
-        ((input_flags ^ previous_flags) & (UINT32_C(1) << 5u)) != 0u) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 5u)) != 0u &&
+        (navigation_flags & ((UINT32_C(1) << 12u) |
+                             (UINT32_C(1) << 13u))) != 0u) {
+        const int forward =
+            (navigation_flags & (UINT32_C(1) << 12u)) != 0u;
+        uint8_t next_index = menu_index;
+        uint32_t entry_target = 0u;
+        uint32_t inline_source = 0u;
+        uint32_t target13_flags = 0u;
+        uint64_t transition_instructions = 0u;
+        uint64_t text_bytes = 0u;
+
+        if (forward) {
+            next_index = (uint8_t)(menu_index + UINT8_C(1));
+            if (next_index >= UINT8_C(14)) {
+                next_index = 0u;
+            }
+        } else {
+            next_index = menu_index == 0u ? UINT8_C(13)
+                                          : (uint8_t)(menu_index - UINT8_C(1));
+        }
+        if (next_index == UINT8_C(0)) {
+            entry_target = UINT32_C(0x00055198);
+            inline_source = UINT32_C(0x000551b4);
+            transition_instructions =
+                (runtime_flags & (UINT32_C(1) << 9u)) != 0u
+                    ? (forward ? UINT64_C(12348) : UINT64_C(12346))
+                    : (forward ? UINT64_C(12475) : UINT64_C(12473));
+        } else if (next_index == UINT8_C(8)) {
+            entry_target = UINT32_C(0x00057488);
+            inline_source = UINT32_C(0x00057498);
+            transition_instructions = UINT64_C(12254);
+        } else if (next_index == UINT8_C(11)) {
+            entry_target = UINT32_C(0x000575b8);
+            inline_source = UINT32_C(0x000575c8);
+            transition_instructions = UINT64_C(12249);
+        } else if (next_index == UINT8_C(13)) {
+            entry_target = UINT32_C(0x00057ff8);
+            inline_source = UINT32_C(0x00058008);
+            transition_instructions =
+                (!forward && menu_index == 0u)
+                    ? UINT64_C(12289)
+                    : UINT64_C(12288);
+        } else {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00055124) +
+                (uint32_t)next_index * UINT32_C(8),
+            &table_target
+        );
+        if (status != VF2_OK || table_target != entry_target ||
+            (previous_flags & (UINT32_C(1) << 5u)) == 0u) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        status = write_u16(
+            machine, UINT32_C(0x00500082), UINT16_C(0x8000)
+        );
+        if (status == VF2_OK) {
+            const uint8_t zero = 0u;
+            status = vf2_model2a_write(
+                machine, control + UINT32_C(0xb0), &zero, sizeof(zero)
+            );
+        }
+        if (status == VF2_OK) {
+            uint8_t state = 0u;
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x00500085), &state, sizeof(state)
+            );
+            state = (uint8_t)(state | UINT8_C(1));
+            if (status == VF2_OK) {
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x00500085), &state, sizeof(state)
+                );
+            }
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00508008), &next_index, sizeof(next_index)
+            );
+        }
+        if (status == VF2_OK) {
+            status = fill_tile_plane_spaces(
+                machine, UINT32_C(0x01000000), UINT32_C(62), UINT32_C(48)
+            );
+        }
+        if (status == VF2_OK) {
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(62);
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 6u] = control;
+            cpu->registers[VF2_I960_G0_REGISTER + 7u] = player0;
+            cpu->registers[VF2_I960_G0_REGISTER + 8u] = player1;
+            cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x01001800);
+            cpu->registers[VF2_I960_G14_REGISTER] = UINT32_C(0x000550d4);
+        }
+        if (status == VF2_OK &&
+            !(next_index == UINT8_C(0) &&
+              (runtime_flags & (UINT32_C(1) << 9u)) != 0u)) {
+            cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x01000186);
+            cpu->registers[14] = inline_source;
+            cpu->ip = UINT32_C(0x00009444);
+            status = execute_inline_text_thunk(machine, cpu, &text_report);
+            text_bytes = (uint64_t)text_report.bytes_written;
+        }
+        if (status == VF2_OK && next_index == UINT8_C(0)) {
+            uint8_t first_visit = 0u;
+            uint32_t associated = 0u;
+            uint32_t associated_flags = 0u;
+            uint32_t fighter_flags = 0u;
+            uint32_t input_control = 0u;
+            uint32_t input_control_flags = 0u;
+            uint8_t fighter_mode = 0u;
+            const uint32_t fighters[2] = {player0, player1};
+            const uint32_t associated_slots[2] = {
+                UINT32_C(0x00500868), UINT32_C(0x0050086c)
+            };
+            uint32_t fighter_index = 0u;
+
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x00508050), &first_visit,
+                sizeof(first_visit)
+            );
+            if (status != VF2_OK || first_visit != 0u) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
+            first_visit = UINT8_C(1);
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00508050), &first_visit,
+                sizeof(first_visit)
+            );
+            for (fighter_index = 0u; status == VF2_OK && fighter_index < 2u;
+                 ++fighter_index) {
+                status = vf2_model2a_read(
+                    machine, fighters[fighter_index] + UINT32_C(0x1b0),
+                    &fighter_mode, sizeof(fighter_mode)
+                );
+                if (status == VF2_OK) {
+                    fighter_mode = fighter_mode >= UINT8_C(13)
+                        ? (uint8_t)(fighter_mode - UINT8_C(13))
+                        : fighter_mode;
+                    status = vf2_model2a_write(
+                        machine, fighters[fighter_index] + UINT32_C(0x1b1),
+                        &fighter_mode, sizeof(fighter_mode)
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_write_u32(
+                        machine, fighters[fighter_index] + UINT32_C(0x0c),
+                        UINT32_C(0x00013f08)
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_read_u32(
+                        machine, fighters[fighter_index], &fighter_flags
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_write_u32(
+                        machine, fighters[fighter_index],
+                        (fighter_flags & UINT32_C(0xff000000)) |
+                            (UINT32_C(1) << 31u)
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_read_u32(
+                        machine, associated_slots[fighter_index], &associated
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_read_u32(
+                        machine, associated, &associated_flags
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_write_u32(
+                        machine, associated,
+                        associated_flags | (UINT32_C(1) << 31u)
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_write_u32(
+                        machine, associated + UINT32_C(0x0c),
+                        UINT32_C(0x000640f4)
+                    );
+                }
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x0050083c), &input_control
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, input_control, &input_control_flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, input_control,
+                    input_control_flags | (UINT32_C(1) << 3u)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00500840), &input_control
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, input_control, &input_control_flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, input_control,
+                    input_control_flags | (UINT32_C(1) << 3u)
+                );
+            }
+            if (status == VF2_OK) {
+                const uint8_t one = UINT8_C(1);
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x00500056), &one, sizeof(one)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x0050081c), &descriptor
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, descriptor + UINT32_C(0x0c), &descriptor_target
+                );
+            }
+            if (status != VF2_OK ||
+                descriptor_target != UINT32_C(0x0001b9ac)) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, outer_stack + UINT32_C(128),
+                    UINT32_C(0x000550d4)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, descriptor + UINT32_C(0x0c),
+                    UINT32_C(0x0001b9dc)
+                );
+            }
+            if (status == VF2_OK) {
+                const uint8_t zero = 0u;
+                status = vf2_model2a_write(
+                    machine, player0 + UINT32_C(0x1200),
+                    &zero, sizeof(zero)
+                );
+            }
+            if (status == VF2_OK) {
+                const uint8_t zero = 0u;
+                status = vf2_model2a_write(
+                    machine, player1 + UINT32_C(0x1200),
+                    &zero, sizeof(zero)
+                );
+            }
+            if (status == VF2_OK) {
+                status = phase17_zero_initialize_control_fighter(
+                    machine, player0
+                );
+            }
+            if (status == VF2_OK) {
+                status = phase17_zero_initialize_control_fighter(
+                    machine, player1
+                );
+            }
+            if (status == VF2_OK) {
+                cpu->registers[VF2_I960_G0_REGISTER + 7u] = player1;
+                cpu->registers[VF2_I960_G0_REGISTER + 8u] = player0;
+                cpu->registers[VF2_I960_G0_REGISTER + 13u] = descriptor;
+            }
+        }
+        if (status == VF2_OK && next_index == UINT8_C(13)) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x00509800), 0u
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00509804), 0u
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00509808), UINT32_C(0xbf07ae14)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x0050980c), UINT32_C(0x3fa28f5c)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00508000), &runtime_flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00508000),
+                    runtime_flags & ~(UINT32_C(1) << 9u)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00500068), &target13_flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00500068),
+                    target13_flags & ~(UINT32_C(1) << 16u)
+                );
+            }
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (next_index == UINT8_C(0)) {
+            set_equal_condition(cpu);
+            account_nested_procedure(cpu, UINT64_C(6), UINT64_C(6));
+            if (cpu->maximum_local_frame_depth < cpu->local_frame_depth + 4u) {
+                cpu->maximum_local_frame_depth = cpu->local_frame_depth + 4u;
+            }
+        } else {
+            account_nested_procedure(cpu, UINT64_C(3), UINT64_C(3));
+            if (cpu->maximum_local_frame_depth < cpu->local_frame_depth + 3u) {
+                cpu->maximum_local_frame_depth = cpu->local_frame_depth + 3u;
+            }
+        }
+        status = finish_recovered_procedure(
+            machine, cpu,
+            transition_instructions -
+                (cpu->executed_instructions - start_instructions)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+        report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = UINT64_C(1);
+        report->changed_values = next_index == UINT8_C(13)
+            ? UINT64_C(13) : UINT64_C(5);
+        report->bytes_written =
+            (size_t)(UINT32_C(62) * UINT32_C(48) * UINT32_C(2)) +
+            (size_t)text_bytes + 5u +
+            (next_index == UINT8_C(13) ? 24u : 0u);
+        report->recovered_instruction_count = transition_instructions;
+        report->recovered_procedure_calls =
+            cpu->procedure_calls - start_calls;
+        report->recovered_procedure_returns =
+            cpu->procedure_returns - start_returns;
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    effective_input_flags = input_flags & ~(UINT32_C(1) << 5u);
+    effective_previous_flags = previous_flags & ~(UINT32_C(1) << 5u);
+    if ((input_flags & (UINT32_C(1) << 5u)) != 0u) {
+        uint8_t state = 0u;
+
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00500085), &state, sizeof(state)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        if ((state & UINT8_C(1)) != 0u) {
+            status = write_u16(
+                machine, UINT32_C(0x00500082), UINT16_C(0x8000)
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            cpu->registers[VF2_I960_G0_REGISTER + 6u] = control;
+            cpu->registers[VF2_I960_G0_REGISTER + 7u] = player0;
+            cpu->registers[VF2_I960_G0_REGISTER + 8u] = player1;
+            cpu->registers[VF2_I960_G14_REGISTER] = 0u;
+            account_nested_procedure(cpu, UINT64_C(2), UINT64_C(2));
+            if (cpu->maximum_local_frame_depth < cpu->local_frame_depth + 2u) {
+                cpu->maximum_local_frame_depth = cpu->local_frame_depth + 2u;
+            }
+            status = finish_recovered_procedure(
+                machine, cpu,
+                UINT64_C(27) -
+                    (cpu->executed_instructions - start_instructions)
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = UINT64_C(27);
+            report->recovered_procedure_calls =
+                cpu->procedure_calls - start_calls;
+            report->recovered_procedure_returns =
+                cpu->procedure_returns - start_returns;
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
+        idle_wrapper_adjustment = UINT64_C(2);
+    } else if (((input_flags ^ previous_flags) &
+                (UINT32_C(1) << 5u)) != 0u) {
+        uint8_t state = 0u;
+
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00500085), &state, sizeof(state)
+        );
+        if (status == VF2_OK) {
+            state = (uint8_t)(state & ~UINT8_C(1));
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00500085), &state, sizeof(state)
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        idle_wrapper_adjustment = UINT64_C(3);
+    }
+    if (menu_index == UINT8_C(4) || menu_index == UINT8_C(8) ||
+        menu_index == UINT8_C(11)) {
+        uint32_t expected_target = 0u;
+
+        if (menu_index == UINT8_C(4)) {
+            expected_target = UINT32_C(0x00057188);
+            expected_instructions = UINT64_C(37) + idle_wrapper_adjustment;
+        } else if (menu_index == UINT8_C(8)) {
+            expected_target = UINT32_C(0x000574a4);
+            expected_instructions = UINT64_C(45) + idle_wrapper_adjustment;
+        } else {
+            expected_target = UINT32_C(0x000575d4);
+            expected_instructions = UINT64_C(40) + idle_wrapper_adjustment;
+        }
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00055128) +
+                (uint32_t)menu_index * UINT32_C(8),
+            &table_target
+        );
+        if (status != VF2_OK || table_target != expected_target) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        if (menu_index == UINT8_C(4)) {
+            if (effective_input_flags != 0u ||
+                effective_previous_flags != 0u || navigation_flags != 0u) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+        } else {
+            const uint32_t supported_input =
+                (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u);
+            const uint32_t supported_navigation =
+                (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u);
+            if ((effective_input_flags & ~supported_input) != 0u ||
+                effective_previous_flags != effective_input_flags ||
+                (navigation_flags & ~supported_navigation) != 0u) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if ((navigation_flags & (UINT32_C(1) << 8u)) != 0u) {
+                status = vf2_model2a_write_u32(
+                    machine, player0 + UINT32_C(0x194), UINT32_C(4)
+                );
+                expected_instructions += UINT64_C(2);
+            }
+            if (status == VF2_OK &&
+                (navigation_flags & (UINT32_C(1) << 9u)) != 0u) {
+                status = vf2_model2a_write_u32(
+                    machine, player0 + UINT32_C(0x194), UINT32_C(1)
+                );
+                expected_instructions += UINT64_C(2);
+            }
+            if (status == VF2_OK && menu_index == UINT8_C(8)) {
+                uint16_t value = 0u;
+                status = read_u16(
+                    machine, player0 + UINT32_C(0x158), &value
+                );
+                if (status == VF2_OK &&
+                    (effective_input_flags & (UINT32_C(1) << 15u)) != 0u) {
+                    if (value > UINT16_C(0xa000)) {
+                        value = (uint16_t)(value - UINT16_C(192));
+                        status = write_u16(
+                            machine, player0 + UINT32_C(0x158), value
+                        );
+                        expected_instructions += UINT64_C(5);
+                    }
+                    expected_instructions -= UINT64_C(1);
+                } else if (status == VF2_OK &&
+                           (effective_input_flags & (UINT32_C(1) << 14u)) != 0u) {
+                    if (value < UINT16_C(0xff00)) {
+                        value = (uint16_t)(value + UINT16_C(192));
+                        status = write_u16(
+                            machine, player0 + UINT32_C(0x158), value
+                        );
+                        expected_instructions += UINT64_C(5);
+                    }
+                }
+            } else if (status == VF2_OK && menu_index == UINT8_C(11)) {
+                uint16_t value = 0u;
+                status = read_u16(
+                    machine, player0 + UINT32_C(0x17c), &value
+                );
+                if (status == VF2_OK &&
+                    (effective_input_flags & (UINT32_C(1) << 15u)) != 0u) {
+                    value = (uint16_t)(value - UINT16_C(192));
+                    status = write_u16(
+                        machine, player0 + UINT32_C(0x17c), value
+                    );
+                    expected_instructions += UINT64_C(1);
+                } else if (status == VF2_OK &&
+                           (effective_input_flags & (UINT32_C(1) << 14u)) != 0u) {
+                    value = (uint16_t)(value + UINT16_C(192));
+                    status = write_u16(
+                        machine, player0 + UINT32_C(0x17c), value
+                    );
+                    expected_instructions += UINT64_C(2);
+                }
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+        }
+        status = write_u16(
+            machine, UINT32_C(0x00500082), UINT16_C(0x8000)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER + 6u] = control;
+        cpu->registers[VF2_I960_G0_REGISTER + 7u] = player0;
+        cpu->registers[VF2_I960_G0_REGISTER + 8u] = player1;
+        cpu->registers[VF2_I960_G14_REGISTER] = UINT32_C(0x000550d4);
+        account_nested_procedure(cpu, UINT64_C(2), UINT64_C(2));
+        if (cpu->maximum_local_frame_depth < cpu->local_frame_depth + 2u) {
+            cpu->maximum_local_frame_depth = cpu->local_frame_depth + 2u;
+        }
+        status = finish_recovered_procedure(
+            machine, cpu,
+            expected_instructions -
+                (cpu->executed_instructions - start_instructions)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+        report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = UINT64_C(1);
+        report->changed_values = UINT64_C(1);
+        report->bytes_written = sizeof(uint16_t);
+        report->recovered_instruction_count = expected_instructions;
+        report->recovered_procedure_calls =
+            cpu->procedure_calls - start_calls;
+        report->recovered_procedure_returns =
+            cpu->procedure_returns - start_returns;
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
+    if (menu_index != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(
         machine, UINT32_C(0x00055128), &table_target
@@ -2293,9 +2880,10 @@ static vf2_status execute_frame_phase17_zero_idle(
         cpu->maximum_local_frame_depth = cpu->local_frame_depth + 4u;
     }
     expected_instructions =
-        (runtime_flags & (UINT32_C(1) << 9u)) != 0u
-            ? UINT64_C(266)
-            : UINT64_C(267);
+        ((runtime_flags & (UINT32_C(1) << 9u)) != 0u
+             ? UINT64_C(266)
+             : UINT64_C(267)) +
+        idle_wrapper_adjustment;
     status = finish_recovered_procedure(
         machine, cpu,
         expected_instructions -
@@ -2368,7 +2956,7 @@ static vf2_status execute_frame_phase17(
         return status;
     }
     if (phase_state == 0u) {
-        return execute_frame_phase17_zero_idle(machine, cpu, report);
+        return execute_frame_phase17_zero_control_menu(machine, cpu, report);
     }
     if ((phase_index & UINT8_C(0x80)) != 0u) {
         return execute_frame_phase17_bit7_index11(

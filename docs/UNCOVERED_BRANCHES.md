@@ -169,16 +169,19 @@ to selector 3. Selector 3's phase-zero `0x0000ae78` mode-table worker is now
 recovered for both the live fallback profile and the zero-derived alternate
 profile, including its two descriptor expanders and both ROM text sources.
 Selector 17's `phase_state == 0` wrapper now follows its separate `0x00055008`
-dispatcher for the idle menu-index-0 path. The `0x00055330` control-test entry
-composes the recovered text thunk, mirrors the control halfword into both
-fighters, clears their bit 5 and executes the short `task_control0`
-initialization twice. Both `CONTROL_TEST` and runtime-bit-9 blank-text variants
-are strict ROM-backed matches (267/266 instructions).
-Selector 3 phase 8's opaque `0x00009444` handoff and phase 16 and above,
-remaining input modes, other bit-7 indirect table entries, other phase-zero menu
-indices and input-transition branches remain unsupported. The subsequent `0x00002de4` palette-page
-upload is now covered for both its inactive condition-preserving return and its
-active 28-page RGB upload path.
+control-menu dispatcher for idle indices 0, 4, 8 and 11. Index 0 composes the
+`CONTROL_TEST` text or runtime-bit-9 skip and initializes both fighters; indices
+8/11 additionally cover their observed mode buttons and bit-14/15 halfword
+adjustments. Input bit 5 covers release, held redispatch and the latched short
+return on all four native idle indices. Navigation covers entries 8, 11 and 13
+and both neighboring/wrap
+transitions into index 0, including the index-13 texture defaults and index-0
+fighter/object setup. Thirty-six controlled cases are strict ROM-backed live
+state matches. Selector 3 phase 8's opaque `0x00009444` handoff and phase 16 and
+above, remaining input modes, other bit-7 indirect table entries, and phase-zero
+bodies/entries that still call unrecovered helpers remain unsupported. The
+subsequent `0x00002de4` palette-page upload is now covered for both its inactive
+condition-preserving return and its active 28-page RGB upload path.
 
 ## 5. Audio and platform
 

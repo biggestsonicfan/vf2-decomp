@@ -341,10 +341,15 @@ recovered instructions, followed by its one-instruction return stub to
 `0x0002eab8`; the 90-instruction initializer and nested `0x31004` setup are
 also recovered. The subsequent `0x2de4` palette-page worker is now covered
 for its inactive condition-preserving return and active 28-page RGB upload.
-Selector 17's `phase_state == 0` wrapper is now recovered for the idle menu-index-0
-control-test path through `0x00055008 -> 0x00055330`, including its text thunk,
-fighter control-halfword mirror, bit-5 clears and both short `task_control0`
-initializations. The visible and runtime-bit-9 blanked text variants are strict
-ROM matches at 267 and 266 instructions respectively. Remaining input modes,
-other phase-zero menu indices/input transitions and other bit-7 indirect table
-entries remain additional controlled-state targets.
+Selector 17's `phase_state == 0` wrapper now recovers the `0x00055008`
+control-menu dispatcher for idle indices 0, 4, 8 and 11. Index 0 retains the
+`CONTROL_TEST`/runtime-bit-9 text variants and fighter initialization; indices 8
+and 11 also reproduce their mode-button writes and bit-14/15 halfword controls,
+including the index-8 `0xa000`/`0xff00` boundaries. Input bit 5 now covers release,
+held-redispatch and the latched 27-instruction short return on all four native
+idle indices. Navigation transitions are
+recovered into indices 8, 11 and 13 and in both neighboring/wrap directions into
+index 0, including the index-13 texture defaults and the index-0 fighter/object
+setup. Thirty-six controlled states are strict live-state ROM matches. Remaining
+input modes, phase-zero bodies/entries that call unrecovered helpers, and other
+bit-7 indirect table entries remain additional controlled-state targets.
