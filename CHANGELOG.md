@@ -2,14 +2,17 @@
 
 ## Unreleased
 
-- expanded selector 17's `phase_state == 0` control-menu recovery through
-  `0x00055008`: idle indices 0, 4, 8 and 11 are native, indices 8/11 cover the
-  observed mode and halfword-adjustment controls, input bit-5 release/held/latch
-  behavior is recovered for all four native idle indices, and navigation composes
-  entries for 8, 11 and 13 plus both directions into index 0; the
-  index-0 transition includes fighter/object initialization and the runtime-bit-9
-  text skip, while 36 controlled ROM-backed states match complete live CPU and
-  mutable-memory state;
+- closed selector 17's former `phase_state == 0` control-menu entry wall through
+  `0x00055008`: all 14 idle entries (0-13), every neighboring forward/reverse
+  transition and both 0/13 wraps are native, with input bit-5 release/held/latch
+  behavior covered on every screen; the recovered bodies reuse MAIN_DATA-backed
+  decimal/hex/text helpers and camera/texture diagnostics rather than snapshots,
+  while the texture screen's distinct 43-instruction held-button early exit is
+  modeled explicitly; 98 controlled ROM-backed states match complete live CPU
+  and mutable-memory state;
+- implemented the i960 `ediv` instruction in the reference executor, including
+  quotient/remainder pair semantics and overflow/zero-divisor guards, unlocking
+  strict execution of the control-menu decimal formatter outside its small table;
 - recovered the post-boot `0x0001fcc0` input-profile selector for controlled
   modes 6, 10, 11 and 12, including both fighter-order mode-12 branches, the
   flag-driven mode-10 path, control-byte mode-11 redirect, mode-6/mode-10 float

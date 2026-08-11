@@ -185,6 +185,27 @@ int vf2_test_i960_executor(void)
     }
     vf2_model2a_shutdown(&machine);
 
+    /* EDIV returns the remainder in the destination and quotient in the next register. */
+    memset(image, 0xff, sizeof(image));
+    write_le32(image + 0u, 0x6721088au); /* ediv 10, r4, r4 */
+    if (!vf2_model2a_initialize(&machine)) {
+        return 19;
+    }
+    if (vf2_model2a_attach_main_rom(&machine, image, sizeof(image)) != VF2_OK) {
+        vf2_model2a_shutdown(&machine);
+        return 20;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, 0u);
+    cpu.registers[4] = UINT32_C(12345);
+    cpu.registers[5] = 0u;
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.registers[4] != UINT32_C(5) ||
+        cpu.registers[5] != UINT32_C(1234)) {
+        vf2_model2a_shutdown(&machine);
+        return 21;
+    }
+    vf2_model2a_shutdown(&machine);
+
     /* BALX stores the return address in its encoded local/global register. */
     memset(image, 0xff, sizeof(image));
     write_le32(image + 0u, 0x85703000u); /* balx 0x20, r14 */

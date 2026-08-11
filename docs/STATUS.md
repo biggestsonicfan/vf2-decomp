@@ -341,15 +341,16 @@ recovered instructions, followed by its one-instruction return stub to
 `0x0002eab8`; the 90-instruction initializer and nested `0x31004` setup are
 also recovered. The subsequent `0x2de4` palette-page worker is now covered
 for its inactive condition-preserving return and active 28-page RGB upload.
-Selector 17's `phase_state == 0` wrapper now recovers the `0x00055008`
-control-menu dispatcher for idle indices 0, 4, 8 and 11. Index 0 retains the
-`CONTROL_TEST`/runtime-bit-9 text variants and fighter initialization; indices 8
-and 11 also reproduce their mode-button writes and bit-14/15 halfword controls,
-including the index-8 `0xa000`/`0xff00` boundaries. Input bit 5 now covers release,
-held-redispatch and the latched 27-instruction short return on all four native
-idle indices. Navigation transitions are
-recovered into indices 8, 11 and 13 and in both neighboring/wrap directions into
-index 0, including the index-13 texture defaults and the index-0 fighter/object
-setup. Thirty-six controlled states are strict live-state ROM matches. Remaining
-input modes, phase-zero bodies/entries that call unrecovered helpers, and other
-bit-7 indirect table entries remain additional controlled-state targets.
+Selector 17's `phase_state == 0` wrapper now recovers the complete
+`0x00055008` control-menu entry topology: all 14 idle entries (0-13), every
+neighboring forward/reverse transition and both 0/13 wraps are native. Index 0
+retains the `CONTROL_TEST`/runtime-bit-9 variants and fighter/object setup;
+indices 1-13 now compose their motion, command, robot/camera, material/polygon,
+angle and texture diagnostics from live state and MAIN_DATA-backed decimal/hex
+resources. Input bit 5 covers release, held redispatch and latched short-return
+behavior on every screen, including index 13's distinct 43-instruction held
+handler that clears the texture/runtime latches before returning. Ninety-eight
+controlled states are strict complete-live-state ROM matches. The former missing
+menu-index/entry wall is therefore closed; remaining selector-17 phase-zero work
+is branch-level control combinations inside already recovered screens, alongside
+other bit-7 indirect table entries and unrelated input modes.

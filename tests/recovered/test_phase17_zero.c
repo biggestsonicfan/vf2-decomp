@@ -182,6 +182,8 @@ static vf2_status enter_frame_dispatch(vf2_i960_cpu *cpu)
 static void run_case(
     const uint8_t *main_rom,
     size_t main_rom_size,
+    const uint8_t *main_data,
+    size_t main_data_size,
     const phase17_zero_case *test_case
 )
 {
@@ -215,6 +217,10 @@ static void run_case(
               &reference_machine, main_rom, main_rom_size) == VF2_OK);
     CHECK(vf2_model2a_attach_main_rom(
               &native_machine, main_rom, main_rom_size) == VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(
+              &reference_machine, main_data, main_data_size) == VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(
+              &native_machine, main_data, main_data_size) == VF2_OK);
     CHECK(check_status(initialize_phase17_zero_state(
               &reference_machine, test_case)));
     CHECK(check_status(initialize_phase17_zero_state(
@@ -281,7 +287,13 @@ int main(int argc, char **argv)
         {"index0-control-test-blank", 0u, UINT32_C(1) << 9u,
          0u, 0u, 0u, UINT8_C(0x40), 0u, 0u, UINT64_C(266), UINT64_C(6), UINT64_C(7),
          UINT32_C(5)},
+        IDLE_CASE("index1-motion", 1, 0, 0, 0, 0, 534, 9, 10, 4),
+        IDLE_CASE("index2-command", 2, 0, 0, 0, 0, 318, 8, 9, 4),
+        IDLE_CASE("index3-robot-position", 3, 0, 0, 0, 0, 695, 12, 13, 4),
         IDLE_CASE("index4-camera-mode", 4, 0, 0, 0, 0, 37, 2, 3, 3),
+        IDLE_CASE("index5-camera-position", 5, 0, 0, 0, 0, 695, 13, 14, 4),
+        IDLE_CASE("index6-camera-position2", 6, 0, 0, 0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index7-camera-average", 7, 0, 0, 0, 0, 146, 4, 5, 4),
         IDLE_CASE("index8-hiji", 8, 0, 0, 0, 0, 45, 2, 3, 3),
         IDLE_CASE("index8-mode-buttons", 8, 0, (1u << 8u) | (1u << 9u),
                   0, 0, 49, 2, 3, 3),
@@ -295,6 +307,8 @@ int main(int argc, char **argv)
                   0x158, 0xfeff, 50, 2, 3, 3),
         IDLE_CASE("index8-increment-limit", 8, (1u << 14u), 0,
                   0x158, 0xff00, 45, 2, 3, 3),
+        IDLE_CASE("index9-material", 9, 0, 0, 0, 0, 1282, 17, 18, 4),
+        IDLE_CASE("index10-polygon", 10, 0, 0, 0, 0, 1154, 18, 19, 4),
         IDLE_CASE("index11-ashi", 11, 0, 0, 0, 0, 40, 2, 3, 3),
         IDLE_CASE("index11-mode-buttons", 11, 0,
                   (1u << 8u) | (1u << 9u), 0, 0, 44, 2, 3, 3),
@@ -302,6 +316,8 @@ int main(int argc, char **argv)
                   0, 0, 42, 2, 3, 3),
         IDLE_CASE("index11-decrement", 11, (1u << 15u), 0,
                   0, 0, 41, 2, 3, 3),
+        IDLE_CASE("index12-camera-xang", 12, 0, 0, 0, 0, 118, 4, 5, 4),
+        IDLE_CASE("index13-texture", 13, 0, 0, 0, 0, 1745, 16, 17, 5),
         INPUT_EDGE_CASE("index0-release", 0, 0, (1u << 5u), 0x41,
                         270, 6, 7, 5),
         INPUT_EDGE_CASE("index0-held", 0, (1u << 5u), (1u << 5u), 0x40,
@@ -326,10 +342,92 @@ int main(int argc, char **argv)
                         42, 2, 3, 3),
         INPUT_EDGE_CASE("index11-held-latched", 11, (1u << 5u), (1u << 5u),
                         0x41, 27, 2, 3, 3),
+        INPUT_EDGE_CASE("index1-release", 1, 0, (1u << 5u), 0x41,
+                        537, 9, 10, 4),
+        INPUT_EDGE_CASE("index1-held", 1, (1u << 5u), (1u << 5u), 0x40,
+                        536, 9, 10, 4),
+        INPUT_EDGE_CASE("index1-held-latched", 1, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index2-release", 2, 0, (1u << 5u), 0x41,
+                        321, 8, 9, 4),
+        INPUT_EDGE_CASE("index2-held", 2, (1u << 5u), (1u << 5u), 0x40,
+                        320, 8, 9, 4),
+        INPUT_EDGE_CASE("index2-held-latched", 2, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index3-release", 3, 0, (1u << 5u), 0x41,
+                        698, 12, 13, 4),
+        INPUT_EDGE_CASE("index3-held", 3, (1u << 5u), (1u << 5u), 0x40,
+                        697, 12, 13, 4),
+        INPUT_EDGE_CASE("index3-held-latched", 3, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index5-release", 5, 0, (1u << 5u), 0x41,
+                        698, 13, 14, 4),
+        INPUT_EDGE_CASE("index5-held", 5, (1u << 5u), (1u << 5u), 0x40,
+                        697, 13, 14, 4),
+        INPUT_EDGE_CASE("index5-held-latched", 5, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index6-release", 6, 0, (1u << 5u), 0x41,
+                        3066, 37, 38, 4),
+        INPUT_EDGE_CASE("index6-held", 6, (1u << 5u), (1u << 5u), 0x40,
+                        3065, 37, 38, 4),
+        INPUT_EDGE_CASE("index6-held-latched", 6, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index7-release", 7, 0, (1u << 5u), 0x41,
+                        149, 4, 5, 4),
+        INPUT_EDGE_CASE("index7-held", 7, (1u << 5u), (1u << 5u), 0x40,
+                        148, 4, 5, 4),
+        INPUT_EDGE_CASE("index7-held-latched", 7, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index9-release", 9, 0, (1u << 5u), 0x41,
+                        1285, 17, 18, 4),
+        INPUT_EDGE_CASE("index9-held", 9, (1u << 5u), (1u << 5u), 0x40,
+                        1284, 17, 18, 4),
+        INPUT_EDGE_CASE("index9-held-latched", 9, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index10-release", 10, 0, (1u << 5u), 0x41,
+                        1157, 18, 19, 4),
+        INPUT_EDGE_CASE("index10-held", 10, (1u << 5u), (1u << 5u), 0x40,
+                        1156, 18, 19, 4),
+        INPUT_EDGE_CASE("index10-held-latched", 10, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index12-release", 12, 0, (1u << 5u), 0x41,
+                        121, 4, 5, 4),
+        INPUT_EDGE_CASE("index12-held", 12, (1u << 5u), (1u << 5u), 0x40,
+                        120, 4, 5, 4),
+        INPUT_EDGE_CASE("index12-held-latched", 12, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        INPUT_EDGE_CASE("index13-release", 13, 0, (1u << 5u), 0x41,
+                        1748, 16, 17, 5),
+        INPUT_EDGE_CASE("index13-held", 13, (1u << 5u), (1u << 5u), 0x40,
+                        43, 2, 3, 3),
+        INPUT_EDGE_CASE("index13-held-latched", 13, (1u << 5u), (1u << 5u), 0x41,
+                        27, 2, 3, 3),
+        TRANSITION_CASE("index0-to-1", 0, 0, (1u << 12u), 13016, 12, 13, 4),
+        TRANSITION_CASE("index1-to-2", 1, 0, (1u << 12u), 12589, 10, 11, 4),
+        TRANSITION_CASE("index2-to-3", 2, 0, (1u << 12u), 12966, 14, 15, 4),
+        TRANSITION_CASE("index3-to-4", 3, 0, (1u << 12u), 13243, 14, 15, 4),
+        TRANSITION_CASE("index4-to-5", 4, 0, (1u << 12u), 12972, 14, 15, 4),
+        TRANSITION_CASE("index5-to-6", 5, 0, (1u << 12u), 15150, 34, 35, 4),
+        TRANSITION_CASE("index6-to-7", 6, 0, (1u << 12u), 12416, 6, 7, 4),
         TRANSITION_CASE("index7-to-8", 7, 0, (1u << 12u), 12254, 4, 5, 4),
         TRANSITION_CASE("index9-to-8", 9, 0, (1u << 13u), 12254, 4, 5, 4),
+        TRANSITION_CASE("index8-to-9", 8, 0, (1u << 12u), 13481, 18, 19, 4),
+        TRANSITION_CASE("index9-to-10", 9, 0, (1u << 12u), 13386, 20, 21, 4),
         TRANSITION_CASE("index10-to-11", 10, 0, (1u << 12u), 12249, 4, 5, 4),
         TRANSITION_CASE("index12-to-11", 12, 0, (1u << 13u), 12249, 4, 5, 4),
+        TRANSITION_CASE("index11-to-12", 11, 0, (1u << 12u), 12365, 6, 7, 4),
+        TRANSITION_CASE("index2-to-1", 2, 0, (1u << 13u), 13016, 12, 13, 4),
+        TRANSITION_CASE("index3-to-2", 3, 0, (1u << 13u), 12589, 10, 11, 4),
+        TRANSITION_CASE("index4-to-3", 4, 0, (1u << 13u), 12966, 14, 15, 4),
+        TRANSITION_CASE("index5-to-4", 5, 0, (1u << 13u), 13243, 14, 15, 4),
+        TRANSITION_CASE("index6-to-5", 6, 0, (1u << 13u), 12972, 14, 15, 4),
+        TRANSITION_CASE("index7-to-6", 7, 0, (1u << 13u), 15150, 34, 35, 4),
+        TRANSITION_CASE("index8-to-7", 8, 0, (1u << 13u), 12416, 6, 7, 4),
+        TRANSITION_CASE("index9-to-8", 9, 0, (1u << 13u), 12254, 4, 5, 4),
+        TRANSITION_CASE("index10-to-9", 10, 0, (1u << 13u), 13481, 18, 19, 4),
+        TRANSITION_CASE("index11-to-10", 11, 0, (1u << 13u), 13386, 20, 21, 4),
+        TRANSITION_CASE("index12-to-11", 12, 0, (1u << 13u), 12249, 4, 5, 4),
+        TRANSITION_CASE("index13-to-12", 13, 0, (1u << 13u), 12365, 6, 7, 4),
         TRANSITION_CASE("index12-to-13", 12, 0, (1u << 12u), 12288, 4, 5, 4),
         TRANSITION_CASE("index0-to-13-wrap", 0, 0, (1u << 13u), 12289, 4, 5, 4),
         TRANSITION_CASE("index13-to-0-wrap", 13, 0, (1u << 12u), 12475, 7, 8, 5),
@@ -340,7 +438,9 @@ int main(int argc, char **argv)
                         (1u << 13u), 12346, 6, 7, 5),
     };
     uint8_t *main_rom = NULL;
+    uint8_t *main_data = NULL;
     size_t main_rom_size = 0u;
+    size_t main_data_size = 0u;
     size_t index = 0u;
 
     if (argc != 2) {
@@ -350,13 +450,20 @@ int main(int argc, char **argv)
     CHECK(vf2_romset_build_region(
               argv[1], VF2_REGION_MAINCPU,
               &main_rom, &main_rom_size) == VF2_OK);
-    if (main_rom == NULL) {
+    CHECK(vf2_romset_build_region(
+              argv[1], VF2_REGION_MAIN_DATA,
+              &main_data, &main_data_size) == VF2_OK);
+    if (main_rom == NULL || main_data == NULL) {
+        free(main_data);
+        free(main_data);
+    free(main_rom);
         return EXIT_FAILURE;
     }
 
     for (index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
-        run_case(main_rom, main_rom_size, &cases[index]);
+        run_case(main_rom, main_rom_size, main_data, main_data_size, &cases[index]);
     }
+    free(main_data);
     free(main_rom);
 
     if (failures != 0) {

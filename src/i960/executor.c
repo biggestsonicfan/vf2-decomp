@@ -853,6 +853,40 @@ static vf2_status execute_instruction(
         address = first * second;
         return set_register(cpu, &instruction->operands[2], address);
     }
+    if (strcmp(mnemonic, "ediv") == 0) {
+        uint32_t divisor = 0u;
+        uint32_t dividend_low = 0u;
+        uint32_t dividend_high = 0u;
+        uint64_t dividend = 0u;
+        uint64_t quotient = 0u;
+        uint32_t remainder = 0u;
+        uint8_t source_register = 0u;
+        uint8_t destination_register = 0u;
+
+        status = operand_value(cpu, &instruction->operands[0], &divisor);
+        if (status != VF2_OK || divisor == 0u ||
+            instruction->operands[1].kind != VF2_I960_OPERAND_REGISTER ||
+            instruction->operands[2].kind != VF2_I960_OPERAND_REGISTER) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        source_register = instruction->operands[1].value.reg;
+        destination_register = instruction->operands[2].value.reg;
+        if (source_register + 1u >= VF2_I960_REGISTER_COUNT ||
+            destination_register + 1u >= VF2_I960_REGISTER_COUNT) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        dividend_low = cpu->registers[source_register];
+        dividend_high = cpu->registers[source_register + 1u];
+        dividend = ((uint64_t)dividend_high << 32u) | (uint64_t)dividend_low;
+        quotient = dividend / (uint64_t)divisor;
+        if (quotient > UINT32_MAX) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        remainder = (uint32_t)(dividend % (uint64_t)divisor);
+        cpu->registers[destination_register] = remainder;
+        cpu->registers[destination_register + 1u] = (uint32_t)quotient;
+        return VF2_OK;
+    }
     if (strcmp(mnemonic, "divo") == 0 || strcmp(mnemonic, "divi") == 0 ||
         strcmp(mnemonic, "remo") == 0 || strcmp(mnemonic, "remi") == 0 ||
         strcmp(mnemonic, "modi") == 0) {
