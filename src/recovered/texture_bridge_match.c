@@ -702,7 +702,13 @@ vf2_status execute_frame_counter_advance(
             if (status != VF2_OK) {
                 return status;
             }
-            sample_sum += (uint32_t)(int32_t)(int16_t)sample;
+            {
+                const uint32_t extended_sample =
+                    (sample & UINT16_C(0x8000)) != 0u
+                        ? UINT32_C(0xffff0000) | (uint32_t)sample
+                        : (uint32_t)sample;
+                sample_sum += extended_sample;
+            }
         }
         average = sample_sum >> (shift + UINT32_C(5));
         if (average > UINT32_C(7)) {

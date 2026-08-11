@@ -174,7 +174,7 @@ static vf2_status run_native_session(
     for (uint32_t frame = 0u; status == VF2_OK && frame < frame_count; ++frame) {
         if (input_set != 0 && pulse_input != 0) {
             const uint32_t held = input &
-                ~(VF2_PLATFORM_BUTTON_COIN | VF2_PLATFORM_BUTTON_START);
+                ~(uint32_t)(VF2_PLATFORM_BUTTON_COIN | VF2_PLATFORM_BUTTON_START);
             const uint32_t edge = frame == 0u
                 ? input & VF2_PLATFORM_BUTTON_COIN
                 : frame == 1u ? input & VF2_PLATFORM_BUTTON_START : 0u;
