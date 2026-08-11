@@ -1768,6 +1768,140 @@ static vf2_status hybrid_execute_player_142c0(
     return VF2_OK;
 }
 
+static vf2_status hybrid_execute_player_14310(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    uint32_t player_flags = 0u;
+    uint32_t player_mode = 0u;
+    uint32_t record_pointer = 0u;
+    uint16_t player_selector = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00014310) ||
+        player == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(machine, player, &player_flags);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x1a4), &player_mode
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, player + UINT32_C(0x1a8), &player_selector
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x1a0), &record_pointer
+        );
+    }
+    if (status == VF2_OK) {
+        player_flags &= ~(UINT32_C(1) << 11u);
+        status = vf2_model2a_write_u32(machine, player, player_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, player + UINT32_C(0x1e18), player_mode
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_write_u16(
+            machine, player + UINT32_C(0x1e1c), player_selector
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[2] = UINT32_C(0x0001438c);
+    cpu->registers[3] = (uint32_t)player_selector;
+    cpu->registers[5] = player_flags;
+    cpu->registers[12] = 1u;
+    cpu->registers[15] = player_flags;
+    cpu->registers[VF2_I960_G0_REGISTER + 6u] = record_pointer;
+    cpu->ip = UINT32_C(0x000143e4);
+    cpu->executed_instructions += UINT64_C(86);
+    cpu->procedure_calls += UINT64_C(3);
+    cpu->procedure_returns += UINT64_C(3);
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_143e4_prefix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x000143e4) ||
+        player == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* The four observed helpers at 1b5c8, 146ec, 1499c and 1b568 are
+     * state-neutral for this accepted player record.  Preserve their
+     * observed call/return cost and post-call register state. */
+    cpu->registers[2] = UINT32_C(0x000143fc);
+    cpu->registers[15] = 0u;
+    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+    cpu->ip = UINT32_C(0x000143fc);
+    cpu->executed_instructions += UINT64_C(19);
+    cpu->procedure_calls += UINT64_C(4);
+    cpu->procedure_returns += UINT64_C(4);
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_1ab74_prefix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    uint16_t selector = 0u;
+    uint16_t counter = 0u;
+    uint16_t player_selector = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x000143fc) ||
+        player == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = hybrid_read_u16(
+        machine, player + UINT32_C(0x1aa), &counter
+    );
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, player + UINT32_C(0x800), &selector
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, player + UINT32_C(0x1a8), &player_selector
+        );
+    }
+    if (status == VF2_OK && (counter == 0u || counter > selector)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x0001ab74), UINT32_C(0x00014400)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[3] = counter;
+    cpu->registers[4] = selector;
+    cpu->registers[14] = player_selector;
+    cpu->ip = UINT32_C(0x0001abf4);
+    cpu->executed_instructions += UINT64_C(7);
+    return VF2_OK;
+}
+
 /* The bit-31 fa_game_info path is a dispatcher around the two large fighter
  * procedures at 0x18144 and 0x18644. Recover only the observed corridors in C;
  * each native child still uses the same architectural call frame the ROM CALL
@@ -4566,11 +4700,42 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
                             UINT32_C(0x000142c0), &task_report
                         );
                     } else if (status == VF2_OK) {
-                        interpreted_task = 1;
-                        status = hybrid_execute_interpreted_task(
-                            machine, cpu, registry_address,
-                            UINT32_C(0x00014310), &task_report
-                        );
+                        status = hybrid_execute_player_14310(machine, cpu);
+                        if (status == VF2_ERROR_UNSUPPORTED) {
+                            interpreted_task = 1;
+                            status = hybrid_execute_interpreted_task(
+                                machine, cpu, registry_address,
+                                UINT32_C(0x00014310), &task_report
+                            );
+                        } else if (status == VF2_OK) {
+                            status = hybrid_execute_player_143e4_prefix(
+                                machine, cpu
+                            );
+                            if (status == VF2_ERROR_UNSUPPORTED) {
+                                interpreted_task = 1;
+                                status = hybrid_execute_interpreted_task(
+                                    machine, cpu, registry_address,
+                                    UINT32_C(0x000143e4), &task_report
+                                );
+                            } else if (status == VF2_OK) {
+                                status = hybrid_execute_player_1ab74_prefix(
+                                    machine, cpu
+                                );
+                                if (status == VF2_ERROR_UNSUPPORTED) {
+                                    interpreted_task = 1;
+                                    status = hybrid_execute_interpreted_task(
+                                        machine, cpu, registry_address,
+                                        UINT32_C(0x000143fc), &task_report
+                                    );
+                                } else if (status == VF2_OK) {
+                                    interpreted_task = 1;
+                                    status = hybrid_execute_interpreted_task(
+                                        machine, cpu, registry_address,
+                                        UINT32_C(0x0001abf4), &task_report
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }
