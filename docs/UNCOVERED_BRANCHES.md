@@ -47,7 +47,15 @@ call at `0x00014288`, followed by the accepted 1,652-instruction `0x19ef8`
 corridor through `0x0001428c` and the downstream geometry expansion through
 `0x000142c0`, followed by the small setup corridor through `0x00014310`, the
 observed preamble through `0x000143e4` and its state-neutral prefix through
-`0x000143fc` and the observed `0x0001ab74` entry prefix through `0x0001abf4`, is native C and matches the ROM endpoint exactly; later player branches remain explicit original-i960
+`0x000143fc`, the observed `0x0001ab74` entry prefix through `0x0001abf4`,
+the `0x00027ce0` entry prefix through `0x00027d00`, the immediate calls to
+`0x00028184` and `0x00028780`, the observed prefix through `0x00028268` and
+the accepted `0x00028780` geometry body and the measured
+`0x00027d90`/`0x00027dcc`/`0x00027fa0 -> 0x0002901c` and
+`0x00028174 -> 0x00029414` calls and the measured `0x00014400 -> 0x00017710`,
+`0x00014404 -> 0x0001791c`, `0x00014408 -> 0x0004b640`,
+`0x00014414 -> 0x00016504` and `0x00014418 -> 0x000180bc` chain, is native C and matches the ROM
+endpoint exactly; later player branches remain explicit original-i960
 continuations. A real sixth-entry snapshot therefore
 advances through both fighter task records and back to the main loop while
 retaining clearly marked ROM-backed boundaries.

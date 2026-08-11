@@ -203,6 +203,35 @@ static vf2_status hybrid_execute_interpreted_task(
     return VF2_OK;
 }
 
+static vf2_status hybrid_execute_interpreted_until(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t entry_address,
+    uint32_t stop_address
+)
+{
+    vf2_i960_run_options options;
+    vf2_i960_run_result result;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != entry_address ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    memset(&options, 0, sizeof(options));
+    options.stop_address = stop_address;
+    options.max_steps = VF2_INTERPRETED_TASK_STEP_LIMIT;
+    options.stop_on_self_branch = false;
+    memset(&result, 0, sizeof(result));
+    status = vf2_i960_run(cpu, machine, &options, &result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    return result.halt_reason == VF2_I960_HALT_STOP_ADDRESS &&
+            cpu->ip == stop_address
+        ? VF2_OK : VF2_ERROR_UNSUPPORTED;
+}
+
 /* Recover the observed player-task bootstrap through the first nested call.
  * The accepted sixth-entry corridor reaches 0x14288 after 842 instructions;
  * all work before that CALL is local structure setup and has no procedure
@@ -1900,6 +1929,415 @@ static vf2_status hybrid_execute_player_1ab74_prefix(
     cpu->ip = UINT32_C(0x0001abf4);
     cpu->executed_instructions += UINT64_C(7);
     return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_27ce0_prefix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    vf2_status status = VF2_OK;
+
+    (void)machine;
+    if (cpu == NULL || cpu->ip != UINT32_C(0x0001abf4)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00027ce0), UINT32_C(0x0001abf8)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->ip = UINT32_C(0x00027d00);
+    cpu->executed_instructions += UINT64_C(5);
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_27d00_call(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    vf2_status status = VF2_OK;
+
+    (void)machine;
+    if (cpu == NULL || cpu->ip != UINT32_C(0x00027d00)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00028184), UINT32_C(0x00027d04)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->ip = UINT32_C(0x00028184);
+    ++cpu->executed_instructions;
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_28184_prefix(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    uint16_t counter = 0u;
+    uint32_t scratch = 0u;
+    uint32_t mode = 0u;
+    uint8_t status_byte = 0u;
+    vf2_status result = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00028184) ||
+        player == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    result = hybrid_read_u16(
+        machine, player + UINT32_C(0x1aa), &counter
+    );
+    if (result == VF2_OK) {
+        result = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0xbd8), &scratch
+        );
+    }
+    if (result == VF2_OK) {
+        result = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &mode
+        );
+    }
+    if (result == VF2_OK) {
+        result = hybrid_read_u8(
+            machine, player + UINT32_C(0xbdd), &status_byte
+        );
+    }
+    if (result != VF2_OK || counter != 1u ||
+        (mode & (UINT32_C(1) << 17u)) != 0u ||
+        (mode & (UINT32_C(1) << 20u)) == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 6u] = counter;
+    cpu->registers[6] = scratch;
+    cpu->registers[VF2_I960_G0_REGISTER + 5u] = scratch + UINT32_C(0x690);
+    cpu->registers[10] = mode;
+    cpu->registers[15] = status_byte;
+    cpu->ip = UINT32_C(0x00028268);
+    cpu->executed_instructions += UINT64_C(11);
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_28268_call(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    vf2_status status = VF2_OK;
+
+    (void)machine;
+    if (cpu == NULL || cpu->ip != UINT32_C(0x00028268)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00028780), UINT32_C(0x0002826c)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->ip = UINT32_C(0x00028780);
+    ++cpu->executed_instructions;
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_28780(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    uint32_t scratch = 0u;
+    uint32_t g2 = 0u;
+    uint32_t g3 = 0u;
+    uint32_t g4 = 0u;
+    uint32_t g5 = 0u;
+    uint32_t output_start = 0u;
+    uint32_t player_flags = 0u;
+    uint32_t value = 0u;
+    uint32_t converted = 0u;
+    uint32_t index = 0u;
+    uint32_t offset = 0u;
+    uint8_t type = 0u;
+    uint8_t table_index = 0u;
+    uint32_t last_value = 0u;
+    uint32_t last_offset = 0u;
+    uint8_t last_type = 0u;
+    uint8_t last_index = 0u;
+    size_t cell = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00028780) ||
+        player == 0u || cpu->local_frame_depth < 6u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(machine, player, &player_flags);
+    if (status != VF2_OK || (player_flags & (UINT32_C(1) << 6u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(
+        machine, player + UINT32_C(0xbd8), &scratch
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, scratch + UINT32_C(0x780), &g2
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, scratch + UINT32_C(0x784), &g3
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    g4 = scratch + UINT32_C(0x78c);
+    g5 = cpu->registers[VF2_I960_G0_REGISTER + 5u];
+    output_start = g5;
+
+    for (cell = 0u; status == VF2_OK && cell < 60u; ++cell) {
+        status = hybrid_read_u8(machine, g4, &type);
+        if (status != VF2_OK) {
+            break;
+        }
+        if (type < 4u) {
+            if (type == 3u) {
+                value = 0u;
+                status = vf2_model2a_write_u32(machine, g5, value);
+            } else {
+                g2 += UINT32_C(4);
+            }
+        } else if (type == 4u) {
+            status = vf2_model2a_read_u32(machine, g2, &value);
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(machine, g5, value);
+            }
+            g2 += UINT32_C(4);
+        } else {
+            status = hybrid_read_u8(machine, g3, &table_index);
+            if (status == VF2_OK) {
+                ++g3;
+                if (type == 5u) {
+                    offset = (uint32_t)table_index << 2u;
+                } else {
+                    index = (uint32_t)table_index;
+                    offset = (index * 3u) << 2u;
+                }
+                status = vf2_model2a_read_u32(
+                    machine, g2 + offset, &value
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(machine, g5, value);
+            }
+            g2 += offset;
+        }
+        last_value = value;
+        last_offset = offset;
+        last_type = type;
+        last_index = table_index;
+        ++g4;
+        g5 += UINT32_C(4);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    g5 = output_start;
+    for (cell = 0u; status == VF2_OK && cell < 36u; ++cell) {
+        status = vf2_model2a_read_u32(machine, g5, &value);
+        if (status == VF2_OK) {
+            status = hybrid_player_convert_real_to_integer(
+                cpu, value, &converted
+            );
+        }
+        if (status == VF2_OK) {
+            status = hybrid_write_u16(machine, g5, (uint16_t)converted);
+        }
+        g5 += UINT32_C(4);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    g5 = output_start;
+    cpu->registers[3u] = last_type == 3u ? 0u : cpu->registers[3u];
+    cpu->registers[4u] = last_offset;
+    cpu->registers[6u] = last_type;
+    cpu->registers[11u] = last_index;
+    cpu->registers[14u] = last_value;
+    cpu->registers[15u] = player_flags;
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = g2;
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = g3;
+    cpu->registers[VF2_I960_G0_REGISTER + 4u] = g4;
+    cpu->registers[VF2_I960_G0_REGISTER + 5u] = g5;
+    cpu->registers[12u] = 0u;
+    cpu->registers[13u] = converted;
+    cpu->ip = UINT32_C(0x0002826c);
+    cpu->executed_instructions += UINT64_C(1024);
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status == VF2_OK) {
+        ++cpu->executed_instructions;
+    }
+    return status;
+}
+
+static vf2_status hybrid_execute_player_27d90_call(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    vf2_status status = VF2_OK;
+
+    (void)machine;
+    if (cpu == NULL || cpu->ip != UINT32_C(0x00027d90)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x0002901c), UINT32_C(0x00027d94)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->ip = UINT32_C(0x0002901c);
+    ++cpu->executed_instructions;
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_repeated_call(
+    vf2_i960_cpu *cpu,
+    uint32_t call_site,
+    uint32_t target,
+    uint32_t return_address
+)
+{
+    vf2_status status = VF2_OK;
+
+    if (cpu == NULL || cpu->ip != call_site) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_i960_cpu_enter_procedure(cpu, target, return_address);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->ip = target;
+    ++cpu->executed_instructions;
+    return VF2_OK;
+}
+
+static vf2_status hybrid_execute_player_post_29414(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t registry_address,
+    vf2_recovered_task_report *report
+)
+{
+    vf2_status status = VF2_OK;
+
+    status = hybrid_execute_interpreted_until(
+        machine, cpu, UINT32_C(0x00029414), UINT32_C(0x00014400)
+    );
+    if (status == VF2_OK) {
+        status = hybrid_execute_player_repeated_call(
+            cpu, UINT32_C(0x00014400), UINT32_C(0x00017710),
+            UINT32_C(0x00014404)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, UINT32_C(0x00017710), UINT32_C(0x00014404)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_player_repeated_call(
+            cpu, UINT32_C(0x00014404), UINT32_C(0x0001791c),
+            UINT32_C(0x00014408)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, UINT32_C(0x0001791c), UINT32_C(0x00014408)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_player_repeated_call(
+            cpu, UINT32_C(0x00014408), UINT32_C(0x0004b640),
+            UINT32_C(0x0001440c)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, UINT32_C(0x0004b640), UINT32_C(0x00014414)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_player_repeated_call(
+            cpu, UINT32_C(0x00014414), UINT32_C(0x00016504),
+            UINT32_C(0x00014418)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, UINT32_C(0x00016504), UINT32_C(0x00014418)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_player_repeated_call(
+            cpu, UINT32_C(0x00014418), UINT32_C(0x000180bc),
+            UINT32_C(0x0001441c)
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_task(
+            machine, cpu, registry_address, UINT32_C(0x000180bc), report
+        );
+    }
+    return status;
+}
+
+static vf2_status hybrid_execute_player_29414_zero_path(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    uint8_t selector = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00029414) ||
+        player == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = hybrid_read_u8(
+        machine, player + UINT32_C(0x1b1), &selector
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (selector == 6u || selector == 8u || selector == 10u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_write_u32(
+        machine, player + UINT32_C(0xc50), 0u
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[14u] = 0u;
+    cpu->ip = UINT32_C(0x00028178);
+    cpu->executed_instructions += UINT64_C(6);
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status == VF2_OK) {
+        ++cpu->executed_instructions;
+    }
+    return status;
 }
 
 /* The bit-31 fa_game_info path is a dispatcher around the two large fighter
@@ -4728,11 +5166,186 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
                                         UINT32_C(0x000143fc), &task_report
                                     );
                                 } else if (status == VF2_OK) {
-                                    interpreted_task = 1;
-                                    status = hybrid_execute_interpreted_task(
-                                        machine, cpu, registry_address,
-                                        UINT32_C(0x0001abf4), &task_report
+                                    status = hybrid_execute_player_27ce0_prefix(
+                                        machine, cpu
                                     );
+                                    if (status == VF2_ERROR_UNSUPPORTED) {
+                                        interpreted_task = 1;
+                                        status = hybrid_execute_interpreted_task(
+                                            machine, cpu, registry_address,
+                                            UINT32_C(0x0001abf4), &task_report
+                                        );
+                                    } else if (status == VF2_OK) {
+                                        interpreted_task = 1;
+                                        status = hybrid_execute_player_27d00_call(
+                                            machine, cpu
+                                        );
+                                        if (status == VF2_ERROR_UNSUPPORTED) {
+                                            interpreted_task = 1;
+                                            status = hybrid_execute_interpreted_task(
+                                                machine, cpu, registry_address,
+                                                UINT32_C(0x00027d00), &task_report
+                                            );
+                                        } else if (status == VF2_OK) {
+                                            status = hybrid_execute_player_28184_prefix(
+                                                machine, cpu
+                                            );
+                                            if (status == VF2_ERROR_UNSUPPORTED) {
+                                                interpreted_task = 1;
+                                                status = hybrid_execute_interpreted_task(
+                                                    machine, cpu, registry_address,
+                                                    UINT32_C(0x00028184), &task_report
+                                                );
+                                            } else if (status == VF2_OK) {
+                                                status = hybrid_execute_player_28268_call(
+                                                    machine, cpu
+                                                );
+                                                if (status == VF2_ERROR_UNSUPPORTED) {
+                                                    interpreted_task = 1;
+                                                    status = hybrid_execute_interpreted_task(
+                                                        machine, cpu, registry_address,
+                                                        UINT32_C(0x00028268), &task_report
+                                                    );
+                                                } else if (status == VF2_OK) {
+                                                    status = hybrid_execute_player_28780(
+                                                        machine, cpu
+                                                    );
+                                                    if (status == VF2_ERROR_UNSUPPORTED) {
+                                                        interpreted_task = 1;
+                                                        status = hybrid_execute_interpreted_task(
+                                                            machine, cpu, registry_address,
+                                                            UINT32_C(0x00028780), &task_report
+                                                        );
+                                                    } else if (status == VF2_OK) {
+                                                        status = hybrid_execute_interpreted_until(
+                                                            machine, cpu,
+                                                            UINT32_C(0x0002826c),
+                                                            UINT32_C(0x00027d90)
+                                                        );
+                                                        if (status == VF2_ERROR_UNSUPPORTED) {
+                                                            interpreted_task = 1;
+                                                            status = hybrid_execute_interpreted_task(
+                                                                machine, cpu, registry_address,
+                                                                UINT32_C(0x0002826c), &task_report
+                                                            );
+                                                        } else if (status == VF2_OK) {
+                                                            status = hybrid_execute_player_27d90_call(
+                                                                machine, cpu
+                                                            );
+                                                            if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                interpreted_task = 1;
+                                                                status = hybrid_execute_interpreted_task(
+                                                                    machine, cpu, registry_address,
+                                                                    UINT32_C(0x00027d90), &task_report
+                                                                );
+                                                            } else if (status == VF2_OK) {
+                                                                status = hybrid_execute_interpreted_until(
+                                                                    machine, cpu,
+                                                                    UINT32_C(0x0002901c),
+                                                                    UINT32_C(0x00027dcc)
+                                                                );
+                                                                if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                    interpreted_task = 1;
+                                                                    status = hybrid_execute_interpreted_task(
+                                                                        machine, cpu, registry_address,
+                                                                        UINT32_C(0x0002901c), &task_report
+                                                                    );
+                                                                } else if (status == VF2_OK) {
+                                                                    status = hybrid_execute_player_repeated_call(
+                                                                        cpu, UINT32_C(0x00027dcc),
+                                                                        UINT32_C(0x0002901c),
+                                                                        UINT32_C(0x00027dd0)
+                                                                    );
+                                                                    if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                        interpreted_task = 1;
+                                                                        status = hybrid_execute_interpreted_task(
+                                                                            machine, cpu, registry_address,
+                                                                            UINT32_C(0x00027dcc), &task_report
+                                                                        );
+                                                                    } else if (status == VF2_OK) {
+                                                                        status = hybrid_execute_interpreted_until(
+                                                                            machine, cpu,
+                                                                            UINT32_C(0x0002901c),
+                                                                            UINT32_C(0x00027fa0)
+                                                                        );
+                                                                        if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                            interpreted_task = 1;
+                                                                            status = hybrid_execute_interpreted_task(
+                                                                                machine, cpu, registry_address,
+                                                                                UINT32_C(0x00027dcc), &task_report
+                                                                            );
+                                                                        } else if (status == VF2_OK) {
+                                                                            status = hybrid_execute_player_repeated_call(
+                                                                                cpu, UINT32_C(0x00027fa0),
+                                                                                UINT32_C(0x0002901c),
+                                                                                UINT32_C(0x00027fa4)
+                                                                            );
+                                                                            if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                                interpreted_task = 1;
+                                                                                status = hybrid_execute_interpreted_task(
+                                                                                    machine, cpu, registry_address,
+                                                                                    UINT32_C(0x00027fa0), &task_report
+                                                                                );
+                                                                            } else if (status == VF2_OK) {
+                                                                                status = hybrid_execute_interpreted_until(
+                                                                                    machine, cpu,
+                                                                                    UINT32_C(0x0002901c),
+                                                                                    UINT32_C(0x00028174)
+                                                                                );
+                                                                                if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                                    interpreted_task = 1;
+                                                                                    status = hybrid_execute_interpreted_task(
+                                                                                        machine, cpu, registry_address,
+                                                                                        UINT32_C(0x00027fa0), &task_report
+                                                                                    );
+                                                                                } else if (status == VF2_OK) {
+                                                                                    status = hybrid_execute_player_repeated_call(
+                                                                                        cpu, UINT32_C(0x00028174),
+                                                                                        UINT32_C(0x00029414),
+                                                                                        UINT32_C(0x00028178)
+                                                                                    );
+                                                                                    if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                                        interpreted_task = 1;
+                                                                                        status = hybrid_execute_interpreted_task(
+                                                                                            machine, cpu, registry_address,
+                                                                                            UINT32_C(0x00028174), &task_report
+                                                                                        );
+                                                                                    } else if (status == VF2_OK) {
+                                                                                        status = hybrid_execute_player_29414_zero_path(
+                                                                                            machine, cpu
+                                                                                        );
+                                                                                        if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                                            interpreted_task = 1;
+                                                                                            status = hybrid_execute_interpreted_task(
+                                                                                                machine, cpu, registry_address,
+                                                                                                UINT32_C(0x00029414), &task_report
+                                                                                            );
+                                                                                        } else if (status == VF2_OK) {
+                                                                                            status = hybrid_execute_player_post_29414(
+                                                                                                machine, cpu,
+                                                                                                registry_address, &task_report
+                                                                                            );
+                                                                                        }
+                                                                                        if (status == VF2_ERROR_UNSUPPORTED) {
+                                                                                            interpreted_task = 1;
+                                                                                            status = hybrid_execute_interpreted_task(
+                                                                                                machine, cpu, registry_address,
+                                                                                                UINT32_C(0x00029414), &task_report
+                                                                                            );
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

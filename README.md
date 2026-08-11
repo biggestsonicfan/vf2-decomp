@@ -86,8 +86,14 @@ bootstrap through `0x14288`, accepted `0x19ef8` corridor through `0x1428c`,
 the downstream `0x1428c -> 0x142c0` geometry-expansion corridor, the small
 `0x142c0 -> 0x14310` setup corridor, the observed `0x14310 -> 0x143e4`
 preamble, the state-neutral prefix through `0x143fc` and the observed
-`0x1ab74` entry prefix through `0x1abf4` are now native and differentially
-exact; its later unobserved branches still use the ROM continuation.
+`0x1ab74` entry prefix through `0x1abf4`, the observed `0x27ce0` entry prefix
+through `0x27d00`, the immediate calls to `0x28184` and `0x28780`, the
+observed prefix through `0x28268`, the accepted `0x28780` geometry body and
+the measured `0x27d90`/`0x27dcc`/`0x27fa0 -> 0x2901c` and `0x28174 -> 0x29414`
+calls and the measured `0x14400 -> 0x17710`, `0x14404 -> 0x1791c`,
+`0x14408 -> 0x4b640`, `0x14414 -> 0x16504` and `0x14418 -> 0x180bc` chain are
+now native and differentially exact; later unobserved branches still use the
+ROM continuation.
 Other unknown paths remain explicit failures.
 
 ## v0.1.0 repeated-frame acceptance

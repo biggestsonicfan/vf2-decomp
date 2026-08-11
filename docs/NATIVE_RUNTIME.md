@@ -10,8 +10,16 @@ bootstrap from `0x00013f08` through its first nested call at `0x00014288`, the
 accepted `0x19ef8` corridor through return to `0x0001428c`, and the downstream
 geometry expansion through `0x000142c0`, the small setup corridor through
 `0x00014310`, the observed preamble through `0x000143e4` and its state-neutral
-prefix through `0x000143fc` and the observed `0x0001ab74` entry prefix through
-`0x0001abf4` are also native; later unobserved fighter branches remain
+prefix through `0x000143fc`, the observed `0x0001ab74` entry prefix through
+`0x0001abf4`, the `0x00027ce0` entry prefix through `0x00027d00`, the immediate
+calls to `0x00028184` and `0x00028780`, the observed prefix through
+`0x00028268`, the accepted `0x00028780` geometry body and the measured
+`0x00027d90`/`0x00027dcc`/`0x00027fa0 -> 0x0002901c` and
+`0x00028174 -> 0x00029414` calls are also native; later unobserved fighter
+branches remain, while the measured `0x00014400 -> 0x00017710`,
+`0x00014404 -> 0x0001791c`, `0x00014408 -> 0x0004b640`,
+`0x00014414 -> 0x00016504` and `0x00014418 -> 0x000180bc` chain is native
+for the accepted path
 explicit ROM-backed execution boundaries.
 
 It routes accepted bridge, task, frame-wait, interrupt and scheduler states,
@@ -51,8 +59,15 @@ bootstrap through `0x00014288`, the accepted 1,652-instruction `0x19ef8`
 corridor through `0x0001428c`, the observed downstream geometry expansion
 through `0x000142c0`, the small setup corridor through `0x00014310`, the
 observed preamble through `0x000143e4` and its state-neutral prefix through
-`0x000143fc`, the observed `0x0001ab74` entry prefix through `0x0001abf4`,
-then an explicit ROM continuation for later player branches. A real sixth-entry
+`0x000143fc`, the observed `0x0001ab74` entry prefix through `0x0001abf4` and
+the `0x00027ce0` entry prefix through `0x00027d00`, the immediate call to
+`0x00028184` and `0x00028780`, its observed prefix through `0x00028268`, the
+accepted `0x00028780` geometry body and the measured
+`0x00027d90`/`0x00027dcc`/`0x00027fa0 -> 0x0002901c` and
+`0x00028174 -> 0x00029414` calls and the measured `0x00014400 -> 0x00017710`,
+`0x00014404 -> 0x0001791c`, `0x00014408 -> 0x0004b640`,
+`0x00014414 -> 0x00016504` and `0x00014418 -> 0x000180bc` chain, then an
+explicit ROM continuation for later player branches. A real sixth-entry
 snapshot with both fighter bit-31 flags forced now advances from `fa_game_info`
 through the player tasks and returns to `0x0000a014`; the native-resume command
 is the reproducible smoke test for that continuation:
