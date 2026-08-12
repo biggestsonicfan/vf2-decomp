@@ -35,6 +35,13 @@ jobs:
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Publish vf2i960 analysis binary
+        if: matrix.compiler == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-linux
+          path: build/vf2i960
+          if-no-files-found: error
 
   sanitizers:
     name: clang ASan and UBSan
