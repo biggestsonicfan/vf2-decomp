@@ -2385,6 +2385,38 @@ static vf2_status phase17_zero_render_motion_name(
     return status;
 }
 
+static vf2_status phase17_zero_screen6_render_motion_name(
+    vf2_model2a *machine,
+    int32_t motion_index,
+    uint32_t destination,
+    uint32_t *descriptor_out
+)
+{
+    uint32_t table = 0u;
+    uint32_t source = 0u;
+    vf2_status status = VF2_OK;
+
+    if (motion_index < 0 || motion_index > INT32_C(0x54f)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x02120004), &table
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, table + (uint32_t)motion_index * UINT32_C(4),
+            &source
+        );
+    }
+    if (status == VF2_OK) {
+        status = phase17_zero_copy_text(machine, source, destination);
+    }
+    if (status == VF2_OK && descriptor_out != NULL) {
+        *descriptor_out = source;
+    }
+    return status;
+}
+
 static vf2_status phase17_zero_apply_camera_angle_controls(
     vf2_model2a *machine,
     uint32_t control,
@@ -2426,6 +2458,638 @@ static vf2_status phase17_zero_apply_camera_angle_controls(
     status = write_u16(machine, control + UINT32_C(0x24), x_angle);
     if (status == VF2_OK) {
         status = write_u16(machine, control + UINT32_C(0x26), y_angle);
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_copro_command(
+    vf2_model2a *machine,
+    uint32_t command,
+    const uint32_t *arguments,
+    size_t argument_count,
+    uint32_t *results,
+    size_t result_count
+)
+{
+    const uint32_t port = UINT32_C(0x00884000);
+    size_t index = 0u;
+    vf2_status status = vf2_model2a_write_u32(machine, port, command);
+
+    for (index = 0u; status == VF2_OK && index < argument_count; ++index) {
+        status = vf2_model2a_write_u32(machine, port, arguments[index]);
+    }
+    for (index = 0u; status == VF2_OK && index < result_count; ++index) {
+        status = vf2_model2a_read_u32(machine, port, &results[index]);
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_adjust_follow(
+    vf2_model2a *machine,
+    uint32_t control,
+    uint32_t accumulator_offset,
+    uint32_t value_offset,
+    float delta
+)
+{
+    uint32_t accumulator_bits = 0u;
+    uint32_t value_bits = 0u;
+    float accumulator = 0.0f;
+    float value = 0.0f;
+    vf2_status status = vf2_model2a_read_u32(
+        machine, control + accumulator_offset, &accumulator_bits
+    );
+
+    if (status == VF2_OK) {
+        accumulator = phase17_zero_float_from_bits(accumulator_bits) + delta;
+        accumulator_bits = phase17_zero_float_to_bits(accumulator);
+        status = vf2_model2a_write_u32(
+            machine, control + accumulator_offset, accumulator_bits
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, control + value_offset, &value_bits
+        );
+    }
+    if (status == VF2_OK) {
+        value = phase17_zero_float_from_bits(value_bits);
+        value += (accumulator - value) * 0.25f;
+        status = vf2_model2a_write_u32(
+            machine, control + value_offset,
+            phase17_zero_float_to_bits(value)
+        );
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_force_blank(
+    vf2_model2a *machine,
+    uint32_t control,
+    uint32_t player0,
+    uint8_t *de_flags
+)
+{
+    int32_t motion = 0;
+    vf2_status status = VF2_OK;
+
+    *de_flags = (uint8_t)(*de_flags | UINT8_C(4));
+    status = vf2_model2a_write(
+        machine, control + UINT32_C(0xde), de_flags, sizeof(*de_flags)
+    );
+    if (status == VF2_OK) {
+        status = phase17_zero_read_s16(
+            machine, UINT32_C(0x00508020), &motion
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, player0 + UINT32_C(0x194), (uint32_t)motion
+        );
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_toggle_objects(
+    vf2_model2a *machine,
+    uint32_t control,
+    uint32_t player1,
+    uint8_t *de_flags
+)
+{
+    uint32_t flags = 0u;
+    uint32_t associated = 0u;
+    uint8_t motion = 0u;
+    vf2_status status = VF2_OK;
+
+    if ((*de_flags & UINT8_C(1)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    *de_flags = (uint8_t)(*de_flags | UINT8_C(1));
+    status = vf2_model2a_write(
+        machine, control + UINT32_C(0xde), de_flags, sizeof(*de_flags)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, player1, &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, player1, flags | (UINT32_C(1) << 31u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, player1 + UINT32_C(0x0c), UINT32_C(0x00013f08)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, player1 + UINT32_C(0x1b0), &motion, sizeof(motion)
+        );
+    }
+    if (status == VF2_OK) {
+        motion = (uint8_t)(motion % UINT8_C(13));
+        status = vf2_model2a_write(
+            machine, player1 + UINT32_C(0x1b1), &motion, sizeof(motion)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050086c), &associated
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, associated, &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, associated, flags | (UINT32_C(1) << 31u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, associated + UINT32_C(0x0c), UINT32_C(0x000640f4)
+        );
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_mode1_target(
+    vf2_model2a *machine,
+    uint32_t control,
+    uint32_t player0,
+    uint32_t input_flags
+)
+{
+    uint32_t player_x = 0u;
+    uint32_t player_z = 0u;
+    vf2_status status = vf2_model2a_read_u32(
+        machine, player0 + UINT32_C(0x18), &player_x
+    );
+
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, player0 + UINT32_C(0x20), &player_z
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, control + UINT32_C(0xc0), player_x
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, control + UINT32_C(0xc4), UINT32_C(0x3f800000)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, control + UINT32_C(0xc8), player_z
+        );
+    }
+    if (status == VF2_OK) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc0), UINT32_C(0xb4), 0.0f
+        );
+    }
+    if (status == VF2_OK) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc4), UINT32_C(0xb8), 0.0f
+        );
+    }
+    if (status == VF2_OK) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc8), UINT32_C(0xbc), 0.0f
+        );
+    }
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 21u)) != 0u) {
+        status = phase17_zero_adjust_float(
+            machine, UINT32_C(0x00501084), 2.0f
+        );
+        if (status == VF2_OK) {
+            status = phase17_zero_adjust_float(
+                machine, UINT32_C(0x00501088), 2.0f
+            );
+        }
+    }
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 20u)) != 0u) {
+        status = phase17_zero_adjust_float(
+            machine, UINT32_C(0x00501084), -2.0f
+        );
+        if (status == VF2_OK) {
+            status = phase17_zero_adjust_float(
+                machine, UINT32_C(0x00501088), -2.0f
+            );
+        }
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_apply_held_controls(
+    vf2_model2a *machine,
+    uint32_t control,
+    uint32_t input_flags
+)
+{
+    vf2_status status = VF2_OK;
+
+    if ((input_flags & (UINT32_C(1) << 13u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xd4), UINT32_C(0x20), 0.05f
+        );
+    } else if ((input_flags & (UINT32_C(1) << 12u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xd4), UINT32_C(0x20), -0.05f
+        );
+    }
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 14u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xcc), UINT32_C(0x18), 0.05f
+        );
+    } else if (status == VF2_OK &&
+               (input_flags & (UINT32_C(1) << 15u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xcc), UINT32_C(0x18), -0.05f
+        );
+    }
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 8u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xd0), UINT32_C(0x1c), -0.05f
+        );
+    } else if (status == VF2_OK &&
+               (input_flags & (UINT32_C(1) << 9u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xd0), UINT32_C(0x1c), 0.05f
+        );
+    }
+
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 21u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc8), UINT32_C(0xbc), 0.05f
+        );
+    } else if (status == VF2_OK &&
+               (input_flags & (UINT32_C(1) << 20u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc8), UINT32_C(0xbc), -0.05f
+        );
+    }
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 22u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc0), UINT32_C(0xb4), 0.05f
+        );
+    } else if (status == VF2_OK &&
+               (input_flags & (UINT32_C(1) << 23u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc0), UINT32_C(0xb4), -0.05f
+        );
+    }
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 16u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc4), UINT32_C(0xb8), -0.05f
+        );
+    } else if (status == VF2_OK &&
+               (input_flags & (UINT32_C(1) << 17u)) != 0u) {
+        status = phase17_zero_screen6_adjust_follow(
+            machine, control, UINT32_C(0xc4), UINT32_C(0xb8), 0.05f
+        );
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_mode2_update_character(
+    vf2_model2a *machine,
+    uint32_t fighter,
+    uint32_t other_fighter,
+    uint32_t associated_pointer_address,
+    uint32_t navigation_flags
+)
+{
+    uint8_t character = 0u;
+    uint8_t other_character = 0u;
+    uint8_t motion = 0u;
+    uint32_t associated = 0u;
+    uint32_t flags = 0u;
+    vf2_status status = vf2_model2a_read(
+        machine, fighter + UINT32_C(0x1b0), &character, sizeof(character)
+    );
+
+    if (status != VF2_OK) {
+        return status;
+    }
+    if ((navigation_flags & (UINT32_C(1) << 16u)) != 0u) {
+        character = character == 0u ? UINT8_C(25) : (uint8_t)(character - 1u);
+    } else if ((navigation_flags & (UINT32_C(1) << 17u)) != 0u) {
+        character = character >= UINT8_C(25) ? 0u : (uint8_t)(character + 1u);
+    } else {
+        return VF2_OK;
+    }
+    status = vf2_model2a_read(
+        machine, other_fighter + UINT32_C(0x1b0),
+        &other_character, sizeof(other_character)
+    );
+    if (status == VF2_OK && character == other_character) {
+        if (character >= UINT8_C(13)) {
+            character = (uint8_t)(character - UINT8_C(13));
+        } else {
+            character = (uint8_t)(character + UINT8_C(13));
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, fighter + UINT32_C(0x1b0),
+            &character, sizeof(character)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, fighter + UINT32_C(0x0c), UINT32_C(0x00013f08)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, fighter, UINT32_C(0x80000000)
+        );
+    }
+    if (status == VF2_OK) {
+        motion = (uint8_t)(character % UINT8_C(13));
+        status = vf2_model2a_write(
+            machine, fighter + UINT32_C(0x1b1), &motion, sizeof(motion)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, associated_pointer_address, &associated
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, associated, &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, associated, flags | (UINT32_C(1) << 31u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, associated + UINT32_C(0x0c), UINT32_C(0x000640f4)
+        );
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_mode2(
+    vf2_model2a *machine,
+    uint32_t control,
+    uint32_t player0,
+    uint32_t player1,
+    uint32_t input_flags,
+    uint32_t navigation_flags,
+    uint8_t de_flags
+)
+{
+    const uint32_t step_bits = UINT32_C(0x3d4ccccd);
+    uint32_t vector[3] = {0u, 0u, 0u};
+    uint32_t rotated[3] = {0u, 0u, 0u};
+    uint16_t matrix_angle = 0u;
+    uint16_t fighter_angle = 0u;
+    size_t index = 0u;
+    vf2_status status = read_u16(
+        machine, control + UINT32_C(0x26), &matrix_angle
+    );
+
+    /* The zero-state corridor proven here starts from the identity matrix.
+     * A non-zero matrix angle requires the still-unrecovered 0x6d command. */
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (matrix_angle != 0u &&
+        (input_flags & ((UINT32_C(1) << 12u) | (UINT32_C(1) << 13u) |
+                        (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u))) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    if ((input_flags & (UINT32_C(1) << 13u)) != 0u) {
+        vector[2] = step_bits;
+    } else if ((input_flags & (UINT32_C(1) << 12u)) != 0u) {
+        vector[2] = step_bits ^ UINT32_C(0x80000000);
+    }
+    if ((input_flags & (UINT32_C(1) << 14u)) != 0u) {
+        vector[0] = step_bits;
+    } else if ((input_flags & (UINT32_C(1) << 15u)) != 0u) {
+        vector[0] = step_bits ^ UINT32_C(0x80000000);
+    }
+
+    if (status == VF2_OK) {
+        status = phase17_zero_copro_command(
+            machine, UINT32_C(0x14802929), vector, 3u, rotated, 3u
+        );
+    }
+    for (index = 0u; index < 3u && status == VF2_OK; ++index) {
+        uint32_t current = 0u;
+        status = vf2_model2a_read_u32(
+            machine, player0 + UINT32_C(0x18) + (uint32_t)index * UINT32_C(4),
+            &current
+        );
+        if (status == VF2_OK) {
+            uint32_t add_arguments[2] = {rotated[index], current};
+            status = phase17_zero_copro_command(
+                machine, UINT32_C(0x09801313), add_arguments, 2u,
+                &current, 1u
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, player0 + UINT32_C(0x18) +
+                    (uint32_t)index * UINT32_C(4), current
+            );
+        }
+    }
+
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 23u)) != 0u) {
+        status = read_u16(machine, player0 + UINT32_C(0x26), &fighter_angle);
+        if (status == VF2_OK) {
+            fighter_angle = (uint16_t)(fighter_angle + UINT16_C(0x80));
+            status = write_u16(
+                machine, player0 + UINT32_C(0x26), fighter_angle
+            );
+        }
+    } else if (status == VF2_OK &&
+               (input_flags & (UINT32_C(1) << 22u)) != 0u) {
+        status = read_u16(machine, player0 + UINT32_C(0x26), &fighter_angle);
+        if (status == VF2_OK) {
+            fighter_angle = (uint16_t)(fighter_angle - UINT16_C(0x80));
+            status = write_u16(
+                machine, player0 + UINT32_C(0x26), fighter_angle
+            );
+        }
+    }
+
+    if (status == VF2_OK &&
+        (input_flags & (UINT32_C(1) << 18u)) == 0u) {
+        status = phase17_zero_screen6_mode2_update_character(
+            machine, player0, player1, UINT32_C(0x00500868),
+            navigation_flags
+        );
+    }
+    if (status == VF2_OK && (de_flags & UINT8_C(1)) != 0u) {
+        if ((input_flags & (UINT32_C(1) << 21u)) != 0u) {
+            status = read_u16(machine, player1 + UINT32_C(0x26), &fighter_angle);
+            if (status == VF2_OK) {
+                fighter_angle = (uint16_t)(fighter_angle + UINT16_C(0x80));
+                status = write_u16(
+                    machine, player1 + UINT32_C(0x26), fighter_angle
+                );
+            }
+        } else if ((input_flags & (UINT32_C(1) << 20u)) != 0u) {
+            status = read_u16(machine, player1 + UINT32_C(0x26), &fighter_angle);
+            if (status == VF2_OK) {
+                fighter_angle = (uint16_t)(fighter_angle - UINT16_C(0x80));
+                status = write_u16(
+                    machine, player1 + UINT32_C(0x26), fighter_angle
+                );
+            }
+        }
+        if (status == VF2_OK &&
+            (input_flags & (UINT32_C(1) << 18u)) != 0u) {
+            status = phase17_zero_screen6_mode2_update_character(
+                machine, player1, player0, UINT32_C(0x0050086c),
+                navigation_flags
+            );
+        }
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_mode2_motion(
+    vf2_model2a *machine,
+    uint32_t navigation_flags,
+    uint8_t de_flags
+)
+{
+    int32_t motion = 0;
+    vf2_status status = VF2_OK;
+
+    if ((de_flags & UINT8_C(4)) != 0u) {
+        return VF2_OK;
+    }
+    status = phase17_zero_read_s16(
+        machine, UINT32_C(0x00508020), &motion
+    );
+    if (status == VF2_OK &&
+        (navigation_flags & (UINT32_C(1) << 9u)) != 0u) {
+        ++motion;
+        if (motion > 0x54f) {
+            motion = 0;
+        }
+    } else if (status == VF2_OK &&
+               (navigation_flags & (UINT32_C(1) << 8u)) != 0u) {
+        --motion;
+        if (motion < 0) {
+            motion = 0x54f;
+        }
+    }
+    if (status == VF2_OK) {
+        status = write_u16(
+            machine, UINT32_C(0x00508020), (uint16_t)motion
+        );
+    }
+    return status;
+}
+
+static vf2_status phase17_zero_screen6_update_angles(
+    vf2_model2a *machine,
+    uint32_t control
+)
+{
+    uint32_t position[3] = {0u, 0u, 0u};
+    uint32_t target[3] = {0u, 0u, 0u};
+    uint32_t delta[3] = {0u, 0u, 0u};
+    uint32_t magnitude = 0u;
+    uint32_t angle = 0u;
+    uint16_t desired_pitch = 0u;
+    uint16_t desired_yaw = 0u;
+    uint16_t desired_roll = 0u;
+    uint16_t current = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    for (index = 0u; index < 3u && status == VF2_OK; ++index) {
+        status = vf2_model2a_read_u32(
+            machine, control + UINT32_C(0xb4) + (uint32_t)index * UINT32_C(4),
+            &target[index]
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, control + UINT32_C(0x18) + (uint32_t)index * UINT32_C(4),
+                &position[index]
+            );
+        }
+        if (status == VF2_OK) {
+            const uint32_t arguments[2] = {target[index], position[index]};
+            status = phase17_zero_copro_command(
+                machine, UINT32_C(0x0a001414), arguments, 2u,
+                &delta[index], 1u
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        const uint32_t arguments[2] = {delta[0], delta[2]};
+        status = phase17_zero_copro_command(
+            machine, UINT32_C(0x16802d2d), arguments, 2u,
+            &magnitude, 1u
+        );
+    }
+    if (status == VF2_OK) {
+        const uint32_t arguments[2] = {magnitude, delta[1]};
+        status = phase17_zero_copro_command(
+            machine, UINT32_C(0x13802727), arguments, 2u,
+            &angle, 1u
+        );
+        desired_pitch = (uint16_t)angle;
+    }
+    if (status == VF2_OK) {
+        const uint32_t arguments[2] = {
+            delta[2], delta[0] ^ UINT32_C(0x80000000)
+        };
+        status = phase17_zero_copro_command(
+            machine, UINT32_C(0x13802727), arguments, 2u,
+            &angle, 1u
+        );
+        desired_yaw = (uint16_t)angle;
+    }
+    if (status == VF2_OK) {
+        status = read_u16(machine, control + UINT32_C(0xdc), &desired_roll);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, control + UINT32_C(0xd8), desired_pitch);
+    }
+    if (status == VF2_OK) {
+        status = write_u16(machine, control + UINT32_C(0xda), desired_yaw);
+    }
+    if (status == VF2_OK) {
+        const uint16_t desired[3] = {desired_pitch, desired_yaw, desired_roll};
+        const uint32_t current_offsets[3] = {
+            UINT32_C(0x24), UINT32_C(0x26), UINT32_C(0x28)
+        };
+        for (index = 0u; index < 3u && status == VF2_OK; ++index) {
+            int32_t difference = 0;
+            status = read_u16(machine, control + current_offsets[index], &current);
+            if (status != VF2_OK) {
+                break;
+            }
+            difference = (int32_t)(int16_t)(uint16_t)(desired[index] - current);
+            difference >>= 2;
+            current = (uint16_t)(current + (uint16_t)difference);
+            status = write_u16(machine, control + current_offsets[index], current);
+        }
     }
     return status;
 }
@@ -2700,6 +3364,17 @@ static vf2_status phase17_zero_render_missing_body(
             const uint8_t active = camera_mode == 0u ? UINT8_C(1) : 0u;
             status = vf2_model2a_write(machine, control + UINT32_C(0xb0), &active, sizeof(active));
         }
+        if (status == VF2_OK && !entry_path &&
+            (navigation_flags & (UINT32_C(1) << 4u)) != 0u) {
+            camera_mode = (uint8_t)(camera_mode + UINT8_C(1));
+            if (camera_mode > UINT8_C(2)) {
+                camera_mode = 0u;
+            }
+            status = vf2_model2a_write(
+                machine, control + UINT32_C(0xb1), &camera_mode,
+                sizeof(camera_mode)
+            );
+        }
         if (status == VF2_OK && entry_path) {
             const uint8_t zero = 0u;
             const uint8_t one = UINT8_C(1);
@@ -2740,6 +3415,64 @@ static vf2_status phase17_zero_render_missing_body(
                 status = vf2_model2a_write(machine, control + UINT32_C(0xde), &de_flags, sizeof(de_flags));
             }
         }
+        if (status == VF2_OK && !entry_path &&
+            machine->copro_read_callback != NULL &&
+            machine->copro_write_callback != NULL) {
+            if (camera_mode == 0u) {
+                status = phase17_zero_screen6_apply_held_controls(
+                    machine, control, input_flags
+                );
+            } else if (camera_mode == UINT8_C(1)) {
+                const uint32_t position_only = input_flags &
+                    ((UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                     (UINT32_C(1) << 12u) | (UINT32_C(1) << 13u) |
+                     (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u));
+                status = phase17_zero_screen6_apply_held_controls(
+                    machine, control, position_only
+                );
+                if (status == VF2_OK) {
+                    status = phase17_zero_screen6_mode1_target(
+                        machine, control, player0, input_flags
+                    );
+                }
+            } else if (camera_mode == UINT8_C(2)) {
+                status = phase17_zero_screen6_mode2(
+                    machine, control, player0, player1, input_flags,
+                    navigation_flags, de_flags
+                );
+                if (status == VF2_OK) {
+                    status = phase17_zero_screen6_mode2_motion(
+                        machine, navigation_flags, de_flags
+                    );
+                }
+            } else {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK &&
+                (navigation_flags & (UINT32_C(1) << 10u)) != 0u) {
+                status = phase17_zero_screen6_force_blank(
+                    machine, control, player0, &de_flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = phase17_zero_screen6_update_angles(machine, control);
+            }
+        }
+        if (status == VF2_OK && !entry_path &&
+            (navigation_flags & (UINT32_C(1) << 5u)) != 0u) {
+            status = phase17_zero_screen6_toggle_objects(
+                machine, control, player1, &de_flags
+            );
+        }
+        if (status == VF2_OK && !entry_path &&
+            (de_flags & UINT8_C(4)) != 0u) {
+            status = fill_tile_plane_spaces(
+                machine, UINT32_C(0x01000000), UINT32_C(62), UINT32_C(48)
+            );
+            *final_g0 = UINT32_C(62);
+            *final_g9 = UINT32_C(0x01001800);
+            return status;
+        }
         if (status == VF2_OK) status = phase17_zero_copy_text(machine, UINT32_C(0x00055b7c), UINT32_C(0x01000186));
         if (status == VF2_OK) {
             status = vf2_model2a_read_u32(machine, UINT32_C(0x00056040) + ((uint32_t)camera_mode & UINT32_C(3)) * UINT32_C(4), &mode_name);
@@ -2765,14 +3498,22 @@ static vf2_status phase17_zero_render_missing_body(
         if (status == VF2_OK) status = phase17_zero_render_float_inline(machine, bits, 1.0f, UINT32_C(0x0100090a), UINT32_C(0x00055e6c));
         if (status == VF2_OK) status = phase17_zero_copy_text(machine, UINT32_C(0x00055ed8), UINT32_C(0x0100168a));
         if (status == VF2_OK) status = phase17_zero_read_s16(machine, UINT32_C(0x00508020), &motion);
-        if (status == VF2_OK) status = phase17_zero_render_motion_name(machine, motion, UINT32_C(0x0100168a), &descriptor);
+        if (status == VF2_OK) status = phase17_zero_screen6_render_motion_name(machine, motion, UINT32_C(0x0100168a), &descriptor);
         if (status == VF2_OK) status = phase17_zero_copy_text(machine, UINT32_C(0x00055f3c), UINT32_C(0x0100170a));
         if (status == VF2_OK) status = phase17_zero_render_decimal_inline(machine, motion, UINT32_C(0x0100171c), UINT32_C(0x00055f5c));
         if (status == VF2_OK) status = phase17_zero_copy_text(machine, UINT32_C(0x00055f94), UINT32_C(0x01000a0a));
         if (status == VF2_OK) status = phase17_zero_copy_text(machine, UINT32_C(0x00055fb0), UINT32_C(0x01000a8a));
         if (status == VF2_OK) status = phase17_zero_copy_text(machine, UINT32_C(0x00055fec), UINT32_C(0x01000a2e));
-        if (status == VF2_OK) status = phase17_zero_copy_text(machine, entry_path ? UINT32_C(0x00055ffc) : UINT32_C(0x00056010), UINT32_C(0x01000aae));
-        *final_g0 = entry_path ? UINT32_C(0x00002020) : UINT32_C(0x0000454c);
+        if (status == VF2_OK) status = phase17_zero_copy_text(
+            machine,
+            (de_flags & UINT8_C(1)) != 0u
+                ? UINT32_C(0x00055ffc)
+                : UINT32_C(0x00056010),
+            UINT32_C(0x01000aae)
+        );
+        *final_g0 = entry_path || (de_flags & UINT8_C(1)) != 0u
+            ? UINT32_C(0x00002020)
+            : UINT32_C(0x0000454c);
         *final_g9 = UINT32_C(0x01000b2e);
         return status;
     }
@@ -3962,8 +4703,10 @@ static vf2_status execute_frame_phase17_zero_control_menu(
             UINT32_C(3), UINT32_C(4)
         };
         uint32_t final_g0 = 0u;
+        uint32_t final_g1 = 0u;
         uint32_t final_g9 = 0u;
         int32_t control_instruction_adjustment = 0;
+        uint64_t active_nested_calls = nested_calls[menu_index];
 
         status = vf2_model2a_read_u32(
             machine, UINT32_C(0x00055128) +
@@ -4034,6 +4777,159 @@ static vf2_status execute_frame_phase17_zero_control_menu(
                 break;
             default:
                 return VF2_ERROR_UNSUPPORTED;
+            }
+        } else if (menu_index == UINT8_C(6)) {
+            uint8_t camera_mode = 0u;
+            uint8_t de_flags = 0u;
+            const uint32_t supported_input =
+                (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                (UINT32_C(1) << 12u) | (UINT32_C(1) << 13u) |
+                (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+                (UINT32_C(1) << 16u) | (UINT32_C(1) << 17u) |
+                (UINT32_C(1) << 18u) |
+                (UINT32_C(1) << 20u) | (UINT32_C(1) << 21u) |
+                (UINT32_C(1) << 22u) | (UINT32_C(1) << 23u);
+            const uint32_t supported_navigation =
+                (UINT32_C(1) << 4u) | (UINT32_C(1) << 5u) |
+                (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                (UINT32_C(1) << 10u) |
+                (UINT32_C(1) << 12u) | (UINT32_C(1) << 13u) |
+                (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+                (UINT32_C(1) << 16u) | (UINT32_C(1) << 17u);
+
+            status = vf2_model2a_read(
+                machine, control + UINT32_C(0xb1),
+                &camera_mode, sizeof(camera_mode)
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_read(
+                    machine, control + UINT32_C(0xde),
+                    &de_flags, sizeof(de_flags)
+                );
+            }
+            if (status != VF2_OK ||
+                (effective_input_flags & ~supported_input) != 0u ||
+                (navigation_flags & ~supported_navigation) != 0u) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
+            if (camera_mode == UINT8_C(2)) {
+                const uint32_t mode2_inputs =
+                    (UINT32_C(1) << 12u) | (UINT32_C(1) << 13u) |
+                    (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+                    (UINT32_C(1) << 16u) | (UINT32_C(1) << 17u) |
+                    (UINT32_C(1) << 18u) |
+                    (UINT32_C(1) << 20u) | (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 22u) | (UINT32_C(1) << 23u);
+                const uint32_t mode2_navigation =
+                    (UINT32_C(1) << 5u) |
+                    (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                    (UINT32_C(1) << 10u) |
+                    (UINT32_C(1) << 16u) | (UINT32_C(1) << 17u);
+
+                if ((effective_input_flags & ~mode2_inputs) != 0u ||
+                    (navigation_flags & ~mode2_navigation) != 0u) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                control_instruction_adjustment = -168;
+                active_nested_calls = UINT64_C(36);
+                final_g1 = navigation_flags;
+                if ((de_flags & UINT8_C(1)) != 0u) {
+                    control_instruction_adjustment += 4;
+                }
+                if ((effective_input_flags & (UINT32_C(1) << 13u)) != 0u) {
+                    control_instruction_adjustment += 1;
+                } else if ((effective_input_flags & (UINT32_C(1) << 12u)) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((effective_input_flags & (UINT32_C(1) << 14u)) != 0u) {
+                    control_instruction_adjustment += 1;
+                } else if ((effective_input_flags & (UINT32_C(1) << 15u)) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((effective_input_flags & ((UINT32_C(1) << 22u) |
+                                              (UINT32_C(1) << 23u))) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((effective_input_flags & (UINT32_C(1) << 18u)) != 0u &&
+                    (de_flags & UINT8_C(1)) == 0u) {
+                    control_instruction_adjustment -= 3;
+                }
+                if ((de_flags & UINT8_C(1)) != 0u &&
+                    (effective_input_flags & ((UINT32_C(1) << 20u) |
+                                              (UINT32_C(1) << 21u))) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((navigation_flags & (UINT32_C(1) << 5u)) != 0u) {
+                    control_instruction_adjustment += 23;
+                }
+                if ((navigation_flags & (UINT32_C(1) << 9u)) != 0u) {
+                    control_instruction_adjustment += 18;
+                } else if ((navigation_flags & (UINT32_C(1) << 8u)) != 0u) {
+                    control_instruction_adjustment += 75;
+                }
+                if ((navigation_flags & ((UINT32_C(1) << 16u) |
+                                         (UINT32_C(1) << 17u))) != 0u &&
+                    ((effective_input_flags & (UINT32_C(1) << 18u)) == 0u ||
+                     (de_flags & UINT8_C(1)) != 0u)) {
+                    control_instruction_adjustment += 19;
+                }
+            }
+            if (camera_mode != UINT8_C(2) &&
+                (navigation_flags & (UINT32_C(1) << 4u)) != 0u) {
+                control_instruction_adjustment -= 34;
+                active_nested_calls += UINT64_C(1);
+            }
+            if (camera_mode != UINT8_C(2) &&
+                (navigation_flags & (UINT32_C(1) << 5u)) != 0u) {
+                control_instruction_adjustment += 23;
+            }
+            if ((navigation_flags & (UINT32_C(1) << 10u)) != 0u) {
+                control_instruction_adjustment = camera_mode == UINT8_C(2)
+                    ? 9287 : 9456;
+                active_nested_calls = camera_mode == UINT8_C(2)
+                    ? UINT64_C(8) : UINT64_C(9);
+                if (camera_mode == UINT8_C(2)) {
+                    final_g1 = 0u;
+                }
+            }
+            if ((runtime_flags & (UINT32_C(1) << 9u)) != 0u) {
+                control_instruction_adjustment = camera_mode == UINT8_C(2)
+                    ? 9284 : 9457;
+                active_nested_calls = camera_mode == UINT8_C(2)
+                    ? UINT64_C(8) : UINT64_C(9);
+                if (camera_mode == UINT8_C(2)) {
+                    final_g1 = 0u;
+                }
+            }
+            if (camera_mode != UINT8_C(2)) {
+                if ((effective_input_flags & (UINT32_C(1) << 13u)) != 0u) {
+                    control_instruction_adjustment += 1;
+                } else if ((effective_input_flags & (UINT32_C(1) << 12u)) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((effective_input_flags & (UINT32_C(1) << 14u)) != 0u) {
+                    control_instruction_adjustment += 1;
+                } else if ((effective_input_flags & (UINT32_C(1) << 15u)) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((effective_input_flags & ((UINT32_C(1) << 8u) |
+                                              (UINT32_C(1) << 9u))) != 0u) {
+                    control_instruction_adjustment += 2;
+                }
+                if ((effective_input_flags & (UINT32_C(1) << 21u)) != 0u) {
+                    control_instruction_adjustment += 1;
+                } else if ((effective_input_flags & (UINT32_C(1) << 20u)) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((effective_input_flags & (UINT32_C(1) << 22u)) != 0u) {
+                    control_instruction_adjustment += 1;
+                } else if ((effective_input_flags & (UINT32_C(1) << 23u)) != 0u) {
+                    control_instruction_adjustment += 3;
+                }
+                if ((effective_input_flags & ((UINT32_C(1) << 16u) |
+                                              (UINT32_C(1) << 17u))) != 0u) {
+                    control_instruction_adjustment += 2;
+                }
             }
         } else if (menu_index == UINT8_C(9)) {
             if (effective_input_flags != 0u) {
@@ -4154,7 +5050,7 @@ static vf2_status execute_frame_phase17_zero_control_menu(
             return status;
         }
         cpu->registers[VF2_I960_G0_REGISTER] = final_g0;
-        cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = final_g1;
         cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
         cpu->registers[VF2_I960_G0_REGISTER + 3u] = 0u;
         cpu->registers[VF2_I960_G0_REGISTER + 4u] = 0u;
@@ -4171,7 +5067,7 @@ static vf2_status execute_frame_phase17_zero_control_menu(
         cpu->registers[VF2_I960_G0_REGISTER + 15u] = 0u;
         set_equal_condition(cpu);
         account_nested_procedure(
-            cpu, nested_calls[menu_index], nested_calls[menu_index]
+            cpu, active_nested_calls, active_nested_calls
         );
         if (cpu->maximum_local_frame_depth <
             cpu->local_frame_depth + depth_deltas[menu_index]) {

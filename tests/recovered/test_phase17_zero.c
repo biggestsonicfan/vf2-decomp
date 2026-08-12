@@ -34,15 +34,20 @@ typedef struct phase17_zero_case {
     uint64_t expected_calls;
     uint64_t expected_returns;
     uint32_t expected_depth;
+    uint8_t seed_camera_mode;
+    uint8_t seed_de_flags;
 } phase17_zero_case;
 
 typedef struct phase17_copro_protocol {
     uint32_t words[4];
     size_t count;
     size_t expected_words;
-    uint32_t result;
-    int ready;
+    uint32_t results[3];
+    size_t result_count;
+    size_t result_index;
 } phase17_copro_protocol;
+
+static uint32_t phase17_tgp_tables[UINT32_C(0x10000)];
 
 static float phase17_float_from_bits(uint32_t bits)
 {
@@ -58,6 +63,113 @@ static uint32_t phase17_float_to_bits(float value)
     return bits;
 }
 
+static uint32_t phase17_set_float_exp(uint32_t value, uint32_t exp)
+{
+    return (value & UINT32_C(0x807fffff)) | ((exp & UINT32_C(0xff)) << 23u);
+}
+
+static uint32_t phase17_copro_isqrt(uint32_t base, uint32_t offset)
+{
+    const uint32_t index = UINT32_C(0x2000) ^
+        (((base >> 10u) & UINT32_C(0x3ffe)) | (offset & UINT32_C(1)));
+    uint32_t result = phase17_tgp_tables[index | UINT32_C(0xc000)];
+    const uint32_t base_exp = (base >> 24u) & UINT32_C(0x7f);
+    const uint32_t exp = ((result >> 23u) + (UINT32_C(0x3f) - base_exp)) & UINT32_C(0xff);
+    result = (result & UINT32_C(0x807fffff)) | (exp << 23u);
+    if ((offset & UINT32_C(1)) == 0u) {
+        result &= UINT32_C(0x7fffffff);
+    }
+    return result;
+}
+
+static uint32_t phase17_copro_sqrt2(uint32_t x_bits, uint32_t y_bits)
+{
+    const float x = phase17_float_from_bits(x_bits);
+    const float y = phase17_float_from_bits(y_bits);
+    const float x2 = x * x;
+    const float y2 = y * y;
+    float d = x2 + y2;
+    const uint32_t base = phase17_float_to_bits(d);
+    float a = phase17_float_from_bits(phase17_set_float_exp(base, UINT32_C(0x7f)));
+    float b = phase17_float_from_bits(phase17_copro_isqrt(base, 0u));
+    float product = a * b;
+    a = d;
+    d = phase17_float_from_bits(phase17_copro_isqrt(base, 1u));
+    d = d - product;
+    product = a * b;
+    (void)product;
+    b = d;
+    product = a * b;
+    return phase17_float_to_bits(product);
+}
+
+static uint32_t phase17_copro_atan_result(
+    uint32_t base0,
+    uint32_t base1,
+    uint32_t ratio_bits
+)
+{
+    const uint32_t exponent = ratio_bits >> 23u;
+    const uint32_t ie = (UINT32_C(0x88) - exponent) & UINT32_C(0xff);
+    const int s0 = (base0 & UINT32_C(0x80000000)) != 0u;
+    const int s1 = (base1 & UINT32_C(0x80000000)) != 0u;
+    const int s2 = (base0 & UINT32_C(0x7fffffff)) <=
+                   (base1 & UINT32_C(0x7fffffff));
+    const uint32_t mantissa = ratio_bits & UINT32_C(0x7fffff);
+    uint32_t index = ie <= UINT32_C(0x17)
+        ? (mantissa | UINT32_C(0x800000)) >> ie
+        : 0u;
+    uint32_t result = 0u;
+
+    if (index == UINT32_C(0x4000)) {
+        index = UINT32_C(0x3fff);
+    }
+    result = phase17_tgp_tables[index | UINT32_C(0x4000)];
+    if ((s0 ^ s1 ^ s2) != 0) {
+        result >>= 16u;
+    }
+    if (s2) {
+        result += UINT32_C(0x4000);
+    }
+    if ((s0 && !s2) || (s1 && s2)) {
+        result += UINT32_C(0x8000);
+    }
+    return result & UINT32_C(0xffff);
+}
+
+static uint32_t phase17_copro_atan(uint32_t first_bits, uint32_t second_bits)
+{
+    const int second_dominant =
+        (first_bits & UINT32_C(0x7fffffff)) <=
+        (second_bits & UINT32_C(0x7fffffff));
+    const float numerator = phase17_float_from_bits(
+        second_dominant ? first_bits : second_bits
+    );
+    const float denominator = phase17_float_from_bits(
+        second_dominant ? second_bits : first_bits
+    );
+    float ratio = 0.0f;
+    const float threshold = phase17_float_from_bits(UINT32_C(0x37ffffff));
+
+    if (denominator == 0.0f) {
+        ratio = 0.0f;
+    } else {
+        ratio = numerator / denominator;
+    }
+    if (ratio < 0.0f ? -ratio <= threshold : ratio <= threshold) {
+        ratio = 0.0f;
+    }
+    return phase17_copro_atan_result(
+        first_bits, second_bits, phase17_float_to_bits(ratio)
+    );
+}
+
+static void phase17_copro_reset_packet(phase17_copro_protocol *copro)
+{
+    copro->count = 0u;
+    copro->expected_words = 0u;
+}
+
 static vf2_status phase17_copro_write(
     void *context,
     uint32_t address,
@@ -69,8 +181,8 @@ static vf2_status phase17_copro_write(
     uint32_t value = 0u;
 
     if (copro == NULL || source == NULL || size != sizeof(value) ||
-        address < UINT32_C(0x00884000) ||
-        address >= UINT32_C(0x00888000) || copro->ready ||
+        address < UINT32_C(0x00884000) || address >= UINT32_C(0x00888000) ||
+        copro->result_index != copro->result_count ||
         copro->count >= sizeof(copro->words) / sizeof(copro->words[0])) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
@@ -80,7 +192,14 @@ static vf2_status phase17_copro_write(
         switch (value) {
         case UINT32_C(0x09801313):
         case UINT32_C(0x0a001414):
+        case UINT32_C(0x0b001616):
+        case UINT32_C(0x16802d2d):
+        case UINT32_C(0x13802727):
             copro->expected_words = 3u;
+            break;
+        case UINT32_C(0x14802929):
+        case UINT32_C(0x03800707):
+            copro->expected_words = 4u;
             break;
         case UINT32_C(0x10802121):
         case UINT32_C(0x11002222):
@@ -93,9 +212,6 @@ static vf2_status phase17_copro_write(
         case UINT32_C(0x37806f6f):
             copro->expected_words = 1u;
             break;
-        case UINT32_C(0x03800707):
-            copro->expected_words = 4u;
-            break;
         default:
             return VF2_ERROR_INVALID_ARGUMENT;
         }
@@ -106,44 +222,67 @@ static vf2_status phase17_copro_write(
         return VF2_OK;
     }
 
+    copro->result_count = 0u;
+    copro->result_index = 0u;
     switch (copro->words[0]) {
     case UINT32_C(0x09801313): {
         const float left = phase17_float_from_bits(copro->words[1]);
         const float right = phase17_float_from_bits(copro->words[2]);
-        copro->result = phase17_float_to_bits(left + right);
-        copro->ready = 1;
+        copro->results[0] = phase17_float_to_bits(left + right);
+        copro->result_count = 1u;
         break;
     }
     case UINT32_C(0x0a001414): {
         const float left = phase17_float_from_bits(copro->words[1]);
         const float right = phase17_float_from_bits(copro->words[2]);
-        copro->result = phase17_float_to_bits(left - right);
-        copro->ready = 1;
+        copro->results[0] = phase17_float_to_bits(left - right);
+        copro->result_count = 1u;
         break;
     }
+    case UINT32_C(0x0b001616): {
+        const float numerator = phase17_float_from_bits(copro->words[1]);
+        const float denominator = phase17_float_from_bits(copro->words[2]);
+        copro->results[0] = phase17_float_to_bits(numerator / denominator);
+        copro->result_count = 1u;
+        break;
+    }
+    case UINT32_C(0x14802929):
+        /* Screen 6 starts each adjustment from the identity matrix. */
+        copro->results[0] = copro->words[1];
+        copro->results[1] = copro->words[2];
+        copro->results[2] = copro->words[3];
+        copro->result_count = 3u;
+        break;
+    case UINT32_C(0x16802d2d):
+        copro->results[0] = phase17_copro_sqrt2(copro->words[1], copro->words[2]);
+        copro->result_count = 1u;
+        break;
+    case UINT32_C(0x13802727):
+        copro->results[0] = phase17_copro_atan(copro->words[1], copro->words[2]);
+        copro->result_count = 1u;
+        break;
     case UINT32_C(0x10802121):
     case UINT32_C(0x11002222):
         if (copro->words[1] != 0u) {
             return VF2_ERROR_INVALID_ARGUMENT;
         }
-        copro->result = 0u;
-        copro->ready = 1;
+        copro->results[0] = 0u;
+        copro->result_count = 1u;
         break;
     case UINT32_C(0x1a003434):
-        copro->result = 0u;
-        copro->ready = 1;
+        copro->results[0] = 0u;
+        copro->result_count = 1u;
         break;
     case UINT32_C(0x00800101):
     case UINT32_C(0x01000202):
     case UINT32_C(0x01800303):
     case UINT32_C(0x37806f6f):
     case UINT32_C(0x03800707):
-        copro->count = 0u;
-        copro->expected_words = 0u;
         break;
     default:
         return VF2_ERROR_INVALID_ARGUMENT;
     }
+    phase17_copro_reset_packet(copro);
     return VF2_OK;
 }
 
@@ -157,16 +296,55 @@ static vf2_status phase17_copro_read(
     phase17_copro_protocol *copro = context;
 
     if (copro == NULL || destination == NULL ||
-        size != sizeof(copro->result) ||
-        address < UINT32_C(0x00884000) ||
-        address >= UINT32_C(0x00888000) || !copro->ready) {
+        size != sizeof(copro->results[0]) ||
+        address < UINT32_C(0x00884000) || address >= UINT32_C(0x00888000) ||
+        copro->result_index >= copro->result_count) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    memcpy(destination, &copro->result, sizeof(copro->result));
-    copro->count = 0u;
-    copro->expected_words = 0u;
-    copro->ready = 0;
+    memcpy(destination, &copro->results[copro->result_index], sizeof(copro->results[0]));
+    ++copro->result_index;
+    if (copro->result_index == copro->result_count) {
+        copro->result_index = 0u;
+        copro->result_count = 0u;
+    }
     return VF2_OK;
+}
+
+static int phase17_load_tgp_tables(const char *rom_dir)
+{
+    char path0[1024];
+    char path1[1024];
+    FILE *first = NULL;
+    FILE *second = NULL;
+    uint8_t first_word[2];
+    uint8_t second_word[2];
+    uint32_t index = 0u;
+
+    snprintf(path0, sizeof(path0), "%s/opr-14742a.45", rom_dir);
+    snprintf(path1, sizeof(path1), "%s/opr-14743a.46", rom_dir);
+    first = fopen(path0, "rb");
+    second = fopen(path1, "rb");
+    if (first == NULL || second == NULL) {
+        if (first != NULL) fclose(first);
+        if (second != NULL) fclose(second);
+        return 0;
+    }
+    for (index = 0u; index < UINT32_C(0x10000); ++index) {
+        if (fread(first_word, 1u, 2u, first) != 2u ||
+            fread(second_word, 1u, 2u, second) != 2u) {
+            fclose(first);
+            fclose(second);
+            return 0;
+        }
+        phase17_tgp_tables[index] =
+            (uint32_t)first_word[0] |
+            ((uint32_t)first_word[1] << 8u) |
+            ((uint32_t)second_word[0] << 16u) |
+            ((uint32_t)second_word[1] << 24u);
+    }
+    fclose(first);
+    fclose(second);
+    return 1;
 }
 
 static int check_status(vf2_status status)
@@ -334,15 +512,16 @@ static void run_case(
     vf2_status native_status = VF2_OK;
     vf2_status compare_status = VF2_OK;
     const int use_copro_oracle =
-        test_case->runtime_flags == 0u &&
         test_case->previous_flags == test_case->input_flags &&
         test_case->menu_state == UINT8_C(0x40) &&
-        ((test_case->navigation_flags == 0u &&
-          (test_case->menu_index == UINT8_C(3) ||
-           test_case->menu_index == UINT8_C(5) ||
-           test_case->menu_index == UINT8_C(10) ||
-           test_case->menu_index == UINT8_C(12))) ||
-         test_case->menu_index == UINT8_C(13));
+        (test_case->menu_index == UINT8_C(6) ||
+         (test_case->runtime_flags == 0u &&
+          ((test_case->navigation_flags == 0u &&
+            (test_case->menu_index == UINT8_C(3) ||
+             test_case->menu_index == UINT8_C(5) ||
+             test_case->menu_index == UINT8_C(10) ||
+             test_case->menu_index == UINT8_C(12))) ||
+           test_case->menu_index == UINT8_C(13))));
 
     memset(&reference_machine, 0, sizeof(reference_machine));
     memset(&native_machine, 0, sizeof(native_machine));
@@ -380,6 +559,22 @@ static void run_case(
               &reference_machine, test_case)));
     CHECK(check_status(initialize_phase17_zero_state(
               &native_machine, test_case)));
+    if (test_case->seed_camera_mode != 0u) {
+        CHECK(write_u8(
+                  &reference_machine, UINT32_C(0x005140b1),
+                  test_case->seed_camera_mode) == VF2_OK);
+        CHECK(write_u8(
+                  &native_machine, UINT32_C(0x005140b1),
+                  test_case->seed_camera_mode) == VF2_OK);
+    }
+    if (test_case->seed_de_flags != 0u) {
+        CHECK(write_u8(
+                  &reference_machine, UINT32_C(0x005140de),
+                  test_case->seed_de_flags) == VF2_OK);
+        CHECK(write_u8(
+                  &native_machine, UINT32_C(0x005140de),
+                  test_case->seed_de_flags) == VF2_OK);
+    }
     CHECK(enter_frame_dispatch(&reference_cpu) == VF2_OK);
     CHECK(enter_frame_dispatch(&native_cpu) == VF2_OK);
     if (use_copro_oracle) {
@@ -431,17 +626,23 @@ static void run_case(
     { label, UINT8_C(index), 0u, (uint32_t)(input), (uint32_t)(navigation), \
       (uint32_t)(input), UINT8_C(0x40), (uint32_t)(seed_offset), \
       (uint16_t)(seed_value), UINT64_C(instructions), UINT64_C(calls), \
-      UINT64_C(returns), UINT32_C(depth) }
+      UINT64_C(returns), UINT32_C(depth), 0u, 0u }
 
 #define INPUT_EDGE_CASE(label, index, input, previous, state, instructions, calls, returns, depth) \
     { label, UINT8_C(index), 0u, (uint32_t)(input), 0u, \
       (uint32_t)(previous), UINT8_C(state), 0u, 0u, UINT64_C(instructions), \
-      UINT64_C(calls), UINT64_C(returns), UINT32_C(depth) }
+      UINT64_C(calls), UINT64_C(returns), UINT32_C(depth), 0u, 0u }
 
 #define TRANSITION_CASE(label, index, runtime, navigation, instructions, calls, returns, depth) \
     { label, UINT8_C(index), (uint32_t)(runtime), UINT32_C(1) << 5u, \
       (uint32_t)(navigation), UINT32_C(1) << 5u, UINT8_C(0x40), 0u, 0u, \
-      UINT64_C(instructions), UINT64_C(calls), UINT64_C(returns), UINT32_C(depth) }
+      UINT64_C(instructions), UINT64_C(calls), UINT64_C(returns), UINT32_C(depth), 0u, 0u }
+
+#define SCREEN6_SEEDED_CASE(label, runtime, input, navigation, mode, de, instructions, calls, returns, depth) \
+    { label, UINT8_C(6), (uint32_t)(runtime), (uint32_t)(input), \
+      (uint32_t)(navigation), (uint32_t)(input), UINT8_C(0x40), 0u, 0u, \
+      UINT64_C(instructions), UINT64_C(calls), UINT64_C(returns), \
+      UINT32_C(depth), UINT8_C(mode), UINT8_C(de) }
 
 int main(int argc, char **argv)
 {
@@ -449,7 +650,7 @@ int main(int argc, char **argv)
         IDLE_CASE("index0-control-test", 0, 0, 0, 0, 0, 267, 6, 7, 5),
         {"index0-control-test-blank", 0u, UINT32_C(1) << 9u,
          0u, 0u, 0u, UINT8_C(0x40), 0u, 0u, UINT64_C(266), UINT64_C(6), UINT64_C(7),
-         UINT32_C(5)},
+         UINT32_C(5), 0u, 0u},
         IDLE_CASE("index1-motion", 1, 0, 0, 0, 0, 534, 9, 10, 4),
         IDLE_CASE("index2-command", 2, 0, 0, 0, 0, 318, 8, 9, 4),
         IDLE_CASE("index3-robot-position", 3, 0, 0, 0, 0, 695, 12, 13, 4),
@@ -525,6 +726,118 @@ int main(int argc, char **argv)
                   (1u << 9u) | (1u << 15u), 0, 0, 0,
                   702, 13, 14, 4),
         IDLE_CASE("index6-camera-position2", 6, 0, 0, 0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index6-position-z-inc", 6, (1u << 8u), 0,
+                  0, 0, 3065, 37, 38, 4),
+        IDLE_CASE("index6-position-z-dec", 6, (1u << 9u), 0,
+                  0, 0, 3065, 37, 38, 4),
+        IDLE_CASE("index6-position-y-dec", 6, (1u << 12u), 0,
+                  0, 0, 3066, 37, 38, 4),
+        IDLE_CASE("index6-position-y-inc", 6, (1u << 13u), 0,
+                  0, 0, 3064, 37, 38, 4),
+        IDLE_CASE("index6-position-x-inc", 6, (1u << 14u), 0,
+                  0, 0, 3064, 37, 38, 4),
+        IDLE_CASE("index6-position-x-dec", 6, (1u << 15u), 0,
+                  0, 0, 3066, 37, 38, 4),
+        IDLE_CASE("index6-target-z-inc", 6, (1u << 16u), 0,
+                  0, 0, 3065, 37, 38, 4),
+        IDLE_CASE("index6-target-z-dec", 6, (1u << 17u), 0,
+                  0, 0, 3065, 37, 38, 4),
+        IDLE_CASE("index6-target-y-dec", 6, (1u << 20u), 0,
+                  0, 0, 3066, 37, 38, 4),
+        IDLE_CASE("index6-target-y-inc", 6, (1u << 21u), 0,
+                  0, 0, 3064, 37, 38, 4),
+        IDLE_CASE("index6-target-x-inc", 6, (1u << 22u), 0,
+                  0, 0, 3064, 37, 38, 4),
+        IDLE_CASE("index6-target-x-dec", 6, (1u << 23u), 0,
+                  0, 0, 3066, 37, 38, 4),
+        IDLE_CASE("index6-nav8-noop", 6, 0, (1u << 8u),
+                  0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index6-nav9-noop", 6, 0, (1u << 9u),
+                  0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index6-nav12-noop", 6, 0, (1u << 12u),
+                  0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index6-nav13-noop", 6, 0, (1u << 13u),
+                  0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index6-nav14-noop", 6, 0, (1u << 14u),
+                  0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index6-nav15-noop", 6, 0, (1u << 15u),
+                  0, 0, 3063, 37, 38, 4),
+        IDLE_CASE("index6-mode-next", 6, 0, (1u << 4u),
+                  0, 0, 3029, 38, 39, 4),
+        IDLE_CASE("index6-toggle-twin", 6, 0, (1u << 5u),
+                  0, 0, 3086, 37, 38, 4),
+        IDLE_CASE("index6-force-blank", 6, 0, (1u << 10u),
+                  0, 0, 12519, 9, 10, 4),
+        SCREEN6_SEEDED_CASE("index6-runtime-blank", (1u << 9u), 0, 0,
+                            0, 0, 12520, 9, 10, 4),
+        IDLE_CASE("index6-position-priority", 6,
+                  (1u << 8u) | (1u << 9u) | (1u << 12u) |
+                  (1u << 13u) | (1u << 14u) | (1u << 15u),
+                  0, 0, 0, 3067, 37, 38, 4),
+        IDLE_CASE("index6-target-priority", 6,
+                  (1u << 16u) | (1u << 17u) | (1u << 20u) |
+                  (1u << 21u) | (1u << 22u) | (1u << 23u),
+                  0, 0, 0, 3067, 37, 38, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-idle", 0, 0, 0,
+                            2, 0, 2895, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-z-dec", 0, (1u << 12u), 0,
+                            2, 0, 2898, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-z-inc", 0, (1u << 13u), 0,
+                            2, 0, 2896, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-x-inc", 0, (1u << 14u), 0,
+                            2, 0, 2896, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-x-dec", 0, (1u << 15u), 0,
+                            2, 0, 2898, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-p1-rotate-dec", 0,
+                            (1u << 22u), 0, 2, 0, 2898, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-p1-rotate-inc", 0,
+                            (1u << 23u), 0, 2, 0, 2898, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-motion-prev", 0, 0,
+                            (1u << 8u), 2, 0, 2970, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-motion-next", 0, 0,
+                            (1u << 9u), 2, 0, 2913, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-character-prev", 0, 0,
+                            (1u << 16u), 2, 0, 2914, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-character-next", 0, 0,
+                            (1u << 17u), 2, 0, 2914, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-input16-noop", 0,
+                            (1u << 16u), 0, 2, 0, 2895, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-input17-noop", 0,
+                            (1u << 17u), 0, 2, 0, 2895, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-select-p2-disabled", 0,
+                            (1u << 18u), 0, 2, 0, 2892, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-p2-rotate-dec-disabled", 0,
+                            (1u << 20u), 0, 2, 0, 2895, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-p2-rotate-inc-disabled", 0,
+                            (1u << 21u), 0, 2, 0, 2895, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-toggle-twin", 0, 0,
+                            (1u << 5u), 2, 0, 2918, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-force-blank", 0, 0,
+                            (1u << 10u), 2, 0, 12350, 8, 9, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-runtime-blank", (1u << 9u),
+                            0, 0, 2, 0, 12347, 8, 9, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-idle", 0, 0, 0,
+                            2, 1, 2899, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p1-character-prev", 0, 0,
+                            (1u << 16u), 2, 1, 2918, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p1-character-next", 0, 0,
+                            (1u << 17u), 2, 1, 2918, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-select-p2", 0,
+                            (1u << 18u), 0, 2, 1, 2899, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p1-rotate-dec", 0,
+                            (1u << 22u), 0, 2, 1, 2902, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p1-rotate-inc", 0,
+                            (1u << 23u), 0, 2, 1, 2902, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p2-rotate-dec", 0,
+                            (1u << 20u), 0, 2, 1, 2902, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p2-rotate-inc", 0,
+                            (1u << 21u), 0, 2, 1, 2902, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p2-character-prev", 0,
+                            (1u << 18u), (1u << 16u),
+                            2, 1, 2918, 36, 37, 4),
+        SCREEN6_SEEDED_CASE("index6-mode2-twin-p2-character-next", 0,
+                            (1u << 18u), (1u << 17u),
+                            2, 1, 2918, 36, 37, 4),
         IDLE_CASE("index7-camera-average", 7, 0, 0, 0, 0, 146, 4, 5, 4),
         IDLE_CASE("index8-hiji", 8, 0, 0, 0, 0, 45, 2, 3, 3),
         IDLE_CASE("index8-mode-buttons", 8, 0, (1u << 8u) | (1u << 9u),
@@ -723,6 +1036,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s ROM_DIR\n", argv[0]);
         return EXIT_FAILURE;
     }
+    CHECK(phase17_load_tgp_tables(argv[1]));
     CHECK(vf2_romset_build_region(
               argv[1], VF2_REGION_MAINCPU,
               &main_rom, &main_rom_size) == VF2_OK);
