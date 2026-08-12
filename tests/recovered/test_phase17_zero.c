@@ -36,12 +36,13 @@ typedef struct phase17_zero_case {
     uint32_t expected_depth;
 } phase17_zero_case;
 
-typedef struct phase17_scalar_copro {
-    uint32_t words[3];
+typedef struct phase17_copro_protocol {
+    uint32_t words[4];
     size_t count;
+    size_t expected_words;
     uint32_t result;
     int ready;
-} phase17_scalar_copro;
+} phase17_copro_protocol;
 
 static float phase17_float_from_bits(uint32_t bits)
 {
@@ -64,35 +65,85 @@ static vf2_status phase17_copro_write(
     size_t size
 )
 {
-    phase17_scalar_copro *copro = context;
+    phase17_copro_protocol *copro = context;
     uint32_t value = 0u;
-    float left = 0.0f;
-    float right = 0.0f;
 
     if (copro == NULL || source == NULL || size != sizeof(value) ||
         address < UINT32_C(0x00884000) ||
-        address >= UINT32_C(0x00888000) || copro->count >= 3u) {
+        address >= UINT32_C(0x00888000) || copro->ready ||
+        copro->count >= sizeof(copro->words) / sizeof(copro->words[0])) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     memcpy(&value, source, sizeof(value));
+
+    if (copro->count == 0u) {
+        switch (value) {
+        case UINT32_C(0x09801313):
+        case UINT32_C(0x0a001414):
+            copro->expected_words = 3u;
+            break;
+        case UINT32_C(0x10802121):
+        case UINT32_C(0x11002222):
+        case UINT32_C(0x1a003434):
+            copro->expected_words = 2u;
+            break;
+        case UINT32_C(0x00800101):
+        case UINT32_C(0x01000202):
+        case UINT32_C(0x01800303):
+        case UINT32_C(0x37806f6f):
+            copro->expected_words = 1u;
+            break;
+        case UINT32_C(0x03800707):
+            copro->expected_words = 4u;
+            break;
+        default:
+            return VF2_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
     copro->words[copro->count++] = value;
-    if (copro->count != 3u) {
+    if (copro->count != copro->expected_words) {
         return VF2_OK;
     }
 
-    left = phase17_float_from_bits(copro->words[1]);
-    right = phase17_float_from_bits(copro->words[2]);
     switch (copro->words[0]) {
-    case UINT32_C(0x09801313):
+    case UINT32_C(0x09801313): {
+        const float left = phase17_float_from_bits(copro->words[1]);
+        const float right = phase17_float_from_bits(copro->words[2]);
         copro->result = phase17_float_to_bits(left + right);
+        copro->ready = 1;
         break;
-    case UINT32_C(0x0a001414):
+    }
+    case UINT32_C(0x0a001414): {
+        const float left = phase17_float_from_bits(copro->words[1]);
+        const float right = phase17_float_from_bits(copro->words[2]);
         copro->result = phase17_float_to_bits(left - right);
+        copro->ready = 1;
+        break;
+    }
+    case UINT32_C(0x10802121):
+    case UINT32_C(0x11002222):
+        if (copro->words[1] != 0u) {
+            return VF2_ERROR_INVALID_ARGUMENT;
+        }
+        copro->result = 0u;
+        copro->ready = 1;
+        break;
+    case UINT32_C(0x1a003434):
+        copro->result = 0u;
+        copro->ready = 1;
+        break;
+    case UINT32_C(0x00800101):
+    case UINT32_C(0x01000202):
+    case UINT32_C(0x01800303):
+    case UINT32_C(0x37806f6f):
+    case UINT32_C(0x03800707):
+        copro->count = 0u;
+        copro->expected_words = 0u;
         break;
     default:
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    copro->ready = 1;
     return VF2_OK;
 }
 
@@ -103,7 +154,7 @@ static vf2_status phase17_copro_read(
     size_t size
 )
 {
-    phase17_scalar_copro *copro = context;
+    phase17_copro_protocol *copro = context;
 
     if (copro == NULL || destination == NULL ||
         size != sizeof(copro->result) ||
@@ -113,6 +164,7 @@ static vf2_status phase17_copro_read(
     }
     memcpy(destination, &copro->result, sizeof(copro->result));
     copro->count = 0u;
+    copro->expected_words = 0u;
     copro->ready = 0;
     return VF2_OK;
 }
@@ -276,20 +328,21 @@ static void run_case(
     vf2_i960_run_result run_result;
     vf2_hybrid_bridge_report bridge_report;
     vf2_i960_snapshot_diff diff;
-    phase17_scalar_copro reference_copro;
-    phase17_scalar_copro native_copro;
+    phase17_copro_protocol reference_copro;
+    phase17_copro_protocol native_copro;
     vf2_status reference_status = VF2_OK;
     vf2_status native_status = VF2_OK;
     vf2_status compare_status = VF2_OK;
     const int use_copro_oracle =
         test_case->runtime_flags == 0u &&
-        test_case->navigation_flags == 0u &&
         test_case->previous_flags == test_case->input_flags &&
         test_case->menu_state == UINT8_C(0x40) &&
-        (test_case->menu_index == UINT8_C(3) ||
-         test_case->menu_index == UINT8_C(5) ||
-         test_case->menu_index == UINT8_C(10) ||
-         test_case->menu_index == UINT8_C(12));
+        ((test_case->navigation_flags == 0u &&
+          (test_case->menu_index == UINT8_C(3) ||
+           test_case->menu_index == UINT8_C(5) ||
+           test_case->menu_index == UINT8_C(10) ||
+           test_case->menu_index == UINT8_C(12))) ||
+         test_case->menu_index == UINT8_C(13));
 
     memset(&reference_machine, 0, sizeof(reference_machine));
     memset(&native_machine, 0, sizeof(native_machine));
@@ -506,6 +559,22 @@ int main(int argc, char **argv)
         IDLE_CASE("index12-camera-xang-inc", 12, (1u << 13u), 0, 0, 0,
                   119, 4, 5, 4),
         IDLE_CASE("index13-texture", 13, 0, 0, 0, 0, 1745, 16, 17, 5),
+        IDLE_CASE("index13-texture-next", 13, 0, (1u << 14u),
+                  0, 0, 1738, 16, 17, 5),
+        IDLE_CASE("index13-texture-prev", 13, 0, (1u << 15u),
+                  0, 0, 1746, 16, 17, 5),
+        IDLE_CASE("index13-z-inc", 13, (1u << 16u), 0,
+                  0, 0, 1752, 16, 17, 5),
+        IDLE_CASE("index13-z-dec", 13, (1u << 18u), 0,
+                  0, 0, 1752, 16, 17, 5),
+        IDLE_CASE("index13-y-dec", 13, (1u << 20u), 0,
+                  0, 0, 1752, 16, 17, 5),
+        IDLE_CASE("index13-y-inc", 13, (1u << 21u), 0,
+                  0, 0, 1752, 16, 17, 5),
+        IDLE_CASE("index13-x-inc", 13, (1u << 22u), 0,
+                  0, 0, 1752, 16, 17, 5),
+        IDLE_CASE("index13-x-dec", 13, (1u << 23u), 0,
+                  0, 0, 1752, 16, 17, 5),
         INPUT_EDGE_CASE("index0-release", 0, 0, (1u << 5u), 0x41,
                         270, 6, 7, 5),
         INPUT_EDGE_CASE("index0-held", 0, (1u << 5u), (1u << 5u), 0x40,

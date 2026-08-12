@@ -2983,12 +2983,76 @@ static vf2_status phase17_zero_render_missing_body(
             if (status == VF2_OK && (input_flags & (UINT32_C(1) << 18u)) != 0u) status=phase17_zero_adjust_float(machine,UINT32_C(0x0050980c),-0.005f);
         }
         if (status == VF2_OK) {
-            uint8_t buffer_byte = UINT8_C(0x0c);
+            uint32_t buffer_index = 0u;
+            uint32_t texture_x = 0u;
+            uint32_t texture_y = 0u;
+            uint32_t texture_z = 0u;
+            uint32_t texture_z_squared = 0u;
             uint8_t one = UINT8_C(1);
             uint8_t sixty = UINT8_C(0x60);
-            status = vf2_model2a_write(machine, UINT32_C(0x005001e4), &buffer_byte, 1);
-            if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00501010), &one, 1);
-            if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0050101c), &sixty, 1);
+
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x005001e4), &buffer_index
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00509804), &texture_x
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00509808), &texture_y
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x0050980c), &texture_z
+                );
+            }
+            if (status == VF2_OK) {
+                const float texture_z_value =
+                    phase17_zero_float_from_bits(texture_z);
+                texture_z_squared = phase17_zero_float_to_bits(
+                    texture_z_value * texture_z_value
+                );
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x0090e000) + buffer_index, texture_x
+                );
+            }
+            if (status == VF2_OK) {
+                buffer_index = (buffer_index + UINT32_C(4)) &
+                               ~UINT32_C(0x100);
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x0090e000) + buffer_index, texture_y
+                );
+            }
+            if (status == VF2_OK) {
+                buffer_index = (buffer_index + UINT32_C(4)) &
+                               ~UINT32_C(0x100);
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x0090e000) + buffer_index,
+                    texture_z_squared
+                );
+            }
+            if (status == VF2_OK) {
+                uint8_t buffer_byte = 0u;
+                buffer_index += UINT32_C(4);
+                buffer_byte = (uint8_t)buffer_index;
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x005001e4), &buffer_byte,
+                    sizeof(buffer_byte)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x00501010), &one, sizeof(one)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x0050101c), &sixty, sizeof(sixty)
+                );
+            }
         }
         if (status == VF2_OK) {
             uint16_t kind = 0u;
@@ -2997,6 +3061,11 @@ static vf2_status phase17_zero_render_missing_body(
             uint32_t name_dest = UINT32_C(0x010000ea);
             status = read_u16(machine, UINT32_C(0x0055c2f2), &kind);
             if (status == VF2_OK && kind == UINT16_C(1)) label_source = UINT32_C(0x0004d30c);
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x00503100), texture
+                );
+            }
             if (status == VF2_OK) status = phase17_zero_copy_text(machine,label_source,UINT32_C(0x010000e2));
             if (status == VF2_OK) status = vf2_model2a_read(machine,UINT32_C(0x0050002b),&display,1);
             if (display == UINT8_C(12) || display == UINT8_C(13)) name_dest=UINT32_C(0x010040ea);
@@ -3927,6 +3996,41 @@ static vf2_status execute_frame_phase17_zero_control_menu(
                 break;
             default:
                 return VF2_ERROR_UNSUPPORTED;
+            }
+        } else if (menu_index == UINT8_C(13)) {
+            switch (navigation_flags) {
+            case 0u:
+                break;
+            case UINT32_C(1) << 14u:
+                if (effective_input_flags != 0u) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                control_instruction_adjustment = -7;
+                break;
+            case UINT32_C(1) << 15u:
+                if (effective_input_flags != 0u) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                control_instruction_adjustment = 1;
+                break;
+            default:
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if (navigation_flags == 0u) {
+                switch (effective_input_flags) {
+                case 0u:
+                    break;
+                case UINT32_C(1) << 16u:
+                case UINT32_C(1) << 18u:
+                case UINT32_C(1) << 20u:
+                case UINT32_C(1) << 21u:
+                case UINT32_C(1) << 22u:
+                case UINT32_C(1) << 23u:
+                    control_instruction_adjustment = 7;
+                    break;
+                default:
+                    return VF2_ERROR_UNSUPPORTED;
+                }
             }
         } else if (effective_input_flags != 0u || navigation_flags != 0u) {
             return VF2_ERROR_UNSUPPORTED;
