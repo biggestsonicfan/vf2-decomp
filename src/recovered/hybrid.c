@@ -4205,9 +4205,21 @@ static vf2_status hybrid_camera_apply_memory(
             local_report.exit_address = recovered.stop_address;
             local_report.task_bytes_written = recovered.task_bytes_written;
             local_report.global_bytes_written = recovered.global_bytes_written;
-            local_report.recovered_instruction_count = UINT64_C(107);
-            local_report.recovered_procedure_calls = UINT64_C(4);
-            local_report.recovered_procedure_returns = UINT64_C(4);
+            if (recovered.helpers_recovered == 7u) {
+                local_report.recovered_instruction_count = UINT64_C(621);
+                local_report.recovered_procedure_calls = UINT64_C(7);
+                local_report.recovered_procedure_returns = UINT64_C(7);
+            } else if (recovered.helpers_recovered == 6u) {
+                local_report.recovered_instruction_count = UINT64_C(165);
+                local_report.recovered_procedure_calls = UINT64_C(6);
+                local_report.recovered_procedure_returns = UINT64_C(6);
+            } else if (recovered.helpers_recovered == 4u) {
+                local_report.recovered_instruction_count = UINT64_C(107);
+                local_report.recovered_procedure_calls = UINT64_C(4);
+                local_report.recovered_procedure_returns = UINT64_C(4);
+            } else {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
         }
         break;
     }
@@ -4318,6 +4330,25 @@ static vf2_status hybrid_camera_apply_cpu_poststate(
             return status;
         }
         cpu->registers[16] = range_flags;
+        if (report->recovered_procedure_calls == UINT64_C(7)) {
+            uint32_t fighter1 = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 4u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 5u] =
+                report->registry_address + UINT32_C(0x1bc);
+            cpu->registers[VF2_I960_G0_REGISTER + 6u] =
+                report->registry_address + UINT32_C(0x1e4);
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00500808), &fighter1
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+        } else if (report->recovered_procedure_calls == UINT64_C(6)) {
+            cpu->registers[VF2_I960_G0_REGISTER + 4u] = UINT32_MAX;
+            cpu->registers[VF2_I960_G0_REGISTER + 5u] =
+                report->registry_address + UINT32_C(0x1e4);
+        }
         /* The recurring update finishes after selecting fighter 1, restoring
          * the cursor to the adjacent profile block. */
         cpu->registers[23] += UINT32_C(0x00002000);
@@ -4361,9 +4392,18 @@ static vf2_status hybrid_camera_apply_cpu_poststate(
         return VF2_ERROR_UNSUPPORTED;
     }
 
-    if (report->recovered_procedure_calls != 0u &&
-        cpu->maximum_local_frame_depth < cpu->local_frame_depth + 1u) {
-        cpu->maximum_local_frame_depth = cpu->local_frame_depth + 1u;
+    if (report->recovered_procedure_calls != 0u) {
+        const uint32_t depth_delta =
+            report->kind == VF2_HYBRID_BLOCK_CAMERA_UPDATE &&
+            (report->recovered_procedure_calls == UINT64_C(6) ||
+             report->recovered_procedure_calls == UINT64_C(7))
+                ? UINT32_C(2)
+                : UINT32_C(1);
+        if (cpu->maximum_local_frame_depth <
+            cpu->local_frame_depth + depth_delta) {
+            cpu->maximum_local_frame_depth =
+                cpu->local_frame_depth + depth_delta;
+        }
     }
     cpu->ip = report->exit_address;
     cpu->executed_instructions += report->recovered_instruction_count;

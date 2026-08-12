@@ -5062,47 +5062,6 @@ static void accumulate_step(vf2_native_runtime_state *state,
 }
 
 static vf2_status
-execute_recurring_camera_bit7_interpreter(vf2_model2a *machine,
-                                           vf2_i960_cpu *cpu,
-                                           vf2_native_runtime_step_report *report)
-{
-    vf2_i960_run_options options;
-    vf2_i960_run_result result;
-    const uint64_t start_instructions = cpu->executed_instructions;
-    const uint64_t start_calls = cpu->procedure_calls;
-    const uint64_t start_returns = cpu->procedure_returns;
-    vf2_status status = VF2_OK;
-
-    if (machine == NULL || cpu == NULL || report == NULL ||
-        cpu->ip != VF2_NATIVE_CAMERA_RECURRING_ENTRY ||
-        cpu->local_frame_depth == 0u) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-    memset(&options, 0, sizeof(options));
-    options.stop_address = VF2_NATIVE_SCHEDULER_RETURN;
-    options.max_steps = UINT64_C(20000000);
-    options.stop_on_self_branch = false;
-    memset(&result, 0, sizeof(result));
-    status = vf2_i960_run(cpu, machine, &options, &result);
-    if (status != VF2_OK) {
-        return status;
-    }
-    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
-        cpu->ip != VF2_NATIVE_SCHEDULER_RETURN) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    report->kind = VF2_NATIVE_RUNTIME_STEP_TASK;
-    report->bridge_kind = VF2_HYBRID_BRIDGE_CAMERA_BIT7_INTERPRETER;
-    report->task_kind = VF2_HYBRID_TASK_CAMERA;
-    report->exit_address = cpu->ip;
-    report->recovered_instruction_count =
-        cpu->executed_instructions - start_instructions;
-    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
-    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
-    return VF2_OK;
-}
-
-static vf2_status
 execute_recurring_camera_task(vf2_model2a *machine, vf2_i960_cpu *cpu,
                               vf2_native_runtime_step_report *report) {
     const uint64_t start_instructions = cpu->executed_instructions;
@@ -5133,10 +5092,6 @@ execute_recurring_camera_task(vf2_model2a *machine, vf2_i960_cpu *cpu,
     if (status != VF2_OK) {
         return status;
     }
-    if ((fighter0_flags | fighter1_flags) & (UINT32_C(1) << 7u)) {
-        return execute_recurring_camera_bit7_interpreter(machine, cpu, report);
-    }
-
     memset(&block_report, 0, sizeof(block_report));
     status = vf2_hybrid_camera_execute(machine, cpu, cpu->registers[29], &block_report);
     if (status == VF2_OK && cpu->ip != VF2_NATIVE_CAMERA_GATE_ENTRY) {

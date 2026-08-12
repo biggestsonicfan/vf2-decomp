@@ -628,16 +628,286 @@ uint32_t vf2_recovered_camera_classify_range(
     return result;
 }
 
+static vf2_status camera_initialize_fighter_tracking(
+    vf2_model2a *machine,
+    uint32_t registry_address,
+    uint32_t fighter,
+    uint32_t tracking_offset,
+    size_t *bytes_written
+)
+{
+    uint32_t fighter_mode = 0u;
+    uint32_t x = 0u;
+    uint32_t y = 0u;
+    uint32_t z = 0u;
+    const uint32_t tracking = registry_address + tracking_offset;
+    size_t written = 0u;
+    vf2_status status = vf2_model2a_read_u32(
+        machine, fighter + UINT32_C(0x1a4), &fighter_mode
+    );
+
+    if (status == VF2_OK && (fighter_mode & UINT32_C(0x1f)) != 0u) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x1f4), &x
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, fighter + UINT32_C(0x1fc), &z
+            );
+        }
+    } else if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x18), &x
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, fighter + UINT32_C(0x20), &z
+            );
+        }
+    }
+    if (status == VF2_OK && (fighter_mode & (UINT32_C(1) << 4u)) != 0u) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x1f8), &y
+        );
+    } else if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, fighter + UINT32_C(0x1c), &y
+        );
+        if (status == VF2_OK) {
+            y = task_float_to_bits(
+                task_bits_to_float(y) + task_bits_to_float(UINT32_C(0x3f666666))
+            );
+        }
+    }
+
+#define TRACK_U32(offset_, value_)                                           \
+    do {                                                                      \
+        if (status == VF2_OK) {                                               \
+            status = vf2_model2a_write_u32(                                   \
+                machine, tracking + UINT32_C(offset_), (uint32_t)(value_)     \
+            );                                                                \
+            if (status == VF2_OK) { written += sizeof(uint32_t); }            \
+        }                                                                     \
+    } while (0)
+
+    TRACK_U32(0x00, 0u);
+    TRACK_U32(0x04, x);
+    TRACK_U32(0x1c, x);
+    TRACK_U32(0x10, 0u);
+    TRACK_U32(0x08, y);
+    TRACK_U32(0x20, y);
+    TRACK_U32(0x14, 0u);
+    TRACK_U32(0x0c, z);
+    TRACK_U32(0x24, z);
+    TRACK_U32(0x18, 0u);
+
+#undef TRACK_U32
+
+    if (bytes_written != NULL) {
+        *bytes_written = written;
+    }
+    return status;
+}
+
+static vf2_status camera_apply_measured_bit7_mode2(
+    vf2_model2a *machine,
+    uint32_t registry_address,
+    size_t *bytes_written,
+    size_t *helpers_recovered
+)
+{
+    static const struct {
+        uint32_t offset;
+        uint32_t expected;
+    } camera_guards[] = {
+        {UINT32_C(0x18), UINT32_C(0x00000000)},
+        {UINT32_C(0x1c), UINT32_C(0x3f4f5c29)},
+        {UINT32_C(0x20), UINT32_C(0xc0a0a3d7)},
+        {UINT32_C(0x44), UINT32_C(0x3f400000)},
+        {UINT32_C(0x48), UINT32_C(0x3f733333)},
+        {UINT32_C(0x4c), UINT32_C(0x3f800000)},
+        {UINT32_C(0x50), UINT32_C(0x3ecccccd)},
+        {UINT32_C(0x54), UINT32_C(0xbf4ccccd)},
+        {UINT32_C(0x58), UINT32_C(0x3faccccd)},
+        {UINT32_C(0x5c), UINT32_C(0x435f3333)},
+        {UINT32_C(0x60), UINT32_C(0x432ccccd)},
+        {UINT32_C(0x64), UINT32_C(0x3f800000)},
+        {UINT32_C(0x1b4), UINT32_C(0x3f800000)},
+        {UINT32_C(0x1b8), UINT32_C(0x40333333)},
+        {UINT32_C(0x20c), UINT32_C(0x3fb33333)}
+    };
+    static const struct {
+        uint32_t offset;
+        uint32_t value;
+    } writes[] = {
+        {UINT32_C(0x1c), UINT32_C(0x7f800000)},
+        {UINT32_C(0x20), UINT32_C(0x00000000)},
+        {UINT32_C(0x190), UINT32_C(0x432ccccd)},
+        {UINT32_C(0x194), UINT32_C(0x42ee147b)},
+        {UINT32_C(0x198), UINT32_C(0x43666667)},
+        {UINT32_C(0x19c), UINT32_C(0xc3666667)},
+        {UINT32_C(0x1a0), UINT32_C(0x3ebf964d)},
+        {UINT32_C(0x1bc), UINT32_C(0x80000000)},
+        {UINT32_C(0x1e4), UINT32_C(0x80000000)}
+    };
+    uint32_t fighter0 = 0u;
+    uint32_t fighter1 = 0u;
+    uint32_t value = 0u;
+    uint32_t fighter_index = 0u;
+    size_t index = 0u;
+    size_t written = 0u;
+    vf2_status status = VF2_OK;
+
+    for (index = 0u; status == VF2_OK &&
+         index < sizeof(camera_guards) / sizeof(camera_guards[0]); ++index) {
+        status = vf2_model2a_read_u32(
+            machine, registry_address + camera_guards[index].offset, &value
+        );
+        if (status == VF2_OK && value != camera_guards[index].expected) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        uint8_t counter = 0u;
+        uint8_t limit = 0u;
+        status = vf2_model2a_read(
+            machine, registry_address + UINT32_C(0x2d0), &counter, sizeof(counter)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(
+                machine, registry_address + UINT32_C(0x2d1), &limit, sizeof(limit)
+            );
+        }
+        if (status == VF2_OK && (counter != 0u || limit != UINT8_C(0x3c))) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &fighter0);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &fighter1);
+    }
+    if (status == VF2_OK) {
+        static const struct {
+            uint32_t address;
+            uint32_t expected;
+        } global_guards[] = {
+            {UINT32_C(0x0050a150), UINT32_C(0x3f800000)},
+            {UINT32_C(0x00501084), UINT32_C(0x44160000)},
+            {UINT32_C(0x00501088), UINT32_C(0x44160000)}
+        };
+        for (index = 0u; status == VF2_OK &&
+             index < sizeof(global_guards) / sizeof(global_guards[0]); ++index) {
+            status = vf2_model2a_read_u32(
+                machine, global_guards[index].address, &value
+            );
+            if (status == VF2_OK && value != global_guards[index].expected) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+        }
+    }
+    if (status == VF2_OK) {
+        static const uint32_t tracking_expected[10] = {
+            UINT32_C(0x00000000), UINT32_C(0x00000000),
+            UINT32_C(0x3f666666), UINT32_C(0x00000000),
+            UINT32_C(0x00000000), UINT32_C(0x00000000),
+            UINT32_C(0x00000000), UINT32_C(0x00000000),
+            UINT32_C(0x3f666666), UINT32_C(0x00000000)
+        };
+        const uint32_t tracking_offsets[2] = {
+            UINT32_C(0x1bc), UINT32_C(0x1e4)
+        };
+        uint32_t tracking_index = 0u;
+        for (tracking_index = 0u; status == VF2_OK && tracking_index < 2u;
+             ++tracking_index) {
+            for (index = 0u; status == VF2_OK && index < 10u; ++index) {
+                status = vf2_model2a_read_u32(
+                    machine,
+                    registry_address + tracking_offsets[tracking_index] +
+                        (uint32_t)index * UINT32_C(4),
+                    &value
+                );
+                if (status == VF2_OK && value != tracking_expected[index]) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                }
+            }
+        }
+    }
+    for (fighter_index = 0u; status == VF2_OK && fighter_index < 2u;
+         ++fighter_index) {
+        const uint32_t fighter = fighter_index == 0u ? fighter0 : fighter1;
+        uint32_t flags = 0u;
+        uint32_t mode = 0u;
+        uint32_t x = 0u;
+        uint32_t y = 0u;
+        uint32_t z = 0u;
+        status = vf2_model2a_read_u32(machine, fighter, &flags);
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(machine, fighter + UINT32_C(0x1a4), &mode);
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(machine, fighter + UINT32_C(0x18), &x);
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(machine, fighter + UINT32_C(0x1c), &y);
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(machine, fighter + UINT32_C(0x20), &z);
+        }
+        if (status == VF2_OK &&
+            (((flags & (UINT32_C(1) << 7u)) == 0u) || mode != 0u ||
+             x != 0u || y != 0u || z != 0u)) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    for (index = 0u; status == VF2_OK && index < sizeof(writes) / sizeof(writes[0]);
+         ++index) {
+        status = vf2_model2a_write_u32(
+            machine, registry_address + writes[index].offset, writes[index].value
+        );
+        if (status == VF2_OK) {
+            written += sizeof(uint32_t);
+        }
+    }
+    if (status == VF2_OK) {
+        status = task_write_u16(
+            machine, registry_address + UINT32_C(0x1ae), UINT16_C(0x1800)
+        );
+        if (status == VF2_OK) {
+            written += sizeof(uint16_t);
+        }
+    }
+    if (status == VF2_OK) {
+        status = task_write_u8(
+            machine, registry_address + UINT32_C(0x2d0), UINT8_C(1)
+        );
+        if (status == VF2_OK) {
+            ++written;
+        }
+    }
+    if (bytes_written != NULL) {
+        *bytes_written = written;
+    }
+    if (helpers_recovered != NULL) {
+        *helpers_recovered = 3u;
+    }
+    return status;
+}
+
 static vf2_status camera_reset_first_dispatch(
     vf2_model2a *machine,
     uint32_t registry_address,
-    size_t *bytes_written
+    size_t *bytes_written,
+    size_t *helpers_recovered
 )
 {
     uint16_t inherited_angle = 0u;
     uint32_t fighter = 0u;
     uint32_t fighter_flags = 0u;
     size_t written = 0u;
+    size_t tracking_bytes = 0u;
+    size_t helper_count = 0u;
     vf2_status status = task_read_u16(
         machine, registry_address + UINT32_C(0xf8), &inherited_angle
     );
@@ -689,11 +959,48 @@ static vf2_status camera_reset_first_dispatch(
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(machine, fighter, &fighter_flags);
     }
-    if (status == VF2_OK && (fighter_flags & UINT32_C(1 << 7)) != 0u) {
-        status = VF2_ERROR_UNSUPPORTED;
+    if (status == VF2_OK && (fighter_flags & (UINT32_C(1) << 7u)) != 0u) {
+        status = camera_initialize_fighter_tracking(
+            machine, registry_address, fighter, UINT32_C(0x1bc),
+            &tracking_bytes
+        );
+        if (status == VF2_OK) {
+            written += tracking_bytes;
+            ++helper_count;
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00500808), &fighter
+            );
+        }
+        if (status == VF2_OK) {
+            status = camera_initialize_fighter_tracking(
+                machine, registry_address, fighter, UINT32_C(0x1e4),
+                &tracking_bytes
+            );
+        }
+        if (status == VF2_OK) {
+            uint8_t mode = 0u;
+            written += tracking_bytes;
+            ++helper_count;
+            status = vf2_model2a_read(
+                machine, registry_address + UINT32_C(0x40),
+                &mode, sizeof(mode)
+            );
+            if (status == VF2_OK) {
+                mode = (uint8_t)(mode + UINT8_C(1));
+                status = task_write_u8(
+                    machine, registry_address + UINT32_C(0x40), mode
+                );
+                if (status == VF2_OK) {
+                    ++written;
+                }
+            }
+        }
     }
     if (bytes_written != NULL) {
         *bytes_written = written;
+    }
+    if (helpers_recovered != NULL) {
+        *helpers_recovered = helper_count;
     }
     return status;
 }
@@ -721,6 +1028,7 @@ vf2_status vf2_recovered_task_camera_first_update(
     size_t task_bytes = 0u;
     size_t global_bytes = 0u;
     size_t reset_bytes = 0u;
+    size_t reset_helpers = 0u;
     vf2_status status = VF2_OK;
 
     if (machine == NULL ||
@@ -774,12 +1082,18 @@ vf2_status vf2_recovered_task_camera_first_update(
             &mode_handler
         );
     }
-    if (status == VF2_OK && mode_handler != UINT32_C(0x0001f148)) {
-        status = VF2_ERROR_UNSUPPORTED;
-    }
-    if (status == VF2_OK) {
-        status = camera_reset_first_dispatch(machine, registry_address, &reset_bytes);
+    if (status == VF2_OK && mode_handler == UINT32_C(0x0001f148)) {
+        status = camera_reset_first_dispatch(
+            machine, registry_address, &reset_bytes, &reset_helpers
+        );
         task_bytes += reset_bytes;
+    } else if (status == VF2_OK && mode_handler == UINT32_C(0x0001f1c0)) {
+        status = camera_apply_measured_bit7_mode2(
+            machine, registry_address, &reset_bytes, &reset_helpers
+        );
+        task_bytes += reset_bytes;
+    } else if (status == VF2_OK) {
+        status = VF2_ERROR_UNSUPPORTED;
     }
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
@@ -916,7 +1230,7 @@ vf2_status vf2_recovered_task_camera_first_update(
     local_report.task_bytes_written = task_bytes;
     local_report.global_bytes_written = global_bytes;
     local_report.copro_scratch_bytes_written = sizeof(uint32_t);
-    local_report.helpers_recovered = 4u;
+    local_report.helpers_recovered = 4u + reset_helpers;
     if (report != NULL) {
         *report = local_report;
     }

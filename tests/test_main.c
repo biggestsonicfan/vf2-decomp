@@ -1060,6 +1060,123 @@ static void test_texture_bridge_blocks(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_recovered_camera_bit7_mode2(void)
+{
+    vf2_model2a machine;
+    vf2_recovered_camera_update_report report;
+    uint8_t *main_rom = NULL;
+    uint32_t value = 0u;
+    uint8_t byte = 0u;
+    const uint32_t camera = UINT32_C(0x00515400);
+    const uint32_t fighter0 = UINT32_C(0x00510980);
+    const uint32_t fighter1 = UINT32_C(0x00512980);
+    static const uint32_t tracking_expected[10] = {
+        UINT32_C(0x00000000), UINT32_C(0x00000000),
+        UINT32_C(0x3f666666), UINT32_C(0x00000000),
+        UINT32_C(0x00000000), UINT32_C(0x00000000),
+        UINT32_C(0x00000000), UINT32_C(0x00000000),
+        UINT32_C(0x3f666666), UINT32_C(0x00000000)
+    };
+    size_t index = 0u;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    main_rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE);
+    EXPECT_TRUE(main_rom != NULL);
+    if (main_rom == NULL) {
+        vf2_model2a_shutdown(&machine);
+        return;
+    }
+    main_rom[0x0006e2ecu] = 0xc0u;
+    main_rom[0x0006e2edu] = 0xf1u;
+    main_rom[0x0006e2eeu] = 0x01u;
+    main_rom[0x0006e2efu] = 0x00u;
+    EXPECT_TRUE(
+        vf2_model2a_attach_main_rom(&machine, main_rom, VF2_MAIN_ROM_SIZE) == VF2_OK
+    );
+
+#define BIT7_W32(address_, value_)                                            \
+    EXPECT_TRUE(vf2_model2a_write_u32(                                        \
+        &machine, UINT32_C(address_), UINT32_C(value_)                         \
+    ) == VF2_OK)
+#define BIT7_CW32(offset_, value_)                                            \
+    EXPECT_TRUE(vf2_model2a_write_u32(                                        \
+        &machine, camera + UINT32_C(offset_), UINT32_C(value_)                 \
+    ) == VF2_OK)
+
+    BIT7_W32(0x00500804, 0x00510980);
+    BIT7_W32(0x00500808, 0x00512980);
+    BIT7_W32(0x00508000, 0x00008a00);
+    BIT7_W32(0x00501084, 0x44160000);
+    BIT7_W32(0x00501088, 0x44160000);
+    BIT7_W32(0x0050a150, 0x3f800000);
+    BIT7_W32(0x0050a00c, 0x41000000);
+    BIT7_W32(0x0050a148, 0xbe99999a);
+    BIT7_W32(0x0050a0e0, 0x11111111);
+    BIT7_W32(0x00510980, 0x04000080);
+    BIT7_W32(0x00512980, 0x04000080);
+
+    BIT7_CW32(0x000, 0x80000100);
+    BIT7_CW32(0x018, 0x00000000);
+    BIT7_CW32(0x01c, 0x3f4f5c29);
+    BIT7_CW32(0x020, 0xc0a0a3d7);
+    BIT7_CW32(0x044, 0x3f400000);
+    BIT7_CW32(0x048, 0x3f733333);
+    BIT7_CW32(0x04c, 0x3f800000);
+    BIT7_CW32(0x050, 0x3ecccccd);
+    BIT7_CW32(0x054, 0xbf4ccccd);
+    BIT7_CW32(0x058, 0x3faccccd);
+    BIT7_CW32(0x05c, 0x435f3333);
+    BIT7_CW32(0x060, 0x432ccccd);
+    BIT7_CW32(0x064, 0x3f800000);
+    BIT7_CW32(0x1b4, 0x3f800000);
+    BIT7_CW32(0x1b8, 0x40333333);
+    BIT7_CW32(0x20c, 0x3fb33333);
+    EXPECT_TRUE(vf2_model2a_write(&machine, camera + UINT32_C(0x40), "\2", 1u) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_write(&machine, camera + UINT32_C(0x2d1), "\74", 1u) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x1b0), "\0", 1u) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_write(&machine, fighter1 + UINT32_C(0x1b0), "\0", 1u) == VF2_OK);
+
+    for (index = 0u; index < 10u; ++index) {
+        EXPECT_TRUE(vf2_model2a_write_u32(
+            &machine, camera + UINT32_C(0x1bc) + (uint32_t)index * UINT32_C(4),
+            tracking_expected[index]
+        ) == VF2_OK);
+        EXPECT_TRUE(vf2_model2a_write_u32(
+            &machine, camera + UINT32_C(0x1e4) + (uint32_t)index * UINT32_C(4),
+            tracking_expected[index]
+        ) == VF2_OK);
+    }
+
+    EXPECT_TRUE(
+        vf2_recovered_task_camera_first_update(&machine, camera, &report) == VF2_OK
+    );
+    EXPECT_TRUE(report.mode_handler == UINT32_C(0x0001f1c0));
+    EXPECT_TRUE(report.helpers_recovered == 7u);
+    EXPECT_TRUE(vf2_model2a_read_u32(&machine, camera + UINT32_C(0x1c), &value) == VF2_OK);
+    EXPECT_TRUE(value == UINT32_C(0x7f800000));
+    EXPECT_TRUE(vf2_model2a_read_u32(&machine, camera + UINT32_C(0x20), &value) == VF2_OK);
+    EXPECT_TRUE(value == 0u);
+    EXPECT_TRUE(vf2_model2a_read_u32(&machine, camera + UINT32_C(0x190), &value) == VF2_OK);
+    EXPECT_TRUE(value == UINT32_C(0x432ccccd));
+    EXPECT_TRUE(vf2_model2a_read_u32(&machine, camera + UINT32_C(0x1bc), &value) == VF2_OK);
+    EXPECT_TRUE(value == UINT32_C(0x80000000));
+    EXPECT_TRUE(vf2_model2a_read_u32(&machine, camera + UINT32_C(0x1e4), &value) == VF2_OK);
+    EXPECT_TRUE(value == UINT32_C(0x80000000));
+    EXPECT_TRUE(vf2_model2a_read(&machine, camera + UINT32_C(0x2d0), &byte, 1u) == VF2_OK);
+    EXPECT_TRUE(byte == UINT8_C(1));
+
+#undef BIT7_W32
+#undef BIT7_CW32
+
+    free(main_rom);
+    vf2_model2a_shutdown(&machine);
+}
+
 static void test_recovered_camera_and_kill_osage(void)
 {
     vf2_model2a machine;
@@ -1368,6 +1485,7 @@ int main(void)
     test_recovered_task_entries();
     test_hybrid_scheduler_transition();
     test_texture_bridge_blocks();
+    test_recovered_camera_bit7_mode2();
     test_recovered_camera_and_kill_osage();
     EXPECT_TRUE(vf2_test_i960_decoder() == 0);
     EXPECT_TRUE(vf2_test_i960_executor() == 0);
