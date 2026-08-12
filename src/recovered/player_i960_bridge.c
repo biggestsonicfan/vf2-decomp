@@ -14,6 +14,10 @@
 #define VF2_PLAYER_17710_RET UINT32_C(0x00017918)
 #define VF2_PLAYER_17710_STOP UINT32_C(0x00014404)
 #define VF2_PLAYER_17710_INSTRUCTIONS UINT64_C(30)
+#define VF2_PLAYER_1791C_ENTRY UINT32_C(0x0001791c)
+#define VF2_PLAYER_1791C_RET UINT32_C(0x00017b64)
+#define VF2_PLAYER_1791C_STOP UINT32_C(0x00014408)
+#define VF2_PLAYER_1791C_INSTRUCTIONS UINT64_C(87)
 
 typedef struct vf2_player_28178_plan {
     uint32_t player;
@@ -405,6 +409,170 @@ static vf2_status player_execute_17710_fast_exit(
         ? VF2_OK : VF2_ERROR_UNSUPPORTED;
 }
 
+/* The observed 0x1791c path has zero position/delta vectors. Its two scalar
+ * coprocessor probes therefore read back zero from flat port RAM and select
+ * the zero-motion branches. Keep callback-backed coprocessors on the ROM path
+ * until their command semantics are recovered. */
+static vf2_status player_execute_1791c_zero_motion(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    const uint32_t port = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 11u] +
+          cpu->registers[VF2_I960_G0_REGISTER + 12u]
+        : 0u;
+    const uint32_t zero_triple[3] = {0u, 0u, 0u};
+    uint32_t value = 0u;
+    uint32_t player_state = 0u;
+    uint32_t player_flags = 0u;
+    uint32_t runtime_flags = 0u;
+    uint16_t gate = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_PLAYER_1791C_ENTRY ||
+        cpu->local_frame_depth < 3u || player == 0u ||
+        port == 0u ||
+        machine->copro_read_callback != NULL ||
+        machine->copro_write_callback != NULL ||
+        cpu->local_frames[cpu->local_frame_depth - 1u].registers[2] !=
+            VF2_PLAYER_1791C_STOP) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+#define VF2_CHECK_WORD(address_, expected_) \
+    do { \
+        status = vf2_model2a_read_u32(machine, (address_), &value); \
+        if (status != VF2_OK) { \
+            return status; \
+        } \
+        if (value != (expected_)) { \
+            return VF2_ERROR_UNSUPPORTED; \
+        } \
+    } while (0)
+
+    VF2_CHECK_WORD(player + UINT32_C(0x18), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x1c), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x20), 0u);
+    VF2_CHECK_WORD(UINT32_C(0x0050a004), UINT32_C(0x3f800000));
+    VF2_CHECK_WORD(UINT32_C(0x0050a000), UINT32_C(0x3b32674f));
+    VF2_CHECK_WORD(player + UINT32_C(0x5d8), UINT32_C(0x429e0000));
+    VF2_CHECK_WORD(player + UINT32_C(0x5d4), 0u);
+    VF2_CHECK_WORD(UINT32_C(0x0050a008), UINT32_C(0x41200000));
+    VF2_CHECK_WORD(player + UINT32_C(0x2c), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x34), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x5c8), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x5d0), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x1f4), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x1fc), 0u);
+    VF2_CHECK_WORD(UINT32_C(0x0050a00c), UINT32_C(0x41000000));
+    VF2_CHECK_WORD(player + UINT32_C(0x30), 0u);
+    VF2_CHECK_WORD(player + UINT32_C(0x5cc), 0u);
+    status = vf2_model2a_read_u32(
+        machine, player + UINT32_C(0x1a4), &player_state
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, player, &player_flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &runtime_flags
+        );
+    }
+    if (status == VF2_OK) {
+        status = player_read_u16(
+            machine, player + UINT32_C(0x61c), &gate
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (player_state != UINT32_C(0x00000200) ||
+        player_flags != UINT32_C(0x84000002) || gate != 0u ||
+        (runtime_flags & (UINT32_C(1) << 20u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+#undef VF2_CHECK_WORD
+
+    status = vf2_model2a_write(
+        machine, UINT32_C(0x0050e000), zero_triple, sizeof(zero_triple)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, port, UINT32_C(0x16802d2d)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x2c), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x34), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, port, UINT32_C(0x16802d2d)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, port, 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x5c8), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x5d0), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x5d4), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x18), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x1c), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x20), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x18), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, player + UINT32_C(0x20), 0u);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, player + UINT32_C(0x1e00),
+            zero_triple, sizeof(zero_triple)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->ip = VF2_PLAYER_1791C_RET;
+    cpu->executed_instructions += VF2_PLAYER_1791C_INSTRUCTIONS - UINT64_C(1);
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+    ++cpu->executed_instructions;
+    return cpu->ip == VF2_PLAYER_1791C_STOP
+        ? VF2_OK : VF2_ERROR_UNSUPPORTED;
+}
+
 /* hybrid.c is compiled with vf2_i960_run renamed to this recovered dispatcher.
  * Every non-matching run is delegated unchanged to the architectural i960
  * executor; the guarded sixth-entry player corridors are native. */
@@ -453,6 +621,28 @@ vf2_status vf2_hybrid_i960_run(
         (options->max_steps == 0u ||
          options->max_steps >= VF2_PLAYER_17710_INSTRUCTIONS)) {
         status = player_execute_17710_fast_exit(machine, cpu);
+        if (status == VF2_OK) {
+            if (result != NULL) {
+                memset(result, 0, sizeof(*result));
+                result->halt_reason = VF2_I960_HALT_STOP_ADDRESS;
+                result->status = VF2_OK;
+                result->halt_address = cpu->ip;
+                result->executed_instructions =
+                    cpu->executed_instructions - start_count;
+            }
+            return VF2_OK;
+        }
+        if (status != VF2_ERROR_UNSUPPORTED) {
+            return status;
+        }
+    }
+    if (cpu != NULL && machine != NULL && options != NULL &&
+        cpu->ip == VF2_PLAYER_1791C_ENTRY &&
+        options->stop_address == VF2_PLAYER_1791C_STOP &&
+        options->trace_callback == NULL &&
+        (options->max_steps == 0u ||
+         options->max_steps >= VF2_PLAYER_1791C_INSTRUCTIONS)) {
+        status = player_execute_1791c_zero_motion(machine, cpu);
         if (status == VF2_OK) {
             if (result != NULL) {
                 memset(result, 0, sizeof(*result));
