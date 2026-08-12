@@ -17,6 +17,16 @@ typedef struct vf2_player_status_plan {
     bool clear_gate;
 } vf2_player_status_plan;
 
+static uint32_t player_status_sign_extend_u16(uint16_t value)
+{
+    uint32_t result = (uint32_t)value;
+
+    if ((value & UINT16_C(0x8000)) != 0u) {
+        result |= UINT32_C(0xffff0000);
+    }
+    return result;
+}
+
 static vf2_status player_status_read_u16(
     const vf2_model2a *machine,
     uint32_t address,
@@ -98,7 +108,7 @@ static vf2_status player_status_prepare(
         return status;
     }
 
-    combined = (uint32_t)(int32_t)(int16_t)base_status;
+    combined = player_status_sign_extend_u16(base_status);
     plan->instruction_count = UINT64_C(6);
     if ((state_flags & (UINT32_C(1) << 6u)) != 0u) {
         status = player_status_read_u16(
@@ -107,7 +117,7 @@ static vf2_status player_status_prepare(
         if (status != VF2_OK) {
             return status;
         }
-        combined += (uint32_t)(int32_t)(int16_t)state_bias;
+        combined += player_status_sign_extend_u16(state_bias);
         plan->instruction_count += UINT64_C(2);
     }
     plan->status_value = (uint16_t)combined;
