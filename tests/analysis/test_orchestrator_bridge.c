@@ -1495,6 +1495,52 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00520050), &value) == VF2_OK);
     CHECK(value == UINT32_C(0));
 
+    /* With the countdown already expired and the runtime not ready, phase
+     * eight leaves both selector frames live and hands the inline payload at
+     * 0xba08 to the shared 0x9444 text thunk. */
+    rom[UINT32_C(0x0000ba08)] = UINT8_C(0x20);
+    rom[UINT32_C(0x0000ba09)] = UINT8_C(0x20);
+    rom[UINT32_C(0x0000ba0a)] = UINT8_C(0);
+    rom[UINT32_C(0x0000ba0b)] = UINT8_C(0);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){8}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00550000), UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068), UINT32_C(0x12345678)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK);
+    CHECK(report.exit_address == UINT32_C(0x00009444));
+    CHECK(report.recovered_instruction_count == UINT64_C(26));
+    CHECK(report.recovered_procedure_calls == UINT64_C(2));
+    CHECK(report.recovered_procedure_returns == UINT64_C(0));
+    CHECK(cpu.ip == UINT32_C(0x00009444));
+    CHECK(cpu.local_frame_depth == UINT32_C(3));
+    CHECK(cpu.maximum_local_frame_depth == UINT32_C(3));
+    CHECK(cpu.registers[14] == UINT32_C(0x0000ba08));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 9u] == UINT32_C(0x01000ef4));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00520050), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500034), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x00000100));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500031), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(8));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500068), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x12355678));
+
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK);
+    CHECK(report.exit_address == UINT32_C(0x0000ba0c));
+    CHECK(report.recovered_instruction_count == UINT64_C(36));
+    CHECK(report.recovered_procedure_calls == UINT64_C(1));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(cpu.ip == UINT32_C(0x0000ba0c));
+    CHECK(cpu.local_frame_depth == UINT32_C(3));
+    CHECK(read_test_u16(&machine, UINT32_C(0x01000ef4)) == UINT16_C(0x8020));
+    CHECK(read_test_u16(&machine, UINT32_C(0x01000ef6)) == UINT16_C(0x8020));
+
     /* Phase nine (0xbaec) performs the delayed timer/state handoff and uses
      * the normal text branch when the profile phase flag is clear. */
     write_rom_u32(

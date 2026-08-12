@@ -7554,11 +7554,92 @@ static vf2_status execute_selector3_phase14(
 
 static vf2_status execute_selector3_phase8(
     vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
     uint8_t previous_phase,
-    uint8_t *next_phase
+    uint8_t *next_phase,
+    int *handoff
 )
 {
-    return execute_selector3_phase14(machine, previous_phase, next_phase);
+    uint32_t flags = 0u;
+    uint32_t pointer = 0u;
+    uint32_t counter = 0u;
+    uint32_t ready = 0u;
+    uint32_t phase_word = UINT32_C(1) << previous_phase;
+    vf2_status status = VF2_OK;
+
+    if (cpu == NULL || next_phase == NULL || handoff == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    *handoff = 0;
+
+    /* acf8 snapshots the phase and its one-hot selector before dispatching
+     * the phase handler. */
+    status = vf2_model2a_write(
+        machine, UINT32_C(0x00500031), &previous_phase, sizeof(previous_phase)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500034), phase_word
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00500068), flags | (UINT32_C(1) << 16u)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &pointer);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer + UINT32_C(0x50), &counter);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (counter != 0u) {
+        return vf2_model2a_write_u32(
+            machine, pointer + UINT32_C(0x50), counter - UINT32_C(1)
+        );
+    }
+
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00550000), &ready);
+    if (status != VF2_OK || ready == UINT32_C(1)) {
+        return status;
+    }
+
+    /* The zero-counter/not-ready path does not return to selector 3.  It
+     * enters the inline text thunk at 0x9444 with the two caller frames still
+     * live.  Recreate those architectural frames so the next recovered bridge
+     * sees exactly the same CPU state as the ROM. */
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x0000acf8), UINT32_C(0x0000a6f4)
+    );
+    if (status == VF2_OK) {
+        cpu->registers[15] = (uint32_t)previous_phase;
+        cpu->registers[3] = (uint32_t)previous_phase;
+        cpu->registers[4] = phase_word;
+        cpu->registers[5] = UINT32_C(0x0000b9b8);
+        status = vf2_i960_cpu_enter_procedure(
+            cpu, UINT32_C(0x0000b9b8), UINT32_C(0x0000ad28)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[3] = pointer;
+    cpu->registers[14] = UINT32_C(0x0000ba08);
+    cpu->registers[15] = UINT32_MAX;
+    cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x01000ef4);
+    cpu->ip = VF2_INLINE_TEXT_THUNK_ENTRY;
+    set_equal_condition(cpu);
+    cpu->executed_instructions += UINT64_C(26);
+    *handoff = 1;
+    return VF2_OK;
 }
 
 static vf2_status execute_selector3_phase15(
@@ -8041,6 +8122,7 @@ vf2_status execute_frame_dispatch_tick(
         uint8_t phase = 0u;
         uint32_t phase_target = 0u;
         int fallback = 0;
+        int phase8_handoff = 0;
 
         if (target != UINT32_C(0x0000acf8)) {
             return VF2_ERROR_UNSUPPORTED;
@@ -8127,7 +8209,7 @@ vf2_status execute_frame_dispatch_tick(
             );
         } else if (phase == UINT8_C(8)) {
             status = execute_selector3_phase8(
-                machine, phase, &phase
+                machine, cpu, phase, &phase, &phase8_handoff
             );
         } else if (phase == UINT8_C(9)) {
             status = execute_selector3_phase9(
@@ -8166,6 +8248,19 @@ vf2_status execute_frame_dispatch_tick(
             status = execute_frame_selector3_b0d8(
                 machine, phase, &phase, 1
             );
+        }
+        if (status == VF2_OK && phase8_handoff) {
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->changed_values = UINT64_C(5);
+            report->bytes_written = 14u;
+            report->recovered_instruction_count = UINT64_C(26);
+            report->recovered_procedure_calls = UINT64_C(2);
+            report->recovered_procedure_returns = 0u;
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
         }
         if (status == VF2_OK) {
             uint32_t common_value = 0u;
