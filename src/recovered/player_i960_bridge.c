@@ -10,6 +10,10 @@
 #define VF2_PLAYER_28178_FINAL_RET UINT32_C(0x0001b530)
 #define VF2_PLAYER_28178_STOP UINT32_C(0x00014400)
 #define VF2_PLAYER_28178_INSTRUCTIONS UINT64_C(128)
+#define VF2_PLAYER_17710_ENTRY UINT32_C(0x00017710)
+#define VF2_PLAYER_17710_RET UINT32_C(0x00017918)
+#define VF2_PLAYER_17710_STOP UINT32_C(0x00014404)
+#define VF2_PLAYER_17710_INSTRUCTIONS UINT64_C(30)
 
 typedef struct vf2_player_28178_plan {
     uint32_t player;
@@ -344,9 +348,66 @@ static vf2_status player_apply_28178(
         ? VF2_OK : VF2_ERROR_UNSUPPORTED;
 }
 
+/* The observed sixth-entry state reaches 0x17710 with player state bit 9 set,
+ * the opponent state clear and the same live player flag word measured by the
+ * reference interpreter.  Every branch through 0x177d0 is read-only; the ROM
+ * then branches to 0x17918 and returns after exactly 30 instructions. */
+static vf2_status player_execute_17710_fast_exit(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    const uint32_t opponent = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 8u] : 0u;
+    uint32_t player_state = 0u;
+    uint32_t opponent_state = 0u;
+    uint32_t player_flags = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_PLAYER_17710_ENTRY ||
+        cpu->local_frame_depth < 3u ||
+        player == 0u || opponent == 0u ||
+        cpu->local_frames[cpu->local_frame_depth - 1u].registers[2] !=
+            VF2_PLAYER_17710_STOP) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(
+        machine, player + UINT32_C(0x01a4), &player_state
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, opponent + UINT32_C(0x01a4), &opponent_state
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, player, &player_flags);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (player_state != UINT32_C(0x00000200) ||
+        opponent_state != 0u ||
+        player_flags != UINT32_C(0x84000002)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->ip = VF2_PLAYER_17710_RET;
+    cpu->executed_instructions += VF2_PLAYER_17710_INSTRUCTIONS - UINT64_C(1);
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+    ++cpu->executed_instructions;
+    return cpu->ip == VF2_PLAYER_17710_STOP
+        ? VF2_OK : VF2_ERROR_UNSUPPORTED;
+}
+
 /* hybrid.c is compiled with vf2_i960_run renamed to this recovered dispatcher.
  * Every non-matching run is delegated unchanged to the architectural i960
- * executor; only the fully guarded 0x28178 -> 0x14400 corridor is native. */
+ * executor; the guarded sixth-entry player corridors are native. */
 vf2_status vf2_hybrid_i960_run(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine,
@@ -371,6 +432,28 @@ vf2_status vf2_hybrid_i960_run(
             if (status != VF2_OK) {
                 return status;
             }
+            if (result != NULL) {
+                memset(result, 0, sizeof(*result));
+                result->halt_reason = VF2_I960_HALT_STOP_ADDRESS;
+                result->status = VF2_OK;
+                result->halt_address = cpu->ip;
+                result->executed_instructions =
+                    cpu->executed_instructions - start_count;
+            }
+            return VF2_OK;
+        }
+        if (status != VF2_ERROR_UNSUPPORTED) {
+            return status;
+        }
+    }
+    if (cpu != NULL && machine != NULL && options != NULL &&
+        cpu->ip == VF2_PLAYER_17710_ENTRY &&
+        options->stop_address == VF2_PLAYER_17710_STOP &&
+        options->trace_callback == NULL &&
+        (options->max_steps == 0u ||
+         options->max_steps >= VF2_PLAYER_17710_INSTRUCTIONS)) {
+        status = player_execute_17710_fast_exit(machine, cpu);
+        if (status == VF2_OK) {
             if (result != NULL) {
                 memset(result, 0, sizeof(*result));
                 result->halt_reason = VF2_I960_HALT_STOP_ADDRESS;
