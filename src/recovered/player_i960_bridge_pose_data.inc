@@ -40,9 +40,12 @@ static const uint32_t player_pose_final_registers[VF2_I960_REGISTER_COUNT] = {
  * then three patch sections (work/buffer/copro):
  * u8 run-count, {u32 offset,u16 size}[count], concatenated final bytes.
  */
-static const char player_pose_blob_base64[] =
+static const char *const player_pose_blob_base64_chunks[] = {
 #include "player_i960_bridge_pose_blob.inc"
-;
+};
+#define VF2_PLAYER_POSE_B64_CHUNK_COUNT \
+    (sizeof(player_pose_blob_base64_chunks) / \
+     sizeof(player_pose_blob_base64_chunks[0]))
 
 static uint16_t player_pose_u16(const uint8_t *p)
 {
@@ -69,22 +72,29 @@ static int player_pose_b64_value(char c)
 
 static int player_pose_decode(uint8_t out[VF2_PLAYER_POSE_BLOB_SIZE])
 {
-    size_t source = 0u;
+    size_t chunk = 0u;
     size_t target = 0u;
     uint32_t accumulator = 0u;
     unsigned bits = 0u;
 
-    while (player_pose_blob_base64[source] != '\0') {
-        const int value = player_pose_b64_value(player_pose_blob_base64[source++]);
-        if (value == -2) break;
-        if (value < 0) return 0;
-        accumulator = (accumulator << 6u) | (uint32_t)value;
-        bits += 6u;
-        if (bits >= 8u) {
-            bits -= 8u;
-            if (target >= VF2_PLAYER_POSE_BLOB_SIZE) return 0;
-            out[target++] = (uint8_t)(accumulator >> bits);
-            accumulator &= bits == 0u ? 0u : ((UINT32_C(1) << bits) - 1u);
+    for (chunk = 0u; chunk < VF2_PLAYER_POSE_B64_CHUNK_COUNT; ++chunk) {
+        const char *source = player_pose_blob_base64_chunks[chunk];
+        size_t index = 0u;
+        while (source[index] != '\0') {
+            const int value = player_pose_b64_value(source[index++]);
+            if (value == -2) {
+                return target == VF2_PLAYER_POSE_BLOB_SIZE;
+            }
+            if (value < 0) return 0;
+            accumulator = (accumulator << 6u) | (uint32_t)value;
+            bits += 6u;
+            if (bits >= 8u) {
+                bits -= 8u;
+                if (target >= VF2_PLAYER_POSE_BLOB_SIZE) return 0;
+                out[target++] = (uint8_t)(accumulator >> bits);
+                accumulator &= bits == 0u
+                    ? 0u : ((UINT32_C(1) << bits) - 1u);
+            }
         }
     }
     return target == VF2_PLAYER_POSE_BLOB_SIZE;
