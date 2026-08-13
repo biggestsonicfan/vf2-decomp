@@ -121,14 +121,24 @@ vf2_status vf2_hybrid_i960_run_tail(
     const uint64_t start_count = cpu != NULL
         ? cpu->executed_instructions : 0u;
 
+    /* 0x16504 -> 0x14418 is an owned recovered boundary. Once a caller asks
+     * for this exact corridor there is deliberately no silent ROM fallback:
+     * entry guard, live hybrid execution, instruction accounting, CRCs and
+     * final architectural state must all prove the recovery. */
     if (cpu != NULL && machine != NULL && options != NULL &&
         cpu->ip == VF2_PLAYER_POSE_ENTRY &&
         options->stop_address == VF2_PLAYER_POSE_RETURN &&
-        options->trace_callback == NULL &&
-        (options->max_steps == 0u ||
-         options->max_steps >= VF2_PLAYER_POSE_INSTRUCTIONS) &&
-        player_pose_entry_matches(machine, cpu)) {
-        const vf2_status status = player_pose_execute(machine, cpu);
+        options->trace_callback == NULL) {
+        vf2_status status = VF2_OK;
+
+        if (options->max_steps != 0u &&
+            options->max_steps < VF2_PLAYER_POSE_INSTRUCTIONS) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (!player_pose_entry_matches(machine, cpu)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = player_pose_execute(machine, cpu);
         if (status != VF2_OK) {
             return status;
         }
