@@ -278,25 +278,25 @@ static vf2_status player_selector_apply_opcode4(
         }
 
         if (selector == UINT32_C(0x02f1) || selector == UINT32_C(0x02f0)) {
-            packed &= ~(UINT16_C(1) << 14u);
+            packed &= UINT16_C(0xbfff);
             scale = 29;
         } else if (selector == UINT32_C(0x028d) ||
                    selector == UINT32_C(0x0331)) {
-            packed &= ~(UINT16_C(1) << 14u);
+            packed &= UINT16_C(0xbfff);
             status = player_selector_write_u8(
                 machine, player + UINT32_C(0x085f), UINT8_C(1)
             );
             scale = 29;
         } else if (player_type != UINT8_C(1)) {
             if (selector != UINT32_C(0x02b0)) {
-                packed &= ~(UINT16_C(1) << 14u);
+                packed &= UINT16_C(0xbfff);
                 status = player_selector_write_u8(
                     machine, player + UINT32_C(0x085f), UINT8_C(1)
                 );
                 scale = 29;
             }
         } else if (selector == UINT32_C(0x02b4)) {
-            packed &= ~(UINT16_C(1) << 14u);
+            packed &= UINT16_C(0xbfff);
             status = player_selector_write_u8(
                 machine, player + UINT32_C(0x085f), UINT8_C(1)
             );
