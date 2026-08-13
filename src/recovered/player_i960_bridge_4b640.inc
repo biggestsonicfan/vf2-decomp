@@ -294,16 +294,12 @@ static vf2_status player_4b640_prepare_publish(
         return status;
     }
 
-    /* Both 0x4b7b0/0x4b7e8 wrappers set flag bit 4 before publishing, so the
-     * helper always refreshes record+8 before deciding whether a full publish
-     * is required. */
     publish->publish_record =
         (uint32_t)old_metric != metric ||
         (uint32_t)old_selector != selector;
     publish->clear_globals =
         publish->publish_record != 0u && UINT32_C(2) > (uint32_t)limit;
 
-    /* 0x4b9b8 body, including its RET but excluding the wrapper's CALL. */
     if ((uint32_t)old_metric != metric) {
         publish->instruction_count =
             publish->clear_globals != 0u ? UINT64_C(23) : UINT64_C(19);
@@ -314,7 +310,6 @@ static vf2_status player_4b640_prepare_publish(
             publish->clear_globals != 0u ? UINT64_C(25) : UINT64_C(21);
     }
 
-    /* Preflight every destination touched by the wrapper/publisher. */
     status = vf2_model2a_read_u32(machine, record + UINT32_C(8), &ignored);
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(machine, record + UINT32_C(0x10), &ignored);
@@ -344,7 +339,6 @@ static vf2_status player_4b640_apply_publish(
     if (publish == NULL || publish->active == 0u) {
         return VF2_OK;
     }
-    /* Wrapper store before the nested publisher. */
     status = player_tail_write_u16(
         machine, publish->record + UINT32_C(0x0a), UINT16_C(1)
     );
@@ -794,7 +788,7 @@ countdown:
     if (status != VF2_OK) {
         return status;
     }
-    plan->instruction_count += UINT64_C(1) +
+    plan->instruction_count +=
         (side == 0u ? UINT64_C(11) : UINT64_C(10)) +
         plan->first_publish.instruction_count;
     plan->nested_calls += UINT64_C(2);
@@ -855,7 +849,6 @@ after_tables:
     }
 
 finish:
-    /* Parent RET followed by the caller's unconditional 0x1440c -> 0x14414. */
     plan->instruction_count += UINT64_C(2);
     return VF2_OK;
 }
