@@ -5,6 +5,7 @@
 #define VF2_PLAYER_176A0_STATE_POINTER UINT32_C(0x00500828)
 #define VF2_PLAYER_176A0_COMMAND_A UINT32_C(0x1c803939)
 #define VF2_PLAYER_176A0_COMMAND_B UINT32_C(0x14802929)
+#define VF2_PLAYER_176A0_SELECTOR_COUNT UINT32_C(16)
 
 typedef struct vf2_player_176a0_plan {
     uint32_t player;
@@ -44,6 +45,10 @@ static vf2_status player_prepare_176a0(
     }
     memset(plan, 0, sizeof(*plan));
     selector = cpu->registers[VF2_I960_G0_REGISTER];
+    if (selector >= VF2_PLAYER_176A0_SELECTOR_COUNT) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
     plan->player = player;
     plan->port = port;
     plan->selector = selector;
@@ -79,7 +84,9 @@ static vf2_status player_prepare_176a0(
     if (status != VF2_OK) {
         return status;
     }
-    if (state_pointer == 0u || plan->list_pointer == 0u) {
+    /* Selector zero is the ROM's intentional empty list: count=0 and pointer=0.
+     * All active selectors must carry a real MAIN_DATA list pointer. */
+    if (state_pointer == 0u || (count != 0u && plan->list_pointer == 0u)) {
         return VF2_ERROR_UNSUPPORTED;
     }
     plan->count = count;
