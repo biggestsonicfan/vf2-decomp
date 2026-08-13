@@ -135,9 +135,6 @@ static vf2_status player_selector_opcode_size(
         if (status != VF2_OK) {
             return status;
         }
-        if ((uint32_t)count > (UINT32_MAX - UINT32_C(2)) / UINT32_C(2)) {
-            return VF2_ERROR_UNSUPPORTED;
-        }
         *size = UINT32_C(2) + (uint32_t)count * UINT32_C(2);
         return VF2_OK;
     default:
@@ -168,7 +165,6 @@ static vf2_status player_selector_prepare_setup(
     plan->player = player;
     plan->selector = selector;
 
-    /* Selector zero takes the routine's no-data finish path. */
     if (selector == 0u) {
         status = vf2_model2a_read_u32(
             machine, VF2_PLAYER_SELECTOR_BRANCH_BASE, &branch_base
@@ -309,7 +305,6 @@ static vf2_status player_selector_apply_opcode(
 {
     uint8_t value = 0u;
     uint8_t count = 0u;
-    uint32_t state = 0u;
     uint32_t saved_cursor = 0u;
     size_t index = 0u;
     vf2_status status = VF2_OK;
@@ -477,7 +472,6 @@ static vf2_status player_selector_apply_opcode(
     case 8u:
         return VF2_OK;
     default:
-        (void)state;
         return VF2_ERROR_UNSUPPORTED;
     }
 }
@@ -490,7 +484,6 @@ static vf2_status player_selector_apply_setup(
     uint32_t old_state = 0u;
     uint32_t old_selector_state = 0u;
     uint32_t cursor = 0u;
-    uint8_t value = 0u;
     uint8_t source_byte = 0u;
     size_t index = 0u;
     vf2_status status = VF2_OK;
@@ -499,7 +492,6 @@ static vf2_status player_selector_apply_setup(
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
-    /* 0x1a1e4 fixed reset block. */
     status = player_selector_write_u16(
         machine, plan->player + UINT32_C(0x802), 0u
     );
@@ -659,41 +651,40 @@ finish:
     if (status == VF2_OK) {
         uint32_t player_flags = 0u;
         status = vf2_model2a_read_u32(machine, plan->player, &player_flags);
-        if (status == VF2_OK && (player_flags & (UINT32_C(1) << 6u)) != 0u) {
+        if (status == VF2_OK && (player_flags & (UINT32_C(1) << 6u)) != 0u &&
+            plan->selector != 0u) {
             uint16_t signed_value = 0u;
             uint32_t toggle = 0u;
-            if (plan->selector != 0u) {
-                status = player_selector_read_u16(
-                    machine, plan->player + UINT32_C(0x812), &signed_value
+            status = player_selector_read_u16(
+                machine, plan->player + UINT32_C(0x812), &signed_value
+            );
+            if (status == VF2_OK) {
+                status = player_selector_write_u16(
+                    machine, plan->player + UINT32_C(0x812),
+                    (uint16_t)(-(int16_t)signed_value)
                 );
-                if (status == VF2_OK) {
-                    status = player_selector_write_u16(
-                        machine, plan->player + UINT32_C(0x812),
-                        (uint16_t)(-(int16_t)signed_value)
-                    );
-                }
-                if (status == VF2_OK) {
-                    status = player_selector_read_u16(
-                        machine, plan->player + UINT32_C(0x82a), &signed_value
-                    );
-                }
-                if (status == VF2_OK) {
-                    status = player_selector_write_u16(
-                        machine, plan->player + UINT32_C(0x82a),
-                        (uint16_t)(-(int16_t)signed_value)
-                    );
-                }
-                if (status == VF2_OK) {
-                    status = vf2_model2a_read_u32(
-                        machine, plan->player + UINT32_C(0x830), &toggle
-                    );
-                }
-                if (status == VF2_OK) {
-                    status = vf2_model2a_write_u32(
-                        machine, plan->player + UINT32_C(0x830),
-                        toggle ^ (UINT32_C(1) << 31u)
-                    );
-                }
+            }
+            if (status == VF2_OK) {
+                status = player_selector_read_u16(
+                    machine, plan->player + UINT32_C(0x82a), &signed_value
+                );
+            }
+            if (status == VF2_OK) {
+                status = player_selector_write_u16(
+                    machine, plan->player + UINT32_C(0x82a),
+                    (uint16_t)(-(int16_t)signed_value)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, plan->player + UINT32_C(0x830), &toggle
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, plan->player + UINT32_C(0x830),
+                    toggle ^ (UINT32_C(1) << 31u)
+                );
             }
         }
     }
@@ -711,7 +702,6 @@ finish:
             );
         }
     }
-    (void)value;
     return status;
 }
 
