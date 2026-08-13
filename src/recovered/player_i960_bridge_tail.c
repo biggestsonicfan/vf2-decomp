@@ -39,7 +39,6 @@ static void player_17710_compat_set_compare_result(
         (cpu->arithmetic_control & ~UINT32_C(7)) | condition_bits;
 }
 
-/* Compatibility hook retained by the generic include's legacy macro surface. */
 static vf2_status player_execute_17710_fast_exit(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
@@ -252,18 +251,37 @@ static vf2_status vf2_hybrid_i960_run_tail_17710(
     if (cpu != NULL && machine != NULL && options != NULL &&
         cpu->ip == VF2_PLAYER_17710_ENTRY &&
         options->stop_address == VF2_PLAYER_17710_STOP &&
-        options->trace_callback == NULL) {
-        /* Scalar/early-return paths stay fully C. If the planner identifies a
-         * true 0x178bc fall-through, probe the read-only prefix and replace
-         * only the TGP rotation tail with the recovered semantic matrix. */
-        status = player_execute_17710(machine, cpu, options->max_steps);
+        options->trace_callback == NULL &&
+        cpu->local_frame_depth >= 3u &&
+        cpu->registers[VF2_I960_G0_REGISTER + 7u] != 0u &&
+        cpu->registers[VF2_I960_G0_REGISTER + 8u] != 0u &&
+        (cpu->registers[0] & UINT32_C(7)) == 0u &&
+        cpu->local_frames[cpu->local_frame_depth - 1u].registers[2] ==
+            VF2_PLAYER_17710_STOP) {
+        vf2_player_17710_plan recognition;
+
+        /* Prepare once without mutation to distinguish a real TGP fall-through
+         * from an ordinary scalar path whose caller supplied a short budget. */
+        status = player_prepare_17710(machine, cpu, &recognition);
         if (status == VF2_OK) {
-            player_bridge_result(result, cpu, start_count);
-            return VF2_OK;
+            status = player_execute_17710(machine, cpu, options->max_steps);
+            if (status == VF2_OK) {
+                player_bridge_result(result, cpu, start_count);
+                return VF2_OK;
+            }
+            if (status != VF2_ERROR_UNSUPPORTED) {
+                return status;
+            }
+            /* Recognized scalar path + insufficient budget: preserve the raw
+             * executor fallback. Do not reinterpret it as a rotation path. */
+            return vf2_hybrid_i960_run_tail_176a0(
+                cpu, machine, options, result
+            );
         }
         if (status != VF2_ERROR_UNSUPPORTED) {
             return status;
         }
+
         status = player_execute_17710_rotation(
             machine, cpu, options->max_steps
         );
