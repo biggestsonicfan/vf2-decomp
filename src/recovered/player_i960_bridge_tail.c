@@ -6,6 +6,9 @@
 /* Recovered table-driven pose RPC helper: 0x176a0 -> dynamic caller return. */
 #include "player_i960_bridge_176a0.inc"
 
+/* Sixteen unrolled joint tails all share one semantic C implementation. */
+#include "player_i960_bridge_pose_joint.inc"
+
 /* Generalized non-TGP control-flow family: 0x17710 -> 0x14404. */
 #define VF2_PLAYER_17710_ENTRY UINT32_C(0x00017710)
 #define VF2_PLAYER_17710_RET UINT32_C(0x00017918)
@@ -31,7 +34,7 @@ static void player_17710_compat_set_compare_result(
 }
 
 /* The generalized include was first written as a drop-in replacement for the
- * exact helper in player_i960_bridge.c.  Keep that compatibility reference
+ * exact helper in player_i960_bridge.c. Keep that compatibility reference
  * satisfied in this independent dispatch layer. */
 static vf2_status player_execute_17710_fast_exit(
     vf2_model2a *machine,
