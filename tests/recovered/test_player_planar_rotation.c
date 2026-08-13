@@ -115,15 +115,6 @@ static uint8_t *selector_test_main_pointer(uint32_t address, size_t size)
     return selector_test_main_data + offset;
 }
 
-static void selector_test_main_write_u8(uint32_t address, uint8_t value8)
-{
-    uint8_t *destination = selector_test_main_pointer(address, 1u);
-    CHECK(destination != NULL);
-    if (destination != NULL) {
-        *destination = value8;
-    }
-}
-
 static void selector_test_main_write_u16(uint32_t address, uint16_t value16)
 {
     uint8_t *destination = selector_test_main_pointer(address, 2u);
