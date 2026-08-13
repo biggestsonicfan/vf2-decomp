@@ -38,19 +38,6 @@ static vf2_status player_selector_scratch_write_u8(
     return vf2_model2a_write(machine, address, &value, sizeof(value));
 }
 
-static vf2_status player_selector_scratch_write_u16(
-    vf2_model2a *machine,
-    uint32_t address,
-    uint16_t value
-)
-{
-    const uint8_t raw[2] = {
-        (uint8_t)value,
-        (uint8_t)(value >> 8u)
-    };
-    return vf2_model2a_write(machine, address, raw, sizeof(raw));
-}
-
 static float player_selector_scratch_float(uint32_t bits)
 {
     float value = 0.0f;
