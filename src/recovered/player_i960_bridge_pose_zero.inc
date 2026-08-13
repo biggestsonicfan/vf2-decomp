@@ -105,7 +105,6 @@ static vf2_status player_pose_prepare_zero(
     }
     plan->current_angle = (uint32_t)(int32_t)(int16_t)angle;
 
-    /* Preflight the nine capture destinations. */
     for (index = 0u; index < 9u; ++index) {
         uint32_t ignored = 0u;
         status = vf2_model2a_read_u32(
@@ -191,6 +190,26 @@ static vf2_status player_pose_prepare_zero(
     return VF2_OK;
 }
 
+static vf2_status player_pose_zero_write_triplet(
+    vf2_model2a *machine,
+    uint32_t port,
+    const uint32_t values[3]
+)
+{
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    for (index = 0u; index < 3u; ++index) {
+        status = vf2_model2a_write_u32(
+            machine, port + (uint32_t)index * UINT32_C(4), values[index]
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+    return VF2_OK;
+}
+
 static vf2_status player_pose_apply_zero(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -225,8 +244,11 @@ static vf2_status player_pose_apply_zero(
     VF2_POSE_ZERO_WRITE(plan->setup_word);
     VF2_POSE_ZERO_WRITE(0u);
     VF2_POSE_ZERO_WRITE(VF2_PLAYER_POSE_ZERO_COMMAND_VECTOR);
-    for (index = 0u; index < 3u; ++index) {
-        VF2_POSE_ZERO_WRITE(plan->initial_vector[index]);
+    status = player_pose_zero_write_triplet(
+        machine, plan->port, plan->initial_vector
+    );
+    if (status != VF2_OK) {
+        return status;
     }
 
     if (plan->current_angle != 0u) {
@@ -264,8 +286,11 @@ static vf2_status player_pose_apply_zero(
 
     if (plan->write_branch_vector != 0u) {
         VF2_POSE_ZERO_WRITE(VF2_PLAYER_POSE_ZERO_COMMAND_VECTOR);
-        for (index = 0u; index < 3u; ++index) {
-            VF2_POSE_ZERO_WRITE(plan->branch_vector[index]);
+        status = player_pose_zero_write_triplet(
+            machine, plan->port, plan->branch_vector
+        );
+        if (status != VF2_OK) {
+            return status;
         }
     }
     VF2_POSE_ZERO_WRITE(VF2_PLAYER_POSE_ZERO_COMMAND_ANGLE);
