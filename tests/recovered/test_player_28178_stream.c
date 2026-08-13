@@ -271,7 +271,7 @@ static void test_two_records_reuse_same_slot(void)
     );
     CHECK(write_u8(&machine, RECORDS + UINT32_C(14), 0u) == VF2_OK);
 
-    run_exact(&machine, &cpu, UINT64_C(107));
+    run_exact(&machine, &cpu, UINT64_C(109));
     CHECK(read_u32(&machine, PLAYER + UINT32_C(0x082c)) == RECORDS + UINT32_C(14));
     CHECK(read_u8(&machine, slot0) == UINT8_C(10));
     CHECK(read_u8(&machine, slot0 + UINT32_C(1)) == UINT8_C(0x20));
