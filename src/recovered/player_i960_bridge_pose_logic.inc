@@ -27,13 +27,13 @@ static vf2_status player_pose_run_original_until(
  * Live hybrid decompilation of the observed 0x16504 pose corridor.
  *
  * The old bridge reproduced this function by replaying a compressed copro
- * operation stream plus final RAM patches.  This replacement executes the
+ * operation stream plus final RAM patches. This replacement executes the
  * still-unrecovered preparation regions with the architectural i960 executor,
  * but substitutes the sixteen repeated joint tails and their table-driven
  * 0x176a0 calls with recovered C against the same live machine state.
  *
  * Consequently every hardware read/write occurs in program order and later C
- * blocks consume effects produced by the earlier original/C blocks.  The
+ * blocks consume effects produced by the earlier original/C blocks. The
  * post-state CRC and architectural register checks remain the hard acceptance
  * gate while the remaining preparation regions are lifted incrementally.
  */
@@ -56,11 +56,20 @@ static vf2_status player_pose_execute(
     }
 
     for (selector = 0u; selector < VF2_PLAYER_POSE_JOINT_COUNT; ++selector) {
+        uint32_t recovered_selector = UINT32_MAX;
+
         status = player_pose_run_original_until(
             machine, cpu, player_pose_joint_entries[selector]
         );
         if (status != VF2_OK) {
             return status;
+        }
+        if (!player_pose_joint_selector(
+                cpu->ip,
+                player_pose_joint_returns[selector],
+                &recovered_selector) ||
+            recovered_selector != selector) {
+            return VF2_ERROR_UNSUPPORTED;
         }
         status = player_pose_execute_joint(machine, cpu, selector, 0u);
         if (status != VF2_OK ||
