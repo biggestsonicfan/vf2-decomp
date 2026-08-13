@@ -51,6 +51,9 @@ static vf2_status player_execute_17710_fast_exit(
 #undef player_read_u16
 #undef player_read_u8
 
+/* TGP-facing subset whose rotation angle is proven to be exactly zero. */
+#include "player_i960_bridge_17710_rotation0.inc"
+
 static void player_bridge_result(
     vf2_i960_run_result *result,
     const vf2_i960_cpu *cpu,
@@ -82,6 +85,16 @@ static vf2_status vf2_hybrid_i960_run_tail_17710(
         cpu->ip == VF2_PLAYER_17710_ENTRY &&
         options->stop_address == VF2_PLAYER_17710_STOP &&
         options->trace_callback == NULL) {
+        status = player_execute_17710_rotation_zero(
+            machine, cpu, options->max_steps
+        );
+        if (status == VF2_OK) {
+            player_bridge_result(result, cpu, start_count);
+            return VF2_OK;
+        }
+        if (status != VF2_ERROR_UNSUPPORTED) {
+            return status;
+        }
         status = player_execute_17710(machine, cpu, options->max_steps);
         if (status == VF2_OK) {
             player_bridge_result(result, cpu, start_count);
