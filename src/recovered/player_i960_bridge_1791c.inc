@@ -33,14 +33,11 @@ static uint32_t player_1791c_bits(float value)
     return bits;
 }
 
-/*
- * Command 0x16802d2d is used throughout the player code as a two-component
+/* Command 0x16802d2d is used throughout the player code as a two-component
  * scalar norm.  The 0x1791c caller feeds X/Z velocity pairs, compares the
- * returned scalar against a speed limit, then multiplies both components by
- * the same ratio.  Other call sites use the same two-input/one-output shape
- * for distance thresholds.  Keep the recovered primitive deliberately small:
- * finite IEEE-754 inputs only, with unsupported values delegated to i960/TGP.
- */
+ * returned scalar against a speed limit, then scales both components by the
+ * same ratio.  Keep the recovered primitive finite-only so unknown numerical
+ * edge cases still fall back to the original i960/TGP path. */
 static vf2_status player_1791c_length2(
     uint32_t x_bits,
     uint32_t z_bits,
@@ -83,7 +80,6 @@ static vf2_status player_prepare_1791c(
     uint32_t global_position_threshold = 0u;
     uint32_t global_unused_gate_scale = 0u;
     uint32_t player_speed_scale = 0u;
-    uint32_t vertical_bias = 0u;
     uint32_t base_x = 0u;
     uint32_t base_z = 0u;
     uint32_t secondary_y = 0u;
@@ -136,60 +132,96 @@ static vf2_status player_prepare_1791c(
         }
     }
 
-    status = vf2_model2a_read_u32(machine, player + UINT32_C(0x2c), &plan->velocity[0]);
+    status = vf2_model2a_read_u32(
+        machine, player + UINT32_C(0x2c), &plan->velocity[0]
+    );
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x30), &plan->velocity[1]);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x30), &plan->velocity[1]
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x34), &plan->velocity[2]);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x34), &plan->velocity[2]
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x5c8), &plan->secondary_x);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x5c8), &plan->secondary_x
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x5cc), &secondary_y);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x5cc), &secondary_y
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x5d0), &plan->secondary_z);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x5d0), &plan->secondary_z
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x5d4), &plan->secondary_factor);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x5d4), &plan->secondary_factor
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x5d8), &player_speed_scale);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x5d8), &player_speed_scale
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x1a4), &player_state);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x1a4), &player_state
+        );
     }
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(machine, player, &player_flags);
     }
     if (status == VF2_OK) {
-        status = player_tail_read_u16(machine, player + UINT32_C(0x61c), &gate);
+        status = player_tail_read_u16(
+            machine, player + UINT32_C(0x61c), &gate
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x1f4), &base_x);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x1f4), &base_x
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x1fc), &base_z);
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x1fc), &base_z
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &runtime_flags);
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &runtime_flags
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050a000), &global_tick);
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a000), &global_tick
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050a004), &global_scale);
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a004), &global_scale
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050a008), &global_secondary_scale);
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a008), &global_secondary_scale
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050a00c), &global_position_threshold);
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a00c), &global_position_threshold
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050a010), &global_unused_gate_scale);
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050a010), &global_unused_gate_scale
+        );
     }
     if (status != VF2_OK) {
         return status;
@@ -213,7 +245,7 @@ static vf2_status player_prepare_1791c(
     if (!isfinite(secondary_x) || !isfinite(secondary_z) ||
         !isfinite(secondary_factor) || !isfinite(secondary_y_value) ||
         !isfinite(base_x_value) || !isfinite(base_z_value) ||
-        !isfinite(threshold) || !isfinite(tick)) {
+        !isfinite(threshold) || !isfinite(tick) || threshold < 0.0f) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -227,11 +259,7 @@ static vf2_status player_prepare_1791c(
         return VF2_ERROR_UNSUPPORTED;
     }
 
-    /* 0x1791c through the r7=0 setup. */
-    plan->instruction_count = UINT64_C(16);
-    /* 0x17974 ld + 0x17978 bbs. */
-    plan->instruction_count += UINT64_C(2);
-
+    plan->instruction_count = UINT64_C(18);
     if ((player_state & (UINT32_C(1) << 4u)) == 0u) {
         status = player_1791c_length2(
             plan->velocity[0], plan->velocity[2], &length_bits
@@ -240,7 +268,6 @@ static vf2_status player_prepare_1791c(
             return status;
         }
         length = player_1791c_float(length_bits);
-        /* lda/st command, two ld/st arguments, one result read, compare. */
         plan->instruction_count += UINT64_C(8);
         if (length <= first_limit) {
             velocity[0] = 0.0f;
@@ -285,7 +312,6 @@ static vf2_status player_prepare_1791c(
         plan->instruction_count += UINT64_C(10);
     }
 
-    /* 0x17a40: choose whether the vertical velocity receives gravity+bias. */
     plan->instruction_count += UINT64_C(2);
     if ((player_flags & (UINT32_C(1) << 2u)) != 0u) {
         apply_vertical = true;
@@ -342,7 +368,6 @@ static vf2_status player_prepare_1791c(
     plan->secondary_x = player_1791c_bits(secondary_x);
     plan->secondary_z = player_1791c_bits(secondary_z);
     plan->secondary_factor = player_1791c_bits(secondary_factor);
-    /* ldt/ldt, three subr, stt and ret. */
     plan->instruction_count += UINT64_C(7);
     return VF2_OK;
 }
@@ -369,9 +394,6 @@ static vf2_status player_apply_1791c(
         machine, UINT32_C(0x0050e000),
         plan->initial_position, sizeof(plan->initial_position)
     );
-    /* With no real coprocessor callback, preserve the final observable flat
-     * port word left by the second length command.  Callback-backed runtimes
-     * are semantic replacements and must not receive an unconsumed fake RPC. */
     if (status == VF2_OK &&
         machine->copro_read_callback == NULL &&
         machine->copro_write_callback == NULL) {
