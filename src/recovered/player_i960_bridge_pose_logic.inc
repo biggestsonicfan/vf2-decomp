@@ -95,7 +95,8 @@ static vf2_status player_pose_execute(
     if (cpu->executed_instructions - start_instructions !=
             VF2_PLAYER_POSE_INSTRUCTIONS ||
         cpu->procedure_calls - start_calls != VF2_PLAYER_POSE_JOINT_COUNT ||
-        cpu->procedure_returns - start_returns != VF2_PLAYER_POSE_JOINT_COUNT) {
+        cpu->procedure_returns - start_returns !=
+            VF2_PLAYER_POSE_JOINT_COUNT + 1u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -118,6 +119,23 @@ static vf2_status player_pose_execute(
     return VF2_OK;
 }
 
+static void player_pose_set_run_result(
+    vf2_i960_run_result *result,
+    const vf2_i960_cpu *cpu,
+    uint64_t start_count,
+    vf2_i960_halt_reason halt_reason,
+    vf2_status status
+)
+{
+    if (result != NULL && cpu != NULL) {
+        memset(result, 0, sizeof(*result));
+        result->halt_reason = halt_reason;
+        result->status = status;
+        result->halt_address = cpu->ip;
+        result->executed_instructions = cpu->executed_instructions - start_count;
+    }
+}
+
 vf2_status vf2_hybrid_i960_run_tail(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine,
@@ -130,8 +148,9 @@ vf2_status vf2_hybrid_i960_run_tail(
 
     if (cpu != NULL && machine != NULL && options != NULL &&
         cpu->ip == VF2_PLAYER_POSE_ENTRY &&
-        options->stop_address == VF2_PLAYER_POSE_RETURN &&
         options->trace_callback == NULL) {
+        vf2_i960_run_options continuation_options;
+        vf2_i960_run_result continuation_result;
         vf2_status status = VF2_OK;
 
         if (options->max_steps != 0u &&
@@ -145,15 +164,39 @@ vf2_status vf2_hybrid_i960_run_tail(
         if (status != VF2_OK) {
             return status;
         }
+
+        if (options->stop_address == VF2_PLAYER_POSE_RETURN) {
+            player_pose_set_run_result(
+                result, cpu, start_count,
+                VF2_I960_HALT_STOP_ADDRESS, VF2_OK
+            );
+            return VF2_OK;
+        }
+
+        if (options->max_steps == VF2_PLAYER_POSE_INSTRUCTIONS) {
+            player_pose_set_run_result(
+                result, cpu, start_count,
+                VF2_I960_HALT_MAX_STEPS, VF2_OK
+            );
+            return VF2_OK;
+        }
+
+        continuation_options = *options;
+        if (continuation_options.max_steps != 0u) {
+            continuation_options.max_steps -= VF2_PLAYER_POSE_INSTRUCTIONS;
+        }
+        memset(&continuation_result, 0, sizeof(continuation_result));
+        status = vf2_hybrid_i960_run_tail_previous(
+            cpu, machine, &continuation_options, &continuation_result
+        );
         if (result != NULL) {
-            memset(result, 0, sizeof(*result));
-            result->halt_reason = VF2_I960_HALT_STOP_ADDRESS;
-            result->status = VF2_OK;
+            *result = continuation_result;
+            result->status = status;
             result->halt_address = cpu->ip;
             result->executed_instructions =
                 cpu->executed_instructions - start_count;
         }
-        return VF2_OK;
+        return status;
     }
     return vf2_hybrid_i960_run_tail_previous(cpu, machine, options, result);
 }
