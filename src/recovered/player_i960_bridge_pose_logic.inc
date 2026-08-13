@@ -2,33 +2,9 @@
 #include "player_i960_bridge_pose_diagnostics.inc"
 #include "player_i960_bridge_pose_zero.inc"
 #include "player_i960_bridge_pose_ten.inc"
+#include "player_i960_bridge_pose_final.inc"
 
-static vf2_status player_pose_run_original_until(
-    vf2_model2a *machine,
-    vf2_i960_cpu *cpu,
-    uint32_t stop_address
-)
-{
-    vf2_i960_run_options options;
-    vf2_i960_run_result result;
-    vf2_status status = VF2_OK;
-
-    memset(&options, 0, sizeof(options));
-    memset(&result, 0, sizeof(result));
-    options.stop_address = stop_address;
-    options.max_steps = UINT64_C(2000000);
-    options.stop_on_self_branch = true;
-
-    status = vf2_i960_run(cpu, machine, &options, &result);
-    if (status != VF2_OK) {
-        return status;
-    }
-    return result.halt_reason == VF2_I960_HALT_STOP_ADDRESS &&
-           cpu->ip == stop_address
-        ? VF2_OK : VF2_ERROR_UNSUPPORTED;
-}
-
-/* Live hybrid decompilation of the observed 0x16504 pose corridor. */
+/* Fully recovered observed 0x16504 pose corridor. */
 static vf2_status player_pose_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
@@ -63,9 +39,7 @@ static vf2_status player_pose_execute(
         } else if (diagnostics != NULL) {
             status = player_pose_execute_diagnostics(machine, cpu, selector);
         } else {
-            status = player_pose_run_original_until(
-                machine, cpu, player_pose_joint_entries[selector]
-            );
+            return VF2_ERROR_UNSUPPORTED;
         }
         if (status != VF2_OK ||
             cpu->ip != player_pose_joint_entries[selector]) {
@@ -85,9 +59,10 @@ static vf2_status player_pose_execute(
         }
     }
 
-    status = player_pose_run_original_until(
-        machine, cpu, VF2_PLAYER_POSE_RETURN
-    );
+    if (cpu->ip != VF2_PLAYER_POSE_FINAL_ENTRY) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = player_pose_execute_final(machine, cpu, 0u);
     if (status != VF2_OK) {
         return status;
     }
