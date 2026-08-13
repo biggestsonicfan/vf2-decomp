@@ -1,10 +1,74 @@
+#include <math.h>
+
 /* Additional semantic handlers for the 0x1a1e4 selector bytecode. */
+
+static float player_selector_extended_float(uint32_t bits)
+{
+    float result = 0.0f;
+    memcpy(&result, &bits, sizeof(result));
+    return result;
+}
+
+static uint32_t player_selector_extended_bits(float value)
+{
+    uint32_t result = 0u;
+    memcpy(&result, &value, sizeof(result));
+    return result;
+}
+
+static vf2_status player_selector_extended_cvtri(
+    uint32_t arithmetic_control,
+    float value,
+    int32_t *result
+)
+{
+    double rounded = 0.0;
+    const unsigned mode =
+        (unsigned)((arithmetic_control >> 30u) & UINT32_C(3));
+
+    if (result == NULL || !isfinite(value)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    switch (mode) {
+    case 0u: {
+        const double lower = floor((double)value);
+        const double fraction = (double)value - lower;
+        if (fraction < 0.5) {
+            rounded = lower;
+        } else if (fraction > 0.5) {
+            rounded = lower + 1.0;
+        } else {
+            rounded = fmod(fabs(lower), 2.0) == 0.0
+                ? lower : lower + 1.0;
+        }
+        break;
+    }
+    case 1u:
+        rounded = floor((double)value);
+        break;
+    case 2u:
+        rounded = ceil((double)value);
+        break;
+    case 3u:
+    default:
+        rounded = trunc((double)value);
+        break;
+    }
+    if (rounded < (double)INT32_MIN || rounded > (double)INT32_MAX) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    *result = (int32_t)rounded;
+    return VF2_OK;
+}
 
 static int player_selector_extended_opcode_supported(uint8_t opcode)
 {
     return opcode == UINT8_C(2) ||
            opcode == UINT8_C(4) ||
-           opcode == UINT8_C(11);
+           opcode == UINT8_C(5) ||
+           opcode == UINT8_C(9) ||
+           opcode == UINT8_C(11) ||
+           opcode == UINT8_C(14);
 }
 
 static vf2_status player_selector_extended_opcode_size(
@@ -21,6 +85,13 @@ static vf2_status player_selector_extended_opcode_size(
         return VF2_OK;
     case 4u:
         *size = UINT32_C(17);
+        return VF2_OK;
+    case 5u:
+        *size = UINT32_C(10);
+        return VF2_OK;
+    case 9u:
+    case 14u:
+        *size = UINT32_C(15);
         return VF2_OK;
     case 11u:
         *size = UINT32_C(11);
@@ -355,6 +426,140 @@ static vf2_status player_selector_apply_opcode4(
     return status;
 }
 
+static vf2_status player_selector_apply_opcode5(
+    vf2_model2a *machine,
+    uint32_t player,
+    uint32_t cursor
+)
+{
+    uint32_t counter = 0u;
+    int32_t base = 0;
+    int32_t scale = 0;
+    int32_t output = 0;
+    uint8_t value = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+    static const uint16_t offsets[8] = {
+        UINT16_C(0x0828), UINT16_C(0x0829),
+        UINT16_C(0x0824), UINT16_C(0x0825),
+        UINT16_C(0x0826), UINT16_C(0x0827),
+        UINT16_C(0x0812), UINT16_C(0x0813)
+    };
+    static const uint8_t sources[8] = {
+        1u, 2u, 4u, 5u, 6u, 7u, 8u, 9u
+    };
+
+    for (index = 0u; index < 8u; ++index) {
+        status = player_selector_read_u8(
+            machine, cursor + (uint32_t)sources[index], &value
+        );
+        if (status == VF2_OK) {
+            status = player_selector_write_u8(
+                machine, player + (uint32_t)offsets[index], value
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+    status = player_selector_read_u8(machine, cursor + UINT32_C(3), &value);
+    if (status != VF2_OK) {
+        return status;
+    }
+    scale = (int32_t)(int8_t)value;
+    status = player_selector_read_u8(machine, player + UINT32_C(0x069c), &value);
+    if (status != VF2_OK) {
+        return status;
+    }
+    base = (int32_t)(int8_t)value;
+    output = ((base * 5 + 100) * scale) / 100;
+    status = player_selector_write_u8(
+        machine, player + UINT32_C(0x0822), (uint8_t)output
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x1230), &counter);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, player + UINT32_C(0x1230), counter + UINT32_C(1)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x1234), &counter);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, player + UINT32_C(0x1234), counter + UINT32_C(1)
+        );
+    }
+    return status;
+}
+
+static vf2_status player_selector_apply_opcode9(
+    vf2_model2a *machine,
+    uint32_t player,
+    uint32_t cursor
+)
+{
+    uint32_t source_bits = 0u;
+    uint32_t scale_bits = 0u;
+    uint32_t output_bits = 0u;
+    float source = 0.0f;
+    float scale = 0.0f;
+    float output = 0.0f;
+    uint8_t value = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    for (index = 0u; index < 8u; ++index) {
+        status = player_selector_read_u8(
+            machine, cursor + UINT32_C(1) + (uint32_t)index, &value
+        );
+        if (status == VF2_OK) {
+            status = player_selector_write_u8(
+                machine, player + UINT32_C(0x0830) + (uint32_t)index, value
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+    status = player_selector_read_u8(machine, cursor + UINT32_C(9), &value);
+    if (status == VF2_OK) {
+        status = player_selector_write_u8(
+            machine, player + UINT32_C(0x05be), value
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, cursor + UINT32_C(10), &source_bits);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050a000), &scale_bits);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    source = player_selector_extended_float(source_bits);
+    scale = player_selector_extended_float(scale_bits);
+    output = source * scale;
+    if (!isfinite(source) || !isfinite(scale) || !isfinite(output)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    output_bits = player_selector_extended_bits(output) | (UINT32_C(1) << 31u);
+    status = vf2_model2a_write_u32(
+        machine, player + UINT32_C(0x05cc), output_bits
+    );
+    if (status == VF2_OK) {
+        status = player_selector_read_u8(machine, cursor + UINT32_C(14), &value);
+    }
+    if (status == VF2_OK) {
+        status = player_selector_write_u16(
+            machine, player + UINT32_C(0x081a), (uint16_t)value
+        );
+    }
+    return status;
+}
+
 static int player_selector_opcode11_toggles_bit15(uint32_t selector)
 {
     static const uint16_t selectors[] = {
@@ -425,12 +630,124 @@ static vf2_status player_selector_apply_opcode11(
     return status;
 }
 
+static vf2_status player_selector_apply_opcode14(
+    vf2_model2a *machine,
+    uint32_t player,
+    uint32_t cursor,
+    uint32_t arithmetic_control
+)
+{
+    uint32_t first_bits = 0u;
+    uint32_t middle_bits = 0u;
+    uint32_t final_bits = 0u;
+    uint32_t current_bits = 0u;
+    float first = 0.0f;
+    float middle = 0.0f;
+    float final = 0.0f;
+    float current = 0.0f;
+    float range = 0.0f;
+    float offset = 0.0f;
+    float ratio = 0.0f;
+    float scaled = 0.0f;
+    int32_t start_value = 0;
+    int32_t end_value = 0;
+    int32_t delta = 0;
+    int32_t converted = 0;
+    uint8_t raw = 0u;
+    vf2_status status = vf2_model2a_read_u32(
+        machine, cursor + UINT32_C(1), &first_bits
+    );
+
+    if (status == VF2_OK) {
+        status = player_selector_read_u8(machine, cursor + UINT32_C(5), &raw);
+    }
+    if (status == VF2_OK) {
+        start_value = (int32_t)(int8_t)raw;
+        status = vf2_model2a_read_u32(machine, cursor + UINT32_C(6), &middle_bits);
+    }
+    if (status == VF2_OK) {
+        status = player_selector_read_u8(machine, cursor + UINT32_C(10), &raw);
+    }
+    if (status == VF2_OK) {
+        end_value = (int32_t)(int8_t)raw;
+        status = vf2_model2a_read_u32(machine, cursor + UINT32_C(11), &final_bits);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, player + UINT32_C(0x05f4), &current_bits);
+    }
+    if (status == VF2_OK) {
+        status = player_selector_read_u8(machine, player + UINT32_C(0x0822), &raw);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    first = player_selector_extended_float(first_bits);
+    middle = player_selector_extended_float(middle_bits);
+    final = player_selector_extended_float(final_bits);
+    current = player_selector_extended_float(current_bits);
+    if (!isfinite(first) || !isfinite(middle) ||
+        !isfinite(final) || !isfinite(current)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    range = first - middle;
+    offset = current - middle;
+    delta = (int32_t)(int8_t)raw - start_value;
+
+    if (end_value != 0) {
+        const float first_segment = final - middle;
+        if (first_segment < offset) {
+            range = first_segment;
+            delta = end_value - start_value;
+        } else {
+            start_value = end_value;
+            range = first - final;
+            offset = current - final;
+            delta = (int32_t)(int8_t)raw - start_value;
+        }
+    }
+
+    if (range > 0.0f) {
+        if (offset < 0.0f) {
+            offset = 0.0f;
+        } else if (offset > range) {
+            offset = range;
+        }
+    } else if (range < 0.0f) {
+        if (offset > 0.0f) {
+            offset = 0.0f;
+        } else if (offset < range) {
+            offset = range;
+        }
+    } else {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    ratio = offset / range;
+    scaled = ratio * (float)delta;
+    if (!isfinite(ratio) || !isfinite(scaled)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = player_selector_extended_cvtri(
+        arithmetic_control, scaled, &converted
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    return player_selector_write_u8(
+        machine, player + UINT32_C(0x0822),
+        (uint8_t)(start_value + converted)
+    );
+}
+
 static vf2_status player_selector_extended_apply_opcode(
     vf2_model2a *machine,
     uint32_t player,
     uint32_t selector,
     uint32_t cursor,
-    uint8_t opcode
+    uint8_t opcode,
+    uint32_t arithmetic_control
 )
 {
     switch (opcode) {
@@ -438,8 +755,16 @@ static vf2_status player_selector_extended_apply_opcode(
         return player_selector_apply_opcode2(machine, player, selector, cursor);
     case 4u:
         return player_selector_apply_opcode4(machine, player, selector, cursor);
+    case 5u:
+        return player_selector_apply_opcode5(machine, player, cursor);
+    case 9u:
+        return player_selector_apply_opcode9(machine, player, cursor);
     case 11u:
         return player_selector_apply_opcode11(machine, player, selector, cursor);
+    case 14u:
+        return player_selector_apply_opcode14(
+            machine, player, cursor, arithmetic_control
+        );
     default:
         return VF2_ERROR_UNSUPPORTED;
     }
