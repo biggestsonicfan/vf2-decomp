@@ -51,7 +51,7 @@ static vf2_status player_execute_17710_fast_exit(
 #undef player_read_u16
 #undef player_read_u8
 
-static void player_17710_result(
+static void player_bridge_result(
     vf2_i960_run_result *result,
     const vf2_i960_cpu *cpu,
     uint64_t start_count
@@ -84,7 +84,7 @@ static vf2_status vf2_hybrid_i960_run_tail_17710(
         options->trace_callback == NULL) {
         status = player_execute_17710(machine, cpu, options->max_steps);
         if (status == VF2_OK) {
-            player_17710_result(result, cpu, start_count);
+            player_bridge_result(result, cpu, start_count);
             return VF2_OK;
         }
         if (status != VF2_ERROR_UNSUPPORTED) {
@@ -94,9 +94,39 @@ static vf2_status vf2_hybrid_i960_run_tail_17710(
     return vf2_hybrid_i960_run_tail_base(cpu, machine, options, result);
 }
 
+/* Full scalar motion integration family: 0x1791c -> 0x14408. */
+#include "player_i960_bridge_1791c.inc"
+
+static vf2_status vf2_hybrid_i960_run_tail_1791c(
+    vf2_i960_cpu *cpu,
+    vf2_model2a *machine,
+    const vf2_i960_run_options *options,
+    vf2_i960_run_result *result
+)
+{
+    const uint64_t start_count = cpu != NULL
+        ? cpu->executed_instructions : 0u;
+    vf2_status status = VF2_ERROR_UNSUPPORTED;
+
+    if (cpu != NULL && machine != NULL && options != NULL &&
+        cpu->ip == VF2_PLAYER_1791C_ENTRY &&
+        options->stop_address == VF2_PLAYER_1791C_STOP &&
+        options->trace_callback == NULL) {
+        status = player_execute_1791c(machine, cpu, options->max_steps);
+        if (status == VF2_OK) {
+            player_bridge_result(result, cpu, start_count);
+            return VF2_OK;
+        }
+        if (status != VF2_ERROR_UNSUPPORTED) {
+            return status;
+        }
+    }
+    return vf2_hybrid_i960_run_tail_17710(cpu, machine, options, result);
+}
+
 /* Observed sixth-dispatch player pose corridor: 0x16504 -> 0x14418. */
 #include "player_i960_bridge_pose_data.inc"
-#define vf2_hybrid_i960_run_tail_previous vf2_hybrid_i960_run_tail_17710
+#define vf2_hybrid_i960_run_tail_previous vf2_hybrid_i960_run_tail_1791c
 #define vf2_hybrid_i960_run_tail vf2_hybrid_i960_run_tail_pose
 #include "player_i960_bridge_pose_logic.inc"
 #undef vf2_hybrid_i960_run_tail
