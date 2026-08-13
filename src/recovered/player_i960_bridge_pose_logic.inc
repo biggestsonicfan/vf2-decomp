@@ -1,4 +1,5 @@
 #include "player_i960_bridge_pose_prepare.inc"
+#include "player_i960_bridge_pose_diagnostics.inc"
 
 static vf2_status player_pose_run_original_until(
     vf2_model2a *machine,
@@ -48,9 +49,13 @@ static vf2_status player_pose_execute(
         uint32_t recovered_selector = UINT32_MAX;
         const vf2_player_pose_prepare_descriptor *preparation =
             player_pose_prepare_descriptor_for(selector, cpu->ip);
+        const vf2_player_pose_diag_descriptor *diagnostics =
+            player_pose_diag_descriptor_for(selector, cpu->ip);
 
         if (preparation != NULL) {
             status = player_pose_execute_preparation(machine, cpu, selector);
+        } else if (diagnostics != NULL) {
+            status = player_pose_execute_diagnostics(machine, cpu, selector);
         } else {
             status = player_pose_run_original_until(
                 machine, cpu, player_pose_joint_entries[selector]
