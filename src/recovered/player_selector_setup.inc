@@ -302,7 +302,8 @@ static vf2_status player_selector_apply_opcode(
     uint32_t player,
     uint32_t selector,
     uint32_t cursor,
-    uint8_t opcode
+    uint8_t opcode,
+    uint32_t arithmetic_control
 )
 {
     uint8_t value = 0u;
@@ -475,14 +476,15 @@ static vf2_status player_selector_apply_opcode(
         return VF2_OK;
     default:
         return player_selector_extended_apply_opcode(
-            machine, player, selector, cursor, opcode
+            machine, player, selector, cursor, opcode, arithmetic_control
         );
     }
 }
 
 static vf2_status player_selector_apply_setup(
     vf2_model2a *machine,
-    const vf2_player_selector_setup_plan *plan
+    const vf2_player_selector_setup_plan *plan,
+    uint32_t arithmetic_control
 )
 {
     uint32_t old_state = 0u;
@@ -626,7 +628,12 @@ static vf2_status player_selector_apply_setup(
             return status;
         }
         status = player_selector_apply_opcode(
-            machine, plan->player, plan->selector, cursor, opcode
+            machine,
+            plan->player,
+            plan->selector,
+            cursor,
+            opcode,
+            arithmetic_control
         );
         if (status != VF2_OK) {
             return status;
@@ -709,10 +716,11 @@ finish:
     return status;
 }
 
-static vf2_status player_selector_execute_setup(
+static vf2_status player_selector_execute_setup_with_ac(
     vf2_model2a *machine,
     uint32_t player,
     uint32_t selector,
+    uint32_t arithmetic_control,
     vf2_player_selector_setup_plan *plan_out
 )
 {
@@ -724,9 +732,21 @@ static vf2_status player_selector_execute_setup(
     if (status != VF2_OK) {
         return status;
     }
-    status = player_selector_apply_setup(machine, &plan);
+    status = player_selector_apply_setup(machine, &plan, arithmetic_control);
     if (status == VF2_OK && plan_out != NULL) {
         *plan_out = plan;
     }
     return status;
+}
+
+static vf2_status player_selector_execute_setup(
+    vf2_model2a *machine,
+    uint32_t player,
+    uint32_t selector,
+    vf2_player_selector_setup_plan *plan_out
+)
+{
+    return player_selector_execute_setup_with_ac(
+        machine, player, selector, 0u, plan_out
+    );
 }
