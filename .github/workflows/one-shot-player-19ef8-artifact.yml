@@ -1,0 +1,24 @@
+name: One-shot player 19ef8 artifact
+
+on:
+  push:
+    paths:
+      - .github/workflows/one-shot-player-19ef8-artifact.yml
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply codemod
+        run: python3 tools/one_shot_player_19ef8.py
+      - name: Upload integrated sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-19ef8-integrated-sources
+          path: |
+            src/recovered/hybrid.c
+            src/recovered/player_selector_setup.inc
