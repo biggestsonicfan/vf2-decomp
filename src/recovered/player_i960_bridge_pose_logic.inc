@@ -1,3 +1,5 @@
+#include "player_i960_bridge_pose_prepare.inc"
+
 static vf2_status player_pose_run_original_until(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -23,20 +25,7 @@ static vf2_status player_pose_run_original_until(
         ? VF2_OK : VF2_ERROR_UNSUPPORTED;
 }
 
-/*
- * Live hybrid decompilation of the observed 0x16504 pose corridor.
- *
- * The old bridge reproduced this function by replaying a compressed copro
- * operation stream plus final RAM patches. This replacement executes the
- * still-unrecovered preparation regions with the architectural i960 executor,
- * but substitutes the sixteen repeated joint tails and their table-driven
- * 0x176a0 calls with recovered C against the same live machine state.
- *
- * Consequently every hardware read/write occurs in program order and later C
- * blocks consume effects produced by the earlier original/C blocks. The
- * post-state CRC and architectural register checks remain the hard acceptance
- * gate while the remaining preparation regions are lifted incrementally.
- */
+/* Live hybrid decompilation of the observed 0x16504 pose corridor. */
 static vf2_status player_pose_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
@@ -57,12 +46,19 @@ static vf2_status player_pose_execute(
 
     for (selector = 0u; selector < VF2_PLAYER_POSE_JOINT_COUNT; ++selector) {
         uint32_t recovered_selector = UINT32_MAX;
+        const vf2_player_pose_prepare_descriptor *preparation =
+            player_pose_prepare_descriptor_for(selector, cpu->ip);
 
-        status = player_pose_run_original_until(
-            machine, cpu, player_pose_joint_entries[selector]
-        );
-        if (status != VF2_OK) {
-            return status;
+        if (preparation != NULL) {
+            status = player_pose_execute_preparation(machine, cpu, selector);
+        } else {
+            status = player_pose_run_original_until(
+                machine, cpu, player_pose_joint_entries[selector]
+            );
+        }
+        if (status != VF2_OK ||
+            cpu->ip != player_pose_joint_entries[selector]) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
         if (!player_pose_joint_selector(
                 cpu->ip,
@@ -121,10 +117,6 @@ vf2_status vf2_hybrid_i960_run_tail(
     const uint64_t start_count = cpu != NULL
         ? cpu->executed_instructions : 0u;
 
-    /* 0x16504 -> 0x14418 is an owned recovered boundary. Once a caller asks
-     * for this exact corridor there is deliberately no silent ROM fallback:
-     * entry guard, live hybrid execution, instruction accounting, CRCs and
-     * final architectural state must all prove the recovery. */
     if (cpu != NULL && machine != NULL && options != NULL &&
         cpu->ip == VF2_PLAYER_POSE_ENTRY &&
         options->stop_address == VF2_PLAYER_POSE_RETURN &&
