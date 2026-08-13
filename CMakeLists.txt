@@ -49,6 +49,7 @@ add_library(vf2_core STATIC
     src/m68k/decoder.c
     src/i960/decoder.c
     src/i960/executor.c
+    src/i960/executor_arch.c
     src/i960/formatter.c
     src/i960/instruction.c
     src/i960/snapshot.c
@@ -77,6 +78,11 @@ add_library(vf2_core STATIC
     src/recovered/runtime_interrupts.c
     src/recovered/scheduler.c
     src/recovered/tasks.c
+)
+
+set_source_files_properties(
+    src/i960/executor.c
+    PROPERTIES COMPILE_DEFINITIONS "vf2_i960_step=vf2_i960_step_legacy"
 )
 
 set_source_files_properties(
