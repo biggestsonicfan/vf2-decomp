@@ -13,7 +13,9 @@
 #define SELECTOR_TEST_BRANCH_BASE UINT32_C(0x00518000)
 #define SELECTOR_TEST_DATA UINT32_C(0x02040000)
 #define SELECTOR_TEST_TABLE UINT32_C(0x02050000)
+#define SELECTOR_TEST_MAIN_DATA_SIZE UINT32_C(0x00200000)
 
+static uint8_t selector_test_main_data[SELECTOR_TEST_MAIN_DATA_SIZE];
 static int failures = 0;
 
 #define CHECK(expression)                                           \
@@ -101,14 +103,60 @@ static vf2_status selector_test_write_u8(
     return vf2_model2a_write(machine, address, &value8, sizeof(value8));
 }
 
-static vf2_status selector_test_write_u16(
-    vf2_model2a *machine,
+static uint8_t *selector_test_main_pointer(uint32_t address, size_t size)
+{
+    const uint32_t offset = address - VF2_MAIN_DATA_BASE;
+
+    if (address < VF2_MAIN_DATA_BASE ||
+        (uint64_t)offset + (uint64_t)size >
+            (uint64_t)SELECTOR_TEST_MAIN_DATA_SIZE) {
+        return NULL;
+    }
+    return selector_test_main_data + offset;
+}
+
+static void selector_test_main_write_u8(uint32_t address, uint8_t value8)
+{
+    uint8_t *destination = selector_test_main_pointer(address, 1u);
+    CHECK(destination != NULL);
+    if (destination != NULL) {
+        *destination = value8;
+    }
+}
+
+static void selector_test_main_write_u16(uint32_t address, uint16_t value16)
+{
+    uint8_t *destination = selector_test_main_pointer(address, 2u);
+    CHECK(destination != NULL);
+    if (destination != NULL) {
+        destination[0] = (uint8_t)value16;
+        destination[1] = (uint8_t)(value16 >> 8u);
+    }
+}
+
+static void selector_test_main_write_u32(uint32_t address, uint32_t value32)
+{
+    uint8_t *destination = selector_test_main_pointer(address, 4u);
+    CHECK(destination != NULL);
+    if (destination != NULL) {
+        destination[0] = (uint8_t)value32;
+        destination[1] = (uint8_t)(value32 >> 8u);
+        destination[2] = (uint8_t)(value32 >> 16u);
+        destination[3] = (uint8_t)(value32 >> 24u);
+    }
+}
+
+static void selector_test_main_write(
     uint32_t address,
-    uint16_t value16
+    const uint8_t *source,
+    size_t size
 )
 {
-    const uint8_t raw[2] = {(uint8_t)value16, (uint8_t)(value16 >> 8u)};
-    return vf2_model2a_write(machine, address, raw, sizeof(raw));
+    uint8_t *destination = selector_test_main_pointer(address, size);
+    CHECK(destination != NULL);
+    if (destination != NULL) {
+        memcpy(destination, source, size);
+    }
 }
 
 static uint8_t selector_test_read_u8(
@@ -144,11 +192,17 @@ static uint32_t selector_test_read_u32(
 static int selector_test_prepare(vf2_model2a *machine)
 {
     memset(machine, 0, sizeof(*machine));
+    memset(selector_test_main_data, 0, sizeof(selector_test_main_data));
     if (!vf2_model2a_initialize(machine)) {
         return 0;
     }
     memset(machine->work_ram, 0, machine->work_ram_size);
-    memset(machine->main_data, 0, machine->main_data_size);
+    if (vf2_model2a_attach_main_data(
+            machine, selector_test_main_data,
+            sizeof(selector_test_main_data)) != VF2_OK) {
+        vf2_model2a_shutdown(machine);
+        return 0;
+    }
     CHECK(vf2_model2a_write_u32(
         machine, VF2_PLAYER_SELECTOR_BRANCH_BASE, SELECTOR_TEST_BRANCH_BASE
     ) == VF2_OK);
@@ -159,22 +213,19 @@ static int selector_test_prepare(vf2_model2a *machine)
 }
 
 static void selector_test_bind(
-    vf2_model2a *machine,
     uint32_t selector,
     uint32_t data,
     uint32_t table,
     uint16_t table_value
 )
 {
-    CHECK(vf2_model2a_write_u32(
-        machine,
+    selector_test_main_write_u32(
         VF2_PLAYER_SELECTOR_DATA_TABLE + selector * UINT32_C(4), data
-    ) == VF2_OK);
-    CHECK(vf2_model2a_write_u32(
-        machine,
+    );
+    selector_test_main_write_u32(
         VF2_PLAYER_SELECTOR_SCRATCH_TABLE + selector * UINT32_C(4), table
-    ) == VF2_OK);
-    CHECK(selector_test_write_u16(machine, table, table_value) == VF2_OK);
+    );
+    selector_test_main_write_u16(table, table_value);
 }
 
 static void test_selector_opcode1_then_8_non_505(void)
@@ -190,15 +241,12 @@ static void test_selector_opcode1_then_8_non_505(void)
         return;
     }
     selector_test_bind(
-        &machine, selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE,
-        UINT16_C(0x3456)
+        selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE, UINT16_C(0x3456)
     );
-    CHECK(vf2_model2a_write(
-        &machine, SELECTOR_TEST_DATA, base, sizeof(base)
-    ) == VF2_OK);
-    CHECK(vf2_model2a_write(
-        &machine, SELECTOR_TEST_DATA + UINT32_C(8), stream, sizeof(stream)
-    ) == VF2_OK);
+    selector_test_main_write(SELECTOR_TEST_DATA, base, sizeof(base));
+    selector_test_main_write(
+        SELECTOR_TEST_DATA + UINT32_C(8), stream, sizeof(stream)
+    );
     CHECK(vf2_model2a_write_u32(
         &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x01a4),
         UINT32_C(0xdeadbeef)
@@ -250,15 +298,12 @@ static void test_selector_opcode16_variable_length(void)
         return;
     }
     selector_test_bind(
-        &machine, selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE,
-        UINT16_C(0x9999)
+        selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE, UINT16_C(0x9999)
     );
-    CHECK(vf2_model2a_write(
-        &machine, SELECTOR_TEST_DATA, base, sizeof(base)
-    ) == VF2_OK);
-    CHECK(vf2_model2a_write(
-        &machine, SELECTOR_TEST_DATA + UINT32_C(8), stream, sizeof(stream)
-    ) == VF2_OK);
+    selector_test_main_write(SELECTOR_TEST_DATA, base, sizeof(base));
+    selector_test_main_write(
+        SELECTOR_TEST_DATA + UINT32_C(8), stream, sizeof(stream)
+    );
 
     CHECK(player_selector_execute_setup(
         &machine, SELECTOR_TEST_PLAYER, selector, &plan
@@ -286,15 +331,12 @@ static void test_selector_unsupported_opcode_is_transactional(void)
         return;
     }
     selector_test_bind(
-        &machine, selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE,
-        UINT16_C(0x1111)
+        selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE, UINT16_C(0x1111)
     );
-    CHECK(vf2_model2a_write(
-        &machine, SELECTOR_TEST_DATA, base, sizeof(base)
-    ) == VF2_OK);
-    CHECK(vf2_model2a_write(
-        &machine, SELECTOR_TEST_DATA + UINT32_C(8), opcode2, sizeof(opcode2)
-    ) == VF2_OK);
+    selector_test_main_write(SELECTOR_TEST_DATA, base, sizeof(base));
+    selector_test_main_write(
+        SELECTOR_TEST_DATA + UINT32_C(8), opcode2, sizeof(opcode2)
+    );
     CHECK(vf2_model2a_write_u32(
         &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0804),
         UINT32_C(0x76543210)
