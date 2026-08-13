@@ -1,7 +1,10 @@
-/* Earlier sixth-dispatch corridors: 0x4b640 and the original player bridge. */
+/* Earlier sixth-dispatch corridors and the original player bridge. */
 #define vf2_hybrid_i960_run_tail vf2_hybrid_i960_run_tail_base
 #include "player_i960_bridge_tail_previous.inc"
 #undef vf2_hybrid_i960_run_tail
+
+/* Generalized table/state publisher: 0x4b640 -> 0x14414. */
+#include "player_i960_bridge_4b640.inc"
 
 /* Recovered table-driven pose RPC helper: 0x176a0 -> dynamic caller return. */
 #include "player_i960_bridge_176a0.inc"
@@ -76,6 +79,70 @@ static void player_bridge_result(
     }
 }
 
+static vf2_status vf2_hybrid_i960_run_tail_4b640(
+    vf2_i960_cpu *cpu,
+    vf2_model2a *machine,
+    const vf2_i960_run_options *options,
+    vf2_i960_run_result *result
+)
+{
+    const uint64_t start_count = cpu != NULL
+        ? cpu->executed_instructions : 0u;
+
+    if (cpu != NULL && machine != NULL && options != NULL &&
+        cpu->ip == VF2_PLAYER_4B640_ENTRY &&
+        options->trace_callback == NULL &&
+        options->stop_address != VF2_PLAYER_4B640_RETURN) {
+        vf2_i960_run_options continuation_options;
+        vf2_i960_run_result continuation_result;
+        uint64_t recovered_count = 0u;
+        vf2_status status = player_execute_4b640_general(
+            machine, cpu, options->max_steps, &recovered_count
+        );
+
+        if (status == VF2_OK && options->stop_address == VF2_PLAYER_4B640_STOP) {
+            player_bridge_result(result, cpu, start_count);
+            return VF2_OK;
+        }
+        if (status != VF2_OK) {
+            if (status != VF2_ERROR_UNSUPPORTED) {
+                return status;
+            }
+            return vf2_hybrid_i960_run_tail_base(
+                cpu, machine, options, result
+            );
+        }
+        if (options->max_steps == recovered_count) {
+            if (result != NULL) {
+                memset(result, 0, sizeof(*result));
+                result->halt_reason = VF2_I960_HALT_MAX_STEPS;
+                result->status = VF2_OK;
+                result->halt_address = cpu->ip;
+                result->executed_instructions = recovered_count;
+            }
+            return VF2_OK;
+        }
+
+        continuation_options = *options;
+        if (continuation_options.max_steps != 0u) {
+            continuation_options.max_steps -= recovered_count;
+        }
+        memset(&continuation_result, 0, sizeof(continuation_result));
+        status = vf2_hybrid_i960_run_tail_base(
+            cpu, machine, &continuation_options, &continuation_result
+        );
+        if (result != NULL) {
+            *result = continuation_result;
+            result->status = status;
+            result->halt_address = cpu->ip;
+            result->executed_instructions =
+                cpu->executed_instructions - start_count;
+        }
+        return status;
+    }
+    return vf2_hybrid_i960_run_tail_base(cpu, machine, options, result);
+}
+
 static vf2_status vf2_hybrid_i960_run_tail_176a0(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine,
@@ -102,7 +169,7 @@ static vf2_status vf2_hybrid_i960_run_tail_176a0(
             return status;
         }
     }
-    return vf2_hybrid_i960_run_tail_base(cpu, machine, options, result);
+    return vf2_hybrid_i960_run_tail_4b640(cpu, machine, options, result);
 }
 
 static vf2_status vf2_hybrid_i960_run_tail_17710(
@@ -172,7 +239,7 @@ static vf2_status vf2_hybrid_i960_run_tail_1791c(
     return vf2_hybrid_i960_run_tail_17710(cpu, machine, options, result);
 }
 
-/* Observed sixth-dispatch player pose corridor: 0x16504 -> 0x14418. */
+/* Fully recovered observed player pose corridor: 0x16504 -> 0x14418. */
 #include "player_i960_bridge_pose_data.inc"
 #define vf2_hybrid_i960_run_tail_previous vf2_hybrid_i960_run_tail_1791c
 #define vf2_hybrid_i960_run_tail vf2_hybrid_i960_run_tail_pose
