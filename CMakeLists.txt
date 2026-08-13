@@ -316,6 +316,17 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_player_28178_stream_tests
     )
 
+    add_executable(vf2_player_planar_rotation_tests
+        tests/recovered/test_player_planar_rotation.c
+    )
+    target_link_libraries(vf2_player_planar_rotation_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_player_planar_rotation_tests)
+
+    add_test(
+        NAME vf2_player_planar_rotation
+        COMMAND vf2_player_planar_rotation_tests
+    )
+
     add_executable(vf2_post_boot_input_profile_tests
         tests/recovered/test_post_boot_input_profiles.c
     )
