@@ -219,25 +219,42 @@ static void selector_test_bind(
     selector_test_main_write_u16(table, table_value);
 }
 
+static void selector_test_install(
+    vf2_model2a *machine,
+    uint32_t selector,
+    const uint8_t *stream,
+    size_t stream_size,
+    uint32_t base_flags
+)
+{
+    uint8_t base[8] = {0u};
+
+    base[0] = (uint8_t)base_flags;
+    base[1] = (uint8_t)(base_flags >> 8u);
+    base[2] = (uint8_t)(base_flags >> 16u);
+    base[3] = (uint8_t)(base_flags >> 24u);
+    selector_test_bind(
+        selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE, UINT16_C(0x3456)
+    );
+    selector_test_main_write(SELECTOR_TEST_DATA, base, sizeof(base));
+    selector_test_main_write(
+        SELECTOR_TEST_DATA + UINT32_C(8), stream, stream_size
+    );
+    (void)machine;
+}
+
 static void test_selector_opcode1_then_8_non_505(void)
 {
     vf2_model2a machine;
     vf2_player_selector_setup_plan plan;
     const uint32_t selector = UINT32_C(0x0123);
-    const uint8_t base[8] = {0u, 2u, 0u, 0u, 0xfeu, 2u, 0x80u, 0x7fu};
     const uint8_t stream[4] = {1u, 0xaau, 0xbbu, 8u};
 
     CHECK(selector_test_prepare(&machine));
     if (machine.work_ram == NULL) {
         return;
     }
-    selector_test_bind(
-        selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE, UINT16_C(0x3456)
-    );
-    selector_test_main_write(SELECTOR_TEST_DATA, base, sizeof(base));
-    selector_test_main_write(
-        SELECTOR_TEST_DATA + UINT32_C(8), stream, sizeof(stream)
-    );
+    selector_test_install(&machine, selector, stream, sizeof(stream), UINT32_C(0x200));
     CHECK(vf2_model2a_write_u32(
         &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x01a4),
         UINT32_C(0xdeadbeef)
@@ -274,12 +291,124 @@ static void test_selector_opcode1_then_8_non_505(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_selector_opcode2_state_setup(void)
+{
+    vf2_model2a machine;
+    vf2_player_selector_setup_plan plan;
+    const uint32_t selector = UINT32_C(0x0222);
+    const uint8_t stream[8] = {
+        2u, 0x11u, 0x22u, 0x34u, 0x12u, 0x78u, 0x56u, 8u
+    };
+
+    CHECK(selector_test_prepare(&machine));
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    selector_test_install(&machine, selector, stream, sizeof(stream), 0u);
+    CHECK(player_selector_execute_setup(
+        &machine, SELECTOR_TEST_PLAYER, selector, &plan
+    ) == VF2_OK);
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0808)
+    ) == UINT8_C(0x11));
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0809)
+    ) == UINT8_C(0x22));
+    CHECK(selector_test_read_u16(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x080a)
+    ) == UINT16_C(0x1234));
+    CHECK(selector_test_read_u16(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x080c)
+    ) == UINT16_C(0x5678));
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0a00)
+    ) == UINT8_C(1));
+    CHECK((selector_test_read_u32(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x01a4)
+    ) & (UINT32_C(1) << 1u)) != 0u);
+    vf2_model2a_shutdown(&machine);
+}
+
+static void test_selector_opcode4_motion_setup(void)
+{
+    vf2_model2a machine;
+    vf2_player_selector_setup_plan plan;
+    const uint32_t selector = UINT32_C(0x0123);
+    const uint8_t stream[18] = {
+        4u, 1u, 2u, 20u, 4u, 5u, 6u, 7u, 8u, 9u,
+        0x12u, 0x34u, 12u, 13u, 14u, 15u, 16u, 8u
+    };
+
+    CHECK(selector_test_prepare(&machine));
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    selector_test_install(&machine, selector, stream, sizeof(stream), 0u);
+    CHECK(selector_test_write_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x069c), 0u
+    ) == VF2_OK);
+    CHECK(player_selector_execute_setup(
+        &machine, SELECTOR_TEST_PLAYER, selector, &plan
+    ) == VF2_OK);
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0820)
+    ) == UINT8_C(1));
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0821)
+    ) == UINT8_C(2));
+    CHECK(selector_test_read_u16(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0828)
+    ) == UINT16_C(0x3412));
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0822)
+    ) == UINT8_C(20));
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0823)
+    ) == UINT8_C(12));
+    CHECK(selector_test_read_u32(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x1230)
+    ) == UINT32_C(1));
+    vf2_model2a_shutdown(&machine);
+}
+
+static void test_selector_opcode11_toggle(void)
+{
+    vf2_model2a machine;
+    vf2_player_selector_setup_plan plan;
+    const uint32_t selector = UINT32_C(0x0242);
+    const uint8_t stream[12] = {
+        11u, 0x05u, 0x80u, 0x00u, 0x00u,
+        1u, 2u, 3u, 4u, 5u, 6u, 8u
+    };
+
+    CHECK(selector_test_prepare(&machine));
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    selector_test_install(&machine, selector, stream, sizeof(stream), 0u);
+    CHECK(player_selector_execute_setup(
+        &machine, SELECTOR_TEST_PLAYER, selector, &plan
+    ) == VF2_OK);
+    CHECK(selector_test_read_u32(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0844)
+    ) == UINT32_C(5));
+    CHECK(selector_test_read_u16(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x06be)
+    ) == UINT16_C(5));
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0848)
+    ) == UINT8_C(1));
+    CHECK(selector_test_read_u8(
+        &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x084f)
+    ) == UINT8_C(6));
+    vf2_model2a_shutdown(&machine);
+}
+
 static void test_selector_opcode16_variable_length(void)
 {
     vf2_model2a machine;
     vf2_player_selector_setup_plan plan;
     const uint32_t selector = UINT32_C(0x0700);
-    const uint8_t base[8] = {0u};
     const uint8_t stream[9] = {
         16u, 3u, 0x10u, 0x11u, 0x20u, 0x21u, 0x30u, 0x31u, 8u
     };
@@ -288,14 +417,7 @@ static void test_selector_opcode16_variable_length(void)
     if (machine.work_ram == NULL) {
         return;
     }
-    selector_test_bind(
-        selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE, UINT16_C(0x9999)
-    );
-    selector_test_main_write(SELECTOR_TEST_DATA, base, sizeof(base));
-    selector_test_main_write(
-        SELECTOR_TEST_DATA + UINT32_C(8), stream, sizeof(stream)
-    );
-
+    selector_test_install(&machine, selector, stream, sizeof(stream), 0u);
     CHECK(player_selector_execute_setup(
         &machine, SELECTOR_TEST_PLAYER, selector, &plan
     ) == VF2_OK);
@@ -314,20 +436,13 @@ static void test_selector_unsupported_opcode_is_transactional(void)
     vf2_model2a machine;
     vf2_player_selector_setup_plan plan;
     const uint32_t selector = UINT32_C(0x0222);
-    const uint8_t base[8] = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u};
-    const uint8_t opcode2[7] = {2u, 1u, 2u, 3u, 4u, 5u, 6u};
+    const uint8_t stream[10] = {5u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u};
 
     CHECK(selector_test_prepare(&machine));
     if (machine.work_ram == NULL) {
         return;
     }
-    selector_test_bind(
-        selector, SELECTOR_TEST_DATA, SELECTOR_TEST_TABLE, UINT16_C(0x1111)
-    );
-    selector_test_main_write(SELECTOR_TEST_DATA, base, sizeof(base));
-    selector_test_main_write(
-        SELECTOR_TEST_DATA + UINT32_C(8), opcode2, sizeof(opcode2)
-    );
+    selector_test_install(&machine, selector, stream, sizeof(stream), UINT32_C(0x04030201));
     CHECK(vf2_model2a_write_u32(
         &machine, SELECTOR_TEST_PLAYER + UINT32_C(0x0804),
         UINT32_C(0x76543210)
@@ -358,6 +473,9 @@ int main(void)
     test_atan_edge_alignment_evidence();
     test_nonfinite_rejection();
     test_selector_opcode1_then_8_non_505();
+    test_selector_opcode2_state_setup();
+    test_selector_opcode4_motion_setup();
+    test_selector_opcode11_toggle();
     test_selector_opcode16_variable_length();
     test_selector_unsupported_opcode_is_transactional();
 
