@@ -70,6 +70,8 @@ static vf2_status player_selector_write_u8(
     return vf2_model2a_write(machine, address, &value, sizeof(value));
 }
 
+#include "player_selector_opcodes_extended.inc"
+
 static int player_selector_opcode_supported(uint8_t opcode)
 {
     switch (opcode) {
@@ -87,7 +89,7 @@ static int player_selector_opcode_supported(uint8_t opcode)
     case 17u:
         return 1;
     default:
-        return 0;
+        return player_selector_extended_opcode_supported(opcode);
     }
 }
 
@@ -138,7 +140,7 @@ static vf2_status player_selector_opcode_size(
         *size = UINT32_C(2) + (uint32_t)count * UINT32_C(2);
         return VF2_OK;
     default:
-        return VF2_ERROR_UNSUPPORTED;
+        return player_selector_extended_opcode_size(opcode, size);
     }
 }
 
@@ -472,7 +474,9 @@ static vf2_status player_selector_apply_opcode(
     case 8u:
         return VF2_OK;
     default:
-        return VF2_ERROR_UNSUPPORTED;
+        return player_selector_extended_apply_opcode(
+            machine, player, selector, cursor, opcode
+        );
     }
 }
 
