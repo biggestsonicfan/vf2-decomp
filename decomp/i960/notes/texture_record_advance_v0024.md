@@ -12,22 +12,37 @@ The exact observed path is 12 instructions per visit, for 48 recovered
 instructions across four visits. It writes 10 bytes per visit and performs no
 procedure calls or returns. Unsupported counter or loop states are rejected.
 
-## i960 comparison semantics
+## Comparison-state contract
 
-`cmpdeco 1, r6, r6` compares one with the original value and then decrements
-the destination. Because the observed original value is one, it leaves the
-architectural comparison state equal. The following `cmpibg` and `cmpibe` are
-COBR-format direct comparisons: they select branches without replacing that
-comparison state. The recovery therefore preserves equal through the exit.
+The original isolated bridge fixture was built without a ROM attached and
+models `cmpdeco 1, r6, r6` as leaving the helper with an equal comparison
+state. That remains the synthetic unit-test contract.
+
+Continuous ROM-backed differential replay now reaches this boundary through
+the recovered texture checkpoint/resume corridor. At the `0x0004bf60 ->
+0x0004bd24` boundary the reference CPU carries `LESS` (`compare_result == 1`,
+arithmetic-control condition bits `0b100`), while the isolated helper would
+otherwise return `EQUAL` (`compare_result == 2`, condition bits `0b010`).
+
+`texture_bridge_condition.c` therefore applies the `LESS` preservation fix
+only when a main ROM is attached. This keeps the isolated semantic fixture
+stable while making the ROM-backed bridge reproduce the live architectural
+post-state exactly.
+
+The following all-inactive status scan from `0x0004bd24` to `0x0004bf90`
+has the complementary live contract: the ROM reference reaches final-status
+with `EQUAL`. The bridge explicitly restores that condition at the scan-end
+boundary so it is also the value saved by the next interrupt frame.
 
 ## Validation
 
-The public bridge test covers the full CPU and memory post-state, including
-`g0`, `r6`, `r8`, `r9`, `r10`, the preserved equal comparison from `cmpdeco`,
-the halfword count, and both 32-bit pointers.
+The public isolated bridge test still covers the helper CPU and memory
+post-state, including `g0`, `r6`, `r8`, `r9`, `r10`, the synthetic equal
+comparison state, the halfword count, and both 32-bit pointers.
 
-The exact VF2 2.1 ROM-backed `native-second-dispatch` validator executed 12
-reference i960 instructions for each of the four visits and reached full CPU
-and Model 2 memory `MATCH`. The strict totals are now 1,269,003 recovered and
-1,819 interpreted instructions, with 172 recovered blocks and memory
-checkpoints. Calls and returns remain 266 / 300.
+The ROM-backed `compare-texture-bridge` corridor is the preservation oracle
+for the live path. It compares the reference i960 interpreter against the
+recovered bridge at every covered checkpoint, including CPU comparison state
+and Model 2 memory. The record-advance condition correction was accepted only
+after a local binary experiment changing no other state moved the first
+mismatch forward to the status-scan boundary.
