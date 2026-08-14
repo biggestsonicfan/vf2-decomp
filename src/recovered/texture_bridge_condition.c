@@ -18,6 +18,8 @@
 #define VF2_TEXTURE_CONVERT_POST_ENTRY UINT32_C(0x0004cdd4)
 #define VF2_TEXTURE_CONVERT_ENTRY UINT32_C(0x0004ce88)
 #define VF2_TEXTURE_CONVERT_LOOP_RETURN UINT32_C(0x0004ce0c)
+#define VF2_TEXTURE_RECORD_ADVANCE_ENTRY UINT32_C(0x0004bf60)
+#define VF2_TEXTURE_FINAL_STATUS_ENTRY UINT32_C(0x0004bf90)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
@@ -90,7 +92,8 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_TEXTURE_STATUS_DISPATCH_ENTRY) {
         if (cpu->ip == VF2_TEXTURE_STATUS_LINE_ENTRY) {
             set_compare_result(cpu, VF2_I960_COMPARE_NONE);
-        } else if (cpu->ip == VF2_TEXTURE_RECORD_STATUS_ENTRY) {
+        } else if (cpu->ip == VF2_TEXTURE_RECORD_STATUS_ENTRY ||
+                   cpu->ip == VF2_TEXTURE_FINAL_STATUS_ENTRY) {
             set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
         }
     } else if (entry == VF2_TEXTURE_RECORD_STATUS_ENTRY) {
@@ -156,6 +159,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_TEXTURE_CONVERT_POST_ENTRY &&
                cpu->ip == VF2_TEXTURE_CONVERT_LOOP_ENTRY) {
         set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    } else if (entry == VF2_TEXTURE_RECORD_ADVANCE_ENTRY &&
+               cpu->ip == VF2_TEXTURE_STATUS_DISPATCH_ENTRY) {
+        set_compare_result(cpu, VF2_I960_COMPARE_LESS);
     }
     return VF2_OK;
 }
