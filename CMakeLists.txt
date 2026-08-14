@@ -67,6 +67,7 @@ add_library(vf2_core STATIC
     src/recovered/native_differential_step.c
     src/recovered/texture_bridge.c
     src/recovered/texture_bridge_texture.c
+    src/recovered/texture_bridge_status.c
     src/recovered/texture_bridge_video.c
     src/recovered/texture_bridge_geometry.c
     src/recovered/texture_bridge_input.c
