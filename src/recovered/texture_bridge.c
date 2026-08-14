@@ -1,5 +1,11 @@
 #include "texture_bridge_internal.h"
 
+vf2_status execute_texture_status_tail_dispatch(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+);
+
 static vf2_status execute_texture_convert_post_dispatch(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -283,7 +289,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         status = execute_frame_timer_suffix(machine, cpu, &local_report);
         break;
     case VF2_TEXTURE_STATUS_TAIL_ENTRY:
-        status = execute_texture_status_tail(machine, cpu, &local_report);
+        status = execute_texture_status_tail_dispatch(
+            machine, cpu, &local_report
+        );
         break;
     case VF2_INTERRUPT_PLAYER_LAYER_ENTRY:
         status = execute_interrupt_player_layer(machine, cpu, &local_report);
