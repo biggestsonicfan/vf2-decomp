@@ -1,5 +1,24 @@
 #include "texture_bridge_internal.h"
 
+static void geometry_gate_set_compare(
+    vf2_i960_cpu *cpu,
+    vf2_i960_compare_result result
+)
+{
+    uint32_t condition_bits = 0u;
+
+    if (result == VF2_I960_COMPARE_LESS) {
+        condition_bits = UINT32_C(4);
+    } else if (result == VF2_I960_COMPARE_EQUAL) {
+        condition_bits = UINT32_C(2);
+    } else if (result == VF2_I960_COMPARE_GREATER) {
+        condition_bits = UINT32_C(1);
+    }
+    cpu->compare_result = result;
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | condition_bits;
+}
+
 vf2_status execute_frame_geometry_gate(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -21,11 +40,12 @@ vf2_status execute_frame_geometry_gate(
 
     if ((flags & ((UINT32_C(1) << 26u) | UINT32_C(4))) == 0u) {
         /* Clear-flags path: ld, bbs(26,fail), bbs(2,fail), b 0x0000a800, ret.
-         * The five-instruction count is the verified v0.0.20 boundary. */
+         * The second BBS leaves the architectural condition code unordered. */
         status = finish_recovered_procedure(machine, cpu, UINT64_C(5));
         if (status != VF2_OK) {
             return status;
         }
+        geometry_gate_set_compare(cpu, VF2_I960_COMPARE_NONE);
         report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
         report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
         report->exit_address = cpu->ip;
@@ -49,8 +69,10 @@ vf2_status execute_frame_geometry_gate(
         return status;
     }
     if (frame_state != UINT8_C(17)) {
+        const uint8_t compared_frame_state = frame_state;
+
         /* ld, bbs(26,taken), ldob, cmpobe(fail), mov 16, stib, b 0x0000a800,
-         * ret = 8 instructions. */
+         * ret = 8 instructions. CMPobe leaves the result of 17 vs state in CC. */
         frame_state = UINT8_C(16);
         status = vf2_model2a_write(
             machine, UINT32_C(0x0050002a), &frame_state, sizeof(frame_state)
@@ -62,6 +84,12 @@ vf2_status execute_frame_geometry_gate(
         if (status != VF2_OK) {
             return status;
         }
+        geometry_gate_set_compare(
+            cpu,
+            UINT8_C(17) < compared_frame_state
+                ? VF2_I960_COMPARE_LESS
+                : VF2_I960_COMPARE_GREATER
+        );
         report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
         report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
         report->exit_address = cpu->ip;
@@ -88,11 +116,12 @@ vf2_status execute_frame_geometry_gate(
     }
     if (alt_byte != 0u) {
         /* ld, bbs(26,taken), ldob, cmpobe(17,taken), ldob, cmpobne(0,taken),
-         * ret = 7 instructions. */
+         * ret = 7 instructions. CMPobne leaves 0 < alt_byte in CC. */
         status = finish_recovered_procedure(machine, cpu, UINT64_C(7));
         if (status != VF2_OK) {
             return status;
         }
+        geometry_gate_set_compare(cpu, VF2_I960_COMPARE_LESS);
         report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
         report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
         report->exit_address = cpu->ip;
