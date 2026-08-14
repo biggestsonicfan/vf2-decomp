@@ -7,6 +7,8 @@
 #define VF2_TEXTURE_ACTIVE_PREPARE_ENTRY UINT32_C(0x0004bde0)
 #define VF2_TEXTURE_RECORD_STATUS_EXIT UINT32_C(0x0004bde0)
 #define VF2_TEXTURE_STATUS_LINE_ENTRY UINT32_C(0x0004d2c0)
+#define VF2_TEXTURE_STATUS_TAIL_ENTRY UINT32_C(0x0004d25c)
+#define VF2_TEXTURE_BODY_RETURN_ENTRY UINT32_C(0x0004bfdc)
 #define VF2_TEXTURE_ACTIVE_PREPARE_TARGET UINT32_C(0x0004d16c)
 #define VF2_TEXTURE_TREE_DISPATCH_ENTRY UINT32_C(0x0004c544)
 #define VF2_TEXTURE_TREE_DISPATCH_EXIT UINT32_C(0x0004c6e0)
@@ -175,6 +177,12 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
          * its incoming condition. Continuous ROM-backed replay reaches the
          * status-tail call with no active comparison condition. */
         set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+    } else if (entry == VF2_TEXTURE_STATUS_TAIL_ENTRY &&
+               cpu->ip == VF2_TEXTURE_BODY_RETURN_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The live status-tail path leaves the reference i960 with GREATER
+         * after its selector comparisons and inline text thunk. */
+        set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
     }
     return VF2_OK;
 }
