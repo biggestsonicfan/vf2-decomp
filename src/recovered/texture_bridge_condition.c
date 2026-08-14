@@ -42,6 +42,7 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
 {
     const uint32_t entry = cpu != NULL ? cpu->ip : 0u;
     const uint32_t entry_r3 = cpu != NULL ? cpu->registers[3] : 0u;
+    const uint32_t entry_r7 = cpu != NULL ? cpu->registers[7] : 0u;
     const vf2_status status = vf2_hybrid_post_frame_bridge_execute_impl(
         machine, cpu, report
     );
@@ -80,12 +81,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         }
     } else if (entry == VF2_TEXTURE_ACTIVE_PREPARE_ENTRY &&
                cpu->ip == VF2_TEXTURE_ACTIVE_PREPARE_TARGET) {
-        const uint32_t flags = cpu->registers[7];
         const uint32_t bits45 = (UINT32_C(1) << 4u) | (UINT32_C(1) << 5u);
 
         set_compare_result(
             cpu,
-            (flags & bits45) == bits45
+            (entry_r7 & bits45) == bits45
                 ? VF2_I960_COMPARE_EQUAL
                 : VF2_I960_COMPARE_NONE
         );
