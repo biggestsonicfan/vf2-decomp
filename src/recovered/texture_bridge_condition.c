@@ -12,6 +12,8 @@
 #define VF2_TEXTURE_TREE_DISPATCH_EXIT UINT32_C(0x0004c6e0)
 #define VF2_TEXTURE_WORD_PREPARE_ENTRY UINT32_C(0x0004cb64)
 #define VF2_TEXTURE_WORD_PREPARE_EXIT UINT32_C(0x0004cc28)
+#define VF2_TEXTURE_COLOR_PREPARE_ENTRY UINT32_C(0x0004cd18)
+#define VF2_TEXTURE_COLOR_PREPARE_EXIT UINT32_C(0x0004cdb0)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
@@ -129,6 +131,14 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
                cpu->ip == VF2_TEXTURE_WORD_PREPARE_EXIT) {
         const vf2_status cc_status = set_active_flag_bit_condition(
             machine, cpu, UINT32_C(2)
+        );
+        if (cc_status != VF2_OK) {
+            return cc_status;
+        }
+    } else if (entry == VF2_TEXTURE_COLOR_PREPARE_ENTRY &&
+               cpu->ip == VF2_TEXTURE_COLOR_PREPARE_EXIT) {
+        const vf2_status cc_status = set_active_flag_bit_condition(
+            machine, cpu, UINT32_C(1)
         );
         if (cc_status != VF2_OK) {
             return cc_status;
