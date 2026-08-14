@@ -40,3 +40,4 @@ jobs:
           git add include/vf2/hybrid.h src/recovered/texture_bridge_internal.h src/recovered/texture_bridge.c src/recovered/texture_bridge_video.c
           git commit -m "Recover executable video table expand"
           git push origin HEAD:master
+# retrigger after publisher needle correction
