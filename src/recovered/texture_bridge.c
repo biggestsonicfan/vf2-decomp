@@ -118,6 +118,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         status = execute_texture_frame_gate_call(
             machine, cpu, &local_report
         );
+        if (status == VF2_OK) {
+            set_equal_condition(cpu);
+        }
         break;
     case VF2_TEXTURE_DEFAULT_LIMITS_ENTRY:
         status = execute_texture_default_limits(
