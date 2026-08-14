@@ -1,6 +1,5 @@
 #include "vf2/hybrid.h"
 
-#if defined(__GNUC__) || defined(__clang__)
 #define VF2_INTERRUPT_BUFFER_GATE_ENTRY UINT32_C(0x00000c0c)
 #define VF2_INTERRUPT_PLAYER_LAYER_ENTRY UINT32_C(0x00000c78)
 #define VF2_INTERRUPT_GAME_INPUT_ENTRY UINT32_C(0x00000c80)
@@ -213,8 +212,6 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_MAIN_FINAL_CLUSTER_ENTRY &&
                cpu->ip == VF2_MAIN_POST_CLUSTER_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
-        /* The observed cluster exits its recovered frame-dispatch tick with
-         * LESS before the following main-loop call at 0x0000a010. */
         set_compare_result(cpu, VF2_I960_COMPARE_LESS);
     } else if (entry == VF2_INTERRUPT_BUFFER_GATE_ENTRY &&
                cpu->ip == VF2_INTERRUPT_PLAYER_LAYER_ENTRY &&
@@ -239,4 +236,3 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     }
     return VF2_OK;
 }
-#endif
