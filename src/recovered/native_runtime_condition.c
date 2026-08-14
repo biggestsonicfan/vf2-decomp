@@ -46,6 +46,7 @@ vf2_status vf2_native_runtime_step(
     }
     if (effective_report->kind ==
             VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION ||
+        effective_report->kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH ||
         (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
          effective_report->task_kind == VF2_HYBRID_TASK_CAMERA)) {
         set_equal_condition(cpu);
