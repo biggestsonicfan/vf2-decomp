@@ -50,3 +50,6 @@ address,name,kind,status,notes
 0x00000c00,interrupt_initial_cluster,function,verified,Composes video register input latch texture upload and both nested returns
 0x00010f90,frame_wait_poll,function,verified,Executes seven polling instructions four visits and vector-12 interrupt injection
 0x00000d20,interrupt_return_wait_exit,function,verified,Returns from the interrupt records the resumed wait visit and exits on the changed frame byte
+0x0004b410,video_command_submit,function,rom-verified,Selector 3 command leaf stores selector plus r0/r1/r2 arguments
+0x00002c38,color_table_rebuild,function,rom-verified,Rebuilds scaled channel table at 0x00546008 and commits command flags
+0x00011704,video_table_expand_128,function,rom-verified,128-byte inner copy to four-byte-spaced destination entries
