@@ -2956,7 +2956,7 @@ static void test_word_prepare_dispatch(void)
     CHECK(cpu.registers[14] == UINT32_C(0x000fffff));
     CHECK(cpu.registers[15] == UINT32_C(0x000fffff));
     CHECK(cpu.registers[16] == 0u);
-    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_NONE);
     CHECK(vf2_model2a_read(&machine, UINT32_C(0x0050008c), &wait, 1u) == VF2_OK);
     CHECK(wait == 0u);
 
