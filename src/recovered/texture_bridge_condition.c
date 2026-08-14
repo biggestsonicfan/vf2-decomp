@@ -1,6 +1,8 @@
 #include "vf2/hybrid.h"
 
 #if defined(__GNUC__) || defined(__clang__)
+#define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
+#define VF2_TEXTURE_COUNTER_UPDATE_ENTRY UINT32_C(0x0004bb98)
 #define VF2_TEXTURE_ORCHESTRATOR_ENTRY UINT32_C(0x0004bd00)
 #define VF2_TEXTURE_STATUS_DISPATCH_ENTRY UINT32_C(0x0004bd24)
 #define VF2_TEXTURE_RECORD_STATUS_ENTRY UINT32_C(0x0004bd5c)
@@ -183,6 +185,12 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         /* The live status-tail path leaves the reference i960 with GREATER
          * after its selector comparisons and inline text thunk. */
         set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+    } else if (entry == VF2_TEXTURE_MAINTENANCE_ENTRY &&
+               cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* Continuous replay observes LESS after the two maintenance checks.
+         * Keep isolated fixtures free to preserve their synthetic condition. */
+        set_compare_result(cpu, VF2_I960_COMPARE_LESS);
     }
     return VF2_OK;
 }
