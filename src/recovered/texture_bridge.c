@@ -242,6 +242,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     case VF2_VIDEO_COMMAND_SUBMIT_ENTRY:
         status = execute_video_command_submit(machine, cpu, &local_report);
         break;
+    case VF2_VIDEO_TABLE_EXPAND_128_ENTRY:
+        status = execute_video_table_expand_128(machine, cpu, &local_report);
+        break;
     case VF2_DISPLAY_TRANSFORM_DEFAULTS_ENTRY:
         status = execute_display_transform_defaults(machine, cpu, &local_report);
         break;

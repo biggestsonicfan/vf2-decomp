@@ -39,6 +39,10 @@
 #define VF2_DISPLAY_PROFILE_MODE_CONSTANTS_ENTRY UINT32_C(0x0001ff0c)
 #define VF2_DISPLAY_PROFILE_MODE_CONSTANTS_CHILD_RETURN UINT32_C(0x0001ff10)
 #define VF2_VIDEO_COMMAND_SUBMIT_ENTRY UINT32_C(0x0004b410)
+#define VF2_VIDEO_TABLE_EXPAND_128_ENTRY UINT32_C(0x00011704)
+#define VF2_VIDEO_TABLE_EXPAND_128_COUNT UINT32_C(0x00078d0c)
+#define VF2_VIDEO_TABLE_EXPAND_128_SOURCE UINT32_C(0x00078d10)
+#define VF2_VIDEO_TABLE_EXPAND_128_DESTINATION UINT32_C(0x12800000)
 #define VF2_DISPLAY_RUNTIME_INITIALIZE_ENTRY UINT32_C(0x0002eab8)
 #define VF2_DISPLAY_RUNTIME_INITIALIZE_CHILD_RETURN UINT32_C(0x0002ec20)
 #define VF2_DISPLAY_TRANSFORM_DEFAULTS_ENTRY UINT32_C(0x00031004)
@@ -276,6 +280,7 @@ vf2_status execute_display_color_profile_apply(vf2_model2a *machine, vf2_i960_cp
 vf2_status execute_display_profile_unit_fill(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_display_profile_mode_constants(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_video_command_submit(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
+vf2_status execute_video_table_expand_128(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_display_transform_defaults(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_display_runtime_initialize(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_palette_page_upload(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
