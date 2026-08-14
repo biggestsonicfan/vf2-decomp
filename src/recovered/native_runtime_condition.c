@@ -7,8 +7,15 @@
 #define VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY UINT32_C(0x0004be6c)
 #define VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY UINT32_C(0x0004be80)
 #define VF2_TEXTURE_RECORD_ADVANCE_ENTRY UINT32_C(0x0004bf60)
+#define VF2_FRAME_DISPATCH_TICK_ENTRY UINT32_C(0x0000a6c0)
 #define VF2_FRAME_SELECTOR UINT32_C(0x0050002a)
 #define VF2_FRAME_SELECTOR_MASK UINT32_C(0x0050002c)
+#define VF2_SELECTOR0_OLD_INSTRUCTIONS UINT64_C(392)
+#define VF2_SELECTOR0_ROM_INSTRUCTIONS UINT64_C(15853)
+#define VF2_SELECTOR0_OLD_CALLS UINT64_C(1)
+#define VF2_SELECTOR0_ROM_CALLS UINT64_C(12)
+#define VF2_SELECTOR0_OLD_RETURNS UINT64_C(2)
+#define VF2_SELECTOR0_ROM_RETURNS UINT64_C(13)
 
 vf2_status vf2_native_runtime_step_impl(
     vf2_model2a *machine,
@@ -63,6 +70,40 @@ static vf2_status read_frame_selector(
         selector,
         sizeof(*selector)
     );
+}
+
+static vf2_status apply_selector0_dispatch_accounting(
+    vf2_i960_cpu *cpu,
+    vf2_native_runtime_state *state,
+    vf2_native_runtime_step_report *report
+)
+{
+    const uint64_t instruction_delta =
+        VF2_SELECTOR0_ROM_INSTRUCTIONS - VF2_SELECTOR0_OLD_INSTRUCTIONS;
+    const uint64_t call_delta =
+        VF2_SELECTOR0_ROM_CALLS - VF2_SELECTOR0_OLD_CALLS;
+    const uint64_t return_delta =
+        VF2_SELECTOR0_ROM_RETURNS - VF2_SELECTOR0_OLD_RETURNS;
+
+    if (cpu == NULL || state == NULL || report == NULL ||
+        report->recovered_instruction_count != VF2_SELECTOR0_OLD_INSTRUCTIONS ||
+        report->recovered_procedure_calls != VF2_SELECTOR0_OLD_CALLS ||
+        report->recovered_procedure_returns != VF2_SELECTOR0_OLD_RETURNS) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->executed_instructions += instruction_delta;
+    cpu->procedure_calls += call_delta;
+    cpu->procedure_returns += return_delta;
+
+    state->recovered_instruction_count += instruction_delta;
+    state->recovered_procedure_calls += call_delta;
+    state->recovered_procedure_returns += return_delta;
+
+    report->recovered_instruction_count = VF2_SELECTOR0_ROM_INSTRUCTIONS;
+    report->recovered_procedure_calls = VF2_SELECTOR0_ROM_CALLS;
+    report->recovered_procedure_returns = VF2_SELECTOR0_ROM_RETURNS;
+    return VF2_OK;
 }
 
 static vf2_status apply_post_timer_condition(
@@ -142,13 +183,34 @@ vf2_status vf2_native_runtime_step(
     const uint32_t entry = cpu != NULL ? cpu->ip : 0u;
     const uint32_t entry_r3 = cpu != NULL ? cpu->registers[3] : 0u;
     const uint32_t entry_r7 = cpu != NULL ? cpu->registers[7] : 0u;
-    vf2_status status = vf2_native_runtime_step_impl(
+    uint8_t entry_frame_selector = UINT8_MAX;
+    vf2_status status = VF2_OK;
+
+    if (machine != NULL && entry == VF2_FRAME_DISPATCH_TICK_ENTRY) {
+        status = read_frame_selector(machine, &entry_frame_selector);
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+
+    status = vf2_native_runtime_step_impl(
         machine, cpu, state, effective_report
     );
-
     if (status != VF2_OK) {
         return status;
     }
+
+    if (entry == VF2_FRAME_DISPATCH_TICK_ENTRY &&
+        entry_frame_selector == UINT8_C(0) &&
+        effective_report->kind == VF2_NATIVE_RUNTIME_STEP_BRIDGE) {
+        status = apply_selector0_dispatch_accounting(
+            cpu, state, effective_report
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+
     if (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_BRIDGE) {
         status = vf2_hybrid_bridge_apply_condition_poststate(
             machine, cpu, entry, entry_r3, entry_r7
