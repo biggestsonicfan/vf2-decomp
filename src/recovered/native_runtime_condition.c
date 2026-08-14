@@ -8,6 +8,7 @@
 #define VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY UINT32_C(0x0004be80)
 #define VF2_TEXTURE_RECORD_ADVANCE_ENTRY UINT32_C(0x0004bf60)
 #define VF2_FRAME_SELECTOR UINT32_C(0x0050002a)
+#define VF2_FRAME_SELECTOR_MASK UINT32_C(0x0050002c)
 
 vf2_status vf2_native_runtime_step_impl(
     vf2_model2a *machine,
@@ -64,6 +65,34 @@ static vf2_status read_frame_selector(
     );
 }
 
+static vf2_status apply_post_timer_condition(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t selector_mask = 0u;
+    const vf2_status status = vf2_model2a_read_u32(
+        machine, VF2_FRAME_SELECTOR_MASK, &selector_mask
+    );
+
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* frame_counter_advance (0x112f8) owns the condition that survives the
+     * following phase-advance call and the unconditional branch to 0x9fb0.
+     * Its first cmpobne compares zero against selector bits 16/17.  When one
+     * is present the taken path returns with LESS.  Otherwise the observed
+     * low-mask path reaches the later cmpobe with a zero operand and returns
+     * EQUAL.  Leave other, still-unobserved selector masks untouched. */
+    if ((selector_mask & UINT32_C(0x00030000)) != 0u) {
+        set_less_condition(cpu);
+    } else if ((selector_mask & UINT32_C(0x000cffc0)) == 0u) {
+        set_equal_condition(cpu);
+    }
+    return VF2_OK;
+}
+
 static vf2_status apply_repeated_bridge_condition(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -86,14 +115,9 @@ static vf2_status apply_repeated_bridge_condition(
         }
     } else if (entry == VF2_MAIN_POST_TIMER_ENTRY &&
                cpu->ip == VF2_MAIN_CLEAR_PREFIX_ENTRY) {
-        status = read_frame_selector(machine, &selector);
+        status = apply_post_timer_condition(machine, cpu);
         if (status != VF2_OK) {
             return status;
-        }
-        if (selector == UINT8_C(17)) {
-            set_less_condition(cpu);
-        } else if (selector == UINT8_C(1) || selector == UINT8_C(16)) {
-            set_equal_condition(cpu);
         }
     } else if (entry == VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY &&
                cpu->ip == VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY) {
