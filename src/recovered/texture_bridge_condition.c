@@ -10,6 +10,7 @@
 #define VF2_GAME_STATE_RETURN_STUB UINT32_C(0x000020ec)
 #define VF2_MAIN_CLEAR_PREFIX_ENTRY UINT32_C(0x00009fb0)
 #define VF2_MAIN_FINAL_CLUSTER_ENTRY UINT32_C(0x00009ff8)
+#define VF2_MAIN_POST_CLUSTER_ENTRY UINT32_C(0x0000a010)
 #define VF2_MAIN_FRAME_TIMER_CALL_ENTRY UINT32_C(0x0000a034)
 #define VF2_MAIN_POST_TIMER_ENTRY UINT32_C(0x0000a038)
 #define VF2_FRAME_TIMER_WAIT_ENTRY UINT32_C(0x00010f90)
@@ -208,9 +209,13 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_MAIN_CLEAR_PREFIX_ENTRY &&
                cpu->ip == VF2_MAIN_FINAL_CLUSTER_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
-        /* The observed bit-13 BBS is not taken, so the clear prefix falls
-         * through to the final cluster with no active comparison condition. */
         set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+    } else if (entry == VF2_MAIN_FINAL_CLUSTER_ENTRY &&
+               cpu->ip == VF2_MAIN_POST_CLUSTER_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The observed cluster exits its recovered frame-dispatch tick with
+         * LESS before the following main-loop call at 0x0000a010. */
+        set_compare_result(cpu, VF2_I960_COMPARE_LESS);
     } else if (entry == VF2_INTERRUPT_BUFFER_GATE_ENTRY &&
                cpu->ip == VF2_INTERRUPT_PLAYER_LAYER_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
