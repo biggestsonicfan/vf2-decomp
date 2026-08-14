@@ -32,6 +32,7 @@
 #define VF2_GEOMETRY_FRAME_COMMIT_ENTRY UINT32_C(0x00002edc)
 #define VF2_GEOMETRY_COMMAND_SETUP_ENTRY UINT32_C(0x00002f5c)
 #define VF2_FRAME_SCRATCH_CLEAR_ENTRY UINT32_C(0x0000a154)
+#define VF2_COLOR_TABLE_REBUILD_ENTRY UINT32_C(0x00002c38)
 #define VF2_PALETTE_PAGE_UPLOAD_ENTRY UINT32_C(0x00002de4)
 #define VF2_TEXTURE_COLOR_PREPARE_ENTRY UINT32_C(0x0004cd18)
 #define VF2_TEXTURE_COLOR_PREPARE_EXIT UINT32_C(0x0004cdb0)
@@ -261,6 +262,7 @@ vf2_status execute_timer_wait_update(vf2_model2a *machine, vf2_i960_cpu *cpu, vf
 
 /* VIDEO Subsystem */
 vf2_status execute_video_status_latch(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
+vf2_status execute_color_table_rebuild(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_palette_page_upload(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_video_register_compose(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);
 vf2_status execute_video_input_latch_write(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);

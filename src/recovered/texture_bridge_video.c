@@ -467,6 +467,128 @@ vf2_status execute_video_status_latch(
     return VF2_OK;
 }
 
+vf2_status execute_color_table_rebuild(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint8_t source[6] = {0u, 0u, 0u, 0u, 0u, 0u};
+    uint8_t scale[3] = {0u, 0u, 0u};
+    uint32_t destination = UINT32_C(0x00546008);
+    uint64_t saturation_count = 0u;
+    uint32_t factor = 0u;
+    size_t bytes_written = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00500234), source, sizeof(source)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x005000e0), scale, sizeof(scale)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    {
+        uint8_t zero_page[UINT32_C(0x120)] = {0u};
+        status = vf2_model2a_write(
+            machine, destination, zero_page, sizeof(zero_page)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        destination += UINT32_C(0x120);
+        bytes_written += sizeof(zero_page);
+    }
+
+    for (factor = 1u; factor <= UINT32_C(27); ++factor) {
+        uint32_t step[3];
+        uint32_t accumulator[3] = {0u, 0u, 0u};
+        uint32_t sample = 0u;
+        uint32_t channel = 0u;
+
+        step[0] = factor * (uint32_t)source[1] * UINT32_C(28) / UINT32_C(18);
+        step[1] = factor * (uint32_t)source[3] * UINT32_C(28) / UINT32_C(18);
+        step[2] = factor * (uint32_t)source[5] * UINT32_C(28) / UINT32_C(18);
+
+        for (channel = 0u; channel < UINT32_C(3); ++channel) {
+            status = write_u16(
+                machine, destination + channel * UINT32_C(2), UINT16_C(0)
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+        }
+        destination += UINT32_C(6);
+        bytes_written += 6u;
+
+        for (sample = 0u; sample < UINT32_C(47); ++sample) {
+            for (channel = 0u; channel < UINT32_C(3); ++channel) {
+                const uint8_t base = source[channel * UINT32_C(2)];
+                uint32_t value = 0u;
+
+                accumulator[channel] += step[channel];
+                value = (uint32_t)base + (accumulator[channel] >> 8u);
+                if (value >= UINT32_C(256)) {
+                    value = UINT32_MAX;
+                    ++saturation_count;
+                }
+                value = ((uint32_t)scale[channel] * value) >> 7u;
+                status = write_u16(
+                    machine,
+                    destination + channel * UINT32_C(2),
+                    (uint16_t)value
+                );
+                if (status != VF2_OK) {
+                    return status;
+                }
+            }
+            destination += UINT32_C(6);
+            bytes_written += 6u;
+        }
+    }
+
+    status = vf2_model2a_write_u32(machine, UINT32_C(0x00546004), 0u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00546000), 1u);
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+    set_equal_condition(cpu);
+    status = finish_recovered_procedure(
+        machine, cpu, UINT64_C(38938) + saturation_count
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_COLOR_TABLE_REBUILD;
+    report->entry_address = VF2_COLOR_TABLE_REBUILD_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(27) * UINT64_C(47) * UINT64_C(3);
+    report->rows = UINT64_C(28);
+    report->changed_values = UINT64_C(28) * UINT64_C(48) * UINT64_C(3) + UINT64_C(2);
+    report->bytes_written = bytes_written + 8u;
+    report->recovered_instruction_count = UINT64_C(38938) + saturation_count;
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 vf2_status execute_palette_page_upload(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,

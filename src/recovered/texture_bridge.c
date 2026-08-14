@@ -227,6 +227,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     case VF2_FRAME_SCRATCH_CLEAR_ENTRY:
         status = execute_frame_scratch_clear(machine, cpu, &local_report);
         break;
+    case VF2_COLOR_TABLE_REBUILD_ENTRY:
+        status = execute_color_table_rebuild(machine, cpu, &local_report);
+        break;
     case VF2_PALETTE_PAGE_UPLOAD_ENTRY:
         status = execute_palette_page_upload(machine, cpu, &local_report);
         break;
