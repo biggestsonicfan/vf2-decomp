@@ -1,5 +1,78 @@
 #include "texture_bridge_internal.h"
 
+static vf2_status execute_texture_convert_post_dispatch(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    const uint32_t save_base = UINT32_C(0x00550084);
+    const uint32_t resume_slot = save_base + UINT32_C(108);
+    uint32_t state = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    status = vf2_model2a_read_u32(
+        machine, VF2_TEXTURE_CONVERT_STATE, &state
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (state == 0u) {
+        return execute_texture_convert_post(machine, cpu, report);
+    }
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = vf2_model2a_write_u32(
+        machine, VF2_TEXTURE_HEADER_STATE, UINT32_C(1)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, resume_slot, UINT32_C(0x0004cdd0)
+        );
+    }
+    for (index = 0u; status == VF2_OK && index < 14u; ++index) {
+        status = vf2_model2a_write_u32(
+            machine,
+            save_base + (uint32_t)index * UINT32_C(4),
+            cpu->registers[VF2_I960_G0_REGISTER + 1u + index]
+        );
+    }
+    for (index = 0u; status == VF2_OK && index < 13u; ++index) {
+        status = vf2_model2a_write_u32(
+            machine,
+            save_base + UINT32_C(56) + (uint32_t)index * UINT32_C(4),
+            cpu->registers[3u + index]
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER] = resume_slot;
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+    cpu->compare_result = VF2_I960_COMPARE_LESS;
+    cpu->executed_instructions += UINT64_C(63);
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_CONVERT_POST;
+    report->entry_address = VF2_TEXTURE_CONVERT_POST_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(27);
+    report->changed_values = UINT64_C(29);
+    report->bytes_written = 116u;
+    report->recovered_instruction_count = UINT64_C(63);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 vf2_status vf2_hybrid_post_frame_bridge_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -155,7 +228,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         status = execute_texture_convert_loop(machine, cpu, &local_report);
         break;
     case VF2_TEXTURE_CONVERT_POST_ENTRY:
-        status = execute_texture_convert_post(machine, cpu, &local_report);
+        status = execute_texture_convert_post_dispatch(
+            machine, cpu, &local_report
+        );
         break;
     case VF2_TIMER_WAIT_UPDATE_ENTRY:
         status = execute_timer_wait_update(machine, cpu, &local_report);
