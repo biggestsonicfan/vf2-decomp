@@ -87,7 +87,27 @@ static inline vf2_status vf2_texture_default_limits_return(
     return vf2_i960_cpu_return_procedure(cpu, machine);
 }
 
+static inline vf2_status vf2_texture_bridge_enter_procedure(
+    vf2_i960_cpu *cpu,
+    uint32_t target,
+    uint32_t return_address
+)
+{
+    const vf2_status status = vf2_i960_cpu_enter_procedure(
+        cpu, target, return_address
+    );
+
+    if (status == VF2_OK &&
+        target == UINT32_C(0x0004d2c0) &&
+        return_address == UINT32_C(0x0004bd5c)) {
+        cpu->arithmetic_control &= ~UINT32_C(7);
+        cpu->compare_result = VF2_I960_COMPARE_NONE;
+    }
+    return status;
+}
+
 #define vf2_i960_cpu_return_procedure vf2_texture_default_limits_return
+#define vf2_i960_cpu_enter_procedure vf2_texture_bridge_enter_procedure
 #endif
 
 #endif
