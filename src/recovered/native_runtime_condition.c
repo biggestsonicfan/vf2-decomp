@@ -1,5 +1,9 @@
 #include "vf2/native_runtime.h"
 
+#define VF2_INTERRUPT_PLAYER_LAYER_ENTRY UINT32_C(0x00000c78)
+#define VF2_INTERRUPT_GAME_INPUT_ENTRY UINT32_C(0x00000c80)
+#define VF2_FRAME_SELECTOR UINT32_C(0x0050002a)
+
 vf2_status vf2_native_runtime_step_impl(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -35,6 +39,41 @@ static void set_less_condition(vf2_i960_cpu *cpu)
     cpu->compare_result = VF2_I960_COMPARE_LESS;
 }
 
+static void set_greater_condition(vf2_i960_cpu *cpu)
+{
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+    cpu->compare_result = VF2_I960_COMPARE_GREATER;
+}
+
+static vf2_status apply_repeated_bridge_condition(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t entry
+)
+{
+    if (entry == VF2_INTERRUPT_PLAYER_LAYER_ENTRY &&
+        cpu->ip == VF2_INTERRUPT_GAME_INPUT_ENTRY) {
+        uint8_t selector = 0u;
+        const vf2_status status = vf2_model2a_read(
+            machine,
+            VF2_FRAME_SELECTOR,
+            &selector,
+            sizeof(selector)
+        );
+
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (selector == UINT8_C(17)) {
+            set_less_condition(cpu);
+        } else if (selector == UINT8_C(1) || selector == UINT8_C(16)) {
+            set_greater_condition(cpu);
+        }
+    }
+    return VF2_OK;
+}
+
 vf2_status vf2_native_runtime_step(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -59,6 +98,11 @@ vf2_status vf2_native_runtime_step(
         status = vf2_hybrid_bridge_apply_condition_poststate(
             machine, cpu, entry, entry_r3, entry_r7
         );
+        if (status == VF2_OK) {
+            status = apply_repeated_bridge_condition(
+                machine, cpu, entry
+            );
+        }
         if (status != VF2_OK) {
             return status;
         }
