@@ -468,6 +468,51 @@ vf2_status execute_video_status_latch(
 }
 
 
+
+vf2_status execute_display_profile_unit_fill(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    uint32_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    for (index = 0u; index < UINT32_C(26); ++index) {
+        status = vf2_model2a_write_u32(
+            machine,
+            UINT32_C(0x0050a0e0) + index * UINT32_C(4),
+            UINT32_C(0x3f800000)
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(108));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_DISPLAY_PROFILE_UNIT_FILL;
+    report->entry_address = VF2_DISPLAY_PROFILE_UNIT_FILL_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(26);
+    report->changed_values = UINT64_C(26);
+    report->bytes_written = 26u * 4u;
+    report->recovered_instruction_count = UINT64_C(108);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 vf2_status execute_display_color_profile_apply(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,

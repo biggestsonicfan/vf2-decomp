@@ -233,6 +233,9 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     case VF2_DISPLAY_COLOR_PROFILE_APPLY_ENTRY:
         status = execute_display_color_profile_apply(machine, cpu, &local_report);
         break;
+    case VF2_DISPLAY_PROFILE_UNIT_FILL_ENTRY:
+        status = execute_display_profile_unit_fill(machine, cpu, &local_report);
+        break;
     case VF2_PALETTE_PAGE_UPLOAD_ENTRY:
         status = execute_palette_page_upload(machine, cpu, &local_report);
         break;
