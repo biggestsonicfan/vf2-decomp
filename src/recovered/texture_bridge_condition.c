@@ -4,8 +4,10 @@
 #define VF2_TEXTURE_ORCHESTRATOR_ENTRY UINT32_C(0x0004bd00)
 #define VF2_TEXTURE_STATUS_DISPATCH_ENTRY UINT32_C(0x0004bd24)
 #define VF2_TEXTURE_RECORD_STATUS_ENTRY UINT32_C(0x0004bd5c)
+#define VF2_TEXTURE_ACTIVE_PREPARE_ENTRY UINT32_C(0x0004bde0)
 #define VF2_TEXTURE_RECORD_STATUS_EXIT UINT32_C(0x0004bde0)
 #define VF2_TEXTURE_STATUS_LINE_ENTRY UINT32_C(0x0004d2c0)
+#define VF2_TEXTURE_ACTIVE_PREPARE_TARGET UINT32_C(0x0004d16c)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
     vf2_model2a *machine,
@@ -76,6 +78,17 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
                 );
             }
         }
+    } else if (entry == VF2_TEXTURE_ACTIVE_PREPARE_ENTRY &&
+               cpu->ip == VF2_TEXTURE_ACTIVE_PREPARE_TARGET) {
+        const uint32_t flags = cpu->registers[7];
+        const uint32_t bits45 = (UINT32_C(1) << 4u) | (UINT32_C(1) << 5u);
+
+        set_compare_result(
+            cpu,
+            (flags & bits45) == bits45
+                ? VF2_I960_COMPARE_EQUAL
+                : VF2_I960_COMPARE_NONE
+        );
     }
     return VF2_OK;
 }
