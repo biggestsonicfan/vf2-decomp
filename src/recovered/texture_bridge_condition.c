@@ -8,6 +8,9 @@
 #define VF2_TEXTURE_RECORD_STATUS_EXIT UINT32_C(0x0004bde0)
 #define VF2_TEXTURE_STATUS_LINE_ENTRY UINT32_C(0x0004d2c0)
 #define VF2_TEXTURE_ACTIVE_PREPARE_TARGET UINT32_C(0x0004d16c)
+#define VF2_TEXTURE_TREE_DISPATCH_ENTRY UINT32_C(0x0004c544)
+#define VF2_TEXTURE_TREE_DISPATCH_EXIT UINT32_C(0x0004c6e0)
+#define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
     vf2_model2a *machine,
@@ -86,6 +89,22 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         set_compare_result(
             cpu,
             (entry_r7 & bits45) == bits45
+                ? VF2_I960_COMPARE_EQUAL
+                : VF2_I960_COMPARE_NONE
+        );
+    } else if (entry == VF2_TEXTURE_TREE_DISPATCH_ENTRY &&
+               cpu->ip == VF2_TEXTURE_TREE_DISPATCH_EXIT) {
+        uint32_t flags = 0u;
+        const vf2_status read_status = vf2_model2a_read_u32(
+            machine, VF2_TEXTURE_ACTIVE_FLAGS, &flags
+        );
+
+        if (read_status != VF2_OK) {
+            return read_status;
+        }
+        set_compare_result(
+            cpu,
+            (flags & (UINT32_C(1) << 1u)) != 0u
                 ? VF2_I960_COMPARE_EQUAL
                 : VF2_I960_COMPARE_NONE
         );
