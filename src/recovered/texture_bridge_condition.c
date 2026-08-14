@@ -16,6 +16,10 @@
 #define VF2_FRAME_TIMER_SUFFIX_ENTRY UINT32_C(0x00010fa4)
 #define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
 #define VF2_TEXTURE_COUNTER_UPDATE_ENTRY UINT32_C(0x0004bb98)
+#define VF2_TEXTURE_COUNTER_UPDATE_EXIT UINT32_C(0x0004bc58)
+#define VF2_TEXTURE_COUNTER0 UINT32_C(0x005502c0)
+#define VF2_TEXTURE_COUNTER1 UINT32_C(0x005502d0)
+#define VF2_TEXTURE_COUNTER2 UINT32_C(0x005502e0)
 #define VF2_TEXTURE_ORCHESTRATOR_ENTRY UINT32_C(0x0004bd00)
 #define VF2_TEXTURE_STATUS_DISPATCH_ENTRY UINT32_C(0x0004bd24)
 #define VF2_TEXTURE_RECORD_STATUS_ENTRY UINT32_C(0x0004bd5c)
@@ -106,6 +110,37 @@ static vf2_status set_main_final_cluster_condition(
         set_compare_result(cpu, VF2_I960_COMPARE_LESS);
     } else if (selector == UINT8_C(17)) {
         set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    }
+    return VF2_OK;
+}
+
+static vf2_status set_texture_counter_update_condition(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t counter0 = 0u;
+    uint32_t counter1 = 0u;
+    uint32_t counter2 = 0u;
+    vf2_status status = vf2_model2a_read_u32(
+        machine, VF2_TEXTURE_COUNTER0, &counter0
+    );
+
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, VF2_TEXTURE_COUNTER1, &counter1
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, VF2_TEXTURE_COUNTER2, &counter2
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (counter0 == 0u && counter1 == 0u && counter2 == 0u) {
+        set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
     }
     return VF2_OK;
 }
@@ -210,6 +245,15 @@ vf2_status vf2_hybrid_bridge_apply_condition_poststate(
                cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY &&
                machine->main_rom != NULL) {
         set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+    } else if (entry == VF2_TEXTURE_COUNTER_UPDATE_ENTRY &&
+               cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_EXIT &&
+               machine->main_rom != NULL) {
+        const vf2_status status = set_texture_counter_update_condition(
+            machine, cpu
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
     } else if (entry == VF2_MAIN_FRAME_TIMER_CALL_ENTRY &&
                cpu->ip == VF2_FRAME_TIMER_WAIT_ENTRY &&
                machine->main_rom != NULL) {
