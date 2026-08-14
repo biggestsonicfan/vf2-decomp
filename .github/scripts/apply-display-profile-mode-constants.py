@@ -77,7 +77,7 @@ vf2_status execute_display_profile_mode_constants(
     if (status != VF2_OK) {
         return status;
     }
-    cpu->executed_instructions += UINT64_C(1); /* call 0x1fee4 */
+    cpu->executed_instructions += UINT64_C(1);
     status = execute_display_profile_unit_fill(machine, cpu, &child_report);
     if (status != VF2_OK) {
         return status;
@@ -92,6 +92,7 @@ vf2_status execute_display_profile_mode_constants(
     if (status != VF2_OK) {
         return status;
     }
+    cpu->registers[15] = (uint32_t)mode;
 
     if (mode == UINT8_C(10)) {
         exclusive_instructions = UINT64_C(8);
@@ -103,6 +104,8 @@ vf2_status execute_display_profile_mode_constants(
                 machine, UINT32_C(0x0050a128), UINT32_C(0x3ef0a3d7)
             );
         }
+        cpu->registers[15] = UINT32_C(0x3ef0a3d7);
+        set_equal_condition(cpu);
         changed_values += UINT64_C(2);
         bytes_written += 8u;
     } else if (mode == UINT8_C(6)) {
@@ -113,14 +116,17 @@ vf2_status execute_display_profile_mode_constants(
                 machine, mode6_addresses[index], mode6_values[index]
             );
         }
+        cpu->registers[15] = UINT32_C(0x3f028f5c);
+        set_equal_condition(cpu);
         changed_values += UINT64_C(11);
         bytes_written += 44u;
+    } else {
+        set_signed_condition(cpu, INT32_C(6), (int32_t)mode);
     }
     if (status != VF2_OK) {
         return status;
     }
 
-    /* One call instruction was already accounted before entering the child. */
     cpu->executed_instructions += exclusive_instructions - UINT64_C(2);
     status = finish_recovered_procedure(machine, cpu, UINT64_C(1));
     if (status != VF2_OK) {
@@ -152,13 +158,9 @@ p.write_text(text.replace(needle, function + needle, 1))
 
 Path("decomp/i960/notes/display_profile_mode_constants_executable_v0026.md").write_text(r'''# Executable display profile mode constants (v0.0.26)
 
-`0x0001ff0c..0x0001fff8` is now recovered as an executable caller of `display_profile_unit_fill` (`0x0001fee4`). The child call uses the architectural i960 procedure frame and returns to `0x0001ff10` before mode dispatch.
+`0x0001ff0c..0x0001fff8` is recovered as an executable caller of `display_profile_unit_fill` (`0x0001fee4`). The child uses the architectural i960 call frame and returns to `0x0001ff10` before mode dispatch.
 
-Exact exclusive instruction counts from ROM disassembly are:
+Exact exclusive instruction counts from ROM disassembly are 5 instructions for the default branch, 8 for mode 10, and 27 for mode 6. These totals include the call instruction and parent `ret`, but exclude the child's independently recovered 108 instructions.
 
-- default mode: 5 instructions;
-- mode 10: 8 instructions;
-- mode 6: 27 instructions.
-
-These totals include the call instruction and the parent `ret`, but exclude the child's independently recovered 108 instructions. Mode 10 writes two tuning words. Mode 6 writes eleven tuning words. Other modes return immediately after the 26-entry unit fill.
+Mode 10 writes two tuning words. Mode 6 writes eleven tuning words. Other modes return immediately after the unit fill. The recovery also preserves the final `r15` value and comparison condition produced by the executed `cmpobe` path.
 ''')
