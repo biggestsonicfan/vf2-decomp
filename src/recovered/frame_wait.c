@@ -52,9 +52,6 @@ vf2_status vf2_hybrid_frame_wait_observe(
     local_report.visit_count = state->visits;
     if (state->visits >= state->visits_before_interrupt) {
         if (cpu->ip == VF2_FRAME_WAIT_MAIN) {
-            /* This wait address represents the taken cmpibe r3,g0 self-loop
-             * at 0x00010f98. Preserve its equal architectural condition
-             * before the interrupt frame saves arithmetic_control. */
             cpu->arithmetic_control =
                 (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
             cpu->compare_result = VF2_I960_COMPARE_EQUAL;
@@ -84,7 +81,6 @@ vf2_status vf2_hybrid_frame_wait_observe(
     }
     return VF2_OK;
 }
-
 
 vf2_status vf2_hybrid_frame_wait_execute(
     vf2_model2a *machine,
@@ -253,6 +249,16 @@ vf2_status vf2_hybrid_frame_wait_execute(
             if (cpu->registers[3] ==
                 cpu->registers[VF2_I960_G0_REGISTER]) {
                 return VF2_ERROR_UNSUPPORTED;
+            }
+            if ((int32_t)cpu->registers[3] <
+                (int32_t)cpu->registers[VF2_I960_G0_REGISTER]) {
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+                cpu->compare_result = VF2_I960_COMPARE_LESS;
+            } else {
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+                cpu->compare_result = VF2_I960_COMPARE_GREATER;
             }
             cpu->ip = UINT32_C(0x00010fa4);
             ++cpu->executed_instructions;
