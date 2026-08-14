@@ -11,8 +11,8 @@ def replace_once(path, old, new):
 
 replace_once(
     "include/vf2/hybrid.h",
-    "    VF2_HYBRID_BRIDGE_VIDEO_COMMAND_SUBMIT,\n    VF2_HYBRID_BRIDGE_DISPLAY_RUNTIME_INITIALIZE,",
-    "    VF2_HYBRID_BRIDGE_VIDEO_COMMAND_SUBMIT,\n    VF2_HYBRID_BRIDGE_VIDEO_TABLE_EXPAND_128,\n    VF2_HYBRID_BRIDGE_DISPLAY_RUNTIME_INITIALIZE,",
+    "    VF2_HYBRID_BRIDGE_VIDEO_COMMAND_SUBMIT,\n    VF2_HYBRID_BRIDGE_DISPLAY_TRANSFORM_DEFAULTS,",
+    "    VF2_HYBRID_BRIDGE_VIDEO_COMMAND_SUBMIT,\n    VF2_HYBRID_BRIDGE_VIDEO_TABLE_EXPAND_128,\n    VF2_HYBRID_BRIDGE_DISPLAY_TRANSFORM_DEFAULTS,",
 )
 replace_once(
     "src/recovered/texture_bridge_internal.h",
@@ -86,7 +86,9 @@ vf2_status execute_video_table_expand_128(
     cpu->registers[VF2_I960_G0_REGISTER + 3u] = 0u;
     cpu->registers[3] = (uint32_t)last_value;
     if (encoded_count == 0u) {
-        set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+        cpu->compare_result = VF2_I960_COMPARE_GREATER;
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
     } else {
         set_equal_condition(cpu);
     }
