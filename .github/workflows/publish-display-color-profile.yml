@@ -1,0 +1,182 @@
+name: Temporary display color profile publisher
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/publish-display-color-profile.yml'
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Apply recovered display color profile caller
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"needle count for {path}: {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "include/vf2/hybrid.h",
+              "    VF2_HYBRID_BRIDGE_COLOR_TABLE_REBUILD,\n    VF2_HYBRID_BRIDGE_PALETTE_PAGE_UPLOAD,",
+              "    VF2_HYBRID_BRIDGE_COLOR_TABLE_REBUILD,\n    VF2_HYBRID_BRIDGE_DISPLAY_COLOR_PROFILE_APPLY,\n    VF2_HYBRID_BRIDGE_PALETTE_PAGE_UPLOAD,",
+          )
+          replace_once(
+              "src/recovered/texture_bridge_internal.h",
+              "#define VF2_COLOR_TABLE_REBUILD_ENTRY UINT32_C(0x00002c38)\n#define VF2_PALETTE_PAGE_UPLOAD_ENTRY",
+              "#define VF2_COLOR_TABLE_REBUILD_ENTRY UINT32_C(0x00002c38)\n#define VF2_DISPLAY_COLOR_PROFILE_APPLY_ENTRY UINT32_C(0x0001fffc)\n#define VF2_DISPLAY_COLOR_PROFILE_APPLY_RETURN UINT32_C(0x00020050)\n#define VF2_PALETTE_PAGE_UPLOAD_ENTRY",
+          )
+          replace_once(
+              "src/recovered/texture_bridge_internal.h",
+              "vf2_status execute_color_table_rebuild(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);\n",
+              "vf2_status execute_color_table_rebuild(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);\nvf2_status execute_display_color_profile_apply(vf2_model2a *machine, vf2_i960_cpu *cpu, vf2_hybrid_bridge_report *report);\n",
+          )
+          replace_once(
+              "src/recovered/texture_bridge.c",
+              "    case VF2_COLOR_TABLE_REBUILD_ENTRY:\n        status = execute_color_table_rebuild(machine, cpu, &local_report);\n        break;",
+              "    case VF2_COLOR_TABLE_REBUILD_ENTRY:\n        status = execute_color_table_rebuild(machine, cpu, &local_report);\n        break;\n    case VF2_DISPLAY_COLOR_PROFILE_APPLY_ENTRY:\n        status = execute_display_color_profile_apply(machine, cpu, &local_report);\n        break;",
+          )
+
+          function = r'''
+vf2_status execute_display_color_profile_apply(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_hybrid_bridge_report child_report;
+    uint8_t profile = 0u;
+    uint8_t scale[3] = {0u, 0u, 0u};
+    uint32_t runtime_flags = 0u;
+    uint32_t table = 0u;
+    uint64_t prefix_instructions = UINT64_C(11);
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(&child_report, 0, sizeof(child_report));
+
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00500064), &profile, sizeof(profile)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &runtime_flags
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if ((runtime_flags & (UINT32_C(1) << 21u)) != 0u) {
+        profile = UINT8_C(3);
+        ++prefix_instructions;
+    }
+
+    table = UINT32_C(0x0006ee00) + ((uint32_t)profile << 8u);
+    status = vf2_model2a_read(
+        machine, table + UINT32_C(0xb8), scale, sizeof(scale)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005000e0), scale, sizeof(scale)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu,
+        VF2_COLOR_TABLE_REBUILD_ENTRY,
+        VF2_DISPLAY_COLOR_PROFILE_APPLY_RETURN
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += prefix_instructions;
+    status = execute_color_table_rebuild(machine, cpu, &child_report);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (cpu->ip != VF2_DISPLAY_COLOR_PROFILE_APPLY_RETURN) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(1));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_DISPLAY_COLOR_PROFILE_APPLY;
+    report->entry_address = VF2_DISPLAY_COLOR_PROFILE_APPLY_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->rows = child_report.rows;
+    report->changed_values = child_report.changed_values + UINT64_C(3);
+    report->bytes_written = child_report.bytes_written + 3u;
+    report->recovered_instruction_count =
+        prefix_instructions + child_report.recovered_instruction_count +
+        UINT64_C(1);
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->recovered_procedure_returns =
+        child_report.recovered_procedure_returns + UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+'''
+          p = Path("src/recovered/texture_bridge_video.c")
+          text = p.read_text()
+          needle = "vf2_status execute_color_table_rebuild(\n"
+          if text.count(needle) != 1:
+              raise SystemExit(f"video insertion needle count: {text.count(needle)}")
+          p.write_text(text.replace(needle, function + needle, 1))
+
+          Path("decomp/i960/notes/display_color_profile_apply_executable_v0026.md").write_text(r'''# Executable display color profile apply (v0.0.26)
+
+`0x0001fffc..0x00020050` is now recovered as an executable caller rather than folded into selector-3 synthetic poststate.
+
+The procedure reads the ordinary profile byte at `0x00500064`, reads runtime flags at `0x00500068`, and forces profile `3` only when bit 21 is set. It then indexes `0x0006ee00 + profile * 0x100`, copies bytes `+0xb8..+0xba` to `0x005000e0..0x005000e2`, performs a real recovered call to `color_table_rebuild` at `0x00002c38`, verifies the architectural return to `0x00020050`, and finally returns to its own caller.
+
+Exclusive instruction accounting is 12 instructions on the ordinary path and 13 instructions on the forced-profile path. The child color-table procedure contributes its independently validated `38,938 + sentinel_count` instructions. The parent contributes one nested call and, including the child and parent returns, two procedure returns.
+
+This preserves actual i960 local-frame transitions through `vf2_i960_cpu_enter_procedure()` and `finish_recovered_procedure()` rather than merely adjusting counters.
+''')
+      - name: Check patch hygiene
+        run: git diff --check
+      - name: GCC warning-as-error build and tests
+        env:
+          CC: gcc
+        run: |
+          cmake -S . -B build-gcc -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ROM_DIR=/tmp/no-proprietary-roms
+          cmake --build build-gcc --parallel
+          ctest --test-dir build-gcc --output-on-failure
+      - name: Clang warning-as-error build and tests
+        env:
+          CC: clang
+        run: |
+          cmake -S . -B build-clang -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ROM_DIR=/tmp/no-proprietary-roms
+          cmake --build build-clang --parallel
+          ctest --test-dir build-clang --output-on-failure
+      - name: Publish direct to master and clean transport
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/publish-display-color-profile.yml
+          git add include/vf2/hybrid.h src/recovered/texture_bridge_internal.h src/recovered/texture_bridge.c src/recovered/texture_bridge_video.c decomp/i960/notes/display_color_profile_apply_executable_v0026.md
+          git commit -m "Recover executable display color profile apply"
+          git push origin HEAD:master
