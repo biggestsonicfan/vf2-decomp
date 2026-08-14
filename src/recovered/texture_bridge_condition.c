@@ -5,6 +5,7 @@
 #define VF2_INTERRUPT_PLAYER_LAYER_ENTRY UINT32_C(0x00000c78)
 #define VF2_INTERRUPT_GAME_INPUT_ENTRY UINT32_C(0x00000c80)
 #define VF2_INTERRUPT_GAME_STATE_ENTRY UINT32_C(0x00000c90)
+#define VF2_GAME_STATE_RETURN_STUB UINT32_C(0x000020ec)
 #define VF2_MAIN_FRAME_TIMER_CALL_ENTRY UINT32_C(0x0000a034)
 #define VF2_FRAME_TIMER_WAIT_ENTRY UINT32_C(0x00010f90)
 #define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
@@ -201,9 +202,13 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_INTERRUPT_GAME_INPUT_ENTRY &&
                cpu->ip == VF2_INTERRUPT_GAME_STATE_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
-        /* The observed game-input path finishes its second sequence gate with
-         * an equal comparison before the interrupt calls game-state update. */
         set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    } else if (entry == VF2_INTERRUPT_GAME_STATE_ENTRY &&
+               cpu->ip == VF2_GAME_STATE_RETURN_STUB &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The live interrupt game-state path stops at the recovered return
+         * stub with GREATER after its meter/update tail. */
+        set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
     }
     return VF2_OK;
 }
