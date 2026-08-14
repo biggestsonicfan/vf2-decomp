@@ -457,11 +457,11 @@ if(VF2_BUILD_TESTS)
         )
         add_test(
             NAME vf2_native_fifth_dispatch
-            COMMAND vf2i960 native-fifth-dispatch "${VF2_ROM_DIR}" [output.vf2snap]
+            COMMAND vf2i960 native-fifth-dispatch "${VF2_ROM_DIR}"
         )
         add_test(
             NAME vf2_native_sixth_dispatch
-            COMMAND vf2i960 native-sixth-dispatch "${VF2_ROM_DIR}" [output.vf2snap]
+            COMMAND vf2i960 native-sixth-dispatch "${VF2_ROM_DIR}"
         )
         add_test(
             NAME vf2_texture_bridge_differential
