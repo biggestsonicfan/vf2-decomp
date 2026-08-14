@@ -8,6 +8,7 @@
 #define VF2_INTERRUPT_INPUT_RING_ENTRY UINT32_C(0x00000c94)
 #define VF2_INTERRUPT_TILE_SYNC_ENTRY UINT32_C(0x00000cd4)
 #define VF2_GAME_STATE_RETURN_STUB UINT32_C(0x000020ec)
+#define VF2_MAIN_CLEAR_PREFIX_ENTRY UINT32_C(0x00009fb0)
 #define VF2_MAIN_FRAME_TIMER_CALL_ENTRY UINT32_C(0x0000a034)
 #define VF2_MAIN_POST_TIMER_ENTRY UINT32_C(0x0000a038)
 #define VF2_FRAME_TIMER_WAIT_ENTRY UINT32_C(0x00010f90)
@@ -198,8 +199,12 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_FRAME_TIMER_SUFFIX_ENTRY &&
                cpu->ip == VF2_MAIN_POST_TIMER_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
-        /* The observed suffix masks video status to four bits and takes the
-         * zero cmpobe before latching video state, leaving EQUAL on return. */
+        set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    } else if (entry == VF2_MAIN_POST_TIMER_ENTRY &&
+               cpu->ip == VF2_MAIN_CLEAR_PREFIX_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* Frame-counter's final masked-mode cmpobe is taken on the observed
+         * path; frame-phase contains no compare, so EQUAL survives the branch. */
         set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
     } else if (entry == VF2_INTERRUPT_BUFFER_GATE_ENTRY &&
                cpu->ip == VF2_INTERRUPT_PLAYER_LAYER_ENTRY &&
