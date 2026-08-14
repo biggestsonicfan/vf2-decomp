@@ -59,3 +59,5 @@ address,name,kind,status,notes
 0x0001fffc,display_color_profile_apply,function,rom-verified,Selects profile table copies RGB scale bytes and calls color_table_rebuild
 0x0002eab8,display_runtime_initialize,function,rom-verified,Initializes display runtime defaults and state blocks then calls display_transform_defaults
 0x00031004,display_transform_defaults,function,rom-verified,Writes default transform triple and clears trailing display state fields
+0x00031040,display_command_emit,function,rom-verified,Emits the current display transform packet and optional state values then calls the shared 0x7c60 helper
+0x000311b8,display_transform_update,function,rom-verified,Selects active object and updates bounded transform deltas from display runtime flags and object state
