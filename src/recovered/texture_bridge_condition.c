@@ -1,55 +1,82 @@
 #include "vf2/hybrid.h"
 
-#define VF2_TEXTURE_ENTRY_GATE UINT32_C(0x0004bd00)
-#define VF2_TEXTURE_STATUS_DISPATCH UINT32_C(0x0004bd24)
-#define VF2_TEXTURE_ENTRY_STATE UINT32_C(0x0055000c)
-
 #if defined(__GNUC__) || defined(__clang__)
-vf2_status vf2_texture_entry_gate_with_condition(
+#define VF2_TEXTURE_ORCHESTRATOR_ENTRY UINT32_C(0x0004bd00)
+#define VF2_TEXTURE_STATUS_DISPATCH_ENTRY UINT32_C(0x0004bd24)
+#define VF2_TEXTURE_RECORD_STATUS_ENTRY UINT32_C(0x0004bd5c)
+#define VF2_TEXTURE_RECORD_STATUS_EXIT UINT32_C(0x0004bde0)
+#define VF2_TEXTURE_STATUS_LINE_ENTRY UINT32_C(0x0004d2c0)
+
+vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
     vf2_hybrid_bridge_report *report
-) __asm__("execute_texture_orchestrator_entry_gate");
+);
 
-vf2_status vf2_texture_entry_gate_with_condition(
+static void set_compare_result(
+    vf2_i960_cpu *cpu,
+    vf2_i960_compare_result result
+)
+{
+    uint32_t bits = 0u;
+
+    if (result == VF2_I960_COMPARE_LESS) {
+        bits = UINT32_C(4);
+    } else if (result == VF2_I960_COMPARE_EQUAL) {
+        bits = UINT32_C(2);
+    } else if (result == VF2_I960_COMPARE_GREATER) {
+        bits = UINT32_C(1);
+    }
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | bits;
+    cpu->compare_result = result;
+}
+
+vf2_status vf2_hybrid_post_frame_bridge_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
     vf2_hybrid_bridge_report *report
 )
 {
-    vf2_status status = VF2_OK;
-
-    if (machine == NULL || cpu == NULL || report == NULL) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-    if (cpu->ip != VF2_TEXTURE_ENTRY_GATE || cpu->local_frame_depth == 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-
-    status = vf2_model2a_read_u32(
-        machine,
-        VF2_TEXTURE_ENTRY_STATE,
-        &cpu->registers[VF2_I960_G0_REGISTER]
+    const uint32_t entry = cpu != NULL ? cpu->ip : 0u;
+    const uint32_t entry_r3 = cpu != NULL ? cpu->registers[3] : 0u;
+    const vf2_status status = vf2_hybrid_post_frame_bridge_execute_impl(
+        machine, cpu, report
     );
-    if (status != VF2_OK) {
+
+    if (status != VF2_OK || cpu == NULL) {
         return status;
     }
-    if (cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
+
+    if (entry == VF2_TEXTURE_ORCHESTRATOR_ENTRY) {
+        set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    } else if (entry == VF2_TEXTURE_STATUS_DISPATCH_ENTRY) {
+        if (cpu->ip == VF2_TEXTURE_STATUS_LINE_ENTRY) {
+            set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+        } else if (cpu->ip == VF2_TEXTURE_RECORD_STATUS_ENTRY) {
+            set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        }
+    } else if (entry == VF2_TEXTURE_RECORD_STATUS_ENTRY) {
+        if (cpu->ip == VF2_TEXTURE_STATUS_DISPATCH_ENTRY) {
+            set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        } else if (cpu->ip == VF2_TEXTURE_RECORD_STATUS_EXIT) {
+            if ((int32_t)entry_r3 >= 0) {
+                set_compare_result(
+                    cpu,
+                    entry_r3 == 0u
+                        ? VF2_I960_COMPARE_EQUAL
+                        : VF2_I960_COMPARE_LESS
+                );
+            } else {
+                set_compare_result(
+                    cpu,
+                    cpu->registers[8] == 0u
+                        ? VF2_I960_COMPARE_EQUAL
+                        : VF2_I960_COMPARE_LESS
+                );
+            }
+        }
     }
-
-    cpu->arithmetic_control =
-        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
-    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-    cpu->ip = VF2_TEXTURE_STATUS_DISPATCH;
-    cpu->executed_instructions += UINT64_C(2);
-
-    report->kind = VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_ENTRY_GATE;
-    report->entry_address = VF2_TEXTURE_ENTRY_GATE;
-    report->exit_address = VF2_TEXTURE_STATUS_DISPATCH;
-    report->iterations = UINT64_C(1);
-    report->recovered_instruction_count = UINT64_C(2);
-    report->cpu_poststate_applied = 1;
     return VF2_OK;
 }
 #endif
