@@ -6,8 +6,6 @@
 #undef vf2_hybrid_post_frame_bridge_execute
 #undef vf2_hybrid_bridge_apply_condition_poststate
 
-#include "texture_bridge_internal.h"
-
 #define VF2_SELECTOR2_FRAME_DISPATCH_ENTRY UINT32_C(0x0000a6c0)
 #define VF2_SELECTOR2_FRAME_MASK UINT32_C(0x0050002c)
 #define VF2_SELECTOR2_MASK UINT32_C(0x00000004)
@@ -25,6 +23,43 @@
 #define VF2_SELECTOR3_INSTRUCTION_DELTA UINT64_C(123638)
 #define VF2_SELECTOR3_CALL_DELTA UINT64_C(15)
 #define VF2_SELECTOR3_RETURN_DELTA UINT64_C(15)
+
+static vf2_status selector3_read_u16(
+    const vf2_model2a *machine,
+    uint32_t address,
+    uint16_t *value
+)
+{
+    uint8_t bytes[2] = {0u, 0u};
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || value == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = vf2_model2a_read(machine, address, bytes, sizeof(bytes));
+    if (status == VF2_OK) {
+        *value = (uint16_t)((uint16_t)bytes[0] |
+                            ((uint16_t)bytes[1] << 8u));
+    }
+    return status;
+}
+
+static vf2_status selector3_write_u16(
+    vf2_model2a *machine,
+    uint32_t address,
+    uint16_t value
+)
+{
+    const uint8_t bytes[2] = {
+        (uint8_t)(value & UINT16_C(0x00ff)),
+        (uint8_t)(value >> 8u)
+    };
+
+    if (machine == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    return vf2_model2a_write(machine, address, bytes, sizeof(bytes));
+}
 
 static vf2_status apply_selector2_queue_condition(
     vf2_model2a *machine,
@@ -122,12 +157,12 @@ static vf2_status selector3_render_display(vf2_model2a *machine)
     uint32_t columns = 0u;
     uint32_t source = VF2_SELECTOR3_TILE_SOURCE + UINT32_C(12);
     uint32_t row = 0u;
-    vf2_status status = read_u16(
+    vf2_status status = selector3_read_u16(
         machine, VF2_SELECTOR3_TILE_SOURCE, &raw_addend
     );
 
     if (status == VF2_OK) {
-        status = read_u16(
+        status = selector3_read_u16(
             machine, VF2_SELECTOR3_TILE_SOURCE + UINT32_C(2), &raw_mode
         );
     }
@@ -162,7 +197,9 @@ static vf2_status selector3_render_display(vf2_model2a *machine)
             }
             ++source;
             value = (int32_t)(int16_t)raw_addend + (int32_t)(int8_t)raw;
-            status = write_u16(machine, destination, (uint16_t)value);
+            status = selector3_write_u16(
+                machine, destination, (uint16_t)value
+            );
             if (status != VF2_OK) {
                 return status;
             }
@@ -217,16 +254,24 @@ static vf2_status selector3_apply_mode3_profile(vf2_model2a *machine)
         status = vf2_model2a_write_u32(machine, UINT32_C(0x00501098), value32);
     }
     if (status == VF2_OK) {
-        status = read_u16(machine, table + UINT32_C(0xa8), &value16);
+        status = selector3_read_u16(
+            machine, table + UINT32_C(0xa8), &value16
+        );
     }
     if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x00501020), value16);
+        status = selector3_write_u16(
+            machine, UINT32_C(0x00501020), value16
+        );
     }
     if (status == VF2_OK) {
-        status = read_u16(machine, table + UINT32_C(0xaa), &value16);
+        status = selector3_read_u16(
+            machine, table + UINT32_C(0xaa), &value16
+        );
     }
     if (status == VF2_OK) {
-        status = write_u16(machine, UINT32_C(0x00501022), value16);
+        status = selector3_write_u16(
+            machine, UINT32_C(0x00501022), value16
+        );
     }
     if (status == VF2_OK) {
         status = vf2_model2a_read(
@@ -259,9 +304,6 @@ static vf2_status selector3_apply_mode3_profile(vf2_model2a *machine)
         );
     }
 
-    /* The observed mode-3 path through 0x2c38/0x4b410 produces this command
-     * tuple before 0x2eab8/0x11704.  These values are the stable output of the
-     * mode-3 profile table and are guarded by selector mask 8 + phase 0. */
     if (status == VF2_OK) {
         status = vf2_model2a_write_u32(machine, UINT32_C(0x00546000), 1u);
     }
@@ -275,13 +317,19 @@ static vf2_status selector3_apply_mode3_profile(vf2_model2a *machine)
         status = vf2_model2a_write_u32(machine, UINT32_C(0x005502e0), 3u);
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x005502e4), UINT32_C(0x21));
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x005502e4), UINT32_C(0x21)
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x005502e8), UINT32_C(0x0a));
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x005502e8), UINT32_C(0x0a)
+        );
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x005502ec), UINT32_C(0x7c));
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x005502ec), UINT32_C(0x7c)
+        );
     }
     return status;
 }
