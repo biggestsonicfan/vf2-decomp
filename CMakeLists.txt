@@ -67,6 +67,7 @@ add_library(vf2_core STATIC
     src/recovered/native_differential.c
     src/recovered/native_differential_step.c
     src/recovered/texture_bridge.c
+    src/recovered/texture_bridge_condition.c
     src/recovered/texture_bridge_texture.c
     src/recovered/texture_bridge_status.c
     src/recovered/texture_bridge_video.c
@@ -90,6 +91,11 @@ set_source_files_properties(
 set_source_files_properties(
     src/recovered/native_runtime.c
     PROPERTIES COMPILE_DEFINITIONS "vf2_native_runtime_step=vf2_native_runtime_step_impl"
+)
+
+set_source_files_properties(
+    src/recovered/texture_bridge.c
+    PROPERTIES COMPILE_DEFINITIONS "vf2_hybrid_post_frame_bridge_execute=vf2_hybrid_post_frame_bridge_execute_impl"
 )
 
 set_source_files_properties(
