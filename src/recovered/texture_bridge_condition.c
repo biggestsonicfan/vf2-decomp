@@ -10,6 +10,8 @@
 #define VF2_TEXTURE_ACTIVE_PREPARE_TARGET UINT32_C(0x0004d16c)
 #define VF2_TEXTURE_TREE_DISPATCH_ENTRY UINT32_C(0x0004c544)
 #define VF2_TEXTURE_TREE_DISPATCH_EXIT UINT32_C(0x0004c6e0)
+#define VF2_TEXTURE_WORD_PREPARE_ENTRY UINT32_C(0x0004cb64)
+#define VF2_TEXTURE_WORD_PREPARE_EXIT UINT32_C(0x0004cc28)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
@@ -35,6 +37,29 @@ static void set_compare_result(
     cpu->arithmetic_control =
         (cpu->arithmetic_control & ~UINT32_C(7)) | bits;
     cpu->compare_result = result;
+}
+
+static vf2_status set_active_flag_bit_condition(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t bit
+)
+{
+    uint32_t flags = 0u;
+    const vf2_status status = vf2_model2a_read_u32(
+        machine, VF2_TEXTURE_ACTIVE_FLAGS, &flags
+    );
+
+    if (status != VF2_OK) {
+        return status;
+    }
+    set_compare_result(
+        cpu,
+        (flags & (UINT32_C(1) << bit)) != 0u
+            ? VF2_I960_COMPARE_EQUAL
+            : VF2_I960_COMPARE_NONE
+    );
+    return VF2_OK;
 }
 
 vf2_status vf2_hybrid_post_frame_bridge_execute(
@@ -94,20 +119,20 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         );
     } else if (entry == VF2_TEXTURE_TREE_DISPATCH_ENTRY &&
                cpu->ip == VF2_TEXTURE_TREE_DISPATCH_EXIT) {
-        uint32_t flags = 0u;
-        const vf2_status read_status = vf2_model2a_read_u32(
-            machine, VF2_TEXTURE_ACTIVE_FLAGS, &flags
+        const vf2_status cc_status = set_active_flag_bit_condition(
+            machine, cpu, UINT32_C(1)
         );
-
-        if (read_status != VF2_OK) {
-            return read_status;
+        if (cc_status != VF2_OK) {
+            return cc_status;
         }
-        set_compare_result(
-            cpu,
-            (flags & (UINT32_C(1) << 1u)) != 0u
-                ? VF2_I960_COMPARE_EQUAL
-                : VF2_I960_COMPARE_NONE
+    } else if (entry == VF2_TEXTURE_WORD_PREPARE_ENTRY &&
+               cpu->ip == VF2_TEXTURE_WORD_PREPARE_EXIT) {
+        const vf2_status cc_status = set_active_flag_bit_condition(
+            machine, cpu, UINT32_C(2)
         );
+        if (cc_status != VF2_OK) {
+            return cc_status;
+        }
     }
     return VF2_OK;
 }
