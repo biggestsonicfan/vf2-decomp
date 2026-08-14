@@ -357,6 +357,17 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_native_scheduler_tests
     )
 
+    add_executable(vf2_texture_status_tail_tests
+        tests/recovered/test_texture_status_tail.c
+    )
+    target_link_libraries(vf2_texture_status_tail_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_texture_status_tail_tests)
+
+    add_test(
+        NAME vf2_texture_status_tail
+        COMMAND vf2_texture_status_tail_tests
+    )
+
     if(EXISTS "${VF2_ROM_DIR}")
         add_test(
             NAME vf2_phase17_zero_differential
