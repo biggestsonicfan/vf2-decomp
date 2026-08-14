@@ -7,6 +7,12 @@ vf2_status vf2_native_runtime_step_impl(
     vf2_native_runtime_step_report *report
 );
 
+static void set_none_condition(vf2_i960_cpu *cpu)
+{
+    cpu->arithmetic_control &= ~UINT32_C(7);
+    cpu->compare_result = VF2_I960_COMPARE_NONE;
+}
+
 static void set_equal_condition(vf2_i960_cpu *cpu)
 {
     cpu->arithmetic_control =
@@ -46,6 +52,9 @@ vf2_status vf2_native_runtime_step(
     } else if (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
                effective_report->task_kind == VF2_HYBRID_TASK_KILL_OSAGE) {
         set_less_condition(cpu);
+    } else if (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
+               effective_report->task_kind == VF2_HYBRID_TASK_OSAGE0) {
+        set_none_condition(cpu);
     }
     return VF2_OK;
 }
