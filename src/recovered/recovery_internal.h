@@ -17,6 +17,20 @@ vf2_status vf2_native_second_scheduler_enter(
 );
 #define vf2_hybrid_second_scheduler_enter vf2_native_second_scheduler_enter
 
+/* Native runtime must also pass post-frame bridges through the public recovery
+ * wrapper.  The low-level implementation intentionally omits condition and
+ * selector-specific poststate reconstruction; calling it directly makes the
+ * repeated runtime diverge from the standalone differential bridge. */
+static inline vf2_status vf2_native_post_frame_bridge_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    return vf2_hybrid_post_frame_bridge_execute(machine, cpu, report);
+}
+#define vf2_hybrid_post_frame_bridge_execute vf2_native_post_frame_bridge_execute
+
 static inline vf2_status vf2_recovered_table_crc16(
     const vf2_model2a *machine,
     uint32_t source,
