@@ -470,6 +470,67 @@ vf2_status execute_video_status_latch(
 
 
 
+
+vf2_status execute_video_command_submit(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_status status = VF2_OK;
+    const uint32_t packet = UINT32_C(0x005502e0);
+
+    if (machine == NULL || cpu == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = vf2_model2a_write_u32(machine, UINT32_C(0x00550000), UINT32_C(1));
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, packet, UINT32_C(3));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, packet + UINT32_C(4),
+            cpu->registers[VF2_I960_G0_REGISTER]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, packet + UINT32_C(8),
+            cpu->registers[VF2_I960_G0_REGISTER + 1u]
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, packet + UINT32_C(12),
+            cpu->registers[VF2_I960_G0_REGISTER + 2u]
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[3] = packet;
+    cpu->registers[15] = UINT32_C(3);
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(9));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_VIDEO_COMMAND_SUBMIT;
+    report->entry_address = VF2_VIDEO_COMMAND_SUBMIT_ENTRY;
+    report->exit_address = cpu->ip;
+    report->changed_values = UINT64_C(5);
+    report->bytes_written = 20u;
+    report->recovered_instruction_count = UINT64_C(9);
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 vf2_status execute_display_profile_mode_constants(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
