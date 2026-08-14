@@ -2,6 +2,7 @@
 
 #define VF2_INTERRUPT_PLAYER_LAYER_ENTRY UINT32_C(0x00000c78)
 #define VF2_INTERRUPT_GAME_INPUT_ENTRY UINT32_C(0x00000c80)
+#define VF2_MAIN_FINAL_CLUSTER_ENTRY UINT32_C(0x00009ff8)
 #define VF2_MAIN_POST_TIMER_ENTRY UINT32_C(0x0000a038)
 #define VF2_MAIN_CLEAR_PREFIX_ENTRY UINT32_C(0x00009fb0)
 #define VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY UINT32_C(0x0004be6c)
@@ -10,12 +11,9 @@
 #define VF2_FRAME_DISPATCH_TICK_ENTRY UINT32_C(0x0000a6c0)
 #define VF2_FRAME_SELECTOR UINT32_C(0x0050002a)
 #define VF2_FRAME_SELECTOR_MASK UINT32_C(0x0050002c)
-#define VF2_SELECTOR0_OLD_INSTRUCTIONS UINT64_C(392)
-#define VF2_SELECTOR0_ROM_INSTRUCTIONS UINT64_C(15853)
-#define VF2_SELECTOR0_OLD_CALLS UINT64_C(1)
-#define VF2_SELECTOR0_ROM_CALLS UINT64_C(12)
-#define VF2_SELECTOR0_OLD_RETURNS UINT64_C(2)
-#define VF2_SELECTOR0_ROM_RETURNS UINT64_C(13)
+#define VF2_SELECTOR0_INSTRUCTION_DELTA UINT64_C(15461)
+#define VF2_SELECTOR0_CALL_DELTA UINT64_C(11)
+#define VF2_SELECTOR0_RETURN_DELTA UINT64_C(11)
 
 vf2_status vf2_native_runtime_step_impl(
     vf2_model2a *machine,
@@ -78,31 +76,27 @@ static vf2_status apply_selector0_dispatch_accounting(
     vf2_native_runtime_step_report *report
 )
 {
-    const uint64_t instruction_delta =
-        VF2_SELECTOR0_ROM_INSTRUCTIONS - VF2_SELECTOR0_OLD_INSTRUCTIONS;
-    const uint64_t call_delta =
-        VF2_SELECTOR0_ROM_CALLS - VF2_SELECTOR0_OLD_CALLS;
-    const uint64_t return_delta =
-        VF2_SELECTOR0_ROM_RETURNS - VF2_SELECTOR0_OLD_RETURNS;
-
-    if (cpu == NULL || state == NULL || report == NULL ||
-        report->recovered_instruction_count != VF2_SELECTOR0_OLD_INSTRUCTIONS ||
-        report->recovered_procedure_calls != VF2_SELECTOR0_OLD_CALLS ||
-        report->recovered_procedure_returns != VF2_SELECTOR0_OLD_RETURNS) {
-        return VF2_ERROR_UNSUPPORTED;
+    if (cpu == NULL || state == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
     }
 
-    cpu->executed_instructions += instruction_delta;
-    cpu->procedure_calls += call_delta;
-    cpu->procedure_returns += return_delta;
+    /* The selector-0 body at 0xa804 is currently collapsed by the recovered
+     * frame-dispatch helper.  ROM tracing measured the body at 15,853
+     * instructions, 12 calls and 13 returns; the collapsed helper accounts
+     * 392/1/2.  Apply only that measured delta so the correction composes both
+     * when frame-dispatch is stepped directly and when it is nested inside the
+     * atomic main-final-cluster bridge. */
+    cpu->executed_instructions += VF2_SELECTOR0_INSTRUCTION_DELTA;
+    cpu->procedure_calls += VF2_SELECTOR0_CALL_DELTA;
+    cpu->procedure_returns += VF2_SELECTOR0_RETURN_DELTA;
 
-    state->recovered_instruction_count += instruction_delta;
-    state->recovered_procedure_calls += call_delta;
-    state->recovered_procedure_returns += return_delta;
+    state->recovered_instruction_count += VF2_SELECTOR0_INSTRUCTION_DELTA;
+    state->recovered_procedure_calls += VF2_SELECTOR0_CALL_DELTA;
+    state->recovered_procedure_returns += VF2_SELECTOR0_RETURN_DELTA;
 
-    report->recovered_instruction_count = VF2_SELECTOR0_ROM_INSTRUCTIONS;
-    report->recovered_procedure_calls = VF2_SELECTOR0_ROM_CALLS;
-    report->recovered_procedure_returns = VF2_SELECTOR0_ROM_RETURNS;
+    report->recovered_instruction_count += VF2_SELECTOR0_INSTRUCTION_DELTA;
+    report->recovered_procedure_calls += VF2_SELECTOR0_CALL_DELTA;
+    report->recovered_procedure_returns += VF2_SELECTOR0_RETURN_DELTA;
     return VF2_OK;
 }
 
@@ -186,7 +180,9 @@ vf2_status vf2_native_runtime_step(
     uint8_t entry_frame_selector = UINT8_MAX;
     vf2_status status = VF2_OK;
 
-    if (machine != NULL && entry == VF2_FRAME_DISPATCH_TICK_ENTRY) {
+    if (machine != NULL &&
+        (entry == VF2_FRAME_DISPATCH_TICK_ENTRY ||
+         entry == VF2_MAIN_FINAL_CLUSTER_ENTRY)) {
         status = read_frame_selector(machine, &entry_frame_selector);
         if (status != VF2_OK) {
             return status;
@@ -200,7 +196,8 @@ vf2_status vf2_native_runtime_step(
         return status;
     }
 
-    if (entry == VF2_FRAME_DISPATCH_TICK_ENTRY &&
+    if ((entry == VF2_FRAME_DISPATCH_TICK_ENTRY ||
+         entry == VF2_MAIN_FINAL_CLUSTER_ENTRY) &&
         entry_frame_selector == UINT8_C(0) &&
         effective_report->kind == VF2_NATIVE_RUNTIME_STEP_BRIDGE) {
         status = apply_selector0_dispatch_accounting(
