@@ -109,3 +109,5 @@ vf2_status vf2_orchestrator_apply_default_limits(
     }
     return VF2_OK;
 }
+
+#include "../recovered/texture_bridge_condition.c"
