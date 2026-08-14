@@ -467,6 +467,97 @@ vf2_status execute_video_status_latch(
     return VF2_OK;
 }
 
+
+vf2_status execute_display_color_profile_apply(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    vf2_hybrid_bridge_report child_report;
+    uint8_t profile = 0u;
+    uint8_t scale[3] = {0u, 0u, 0u};
+    uint32_t runtime_flags = 0u;
+    uint32_t table = 0u;
+    uint64_t prefix_instructions = UINT64_C(11);
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(&child_report, 0, sizeof(child_report));
+
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00500064), &profile, sizeof(profile)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &runtime_flags
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if ((runtime_flags & (UINT32_C(1) << 21u)) != 0u) {
+        profile = UINT8_C(3);
+        ++prefix_instructions;
+    }
+
+    table = UINT32_C(0x0006ee00) + ((uint32_t)profile << 8u);
+    status = vf2_model2a_read(
+        machine, table + UINT32_C(0xb8), scale, sizeof(scale)
+    );
+    if (status == VF2_OK) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005000e0), scale, sizeof(scale)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu,
+        VF2_COLOR_TABLE_REBUILD_ENTRY,
+        VF2_DISPLAY_COLOR_PROFILE_APPLY_RETURN
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->executed_instructions += prefix_instructions;
+    status = execute_color_table_rebuild(machine, cpu, &child_report);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (cpu->ip != VF2_DISPLAY_COLOR_PROFILE_APPLY_RETURN) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = finish_recovered_procedure(machine, cpu, UINT64_C(1));
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    report->kind = VF2_HYBRID_BRIDGE_DISPLAY_COLOR_PROFILE_APPLY;
+    report->entry_address = VF2_DISPLAY_COLOR_PROFILE_APPLY_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = UINT64_C(1);
+    report->rows = child_report.rows;
+    report->changed_values = child_report.changed_values + UINT64_C(3);
+    report->bytes_written = child_report.bytes_written + 3u;
+    report->recovered_instruction_count =
+        prefix_instructions + child_report.recovered_instruction_count +
+        UINT64_C(1);
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->recovered_procedure_returns =
+        child_report.recovered_procedure_returns + UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 vf2_status execute_color_table_rebuild(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
