@@ -47,6 +47,10 @@ vf2_status vf2_orchestrator_apply_default_limits(
 );
 
 #ifdef VF2_TEXTURE_BRIDGE_INTERNAL_H
+#if defined(__GNUC__) || defined(__clang__)
+#pragma weak execute_texture_orchestrator_entry_gate
+#endif
+
 static inline vf2_status vf2_texture_default_limits_return(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine
