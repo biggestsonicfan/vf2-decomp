@@ -53,7 +53,8 @@ vf2_status vf2_native_runtime_step(
                effective_report->task_kind == VF2_HYBRID_TASK_KILL_OSAGE) {
         set_less_condition(cpu);
     } else if (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
-               effective_report->task_kind == VF2_HYBRID_TASK_OSAGE0) {
+               (effective_report->task_kind == VF2_HYBRID_TASK_OSAGE0 ||
+                effective_report->task_kind == VF2_HYBRID_TASK_OSAGE1)) {
         set_none_condition(cpu);
     }
     return VF2_OK;
