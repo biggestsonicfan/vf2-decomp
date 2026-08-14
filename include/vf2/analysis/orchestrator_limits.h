@@ -47,43 +47,19 @@ vf2_status vf2_orchestrator_apply_default_limits(
 );
 
 #ifdef VF2_TEXTURE_BRIDGE_INTERNAL_H
-static inline vf2_status vf2_texture_default_limits_return(
+vf2_status vf2_orchestrator_bridge_return(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine
-)
-{
-    uint8_t display_mode = 0u;
-    vf2_status status = VF2_OK;
+);
 
-    if (cpu == NULL || machine == NULL) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-    if (cpu->ip == VF2_ORCHESTRATOR_LIMITS_ENTRY) {
-        status = vf2_model2a_read(
-            machine,
-            VF2_ORCHESTRATOR_DISPLAY_MODE,
-            &display_mode,
-            sizeof(display_mode)
-        );
-        if (status != VF2_OK) {
-            return status;
-        }
-        cpu->arithmetic_control &= ~UINT32_C(7);
-        if (display_mode < UINT8_C(9)) {
-            cpu->arithmetic_control |= UINT32_C(4);
-            cpu->compare_result = VF2_I960_COMPARE_LESS;
-        } else if (display_mode > UINT8_C(9)) {
-            cpu->arithmetic_control |= UINT32_C(1);
-            cpu->compare_result = VF2_I960_COMPARE_GREATER;
-        } else {
-            cpu->arithmetic_control |= UINT32_C(2);
-            cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-        }
-    }
-    return vf2_i960_cpu_return_procedure(cpu, machine);
-}
+vf2_status vf2_orchestrator_bridge_read_u32(
+    const vf2_model2a *machine,
+    uint32_t address,
+    uint32_t *value
+);
 
-#define vf2_i960_cpu_return_procedure vf2_texture_default_limits_return
+#define vf2_i960_cpu_return_procedure vf2_orchestrator_bridge_return
+#define vf2_model2a_read_u32 vf2_orchestrator_bridge_read_u32
 #endif
 
 #endif
