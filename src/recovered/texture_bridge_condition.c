@@ -20,6 +20,7 @@
 #define VF2_TEXTURE_CONVERT_LOOP_RETURN UINT32_C(0x0004ce0c)
 #define VF2_TEXTURE_RECORD_ADVANCE_ENTRY UINT32_C(0x0004bf60)
 #define VF2_TEXTURE_FINAL_STATUS_ENTRY UINT32_C(0x0004bf90)
+#define VF2_TEXTURE_FINAL_STATUS_TARGET UINT32_C(0x0004d25c)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
@@ -167,6 +168,13 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
          * observes LESS at this boundary, which is the preservation contract
          * used by the differential corridor. */
         set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+    } else if (entry == VF2_TEXTURE_FINAL_STATUS_ENTRY &&
+               cpu->ip == VF2_TEXTURE_FINAL_STATUS_TARGET &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* As with record advance, the isolated helper intentionally preserves
+         * its incoming condition. Continuous ROM-backed replay reaches the
+         * status-tail call with no active comparison condition. */
+        set_compare_result(cpu, VF2_I960_COMPARE_NONE);
     }
     return VF2_OK;
 }
