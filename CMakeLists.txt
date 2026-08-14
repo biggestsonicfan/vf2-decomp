@@ -62,6 +62,7 @@ add_library(vf2_core STATIC
     src/recovered/player_i960_bridge_tail.c
     src/recovered/frame_wait.c
     src/recovered/native_runtime.c
+    src/recovered/native_runtime_condition.c
     src/recovered/native_runtime_state.c
     src/recovered/native_differential.c
     src/recovered/native_differential_step.c
@@ -84,6 +85,11 @@ add_library(vf2_core STATIC
 set_source_files_properties(
     src/i960/executor.c
     PROPERTIES COMPILE_DEFINITIONS "vf2_i960_step=vf2_i960_step_legacy"
+)
+
+set_source_files_properties(
+    src/recovered/native_runtime.c
+    PROPERTIES COMPILE_DEFINITIONS "vf2_native_runtime_step=vf2_native_runtime_step_impl"
 )
 
 set_source_files_properties(
@@ -451,11 +457,11 @@ if(VF2_BUILD_TESTS)
         )
         add_test(
             NAME vf2_native_fifth_dispatch
-            COMMAND vf2i960 native-fifth-dispatch "${VF2_ROM_DIR}"
+            COMMAND vf2i960 native-fifth-dispatch "${VF2_ROM_DIR}" [output.vf2snap]
         )
         add_test(
             NAME vf2_native_sixth_dispatch
-            COMMAND vf2i960 native-sixth-dispatch "${VF2_ROM_DIR}"
+            COMMAND vf2i960 native-sixth-dispatch "${VF2_ROM_DIR}" [output.vf2snap]
         )
         add_test(
             NAME vf2_texture_bridge_differential
