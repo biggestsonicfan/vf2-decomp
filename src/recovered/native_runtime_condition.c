@@ -6,6 +6,7 @@
 #define VF2_MAIN_CLEAR_PREFIX_ENTRY UINT32_C(0x00009fb0)
 #define VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY UINT32_C(0x0004be6c)
 #define VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY UINT32_C(0x0004be80)
+#define VF2_TEXTURE_RECORD_ADVANCE_ENTRY UINT32_C(0x0004bf60)
 #define VF2_FRAME_SELECTOR UINT32_C(0x0050002a)
 
 vf2_status vf2_native_runtime_step_impl(
@@ -97,6 +98,9 @@ static vf2_status apply_repeated_bridge_condition(
     } else if (entry == VF2_TEXTURE_STREAM_HEADER_CALL_ENTRY &&
                cpu->ip == VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY) {
         set_greater_condition(cpu);
+    } else if (entry == VF2_TEXTURE_STREAM_RESUME_GATE_ENTRY &&
+               cpu->ip == VF2_TEXTURE_RECORD_ADVANCE_ENTRY) {
+        set_equal_condition(cpu);
     }
     return VF2_OK;
 }
