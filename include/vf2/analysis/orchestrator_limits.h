@@ -38,14 +38,6 @@ vf2_status vf2_orchestrator_apply_default_limits(
 );
 
 #ifdef VF2_TEXTURE_BRIDGE_INTERNAL_H
-#if defined(__GNUC__) || defined(__clang__)
-vf2_status vf2_hybrid_post_frame_bridge_execute(
-    vf2_model2a *machine,
-    vf2_i960_cpu *cpu,
-    vf2_hybrid_bridge_report *report
-) __asm__("vf2_hybrid_post_frame_bridge_execute_impl");
-#endif
-
 static inline vf2_status vf2_texture_default_limits_return(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine
