@@ -5,6 +5,8 @@
 #define VF2_INTERRUPT_PLAYER_LAYER_ENTRY UINT32_C(0x00000c78)
 #define VF2_INTERRUPT_GAME_INPUT_ENTRY UINT32_C(0x00000c80)
 #define VF2_INTERRUPT_GAME_STATE_ENTRY UINT32_C(0x00000c90)
+#define VF2_INTERRUPT_INPUT_RING_ENTRY UINT32_C(0x00000c94)
+#define VF2_INTERRUPT_TILE_SYNC_ENTRY UINT32_C(0x00000cd4)
 #define VF2_GAME_STATE_RETURN_STUB UINT32_C(0x000020ec)
 #define VF2_MAIN_FRAME_TIMER_CALL_ENTRY UINT32_C(0x0000a034)
 #define VF2_FRAME_TIMER_WAIT_ENTRY UINT32_C(0x00010f90)
@@ -206,9 +208,13 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_INTERRUPT_GAME_STATE_ENTRY &&
                cpu->ip == VF2_GAME_STATE_RETURN_STUB &&
                machine != NULL && machine->main_rom != NULL) {
-        /* The live interrupt game-state path stops at the recovered return
-         * stub with GREATER after its meter/update tail. */
         set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+    } else if (entry == VF2_INTERRUPT_INPUT_RING_ENTRY &&
+               cpu->ip == VF2_INTERRUPT_TILE_SYNC_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The observed input-ring poll compares -1 with g0 and reaches tile
+         * sync with an equal comparison state. */
+        set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
     }
     return VF2_OK;
 }
