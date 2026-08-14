@@ -7,36 +7,9 @@ on:
     branches: [master]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-color-prepare-test:
-    if: github.event_name == 'push' && github.event.head_commit.message == 'Apply color prepare CC regression correction'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Patch one color-prepare assertion
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('tests/analysis/test_orchestrator_bridge.c')
-          text = path.read_text()
-          marker = 'enter_parent(&cpu, UINT32_C(0x0004cd18));'
-          start = text.index(marker)
-          end = text.index('vf2_model2a_shutdown(&machine);', start)
-          block = text[start:end]
-          old = 'CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);'
-          new = 'CHECK(cpu.compare_result == VF2_I960_COMPARE_NONE);'
-          if block.count(old) != 1:
-              raise SystemExit('expected exactly one color-prepare compare assertion')
-          path.write_text(text[:start] + block.replace(old, new) + text[end:])
-          PY
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add tests/analysis/test_orchestrator_bridge.c
-          git commit -m 'Align color prepare test with i960 condition state [skip ci]'
-          git push origin HEAD:master
-
   build:
     name: ${{ matrix.compiler }} release
     runs-on: ubuntu-latest
