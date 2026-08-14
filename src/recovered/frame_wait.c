@@ -51,6 +51,14 @@ vf2_status vf2_hybrid_frame_wait_observe(
     ++state->visits;
     local_report.visit_count = state->visits;
     if (state->visits >= state->visits_before_interrupt) {
+        if (cpu->ip == VF2_FRAME_WAIT_MAIN) {
+            /* This wait address represents the taken cmpibe r3,g0 self-loop
+             * at 0x00010f98. Preserve its equal architectural condition
+             * before the interrupt frame saves arithmetic_control. */
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+            cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        }
         status = vf2_model2a_raise_interrupt(
             machine, VF2_FRAME_INTERRUPT_MASK
         );
