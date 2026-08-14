@@ -1,6 +1,8 @@
 #include "vf2/hybrid.h"
 
 #if defined(__GNUC__) || defined(__clang__)
+#define VF2_MAIN_FRAME_TIMER_CALL_ENTRY UINT32_C(0x0000a034)
+#define VF2_FRAME_TIMER_WAIT_ENTRY UINT32_C(0x00010f90)
 #define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
 #define VF2_TEXTURE_COUNTER_UPDATE_ENTRY UINT32_C(0x0004bb98)
 #define VF2_TEXTURE_ORCHESTRATOR_ENTRY UINT32_C(0x0004bd00)
@@ -191,6 +193,11 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         /* Continuous replay observes LESS after the two maintenance checks.
          * Keep isolated fixtures free to preserve their synthetic condition. */
         set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+    } else if (entry == VF2_MAIN_FRAME_TIMER_CALL_ENTRY &&
+               cpu->ip == VF2_FRAME_TIMER_WAIT_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The live frame-timer handoff enters its wait loop with GREATER. */
+        set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
     }
     return VF2_OK;
 }
