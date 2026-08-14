@@ -6,7 +6,7 @@ address,name,kind,status,notes
 0x00009ca4,runtime_ready_setter,instruction,verified,Sets work RAM 0x00500068 bit 31
 0x0001645c,task_game_info,function,verified,First-dispatch path recovered
 0x0001d320,task_camera,function,verified,Initialization update and post-update gate recovered
-0x00029748,task_user,function,verified,Complete task recovered
+0x00029748,task_user,function,verified,Complete no-op task
 0x000439fc,task_sound_initialize,function,verified,First-entry initializer recovered
 0x000640f4,task_osage,function,verified,Shared entry for two instances
 0x000657dc,task_kill_osage,function,verified,Complete task recovered and differentially validated
@@ -53,3 +53,7 @@ address,name,kind,status,notes
 0x0004b410,video_command_submit,function,rom-verified,Selector 3 command leaf stores selector plus r0/r1/r2 arguments
 0x00002c38,color_table_rebuild,function,rom-verified,Rebuilds scaled channel table at 0x00546008 and commits command flags
 0x00011704,video_table_expand_128,function,rom-verified,128-byte inner copy to four-byte-spaced destination entries
+0x0001fcc0,display_profile_apply,function,rom-verified,Shared profile application routine with eleven direct call sites
+0x0001fee4,display_profile_unit_fill,function,rom-verified,Fills twenty-six 32-bit entries at 0x0050a0e0 with 1.0f
+0x0001ff0c,display_profile_mode_constants,function,rom-verified,Initializes unit profile and applies mode 10 or mode 6 tuning constants
+0x0001fffc,display_color_profile_apply,function,rom-verified,Selects profile table copies RGB scale bytes and calls color_table_rebuild
