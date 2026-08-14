@@ -1,9 +1,21 @@
 #ifndef VF2_RECOVERY_INTERNAL_H
 #define VF2_RECOVERY_INTERNAL_H
 
+#include "vf2/hybrid.h"
 #include "vf2/model2a.h"
 
 #include <stdint.h>
+
+/* Native runtime scheduler entry is routed through a narrow wrapper so newly
+ * recovered initializer tasks can be composed without broadening the generic
+ * second-scheduler task whitelist. Other translation units continue to call
+ * the public hybrid scheduler directly. */
+vf2_status vf2_native_second_scheduler_enter(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_second_scheduler_report *report
+);
+#define vf2_hybrid_second_scheduler_enter vf2_native_second_scheduler_enter
 
 static inline vf2_status vf2_recovered_table_crc16(
     const vf2_model2a *machine,
