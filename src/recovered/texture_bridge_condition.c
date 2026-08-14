@@ -1,6 +1,8 @@
 #include "vf2/hybrid.h"
 
 #if defined(__GNUC__) || defined(__clang__)
+#define VF2_INTERRUPT_BUFFER_GATE_ENTRY UINT32_C(0x00000c0c)
+#define VF2_INTERRUPT_PLAYER_LAYER_ENTRY UINT32_C(0x00000c78)
 #define VF2_MAIN_FRAME_TIMER_CALL_ENTRY UINT32_C(0x0000a034)
 #define VF2_FRAME_TIMER_WAIT_ENTRY UINT32_C(0x00010f90)
 #define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
@@ -198,6 +200,12 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
                machine != NULL && machine->main_rom != NULL) {
         /* The live frame-timer handoff enters its wait loop with GREATER. */
         set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+    } else if (entry == VF2_INTERRUPT_BUFFER_GATE_ENTRY &&
+               cpu->ip == VF2_INTERRUPT_PLAYER_LAYER_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The non-taken bit-13 BBS at 0x00000c74 leaves the live reference
+         * with no active comparison state before player-layer dispatch. */
+        set_compare_result(cpu, VF2_I960_COMPARE_NONE);
     }
     return VF2_OK;
 }
