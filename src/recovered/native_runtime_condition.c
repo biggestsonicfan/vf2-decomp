@@ -7,6 +7,14 @@ vf2_status vf2_native_runtime_step_impl(
     vf2_native_runtime_step_report *report
 );
 
+vf2_status vf2_hybrid_bridge_apply_condition_poststate(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t entry,
+    uint32_t entry_r3,
+    uint32_t entry_r7
+);
+
 static void set_none_condition(vf2_i960_cpu *cpu)
 {
     cpu->arithmetic_control &= ~UINT32_C(7);
@@ -37,6 +45,9 @@ vf2_status vf2_native_runtime_step(
     vf2_native_runtime_step_report local_report = {0};
     vf2_native_runtime_step_report *effective_report =
         report != NULL ? report : &local_report;
+    const uint32_t entry = cpu != NULL ? cpu->ip : 0u;
+    const uint32_t entry_r3 = cpu != NULL ? cpu->registers[3] : 0u;
+    const uint32_t entry_r7 = cpu != NULL ? cpu->registers[7] : 0u;
     vf2_status status = vf2_native_runtime_step_impl(
         machine, cpu, state, effective_report
     );
@@ -44,11 +55,19 @@ vf2_status vf2_native_runtime_step(
     if (status != VF2_OK) {
         return status;
     }
-    if (effective_report->kind ==
-            VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION ||
-        effective_report->kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH ||
-        (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
-         effective_report->task_kind == VF2_HYBRID_TASK_CAMERA)) {
+    if (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_BRIDGE) {
+        status = vf2_hybrid_bridge_apply_condition_poststate(
+            machine, cpu, entry, entry_r3, entry_r7
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+    } else if (effective_report->kind ==
+                   VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION ||
+               effective_report->kind ==
+                   VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH ||
+               (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
+                effective_report->task_kind == VF2_HYBRID_TASK_CAMERA)) {
         set_equal_condition(cpu);
     } else if (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
                effective_report->task_kind == VF2_HYBRID_TASK_KILL_OSAGE) {
