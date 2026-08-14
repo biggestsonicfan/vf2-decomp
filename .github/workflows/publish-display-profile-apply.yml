@@ -15,7 +15,9 @@ jobs:
           ref: master
           fetch-depth: 0
       - name: Apply recovery
-        run: python3 .github/scripts/apply-display-profile-apply.py
+        run: |
+          python3 .github/scripts/apply-display-profile-apply.py
+          python3 .github/scripts/fix-display-profile-apply-style.py
       - name: Check patch hygiene
         run: git diff --check
       - name: GCC build and tests
@@ -36,7 +38,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/scripts/apply-display-profile-apply.py .github/workflows/publish-display-profile-apply.yml
+          git rm .github/scripts/apply-display-profile-apply.py .github/scripts/fix-display-profile-apply-style.py .github/workflows/publish-display-profile-apply.yml
           git add include/vf2/hybrid.h src/recovered/texture_bridge_internal.h src/recovered/texture_bridge.c src/recovered/texture_bridge_video.c decomp/i960/notes/display_profile_apply_executable_v0026.md
           git commit -m "Recover executable display profile apply"
           git push origin HEAD:master
