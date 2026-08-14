@@ -14,6 +14,9 @@
 #define VF2_TEXTURE_WORD_PREPARE_EXIT UINT32_C(0x0004cc28)
 #define VF2_TEXTURE_COLOR_PREPARE_ENTRY UINT32_C(0x0004cd18)
 #define VF2_TEXTURE_COLOR_PREPARE_EXIT UINT32_C(0x0004cdb0)
+#define VF2_TEXTURE_CONVERT_LOOP_ENTRY UINT32_C(0x0004cdb0)
+#define VF2_TEXTURE_CONVERT_ENTRY UINT32_C(0x0004ce88)
+#define VF2_TEXTURE_CONVERT_LOOP_RETURN UINT32_C(0x0004ce0c)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
@@ -142,6 +145,12 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
         );
         if (cc_status != VF2_OK) {
             return cc_status;
+        }
+    } else if (entry == VF2_TEXTURE_CONVERT_LOOP_ENTRY) {
+        if (cpu->ip == VF2_TEXTURE_CONVERT_ENTRY) {
+            set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+        } else if (cpu->ip == VF2_TEXTURE_CONVERT_LOOP_RETURN) {
+            set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
         }
     }
     return VF2_OK;
