@@ -39,6 +39,7 @@
 #define VF2_TEXTURE_FINAL_STATUS_ENTRY UINT32_C(0x0004bf90)
 #define VF2_TEXTURE_FINAL_STATUS_TARGET UINT32_C(0x0004d25c)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
+#define VF2_FRAME_SELECTOR UINT32_C(0x0050002a)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
     vf2_model2a *machine,
@@ -85,6 +86,27 @@ static vf2_status set_active_flag_bit_condition(
             ? VF2_I960_COMPARE_EQUAL
             : VF2_I960_COMPARE_NONE
     );
+    return VF2_OK;
+}
+
+static vf2_status set_main_final_cluster_condition(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint8_t selector = 0u;
+    const vf2_status status = vf2_model2a_read(
+        machine, VF2_FRAME_SELECTOR, &selector, sizeof(selector)
+    );
+
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (selector == UINT8_C(1)) {
+        set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+    } else if (selector == UINT8_C(17)) {
+        set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    }
     return VF2_OK;
 }
 
@@ -207,7 +229,12 @@ vf2_status vf2_hybrid_bridge_apply_condition_poststate(
     } else if (entry == VF2_MAIN_FINAL_CLUSTER_ENTRY &&
                cpu->ip == VF2_MAIN_POST_CLUSTER_ENTRY &&
                machine->main_rom != NULL) {
-        set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+        const vf2_status status = set_main_final_cluster_condition(
+            machine, cpu
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
     } else if (entry == VF2_INTERRUPT_BUFFER_GATE_ENTRY &&
                cpu->ip == VF2_INTERRUPT_PLAYER_LAYER_ENTRY &&
                machine->main_rom != NULL) {
