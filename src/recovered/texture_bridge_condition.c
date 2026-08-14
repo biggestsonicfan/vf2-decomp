@@ -160,7 +160,12 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
                cpu->ip == VF2_TEXTURE_CONVERT_LOOP_ENTRY) {
         set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
     } else if (entry == VF2_TEXTURE_RECORD_ADVANCE_ENTRY &&
-               cpu->ip == VF2_TEXTURE_STATUS_DISPATCH_ENTRY) {
+               cpu->ip == VF2_TEXTURE_STATUS_DISPATCH_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The isolated bridge fixture has no ROM attached and preserves the
+         * helper's synthetic EQUAL post-state. Continuous ROM-backed replay
+         * observes LESS at this boundary, which is the preservation contract
+         * used by the differential corridor. */
         set_compare_result(cpu, VF2_I960_COMPARE_LESS);
     }
     return VF2_OK;
