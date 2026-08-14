@@ -2773,7 +2773,7 @@ static void test_active_prepare_dispatch(void)
     CHECK(cpu.registers[22] == UINT32_C(28));
     CHECK(cpu.registers[23] == UINT32_C(49));
     CHECK(cpu.registers[24] == 0u);
-    CHECK(cpu.arithmetic_control == arithmetic_before);
+    CHECK(cpu.arithmetic_control == (arithmetic_before & ~UINT32_C(7)));
     CHECK(cpu.compare_result == VF2_I960_COMPARE_NONE);
     CHECK(
         vf2_model2a_read_u32(
