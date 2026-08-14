@@ -2907,7 +2907,7 @@ static void test_color_prepare_dispatch(void)
     CHECK(cpu.registers[15] == UINT32_C(0x000ffffe));
     CHECK(cpu.registers[16] == 0u);
     CHECK(cpu.registers[26] == UINT32_C(2048));
-    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_NONE);
 
     vf2_model2a_shutdown(&machine);
 }
