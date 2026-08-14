@@ -9,7 +9,9 @@
 #define VF2_INTERRUPT_TILE_SYNC_ENTRY UINT32_C(0x00000cd4)
 #define VF2_GAME_STATE_RETURN_STUB UINT32_C(0x000020ec)
 #define VF2_MAIN_FRAME_TIMER_CALL_ENTRY UINT32_C(0x0000a034)
+#define VF2_MAIN_POST_TIMER_ENTRY UINT32_C(0x0000a038)
 #define VF2_FRAME_TIMER_WAIT_ENTRY UINT32_C(0x00010f90)
+#define VF2_FRAME_TIMER_SUFFIX_ENTRY UINT32_C(0x00010fa4)
 #define VF2_TEXTURE_MAINTENANCE_ENTRY UINT32_C(0x0004b8d8)
 #define VF2_TEXTURE_COUNTER_UPDATE_ENTRY UINT32_C(0x0004bb98)
 #define VF2_TEXTURE_ORCHESTRATOR_ENTRY UINT32_C(0x0004bd00)
@@ -193,6 +195,12 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
                cpu->ip == VF2_FRAME_TIMER_WAIT_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
         set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+    } else if (entry == VF2_FRAME_TIMER_SUFFIX_ENTRY &&
+               cpu->ip == VF2_MAIN_POST_TIMER_ENTRY &&
+               machine != NULL && machine->main_rom != NULL) {
+        /* The observed suffix masks video status to four bits and takes the
+         * zero cmpobe before latching video state, leaving EQUAL on return. */
+        set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
     } else if (entry == VF2_INTERRUPT_BUFFER_GATE_ENTRY &&
                cpu->ip == VF2_INTERRUPT_PLAYER_LAYER_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
@@ -212,8 +220,6 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     } else if (entry == VF2_INTERRUPT_INPUT_RING_ENTRY &&
                cpu->ip == VF2_INTERRUPT_TILE_SYNC_ENTRY &&
                machine != NULL && machine->main_rom != NULL) {
-        /* The observed input-ring poll compares -1 with g0 and reaches tile
-         * sync with an equal comparison state. */
         set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
     }
     return VF2_OK;
