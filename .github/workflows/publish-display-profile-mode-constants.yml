@@ -1,0 +1,42 @@
+name: Temporary display profile mode constants publisher
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/publish-display-profile-mode-constants.yml'
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Apply recovered display profile mode constants
+        run: python3 .github/scripts/apply-display-profile-mode-constants.py
+      - name: Check patch hygiene
+        run: git diff --check
+      - name: GCC warning-as-error build and tests
+        env:
+          CC: gcc
+        run: |
+          cmake -S . -B build-gcc -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ROM_DIR=/tmp/no-proprietary-roms
+          cmake --build build-gcc --parallel
+          ctest --test-dir build-gcc --output-on-failure
+      - name: Clang warning-as-error build and tests
+        env:
+          CC: clang
+        run: |
+          cmake -S . -B build-clang -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ROM_DIR=/tmp/no-proprietary-roms
+          cmake --build build-clang --parallel
+          ctest --test-dir build-clang --output-on-failure
+      - name: Publish direct to master and clean transport
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/scripts/apply-display-profile-mode-constants.py .github/workflows/publish-display-profile-mode-constants.yml
+          git add include/vf2/hybrid.h src/recovered/texture_bridge_internal.h src/recovered/texture_bridge.c src/recovered/texture_bridge_video.c decomp/i960/notes/display_profile_mode_constants_executable_v0026.md
+          git commit -m "Recover executable display profile mode constants"
+          git push origin HEAD:master
