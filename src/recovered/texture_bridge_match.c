@@ -9329,7 +9329,100 @@ vf2_status execute_frame_dispatch_tick(
             report->cpu_poststate_applied = 1;
             return VF2_OK;
         }
-        if (status == VF2_OK && phase8_handoff) {
+        if (status == VF2_OK && entry_phase == UINT8_C(12)) {
+            uint32_t base = 0u;
+            uint32_t profile_flags = 0u;
+            uint32_t rows = 0u;
+            uint32_t columns = 0u;
+            uint32_t destination = UINT32_C(0x010055e0);
+            int16_t addend = 0;
+            int16_t word_mode = 0;
+            int32_t last_sample = 0;
+            int has_descriptor_poststate = 0;
+
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x0050016c), &base
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, base + UINT32_C(0x3320), &profile_flags
+                );
+            }
+            if (status == VF2_OK && (profile_flags & UINT32_C(1)) != 0u) {
+                destination = UINT32_C(0x01005460);
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read(
+                    machine, UINT32_C(0x02a6c0da), &addend, sizeof(addend)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read(
+                    machine, UINT32_C(0x02a6c0da) + UINT32_C(2),
+                    &word_mode, sizeof(word_mode)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x02a6c0da) + UINT32_C(4), &rows
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x02a6c0da) + UINT32_C(8), &columns
+                );
+            }
+            if (status == VF2_OK && rows != 0u && columns != 0u) {
+                const uint32_t sample_index = rows * columns - UINT32_C(1);
+                has_descriptor_poststate = 1;
+                if (word_mode == 0) {
+                    int8_t sample = 0;
+                    status = vf2_model2a_read(
+                        machine, UINT32_C(0x02a6c0da) + UINT32_C(12) +
+                            sample_index, &sample, sizeof(sample)
+                    );
+                    last_sample = (int32_t)sample;
+                } else {
+                    int16_t sample = 0;
+                    status = vf2_model2a_read(
+                        machine, UINT32_C(0x02a6c0da) + UINT32_C(12) +
+                            sample_index * UINT32_C(2), &sample, sizeof(sample)
+                    );
+                    last_sample = (int32_t)sample;
+                }
+            }
+            if (status != VF2_OK) return status;
+
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 2u] = columns * UINT32_C(2);
+            if (has_descriptor_poststate) {
+                cpu->registers[VF2_I960_G0_REGISTER + 4u] =
+                    (uint32_t)(int32_t)addend;
+                cpu->registers[VF2_I960_G0_REGISTER + 5u] = 0u;
+                cpu->registers[VF2_I960_G0_REGISTER + 6u] =
+                    (uint32_t)(last_sample + (int32_t)addend);
+                cpu->registers[VF2_I960_G0_REGISTER + 7u] =
+                    (uint32_t)(int32_t)word_mode;
+            }
+            cpu->registers[VF2_I960_G0_REGISTER + 9u] =
+                destination + columns * UINT32_C(2);
+            set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+            account_nested_procedure(cpu, UINT64_C(6), UINT64_C(6));
+            status = finish_recovered_procedure(machine, cpu, UINT64_C(33867));
+            if (status != VF2_OK) return status;
+
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = UINT64_C(33867);
+            report->recovered_procedure_calls = UINT64_C(6);
+            report->recovered_procedure_returns = UINT64_C(7);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
+                if (status == VF2_OK && phase8_handoff) {
             report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
             report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
             report->exit_address = cpu->ip;
