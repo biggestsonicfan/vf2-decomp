@@ -1,0 +1,19 @@
+name: Dump phase6 poststate block
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/dump-phase6-poststate-block.yml]
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          a=s.index('if (status == VF2_OK && entry_phase == UINT8_C(6))')
+          b=s.index('if (status == VF2_OK && entry_phase == UINT8_C(7))',a)
+          print(s[a:b])
+          PY
