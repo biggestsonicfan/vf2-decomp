@@ -33,6 +33,9 @@ jobs:
           needle='''    cpu->registers[3] = (uint32_t)selector;\n    selector_word = UINT32_C(1) << selector;\n'''
           assert needle in s
           s=s.replace(needle,'''    fprintf(stderr, "DISPATCH selector=%u\\n", (unsigned)selector);\n    cpu->registers[3] = (uint32_t)selector;\n    selector_word = UINT32_C(1) << selector;\n''',1)
+          needle='''        if (status != VF2_OK ||\n            (phase == UINT8_C(0) &&\n'''
+          assert needle in s
+          s=s.replace(needle,'''        fprintf(stderr, "S3 phase=%u entry_phase=%u target=%08x status=%d\\n", (unsigned)phase, (unsigned)entry_phase, (unsigned)phase_target, (int)status);\n        if (status != VF2_OK ||\n            (phase == UINT8_C(0) &&\n''',1)
           phase1=s.index('static vf2_status execute_selector3_phase1(')
           phase3=s.index('static vf2_status execute_selector3_phase3(', phase1)
           seg=s[phase1:phase3]
