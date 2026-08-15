@@ -1,0 +1,27 @@
+name: Dump selector3 phase6 accounting
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/dump-selector3-phase6-accounting.yml]
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          a=s.index('static vf2_status execute_selector3_phase6(')
+          b=s.index('static vf2_status execute_selector3_phase7(',a)
+          print(s[a:b])
+          print('=== DISPATCH ===')
+          a=s.index('static vf2_status execute_frame_dispatch_tick') if 'static vf2_status execute_frame_dispatch_tick' in s else s.index('vf2_status execute_frame_dispatch_tick')
+          b=s.find('\n}',a)+2
+          x=s[a:b]
+          for needle in ['entry_phase == UINT8_C(5)','entry_phase == UINT8_C(6)','entry_phase == UINT8_C(7)','UINT64_C(260)']:
+              i=x.find(needle)
+              if i>=0:
+                  print('\n---',needle,'---\n',x[max(0,i-900):i+1800])
+          PY
