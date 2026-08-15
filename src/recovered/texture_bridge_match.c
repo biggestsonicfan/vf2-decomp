@@ -6583,8 +6583,6 @@ static vf2_status execute_selector3_phase1(
         if (status != VF2_OK) {
             return status;
         }
-        cpu->registers[0] = x;
-        cpu->registers[1] = y;
         if ((profile_flags & UINT32_C(1)) != 0u ||
             (runtime_flags & (UINT32_C(1) << 1u)) == 0u) {
             sum = x + y;
