@@ -1,0 +1,66 @@
+name: Finish selector3 phase1 v2
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/finish-selector3-phase1-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply phase1 recovery
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          wf = Path('.github/workflows/finish-selector3-phase1.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = wf.index(marker) + len(marker)
+          end = wf.index("          PY\n", start)
+          script = wf[start:end]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in script.splitlines())
+          exec(compile(script, 'phase1_patch.py', 'exec'))
+
+          p = Path('src/recovered/texture_bridge_match.c')
+          s = p.read_text()
+          old = '''    color0 = (color0 >> 16u) & UINT32_C(0xff);\n    color1 = (color1 >> 16u) & UINT32_C(0xff);\n    if (color0 == 0u || color1 == 0u) {\n        return VF2_ERROR_UNSUPPORTED;\n    }\n    if (profile_class == UINT32_C(3)) {\n        *x_result = 0u;\n        *y_result = 0u;\n    } else if (profile_class == UINT32_C(2) &&\n               (flags & (UINT32_C(1) << 1u)) != 0u) {\n'''
+          new = '''    color0 = (color0 >> 16u) & UINT32_C(0xff);\n    color1 = (color1 >> 16u) & UINT32_C(0xff);\n    if (profile_class == UINT32_C(3)) {\n        *x_result = 0u;\n        *y_result = 0u;\n    } else if (color0 == 0u || color1 == 0u) {\n        return VF2_ERROR_UNSUPPORTED;\n    } else if (profile_class == UINT32_C(2) &&\n               (flags & (UINT32_C(1) << 1u)) != 0u) {\n'''
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('tests/analysis/test_orchestrator_bridge.c')
+          t = p.read_text()
+          anchor = '''    /* Selector 3 phase one: the ROM's mode-25/flag-clear gate takes the\n     * countdown path and leaves the phase unchanged after 2 -> 1. */\n'''
+          a = t.index(anchor)
+          b = t.index('    /* The alternate phase-one branch', a)
+          segment = t[a:b]
+          old = '''    CHECK(selector == UINT8_C(4));\n'''
+          assert old in segment
+          segment = segment.replace(old, '''    CHECK(selector == UINT8_C(3));\n''', 1)
+          t = t[:a] + segment + t[b:]
+          p.write_text(t)
+          PY
+      - name: Configure
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit
+        shell: bash
+        run: |
+          rm .github/workflows/finish-selector3-phase1.yml .github/workflows/finish-selector3-phase1-v2.yml
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/texture_bridge_match.c tests/analysis/test_orchestrator_bridge.c .github/workflows/finish-selector3-phase1.yml .github/workflows/finish-selector3-phase1-v2.yml
+          git commit -m 'Close selector3 phase1 fast-exit paths'
+          git push origin HEAD:master
