@@ -1,0 +1,20 @@
+name: Dump selector3 profile helper
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/dump-selector3-profile-helper.yml]
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          i=s.index('VF2_DISPLAY_PROFILE_APPLY_ENTRY')
+          a=s.rfind('static vf2_status ',0,i)
+          b=s.find('\n}\n',i)+3
+          print(s[a:b])
+          PY
