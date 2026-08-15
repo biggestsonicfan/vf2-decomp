@@ -8339,7 +8339,7 @@ vf2_status execute_frame_dispatch_tick(
         if (status == VF2_OK) {
             status = vf2_model2a_write_u32(
                 machine, UINT32_C(0x00500034),
-                (uint32_t)entry_phase << 1u
+                UINT32_C(1) << (uint32_t)entry_phase
             );
         }
         if (status != VF2_OK) {
