@@ -8973,6 +8973,55 @@ vf2_status execute_frame_dispatch_tick(
                 return VF2_OK;
             }
         }
+        if (status == VF2_OK && entry_phase == UINT8_C(6)) {
+            uint32_t base = 0u;
+            uint32_t profile_flags = 0u;
+            uint32_t columns = 0u;
+            uint32_t destination = UINT32_C(0x010055e0);
+
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x0050016c), &base
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, base + UINT32_C(0x3320), &profile_flags
+                );
+            }
+            if (status == VF2_OK && (profile_flags & UINT32_C(1)) != 0u) {
+                destination = UINT32_C(0x01005460);
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x02a6c0da) + UINT32_C(8), &columns
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, cpu->registers[1] + UINT32_C(0x000000c0),
+                    destination
+                );
+            }
+            if (status != VF2_OK) return status;
+
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            cpu->registers[VF2_I960_G0_REGISTER + 2u] = columns * UINT32_C(2);
+            cpu->registers[VF2_I960_G0_REGISTER + 9u] =
+                destination + columns * UINT32_C(2);
+            set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+            account_nested_procedure(cpu, UINT64_C(6), UINT64_C(6));
+            status = finish_recovered_procedure(machine, cpu, UINT64_C(33867));
+            if (status != VF2_OK) return status;
+
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = UINT64_C(33867);
+            report->recovered_procedure_calls = UINT64_C(6);
+            report->recovered_procedure_returns = UINT64_C(7);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
         if (status == VF2_OK && phase8_handoff) {
             report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
             report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
