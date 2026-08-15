@@ -6617,6 +6617,94 @@ static vf2_status execute_selector3_phase1(
     return status;
 }
 
+static vf2_status execute_selector3_phase3_sound_event(vf2_model2a *machine)
+{
+    uint32_t event = UINT32_C(0x00ad1001);
+    uint32_t selector_mask = 0u;
+    uint32_t base = 0u;
+    uint32_t flags = 0u;
+    uint8_t mode_flags = 0u;
+    uint8_t count = 0u;
+    uint8_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050002c), &selector_mask
+    );
+    if (status == VF2_OK && (selector_mask & UINT32_C(0x0c)) != 0u) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &base
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(
+                machine, base + UINT32_C(0x3351),
+                &mode_flags, sizeof(mode_flags)
+            );
+        }
+        if (status == VF2_OK && (mode_flags & UINT8_C(1)) != 0u) {
+            return VF2_OK;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &flags
+        );
+    }
+    if (status == VF2_OK && (flags & (UINT32_C(1) << 20u)) != 0u &&
+        (event & UINT32_C(0x00ff0000)) == UINT32_C(0x009e0000)) {
+        event -= UINT32_C(1) << 17u;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(33)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(33)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x00504001), &count, sizeof(count)
+        );
+    }
+    if (status == VF2_OK && count < UINT8_C(16)) {
+        ++count;
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504001), &count, sizeof(count)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x00504003), &index, sizeof(index)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x00504020) + (uint32_t)index * UINT32_C(4),
+                event
+            );
+        }
+        if (status == VF2_OK) {
+            index = (uint8_t)((index + UINT8_C(1)) & UINT8_C(15));
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00504003), &index, sizeof(index)
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(0x421)
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(0x421)
+        );
+    }
+    return status;
+}
+
 static vf2_status execute_selector3_phase3(
     vf2_model2a *machine,
     uint8_t previous_phase,
@@ -6651,9 +6739,9 @@ static vf2_status execute_selector3_phase3(
             machine, UINT32_C(0x00500024), counter
         );
     }
-    /* The ROM emits 0xad1001 when the countdown reaches 192. The sound
-     * queue is deliberately left to the existing audio boundary; this worker
-     * still preserves the selector-visible timer and phase transitions. */
+    if (status == VF2_OK && counter == UINT32_C(192)) {
+        status = execute_selector3_phase3_sound_event(machine);
+    }
     if (status == VF2_OK && (int32_t)counter > 0) {
         return VF2_OK;
     }
@@ -8373,7 +8461,8 @@ vf2_status execute_frame_dispatch_tick(
             report->cpu_poststate_applied = 1;
             return VF2_OK;
         }
-        if (status == VF2_OK && entry_phase == UINT8_C(1)) {
+        if (status == VF2_OK &&
+            (entry_phase == UINT8_C(1) || entry_phase == UINT8_C(3))) {
             uint32_t system_flags = 0u;
             uint32_t input_flags_1344 = 0u;
             int fast_nonzero = 0;
@@ -8397,15 +8486,37 @@ vf2_status execute_frame_dispatch_tick(
                 return status;
             }
             if (fast_nonzero) {
-                const uint64_t calls = phase1_profile_measure_called
-                    ? UINT64_C(9) : UINT64_C(3);
-                uint64_t instructions = phase1_profile_measure_called
-                    ? (phase1_measured_sum < UINT32_C(24)
-                        ? UINT64_C(171) : UINT64_C(173))
-                    : UINT64_C(44);
+                uint64_t calls = UINT64_C(3);
+                uint64_t instructions = UINT64_C(0);
 
-                if (phase1_countdown_terminal) {
-                    instructions += UINT64_C(3);
+                if (entry_phase == UINT8_C(1)) {
+                    calls = phase1_profile_measure_called
+                        ? UINT64_C(9) : UINT64_C(3);
+                    instructions = phase1_profile_measure_called
+                        ? (phase1_measured_sum < UINT32_C(24)
+                            ? UINT64_C(171) : UINT64_C(173))
+                        : UINT64_C(44);
+                    if (phase1_countdown_terminal) {
+                        instructions += UINT64_C(3);
+                    }
+                } else {
+                    uint32_t phase3_counter = 0u;
+                    status = vf2_model2a_read_u32(
+                        machine, UINT32_C(0x00500024), &phase3_counter
+                    );
+                    if (status != VF2_OK) {
+                        return status;
+                    }
+                    if (phase3_counter == UINT32_C(192)) {
+                        instructions = UINT64_C(70);
+                        calls = UINT64_C(4);
+                    } else if ((int32_t)phase3_counter > 0) {
+                        instructions = UINT64_C(38);
+                    } else if (phase != entry_phase) {
+                        instructions = UINT64_C(43);
+                    } else {
+                        instructions = UINT64_C(40);
+                    }
                 }
                 cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
                 set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
