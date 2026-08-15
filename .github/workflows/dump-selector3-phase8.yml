@@ -1,0 +1,27 @@
+name: Dump selector3 phase8
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/dump-selector3-phase8.yml]
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          needles=['static vf2_status execute_selector3_phase8(', 'entry_phase == UINT8_C(8)', 'phase8_handoff']
+          for n in needles:
+              try:
+                  i=s.index(n)
+              except ValueError:
+                  continue
+              a=max(0,s.rfind('\nstatic ',0,i))
+              b=s.find('\nstatic ',i+1)
+              if b<0: b=min(len(s),i+12000)
+              print('\n===== '+n+' =====\n')
+              print(s[a:b])
+          PY
