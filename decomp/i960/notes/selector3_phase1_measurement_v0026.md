@@ -21,6 +21,6 @@ The `0x2584` class-2 special path is likewise selected when profile flag bit 1 i
 
 The `0xacf8` wrapper writes the signed phase to `0x00500031` and `phase << 1` to `0x00500034` before calling the phase worker. On the measured states `0x1344` returns `-1`, so `0xacf8` returns early without common selector cleanup and selector 3 remains active.
 
-The profile-measure route also reproduces the observed stack spills around `0x2584`/`0x26ec`.
+The profile-measure route reproduces the observed stack spills around `0x2584`/`0x26ec`. Commit `fcf4c3c018cde107a9fbadab9185133672548c53` additionally preserves the caller frame's `r1/sp`: the measured `x/y` results belong to the nested `0x2584` frame and must not overwrite the outer local registers before architectural return.
 
-Implementation commit `259aa858ea37a224631aa406fbe46b7dc9a2be04` applies these semantics and exact route-dependent accounting. Full native-vs-ROM snapshot validation is performed separately on the CI-built analysis binary for this source state.
+Implementation commits `259aa858ea37a224631aa406fbe46b7dc9a2be04` and `fcf4c3c018cde107a9fbadab9185133672548c53` apply these semantics and exact route-dependent accounting. Full native-vs-ROM snapshot validation is performed separately on the CI-built analysis binary for this source state.
