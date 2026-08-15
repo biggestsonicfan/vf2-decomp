@@ -1,0 +1,35 @@
+name: Close selector3 phase4 terminal
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/close-selector3-phase4-terminal.yml]
+permissions:
+  contents: write
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch terminal route
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/texture_bridge_match.c'); s=p.read_text()
+          s=s.replace('static vf2_status execute_selector3_phase3_sound_event(vf2_model2a *machine)\n{\n    uint32_t event = UINT32_C(0x00ad1001);', 'static vf2_status execute_selector3_sound_event(\n    vf2_model2a *machine, uint32_t event\n)\n{', 1)
+          s=s.replace('status = execute_selector3_phase3_sound_event(machine);', 'status = execute_selector3_sound_event(machine, UINT32_C(0x00ad1001));', 1)
+          a=s.index('static vf2_status execute_selector3_phase4('); b=s.index('static vf2_status execute_selector3_phase5(',a); x=s[a:b]
+          old='''    if (status == VF2_OK && recovered_initial_path && counter == 0u)\n        return VF2_ERROR_UNSUPPORTED;\n    return status;\n}\n'''
+          new='''    if (status == VF2_OK && recovered_initial_path && counter == 0u) {\n        uint32_t fighter = 0u;\n        uint32_t fighter_flags = 0u;\n        uint32_t runtime_flags = 0u;\n        uint8_t zero = 0u;\n        uint32_t slot = 0u;\n\n        status = vf2_model2a_write(\n            machine, UINT32_C(0x0050009c), &zero, sizeof(zero)\n        );\n        for (slot = 0u; status == VF2_OK && slot < UINT32_C(2); ++slot) {\n            status = vf2_model2a_read_u32(\n                machine, slot == 0u ? UINT32_C(0x00500804) : UINT32_C(0x00500808),\n                &fighter\n            );\n            if (status == VF2_OK)\n                status = vf2_model2a_read_u32(machine, fighter, &fighter_flags);\n            if (status == VF2_OK) {\n                fighter_flags &= ~((UINT32_C(1) << 23u) | (UINT32_C(1) << 22u));\n                fighter_flags |= UINT32_C(1) << 26u;\n                status = vf2_model2a_write_u32(machine, fighter, fighter_flags);\n            }\n        }\n        if (status == VF2_OK)\n            status = execute_selector3_sound_event(machine, UINT32_C(0x00bd1a60));\n        if (status == VF2_OK)\n            status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &runtime_flags);\n        if (status == VF2_OK)\n            status = vf2_model2a_write_u32(\n                machine, UINT32_C(0x00508000),\n                runtime_flags & ~(UINT32_C(1) << 16u)\n            );\n        if (status == VF2_OK) {\n            *next_phase = (uint8_t)(*next_phase + UINT8_C(1));\n            status = vf2_model2a_write(\n                machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)\n            );\n        }\n    }\n    return status;\n}\n'''
+          assert old in x; x=x.replace(old,new,1); s=s[:a]+x+s[b:]
+          a=s.index('        if (status == VF2_OK && entry_phase == UINT8_C(4)) {'); b=s.index('        if (status == VF2_OK && phase8_handoff) {',a); x=s[a:b]
+          old='''            account_nested_procedure(cpu, UINT64_C(20), UINT64_C(20));\n            status = finish_recovered_procedure(machine, cpu, UINT64_C(468818));\n            if (status != VF2_OK) return status;\n            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;\n            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;\n            report->exit_address = cpu->ip;\n            report->iterations = UINT64_C(1);\n            report->recovered_instruction_count = UINT64_C(468818);\n            report->recovered_procedure_calls = UINT64_C(20);\n            report->recovered_procedure_returns = UINT64_C(21);\n'''
+          new='''            {\n                const int terminal = phase == UINT8_C(6);\n                const uint64_t calls = terminal ? UINT64_C(21) : UINT64_C(20);\n                const uint64_t instructions = terminal ? UINT64_C(468870) : UINT64_C(468818);\n                account_nested_procedure(cpu, calls, calls);\n                status = finish_recovered_procedure(machine, cpu, instructions);\n                if (status != VF2_OK) return status;\n                report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;\n                report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;\n                report->exit_address = cpu->ip;\n                report->iterations = UINT64_C(1);\n                report->recovered_instruction_count = instructions;\n                report->recovered_procedure_calls = calls;\n                report->recovered_procedure_returns = calls + UINT64_C(1);\n            }\n'''
+          assert old in x; x=x.replace(old,new,1); p.write_text(s[:a]+x+s[b:])
+          PY
+      - name: Configure build test
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON && cmake --build build --parallel && ctest --test-dir build --output-on-failure
+      - name: Commit
+        run: rm .github/workflows/close-selector3-phase4-terminal.yml && git config user.name celsowm && git config user.email celsowm@gmail.com && git add src/recovered/texture_bridge_match.c .github/workflows && git commit -m 'Close selector3 phase4 terminal path' && git push origin HEAD:master
