@@ -1,6 +1,6 @@
 # Selector-3 full corridor measurement (v0.0.26)
 
-This note records the controlled ROM measurement used to replace the selector-3 phase-zero final-cluster correction with an in-place recovered composition. It records measurement and implementation structure before the final full native-snapshot equivalence result.
+This note records the controlled ROM measurement and final differential evidence used to replace the selector-3 phase-zero final-cluster correction with an in-place recovered composition.
 
 ## Controlled corridor
 
@@ -50,7 +50,7 @@ The ROM descriptor at `0x02a6c15e` is interpreted by `0x8f1c` as signed addend, 
 
 After the phase-zero worker, `0xacf8` calls `0x1344`. On the measured selector-3 state that helper returns nonzero, causing the ROM to return early from `0xacf8` instead of entering the common selector cleanup. The measured final selector/phase are therefore **selector 3 / phase 3**. This early-return behavior is the reason the old post-final-cluster correction had to undo selector/phase state after the fact.
 
-The first cleaned native whole-corridor comparison already matched the ROM accounting exactly at **123,900 / 15 / 16** and reduced the remaining snapshot difference to only three 32-bit side effects. Their origin was isolated by intermediate ROM snapshots:
+The first cleaned native whole-corridor comparison matched the ROM accounting exactly at **123,900 / 15 / 16** and reduced the remaining snapshot difference to only three 32-bit side effects. Their origin was isolated by intermediate ROM snapshots:
 
 - `0x00500034` becomes `1` before entering `0x1fcc0`;
 - `0x005ff680` becomes `0x01004000` before entering `0x1fcc0`;
@@ -58,6 +58,24 @@ The first cleaned native whole-corridor comparison already matched the ROM accou
 
 Running recovered `0x1fcc0` from the exact ROM profile-3 entry snapshot produces **90,372 instructions / 8 calls / 9 returns** and a complete snapshot match to the ROM exit, confirming the profile apply itself is recovered correctly. Commit `e231070820a05f36180d6427be1a0ed6980febec` moves the two pre-profile stores into phase zero and supplies the measured `g2=0x7c` child-entry value.
 
-Implementation commit `f2f39dbfd4f24656bd344318031fceec6734e38f` moves the phase-zero behavior into the selector-3 dispatcher. Cleanup commit `085b997fec93e69c66dc6254f3df838c0925f286` removes the now-unreachable selector-3 post-final-cluster correction, including its `123638` instruction delta and residual call/return accounting. The cleanup and side-effect fixes were validated with the Clang ASan/UBSan configuration and `ctest` before commit.
+Implementation commit `f2f39dbfd4f24656bd344318031fceec6734e38f` moves the phase-zero behavior into the selector-3 dispatcher. Cleanup commit `085b997fec93e69c66dc6254f3df838c0925f286` removes the now-unreachable selector-3 post-final-cluster correction, including its `123638` instruction delta and residual call/return accounting.
 
-Full native-vs-ROM snapshot equivalence is validated separately after building the side-effect-corrected implementation.
+## Final differential validation
+
+With the side-effect-corrected implementation, native execution from the controlled `0xa6c0` entry reports exactly:
+
+- **123,900 instructions**
+- **15 calls**
+- **16 returns**
+
+The resulting full snapshot is **byte-for-byte identical** to the ROM snapshot: CPU state and every modeled memory region match.
+
+The cleaned implementation also passes the long-running ROM differential corridors:
+
+- `compare-post-frame-bridge`: **MATCH**, final CPU and memory state MATCH;
+- `native-fifth-dispatch`: **MATCH**, 7,402,744 repeated/reference instructions, final CPU and memory state MATCH;
+- `native-sixth-dispatch`: **MATCH**, 7,404,917 repeated/reference instructions, final CPU and memory state MATCH.
+
+The normal CI matrix for the same source state is green for GCC Release, Clang Release, and Clang ASan/UBSan, with all configured tests passing.
+
+The selector-3 phase-zero final cluster is therefore closed with no synthetic selector-3 residual accounting or post-final-cluster corrective path remaining.
