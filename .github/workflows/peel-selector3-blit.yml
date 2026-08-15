@@ -1,0 +1,283 @@
+name: Temporary selector3 blit peel
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/peel-selector3-blit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  peel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover 8ef0 and 8f1c and compose 8f1c
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          header = Path('src/recovered/texture_bridge_internal.h')
+          h = header.read_text()
+          anchor = '#define VF2_DIAGNOSTIC_TEXT_COPY_ENTRY UINT32_C(0x00007fc0)\n'
+          insert = anchor + '#define VF2_DISPLAY_RECT_FILL_16_ENTRY UINT32_C(0x00008ef0)\n#define VF2_DISPLAY_DESCRIPTOR_BLIT_ENTRY UINT32_C(0x00008f1c)\n'
+          if 'VF2_DISPLAY_DESCRIPTOR_BLIT_ENTRY' not in h:
+              if anchor not in h: raise SystemExit('header constant anchor missing')
+              h = h.replace(anchor, insert, 1)
+          header.write_text(h)
+
+          video = Path('src/recovered/texture_bridge_video.c')
+          v = video.read_text()
+          if 'execute_display_descriptor_blit(' not in v:
+              v += r'''
+
+vf2_status execute_display_rect_fill_16(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    const uint32_t columns = cpu != NULL ? cpu->registers[VF2_I960_G0_REGISTER] : 0u;
+    const uint32_t rows = cpu != NULL ? cpu->registers[VF2_I960_G0_REGISTER + 1u] : 0u;
+    uint32_t destination = cpu != NULL ? cpu->registers[VF2_I960_G0_REGISTER + 9u] : 0u;
+    uint32_t row = 0u;
+    const uint16_t value = UINT16_C(32);
+    uint64_t instruction_count = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    if (cpu->local_frame_depth == 0u || columns == 0u || rows == 0u) return VF2_ERROR_UNSUPPORTED;
+
+    for (row = 0u; row < rows; ++row) {
+        uint32_t column = 0u;
+        uint32_t address = destination;
+        for (column = 0u; column < columns; ++column) {
+            status = write_u16(machine, address, value);
+            if (status != VF2_OK) return status;
+            address += UINT32_C(2);
+        }
+        destination += UINT32_C(0x80);
+    }
+
+    instruction_count = UINT64_C(2) + (uint64_t)rows *
+        (UINT64_C(5) + UINT64_C(4) * (uint64_t)columns);
+    cpu->registers[3] = UINT32_C(32);
+    cpu->registers[6] = destination - UINT32_C(0x80) + columns * UINT32_C(2);
+    cpu->registers[7] = UINT32_MAX;
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_MAX;
+    cpu->registers[VF2_I960_G0_REGISTER + 9u] = destination;
+    set_signed_condition(cpu, INT32_C(-1), INT32_C(0));
+    status = finish_recovered_procedure(machine, cpu, instruction_count);
+    if (status != VF2_OK) return status;
+
+    report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+    report->entry_address = VF2_DISPLAY_RECT_FILL_16_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = (uint64_t)rows * (uint64_t)columns;
+    report->rows = rows;
+    report->changed_values = report->iterations;
+    report->bytes_written = (size_t)report->iterations * 2u;
+    report->recovered_instruction_count = instruction_count;
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
+vf2_status execute_display_descriptor_blit(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    const uint32_t descriptor = cpu != NULL ? cpu->registers[VF2_I960_G0_REGISTER] : 0u;
+    const uint32_t destination_base = cpu != NULL ? cpu->registers[VF2_I960_G0_REGISTER + 9u] : 0u;
+    uint16_t raw_addend = 0u;
+    uint16_t raw_mode = 0u;
+    uint32_t rows = 0u;
+    uint32_t columns = 0u;
+    uint32_t source = descriptor + UINT32_C(12);
+    uint32_t row = 0u;
+    uint32_t last_value = 0u;
+    uint64_t instruction_count = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    if (cpu->local_frame_depth == 0u) return VF2_ERROR_UNSUPPORTED;
+    status = read_u16(machine, descriptor, &raw_addend);
+    if (status == VF2_OK) status = read_u16(machine, descriptor + UINT32_C(2), &raw_mode);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, descriptor + UINT32_C(4), &rows);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, descriptor + UINT32_C(8), &columns);
+    if (status != VF2_OK || rows == 0u || columns == 0u || rows > UINT32_C(4096) || columns > UINT32_C(4096))
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+
+    for (row = 0u; row < rows; ++row) {
+        uint32_t column = 0u;
+        uint32_t destination = destination_base + row * UINT32_C(0x80);
+        for (column = 0u; column < columns; ++column) {
+            int32_t sample = 0;
+            if ((int16_t)raw_mode == 0) {
+                uint8_t raw = 0u;
+                status = vf2_model2a_read(machine, source, &raw, 1u);
+                sample = (int32_t)(int8_t)raw;
+                source += UINT32_C(1);
+            } else {
+                uint16_t raw = 0u;
+                status = read_u16(machine, source, &raw);
+                sample = (int32_t)(int16_t)raw;
+                source += UINT32_C(2);
+            }
+            if (status != VF2_OK) return status;
+            last_value = (uint32_t)((int32_t)(int16_t)raw_addend + sample);
+            status = write_u16(machine, destination, (uint16_t)last_value);
+            if (status != VF2_OK) return status;
+            destination += UINT32_C(2);
+        }
+    }
+
+    instruction_count = UINT64_C(18) + (uint64_t)rows *
+        (UINT64_C(7) + UINT64_C(7) * (uint64_t)columns);
+    if ((int16_t)raw_mode == 0) ++instruction_count;
+
+    cpu->registers[VF2_I960_G0_REGISTER] = source;
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = columns * UINT32_C(2);
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = UINT32_MAX;
+    cpu->registers[VF2_I960_G0_REGISTER + 4u] = (uint32_t)(int32_t)(int16_t)raw_addend;
+    cpu->registers[VF2_I960_G0_REGISTER + 5u] = UINT32_MAX;
+    cpu->registers[VF2_I960_G0_REGISTER + 6u] = last_value;
+    cpu->registers[VF2_I960_G0_REGISTER + 7u] = (uint32_t)(int32_t)(int16_t)raw_mode;
+    cpu->registers[VF2_I960_G0_REGISTER + 9u] = destination_base + columns * UINT32_C(2);
+    set_signed_condition(cpu, INT32_C(-1), INT32_C(0));
+    status = finish_recovered_procedure(machine, cpu, instruction_count);
+    if (status != VF2_OK) return status;
+
+    report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+    report->entry_address = VF2_DISPLAY_DESCRIPTOR_BLIT_ENTRY;
+    report->exit_address = cpu->ip;
+    report->iterations = (uint64_t)rows * (uint64_t)columns;
+    report->rows = rows;
+    report->changed_values = report->iterations;
+    report->bytes_written = (size_t)report->iterations * 2u;
+    report->recovered_instruction_count = instruction_count;
+    report->recovered_procedure_returns = UINT64_C(1);
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+'''
+          video.write_text(v)
+
+          bridge = Path('src/recovered/texture_bridge.c')
+          b = bridge.read_text()
+          anchor = '''    case VF2_DIAGNOSTIC_TEXT_COPY_ENTRY:\n        status = execute_diagnostic_text_copy(machine, cpu, &local_report);\n        break;\n'''
+          cases = '''    case VF2_DIAGNOSTIC_TEXT_COPY_ENTRY:\n        status = execute_diagnostic_text_copy(machine, cpu, &local_report);\n        break;\n    case VF2_DISPLAY_RECT_FILL_16_ENTRY:\n        status = execute_display_rect_fill_16(machine, cpu, &local_report);\n        break;\n    case VF2_DISPLAY_DESCRIPTOR_BLIT_ENTRY:\n        status = execute_display_descriptor_blit(machine, cpu, &local_report);\n        break;\n'''
+          if 'case VF2_DISPLAY_DESCRIPTOR_BLIT_ENTRY:' not in b:
+              if anchor not in b: raise SystemExit('bridge switch anchor missing')
+              b = b.replace(anchor, cases, 1)
+          bridge.write_text(b)
+
+          cond = Path('src/recovered/texture_bridge_condition.c')
+          c = cond.read_text()
+          decl_anchor = '''vf2_status execute_display_profile_apply(\n    vf2_model2a *machine,\n    vf2_i960_cpu *cpu,\n    vf2_hybrid_bridge_report *report\n);\n'''
+          decl = decl_anchor + '''\nvf2_status execute_display_descriptor_blit(\n    vf2_model2a *machine,\n    vf2_i960_cpu *cpu,\n    vf2_hybrid_bridge_report *report\n);\n'''
+          if 'vf2_status execute_display_descriptor_blit(' not in c:
+              if decl_anchor not in c: raise SystemExit('condition declaration anchor missing')
+              c = c.replace(decl_anchor, decl, 1)
+
+          start = c.index('static vf2_status selector3_render_display(')
+          end = c.index('static vf2_status selector3_execute_display_profile_apply(', start)
+          wrapper = r'''static vf2_status selector3_execute_descriptor_blit(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint64_t *instructions,
+    uint64_t *calls,
+    uint64_t *returns
+)
+{
+    vf2_i960_cpu saved_cpu;
+    vf2_hybrid_bridge_report child;
+    uint64_t executed_after = 0u;
+    uint64_t calls_after = 0u;
+    uint64_t returns_after = 0u;
+    uint32_t maximum_depth_after = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || instructions == NULL || calls == NULL || returns == NULL)
+        return VF2_ERROR_INVALID_ARGUMENT;
+    saved_cpu = *cpu;
+    memset(&child, 0, sizeof(child));
+    cpu->registers[VF2_I960_G0_REGISTER] = VF2_SELECTOR3_TILE_SOURCE;
+    cpu->registers[VF2_I960_G0_REGISTER + 9u] = VF2_SELECTOR3_TILE_DESTINATION;
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_DISPLAY_DESCRIPTOR_BLIT_ENTRY, VF2_MAIN_POST_CLUSTER_ENTRY
+    );
+    if (status != VF2_OK) { *cpu = saved_cpu; return status; }
+    cpu->executed_instructions += UINT64_C(1);
+    status = execute_display_descriptor_blit(machine, cpu, &child);
+    if (status != VF2_OK || cpu->ip != VF2_MAIN_POST_CLUSTER_ENTRY) {
+        *cpu = saved_cpu;
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    *instructions = child.recovered_instruction_count + UINT64_C(1);
+    *calls = UINT64_C(1);
+    *returns = child.recovered_procedure_returns;
+    executed_after = cpu->executed_instructions;
+    calls_after = cpu->procedure_calls;
+    returns_after = cpu->procedure_returns;
+    maximum_depth_after = cpu->maximum_local_frame_depth;
+    *cpu = saved_cpu;
+    cpu->executed_instructions = executed_after;
+    cpu->procedure_calls = calls_after;
+    cpu->procedure_returns = returns_after;
+    if (maximum_depth_after > cpu->maximum_local_frame_depth)
+        cpu->maximum_local_frame_depth = maximum_depth_after;
+    return VF2_OK;
+}
+
+'''
+          c = c[:start] + wrapper + c[end:]
+
+          old_vars = '''    uint64_t profile_instructions = 0u;\n    uint64_t profile_calls = 0u;\n    uint64_t profile_returns = 0u;\n'''
+          new_vars = '''    uint64_t blit_instructions = 0u;\n    uint64_t blit_calls = 0u;\n    uint64_t blit_returns = 0u;\n    uint64_t profile_instructions = 0u;\n    uint64_t profile_calls = 0u;\n    uint64_t profile_returns = 0u;\n'''
+          if old_vars not in c: raise SystemExit('condition vars anchor missing')
+          c = c.replace(old_vars, new_vars, 1)
+
+          old_call = '''    if (status == VF2_OK) {\n        status = selector3_render_display(machine);\n    }\n    if (status == VF2_OK) {\n        status = selector3_execute_display_profile_apply(\n'''
+          new_call = '''    if (status == VF2_OK) {\n        status = selector3_execute_descriptor_blit(\n            machine, cpu, &blit_instructions, &blit_calls, &blit_returns\n        );\n    }\n    if (status == VF2_OK) {\n        status = selector3_execute_display_profile_apply(\n'''
+          if old_call not in c: raise SystemExit('condition render call anchor missing')
+          c = c.replace(old_call, new_call, 1)
+
+          c = c.replace(
+              '''    if (profile_instructions > VF2_SELECTOR3_INSTRUCTION_DELTA ||\n        profile_calls > VF2_SELECTOR3_CALL_DELTA ||\n        profile_returns > VF2_SELECTOR3_RETURN_DELTA) {\n''',
+              '''    if (blit_instructions + profile_instructions > VF2_SELECTOR3_INSTRUCTION_DELTA ||\n        blit_calls + profile_calls > VF2_SELECTOR3_CALL_DELTA ||\n        blit_returns + profile_returns > VF2_SELECTOR3_RETURN_DELTA) {\n''', 1)
+          c = c.replace(
+              '''        VF2_SELECTOR3_INSTRUCTION_DELTA - profile_instructions;\n    residual_calls = VF2_SELECTOR3_CALL_DELTA - profile_calls;\n    residual_returns = VF2_SELECTOR3_RETURN_DELTA - profile_returns;\n''',
+              '''        VF2_SELECTOR3_INSTRUCTION_DELTA - blit_instructions - profile_instructions;\n    residual_calls = VF2_SELECTOR3_CALL_DELTA - blit_calls - profile_calls;\n    residual_returns = VF2_SELECTOR3_RETURN_DELTA - blit_returns - profile_returns;\n''', 1)
+          c = c.replace(
+              '''        profile_instructions + residual_instructions;\n    report->recovered_procedure_calls += profile_calls + residual_calls;\n    report->recovered_procedure_returns += profile_returns + residual_returns;\n''',
+              '''        blit_instructions + profile_instructions + residual_instructions;\n    report->recovered_procedure_calls += blit_calls + profile_calls + residual_calls;\n    report->recovered_procedure_returns += blit_returns + profile_returns + residual_returns;\n''', 1)
+          cond.write_text(c)
+
+          note = Path('decomp/i960/notes/selector3_rect_helpers_v0026.md')
+          note.write_text('''# Selector-3 rectangular helpers (v0.0.26)\n\nThe phase-zero branch at `0x0000ae78` uses two rectangular display helpers before the already recovered `display_profile_apply` call.\n\nROM measurements with the real selector-3 dimensions (`48 x 62`) establish:\n\n```text\n0x00008ef0  display_rect_fill_16     12,146 instructions including ret\n0x00008f1c  display_descriptor_blit  21,186 instructions including ret\n```\n\nThe descriptor at `0x02a6c15e` decodes to signed addend `-32768`, mode `1`, rows `48`, columns `62`. The `0x8f1c` bridge now executes this recovered helper, including the caller instruction, so 21,187 instructions and one call/return are peeled from the selector-3 synthetic aggregate. Combined with `display_profile_apply`, the opaque residual falls from 33,265 to 12,078 instructions and from 6/6 to 5/5 calls/returns for this vector.\n\n`0x8ef0` is also recovered and independently dispatchable, but is not yet debited from the selector-3 aggregate: its 12,146-instruction body is 68 instructions larger than the currently observed residual (69 including its caller), so the surrounding direct instructions must be reconciled before composing that final peel.\n''')
+          PY
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit peel
+        shell: bash
+        run: |
+          rm .github/workflows/peel-selector3-blit.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recovered/texture_bridge_internal.h src/recovered/texture_bridge_video.c src/recovered/texture_bridge.c src/recovered/texture_bridge_condition.c decomp/i960/notes/selector3_rect_helpers_v0026.md .github/workflows/peel-selector3-blit.yml
+          git commit -m "Recover selector3 rectangular display helpers"
+          git push origin HEAD:master
