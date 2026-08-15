@@ -9227,6 +9227,23 @@ vf2_status execute_frame_dispatch_tick(
             report->cpu_poststate_applied = 1;
             return VF2_OK;
         }
+        if (status == VF2_OK && entry_phase == UINT8_C(8) && !phase8_handoff) {
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+            account_nested_procedure(cpu, UINT64_C(3), UINT64_C(3));
+            status = finish_recovered_procedure(machine, cpu, UINT64_C(37));
+            if (status != VF2_OK) return status;
+
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = UINT64_C(37);
+            report->recovered_procedure_calls = UINT64_C(3);
+            report->recovered_procedure_returns = UINT64_C(4);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
         if (status == VF2_OK && phase8_handoff) {
             report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
             report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
