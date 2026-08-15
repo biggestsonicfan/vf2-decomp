@@ -1,6 +1,6 @@
 # Selector-3 full corridor measurement (v0.0.26)
 
-This note records the controlled ROM measurement used to replace the selector-3 phase-zero final-cluster correction with an in-place recovered composition. It deliberately records the measurement before claiming full native snapshot equivalence.
+This note records the controlled ROM measurement used to replace the selector-3 phase-zero final-cluster correction with an in-place recovered composition. It records measurement and implementation structure before the final full native-snapshot equivalence result.
 
 ## Controlled corridor
 
@@ -50,4 +50,6 @@ The ROM descriptor at `0x02a6c15e` is interpreted by `0x8f1c` as signed addend, 
 
 After the phase-zero worker, `0xacf8` calls `0x1344`. On the measured selector-3 state that helper returns nonzero, causing the ROM to return early from `0xacf8` instead of entering the common selector cleanup. The measured final selector/phase are therefore **selector 3 / phase 3**. This early-return behavior is the reason the old post-final-cluster correction had to undo selector/phase state after the fact.
 
-The implementation commit `f2f39dbfd4f24656bd344318031fceec6734e38f` moves this behavior into the selector-3 phase-zero dispatcher itself and disables the old post-final-cluster correction path. Full native-vs-ROM snapshot equivalence is validated separately after building that implementation.
+Implementation commit `f2f39dbfd4f24656bd344318031fceec6734e38f` moves this behavior into the selector-3 phase-zero dispatcher itself. Cleanup commit `085b997fec93e69c66dc6254f3df838c0925f286` removes the now-unreachable selector-3 post-final-cluster correction, including its `123638` instruction delta and residual call/return accounting. The cleanup was validated with the Clang ASan/UBSan configuration and `ctest` before commit.
+
+Full native-vs-ROM snapshot equivalence is validated separately after building the cleaned implementation.
