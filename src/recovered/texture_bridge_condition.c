@@ -159,18 +159,34 @@ static vf2_status selector3_copy_palette_quads(vf2_model2a *machine)
     return status;
 }
 
-static vf2_status selector3_render_display(vf2_model2a *machine)
+static vf2_status selector3_execute_descriptor_blit(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint64_t *instructions,
+    uint64_t *calls,
+    uint64_t *returns
+)
 {
+    vf2_i960_cpu saved_cpu;
     uint16_t raw_addend = 0u;
     uint16_t raw_mode = 0u;
     uint32_t rows = 0u;
     uint32_t columns = 0u;
     uint32_t source = VF2_SELECTOR3_TILE_SOURCE + UINT32_C(12);
     uint32_t row = 0u;
-    vf2_status status = selector3_read_u16(
-        machine, VF2_SELECTOR3_TILE_SOURCE, &raw_addend
-    );
+    uint64_t instruction_count = 0u;
+    uint64_t executed_after = 0u;
+    uint64_t calls_after = 0u;
+    uint64_t returns_after = 0u;
+    uint32_t maximum_depth_after = 0u;
+    vf2_status status = VF2_OK;
 
+    if (machine == NULL || cpu == NULL || instructions == NULL ||
+        calls == NULL || returns == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    saved_cpu = *cpu;
+    status = selector3_read_u16(machine, VF2_SELECTOR3_TILE_SOURCE, &raw_addend);
     if (status == VF2_OK) {
         status = selector3_read_u16(
             machine, VF2_SELECTOR3_TILE_SOURCE + UINT32_C(2), &raw_mode
@@ -186,35 +202,78 @@ static vf2_status selector3_render_display(vf2_model2a *machine)
             machine, VF2_SELECTOR3_TILE_SOURCE + UINT32_C(8), &columns
         );
     }
-    if (status != VF2_OK || (int16_t)raw_mode != 0 ||
-        rows == 0u || rows > UINT32_C(128) ||
-        columns == 0u || columns > UINT32_C(64)) {
+    if (status != VF2_OK || rows == 0u || columns == 0u ||
+        rows > UINT32_C(4096) || columns > UINT32_C(4096)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, UINT32_C(0x00008f1c), VF2_MAIN_POST_CLUSTER_ENTRY
+    );
+    if (status != VF2_OK) {
+        *cpu = saved_cpu;
+        return status;
+    }
+    cpu->executed_instructions += UINT64_C(1);
 
     for (row = 0u; row < rows; ++row) {
         uint32_t column = 0u;
         uint32_t destination =
             VF2_SELECTOR3_TILE_DESTINATION + row * UINT32_C(0x80);
-
         for (column = 0u; column < columns; ++column) {
-            uint8_t raw = 0u;
-            int32_t value = 0;
-
-            status = vf2_model2a_read(machine, source, &raw, sizeof(raw));
+            int32_t sample = 0;
+            uint16_t result = 0u;
+            if ((int16_t)raw_mode == 0) {
+                uint8_t raw = 0u;
+                status = vf2_model2a_read(machine, source, &raw, sizeof(raw));
+                sample = (int32_t)(int8_t)raw;
+                source += UINT32_C(1);
+            } else {
+                uint16_t raw = 0u;
+                status = selector3_read_u16(machine, source, &raw);
+                sample = (int32_t)(int16_t)raw;
+                source += UINT32_C(2);
+            }
             if (status != VF2_OK) {
+                *cpu = saved_cpu;
                 return status;
             }
-            ++source;
-            value = (int32_t)(int16_t)raw_addend + (int32_t)(int8_t)raw;
-            status = selector3_write_u16(
-                machine, destination, (uint16_t)value
-            );
+            result = (uint16_t)((int32_t)(int16_t)raw_addend + sample);
+            status = selector3_write_u16(machine, destination, result);
             if (status != VF2_OK) {
+                *cpu = saved_cpu;
                 return status;
             }
             destination += UINT32_C(2);
         }
+    }
+
+    instruction_count = UINT64_C(18) + (uint64_t)rows *
+        (UINT64_C(7) + UINT64_C(7) * (uint64_t)columns);
+    if ((int16_t)raw_mode == 0) {
+        ++instruction_count;
+    }
+    cpu->executed_instructions += instruction_count;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK || cpu->ip != VF2_MAIN_POST_CLUSTER_ENTRY) {
+        *cpu = saved_cpu;
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    *instructions = instruction_count + UINT64_C(1);
+    *calls = UINT64_C(1);
+    *returns = UINT64_C(1);
+    executed_after = cpu->executed_instructions;
+    calls_after = cpu->procedure_calls;
+    returns_after = cpu->procedure_returns;
+    maximum_depth_after = cpu->maximum_local_frame_depth;
+
+    *cpu = saved_cpu;
+    cpu->executed_instructions = executed_after;
+    cpu->procedure_calls = calls_after;
+    cpu->procedure_returns = returns_after;
+    if (maximum_depth_after > cpu->maximum_local_frame_depth) {
+        cpu->maximum_local_frame_depth = maximum_depth_after;
     }
     return VF2_OK;
 }
@@ -293,6 +352,9 @@ static vf2_status apply_selector3_phase0_bridge(
     uint8_t selector = UINT8_C(3);
     uint8_t zero = 0u;
     uint8_t three = UINT8_C(3);
+    uint64_t blit_instructions = 0u;
+    uint64_t blit_calls = 0u;
+    uint64_t blit_returns = 0u;
     uint64_t profile_instructions = 0u;
     uint64_t profile_calls = 0u;
     uint64_t profile_returns = 0u;
@@ -321,7 +383,9 @@ static vf2_status apply_selector3_phase0_bridge(
 
     status = selector3_copy_palette_quads(machine);
     if (status == VF2_OK) {
-        status = selector3_render_display(machine);
+        status = selector3_execute_descriptor_blit(
+            machine, cpu, &blit_instructions, &blit_calls, &blit_returns
+        );
     }
     if (status == VF2_OK) {
         status = selector3_execute_display_profile_apply(
@@ -378,23 +442,29 @@ static vf2_status apply_selector3_phase0_bridge(
         VF2_SELECTOR3_TILE_DESTINATION + UINT32_C(0x7c);
     set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
 
-    if (profile_instructions > VF2_SELECTOR3_INSTRUCTION_DELTA ||
-        profile_calls > VF2_SELECTOR3_CALL_DELTA ||
-        profile_returns > VF2_SELECTOR3_RETURN_DELTA) {
+    if (blit_instructions + profile_instructions >
+            VF2_SELECTOR3_INSTRUCTION_DELTA ||
+        blit_calls + profile_calls > VF2_SELECTOR3_CALL_DELTA ||
+        blit_returns + profile_returns > VF2_SELECTOR3_RETURN_DELTA) {
         return VF2_ERROR_UNSUPPORTED;
     }
     residual_instructions =
-        VF2_SELECTOR3_INSTRUCTION_DELTA - profile_instructions;
-    residual_calls = VF2_SELECTOR3_CALL_DELTA - profile_calls;
-    residual_returns = VF2_SELECTOR3_RETURN_DELTA - profile_returns;
+        VF2_SELECTOR3_INSTRUCTION_DELTA -
+        blit_instructions - profile_instructions;
+    residual_calls =
+        VF2_SELECTOR3_CALL_DELTA - blit_calls - profile_calls;
+    residual_returns =
+        VF2_SELECTOR3_RETURN_DELTA - blit_returns - profile_returns;
 
     cpu->executed_instructions += residual_instructions;
     cpu->procedure_calls += residual_calls;
     cpu->procedure_returns += residual_returns;
     report->recovered_instruction_count +=
-        profile_instructions + residual_instructions;
-    report->recovered_procedure_calls += profile_calls + residual_calls;
-    report->recovered_procedure_returns += profile_returns + residual_returns;
+        blit_instructions + profile_instructions + residual_instructions;
+    report->recovered_procedure_calls +=
+        blit_calls + profile_calls + residual_calls;
+    report->recovered_procedure_returns +=
+        blit_returns + profile_returns + residual_returns;
     return VF2_OK;
 }
 
