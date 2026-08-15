@@ -14,6 +14,8 @@ From the framed `0x0000a6c0` entry, the measured route executes **468,818 instru
 - `0x548cc` plus four `0x54c14` timeline entries: 98 / 5 / 5;
 - `0x1344` wrapper exit: 9.
 
-The recovered source now models the mode initialization performed by `0x24314`, the observed actor initialization/record path through `0x54820`/`0x549e8`, and the first timeline update through `0x548cc`. Synthetic unit-test ROMs that do not provide the real mode-init tables retain the older reduced fixture path via an explicit table preflight rather than fabricated table data.
+The recovered source models the mode initialization performed by `0x24314`, the observed actor initialization/record path through `0x54820`/`0x549e8`, and the first timeline update through `0x548cc`. Synthetic unit-test ROMs that do not provide the real mode-init tables retain the older reduced fixture path via an explicit table preflight rather than fabricated table data.
 
-Implementation commit: `9bc983919933cf9c6f8fb881f7a6feb8b7a15beb` (`Recover selector3 phase4 initial path`). Full native-vs-ROM snapshot validation is performed on the CI-built analysis binary for this source state before this route is treated as closed.
+Differential inspection also recovered two details that were hidden by the older generic display helper. The phase-4 `0x8f1c` call targets `0x010016da`, not the helper's default `0x01004000`, and it is followed by a 2x1 `0x8ef0` fill at `0x01000ef4`. The real `0x8f1c` prologue also leaves its saved `g9` value (`0x010016da`) in the nested stack spill slot; the recovered fast path reproduces that architecturally visible spill.
+
+Relevant implementation commits are `9bc983919933cf9c6f8fb881f7a6feb8b7a15beb` (initial phase-4 recovery), `3b2a63defdb39f6e2eccb4177389cfd035638fdb` (display targets), and `d2a38241010d57dd6ce67b43bd320f1f6ae45e0a` (the proven `0x8f1c` spill). Full native-vs-ROM snapshot validation is performed on the CI-built analysis binary for this source state before this route is treated as closed.
