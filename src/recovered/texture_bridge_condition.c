@@ -6,6 +6,16 @@
 #undef vf2_hybrid_post_frame_bridge_execute
 #undef vf2_hybrid_bridge_apply_condition_poststate
 
+#include <string.h>
+
+#define VF2_SELECTOR3_DISPLAY_PROFILE_APPLY_ENTRY UINT32_C(0x0001fcc0)
+
+vf2_status execute_display_profile_apply(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+);
+
 #define VF2_SELECTOR2_FRAME_DISPATCH_ENTRY UINT32_C(0x0000a6c0)
 #define VF2_SELECTOR2_FRAME_MASK UINT32_C(0x0050002c)
 #define VF2_SELECTOR2_MASK UINT32_C(0x00000004)
@@ -209,129 +219,66 @@ static vf2_status selector3_render_display(vf2_model2a *machine)
     return VF2_OK;
 }
 
-static vf2_status selector3_apply_mode3_profile(vf2_model2a *machine)
+static vf2_status selector3_execute_display_profile_apply(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint64_t *instructions,
+    uint64_t *calls,
+    uint64_t *returns
+)
 {
-    const uint32_t table = UINT32_C(0x0006ee00) + UINT32_C(3) * UINT32_C(0x100);
-    uint32_t value32 = 0u;
-    uint16_t value16 = 0u;
-    uint8_t value8 = 0u;
-    uint32_t index = 0u;
-    vf2_status status = vf2_model2a_write_u32(
-        machine, UINT32_C(0x0050a000), UINT32_C(0x3b32674f)
+    vf2_i960_cpu saved_cpu;
+    vf2_hybrid_bridge_report child;
+    uint64_t executed_after = 0u;
+    uint64_t calls_after = 0u;
+    uint64_t returns_after = 0u;
+    uint32_t maximum_depth_after = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || instructions == NULL ||
+        calls == NULL || returns == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    saved_cpu = *cpu;
+    memset(&child, 0, sizeof(child));
+    status = vf2_i960_cpu_enter_procedure(
+        cpu,
+        VF2_SELECTOR3_DISPLAY_PROFILE_APPLY_ENTRY,
+        VF2_MAIN_POST_CLUSTER_ENTRY
     );
-
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, UINT32_C(0x0050a004), UINT32_C(0x3f800000)
-        );
-    }
-    for (index = 0u; status == VF2_OK && index < UINT32_C(26); ++index) {
-        status = vf2_model2a_write_u32(
-            machine,
-            UINT32_C(0x0050a0e0) + index * UINT32_C(4),
-            UINT32_C(0x3f800000)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, UINT32_C(0x00501018), UINT32_C(0x00001388)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read(
-            machine, table + UINT32_C(0xae), &value8, sizeof(value8)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, UINT32_C(0x00500170), &value8, sizeof(value8)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, table + UINT32_C(0xa4), &value32);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x00501098), value32);
-    }
-    if (status == VF2_OK) {
-        status = selector3_read_u16(
-            machine, table + UINT32_C(0xa8), &value16
-        );
-    }
-    if (status == VF2_OK) {
-        status = selector3_write_u16(
-            machine, UINT32_C(0x00501020), value16
-        );
-    }
-    if (status == VF2_OK) {
-        status = selector3_read_u16(
-            machine, table + UINT32_C(0xaa), &value16
-        );
-    }
-    if (status == VF2_OK) {
-        status = selector3_write_u16(
-            machine, UINT32_C(0x00501022), value16
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read(
-            machine, table + UINT32_C(0xb8), &value8, sizeof(value8)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, UINT32_C(0x005000e0), &value8, sizeof(value8)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read(
-            machine, table + UINT32_C(0xb9), &value8, sizeof(value8)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, UINT32_C(0x005000e1), &value8, sizeof(value8)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read(
-            machine, table + UINT32_C(0xba), &value8, sizeof(value8)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, UINT32_C(0x005000e2), &value8, sizeof(value8)
-        );
+    if (status != VF2_OK) {
+        *cpu = saved_cpu;
+        return status;
     }
 
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x00546000), 1u);
+    /* The recovered report starts at the procedure entry. The outer
+     * call instruction belongs to the composed selector-3 corridor. */
+    cpu->executed_instructions += UINT64_C(1);
+    status = execute_display_profile_apply(machine, cpu, &child);
+    if (status != VF2_OK || cpu->ip != VF2_MAIN_POST_CLUSTER_ENTRY) {
+        *cpu = saved_cpu;
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x00546004), 0u);
+
+    *instructions = child.recovered_instruction_count + UINT64_C(1);
+    *calls = child.recovered_procedure_calls + UINT64_C(1);
+    *returns = child.recovered_procedure_returns;
+    executed_after = cpu->executed_instructions;
+    calls_after = cpu->procedure_calls;
+    returns_after = cpu->procedure_returns;
+    maximum_depth_after = cpu->maximum_local_frame_depth;
+
+    /* The opaque outer tail still owns the proven final register
+     * poststate. Retain the recovered memory effects and counters. */
+    *cpu = saved_cpu;
+    cpu->executed_instructions = executed_after;
+    cpu->procedure_calls = calls_after;
+    cpu->procedure_returns = returns_after;
+    if (maximum_depth_after > cpu->maximum_local_frame_depth) {
+        cpu->maximum_local_frame_depth = maximum_depth_after;
     }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x00550000), 1u);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(machine, UINT32_C(0x005502e0), 3u);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, UINT32_C(0x005502e4), UINT32_C(0x21)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, UINT32_C(0x005502e8), UINT32_C(0x0a)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, UINT32_C(0x005502ec), UINT32_C(0x7c)
-        );
-    }
-    return status;
+    return VF2_OK;
 }
 
 static vf2_status apply_selector3_phase0_bridge(
@@ -346,6 +293,12 @@ static vf2_status apply_selector3_phase0_bridge(
     uint8_t selector = UINT8_C(3);
     uint8_t zero = 0u;
     uint8_t three = UINT8_C(3);
+    uint64_t profile_instructions = 0u;
+    uint64_t profile_calls = 0u;
+    uint64_t profile_returns = 0u;
+    uint64_t residual_instructions = 0u;
+    uint64_t residual_calls = 0u;
+    uint64_t residual_returns = 0u;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || report == NULL ||
@@ -371,7 +324,10 @@ static vf2_status apply_selector3_phase0_bridge(
         status = selector3_render_display(machine);
     }
     if (status == VF2_OK) {
-        status = selector3_apply_mode3_profile(machine);
+        status = selector3_execute_display_profile_apply(
+            machine, cpu,
+            &profile_instructions, &profile_calls, &profile_returns
+        );
     }
     if (status == VF2_OK) {
         status = vf2_model2a_write(
@@ -422,12 +378,23 @@ static vf2_status apply_selector3_phase0_bridge(
         VF2_SELECTOR3_TILE_DESTINATION + UINT32_C(0x7c);
     set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
 
-    cpu->executed_instructions += VF2_SELECTOR3_INSTRUCTION_DELTA;
-    cpu->procedure_calls += VF2_SELECTOR3_CALL_DELTA;
-    cpu->procedure_returns += VF2_SELECTOR3_RETURN_DELTA;
-    report->recovered_instruction_count += VF2_SELECTOR3_INSTRUCTION_DELTA;
-    report->recovered_procedure_calls += VF2_SELECTOR3_CALL_DELTA;
-    report->recovered_procedure_returns += VF2_SELECTOR3_RETURN_DELTA;
+    if (profile_instructions > VF2_SELECTOR3_INSTRUCTION_DELTA ||
+        profile_calls > VF2_SELECTOR3_CALL_DELTA ||
+        profile_returns > VF2_SELECTOR3_RETURN_DELTA) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    residual_instructions =
+        VF2_SELECTOR3_INSTRUCTION_DELTA - profile_instructions;
+    residual_calls = VF2_SELECTOR3_CALL_DELTA - profile_calls;
+    residual_returns = VF2_SELECTOR3_RETURN_DELTA - profile_returns;
+
+    cpu->executed_instructions += residual_instructions;
+    cpu->procedure_calls += residual_calls;
+    cpu->procedure_returns += residual_returns;
+    report->recovered_instruction_count +=
+        profile_instructions + residual_instructions;
+    report->recovered_procedure_calls += profile_calls + residual_calls;
+    report->recovered_procedure_returns += profile_returns + residual_returns;
     return VF2_OK;
 }
 
