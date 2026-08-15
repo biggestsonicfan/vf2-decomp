@@ -1,0 +1,47 @@
+name: Fix selector3 random16
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/fix-selector3-random16.yml]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix 94d0 timer source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/texture_bridge_match.c')
+          s=p.read_text()
+          a=s.index('static vf2_status execute_selector3_random16(')
+          b=s.index('\n}\n',a)+3
+          x=s[a:b]
+          old='''    uint32_t table = 0u;\n'''
+          assert old in x
+          x=x.replace(old,'',1)
+          old='''    if (status == VF2_OK) {\n        table = state << 20u;\n        status = vf2_model2a_read_u32(machine, table, &word);\n    }\n'''
+          new='''    if (status == VF2_OK) {\n        status = vf2_model2a_read_u32(machine, VF2_TIMER_BASE, &word);\n    }\n'''
+          assert old in x
+          x=x.replace(old,new,1)
+          x=x.replace('table + UINT32_C(4)', 'VF2_TIMER_BASE + UINT32_C(4)')
+          x=x.replace('table + UINT32_C(8)', 'VF2_TIMER_BASE + UINT32_C(8)')
+          x=x.replace('table + UINT32_C(0xc)', 'VF2_TIMER_BASE + UINT32_C(0xc)')
+          p.write_text(s[:a]+x+s[b:])
+          PY
+      - name: Test
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON && cmake --build build --parallel && ctest --test-dir build --output-on-failure
+      - name: Commit
+        shell: bash
+        run: |
+          rm -f .github/workflows/fix-selector3-random16.yml .github/workflows/dump-selector3-phase13.yml .github/workflows/dump-selector3-phase13-body.yml .github/workflows/dump-selector3-random16.yml .github/workflows/dump-model2a-read.yml
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/texture_bridge_match.c .github/workflows
+          git commit -m 'Fix selector3 random16 timer source'
+          git push origin HEAD:master
