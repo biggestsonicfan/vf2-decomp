@@ -23,6 +23,12 @@ jobs:
           path = Path('src/recovered/texture_bridge_condition.c')
           text = path.read_text()
 
+          boundary = '''#undef vf2_hybrid_post_frame_bridge_execute\n#undef vf2_hybrid_bridge_apply_condition_poststate\n'''
+          declarations = '''#undef vf2_hybrid_post_frame_bridge_execute\n#undef vf2_hybrid_bridge_apply_condition_poststate\n\n#include <string.h>\n\n#define VF2_SELECTOR3_DISPLAY_PROFILE_APPLY_ENTRY UINT32_C(0x0001fcc0)\n\nvf2_status execute_display_profile_apply(\n    vf2_model2a *machine,\n    vf2_i960_cpu *cpu,\n    vf2_hybrid_bridge_report *report\n);\n'''
+          if boundary not in text:
+              raise SystemExit('condition wrapper boundary not found')
+          text = text.replace(boundary, declarations, 1)
+
           start = text.index('static vf2_status selector3_apply_mode3_profile(')
           end = text.index('static vf2_status apply_selector3_phase0_bridge(', start)
           helper = r'''static vf2_status selector3_execute_display_profile_apply(
@@ -50,7 +56,7 @@ jobs:
               memset(&child, 0, sizeof(child));
               status = vf2_i960_cpu_enter_procedure(
                   cpu,
-                  VF2_DISPLAY_PROFILE_APPLY_ENTRY,
+                  VF2_SELECTOR3_DISPLAY_PROFILE_APPLY_ENTRY,
                   VF2_MAIN_POST_CLUSTER_ENTRY
               );
               if (status != VF2_OK) {
