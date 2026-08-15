@@ -1608,15 +1608,11 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500068), &value) == VF2_OK);
     CHECK((value & (UINT32_C(1) << 14u)) != 0u);
 
-    /* Phase thirteen uses the ROM PRNG table and reuses the gameplay task
-     * handoff with its two generated modes. */
+    /* Phase thirteen samples the four Model 2A timer words and reuses the
+     * gameplay task handoff with its two generated modes. */
     write_rom_u32(
         rom, UINT32_C(0x0000aac4) + UINT32_C(13 * 4), UINT32_C(0x0000bdc8)
     );
-    write_rom_u32(main_data, UINT32_C(0x00800000), UINT32_C(0));
-    write_rom_u32(main_data, UINT32_C(0x00800004), UINT32_C(0));
-    write_rom_u32(main_data, UINT32_C(0x00800008), UINT32_C(0));
-    write_rom_u32(main_data, UINT32_C(0x0080000c), UINT32_C(0));
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){13}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500098), UINT32_C(0x28)) == VF2_OK);
@@ -1627,7 +1623,7 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
     CHECK(selector == UINT8_C(14));
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500098), &value) == VF2_OK);
-    CHECK(value == UINT32_C(0x28));
+    CHECK(value == UINT32_C(0x32fcccf8));
 
     /* Phase fourteen exposes only the delayed 0x9444 text handoff; the timer
      * decrements while the phase remains stable. */

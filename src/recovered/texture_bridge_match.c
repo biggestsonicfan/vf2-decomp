@@ -8038,7 +8038,6 @@ static vf2_status execute_selector3_random16(
 )
 {
     uint32_t state = 0u;
-    uint32_t table = 0u;
     uint32_t value = 0u;
     uint32_t word = 0u;
     vf2_status status = VF2_OK;
@@ -8048,20 +8047,19 @@ static vf2_status execute_selector3_random16(
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00500098), &state);
     if (status == VF2_OK) {
-        table = state << 20u;
-        status = vf2_model2a_read_u32(machine, table, &word);
+        status = vf2_model2a_read_u32(machine, VF2_TIMER_BASE, &word);
     }
     if (status == VF2_OK) {
         value = state + (word << 4u);
-        status = vf2_model2a_read_u32(machine, table + UINT32_C(4), &word);
+        status = vf2_model2a_read_u32(machine, VF2_TIMER_BASE + UINT32_C(4), &word);
     }
     if (status == VF2_OK) {
         value += word << 8u;
-        status = vf2_model2a_read_u32(machine, table + UINT32_C(8), &word);
+        status = vf2_model2a_read_u32(machine, VF2_TIMER_BASE + UINT32_C(8), &word);
     }
     if (status == VF2_OK) {
         value += word << 12u;
-        status = vf2_model2a_read_u32(machine, table + UINT32_C(0xc), &word);
+        status = vf2_model2a_read_u32(machine, VF2_TIMER_BASE + UINT32_C(0xc), &word);
     }
     if (status == VF2_OK) {
         value += word << 16u;
