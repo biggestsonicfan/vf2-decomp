@@ -8830,6 +8830,11 @@ vf2_status execute_frame_dispatch_tick(
             cpu->registers[VF2_I960_G0_REGISTER + 7u] = UINT32_C(1);
             cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x01000f74);
             set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+            status = vf2_model2a_write_u32(
+                machine, cpu->registers[1] + UINT32_C(0x000000c0),
+                UINT32_C(0x010016da)
+            );
+            if (status != VF2_OK) return status;
             account_nested_procedure(cpu, UINT64_C(20), UINT64_C(20));
             status = finish_recovered_procedure(machine, cpu, UINT64_C(468818));
             if (status != VF2_OK) return status;
