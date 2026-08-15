@@ -8245,7 +8245,7 @@ static vf2_status execute_selector3_phase8(
     cpu->registers[15] = UINT32_MAX;
     cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x01000ef4);
     cpu->ip = VF2_INLINE_TEXT_THUNK_ENTRY;
-    set_equal_condition(cpu);
+    set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
     cpu->executed_instructions += UINT64_C(26);
     *handoff = 1;
     return VF2_OK;
