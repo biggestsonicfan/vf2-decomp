@@ -6617,9 +6617,10 @@ static vf2_status execute_selector3_phase1(
     return status;
 }
 
-static vf2_status execute_selector3_phase3_sound_event(vf2_model2a *machine)
+static vf2_status execute_selector3_sound_event(
+    vf2_model2a *machine, uint32_t event
+)
 {
-    uint32_t event = UINT32_C(0x00ad1001);
     uint32_t selector_mask = 0u;
     uint32_t base = 0u;
     uint32_t flags = 0u;
@@ -6740,7 +6741,7 @@ static vf2_status execute_selector3_phase3(
         );
     }
     if (status == VF2_OK && counter == UINT32_C(192)) {
-        status = execute_selector3_phase3_sound_event(machine);
+        status = execute_selector3_sound_event(machine, UINT32_C(0x00ad1001));
     }
     if (status == VF2_OK && (int32_t)counter > 0) {
         return VF2_OK;
@@ -7157,7 +7158,36 @@ static vf2_status execute_selector3_phase4(
     if (status == VF2_OK && recovered_initial_path) status = execute_selector3_phase4_timeline(machine);
     if (status == VF2_OK && recovered_initial_path) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500024), &counter);
     if (status == VF2_OK && recovered_initial_path) { --counter; status = vf2_model2a_write_u32(machine, UINT32_C(0x00500024), counter); }
-    if (status == VF2_OK && recovered_initial_path && counter == 0u) return VF2_ERROR_UNSUPPORTED;
+    if (status == VF2_OK && recovered_initial_path && counter == 0u) {
+        uint32_t fighter = 0u;
+        uint32_t fighter_flags = 0u;
+        uint32_t runtime_flags = 0u;
+        uint32_t slot = 0u;
+        uint8_t zero = 0u;
+
+        status = vf2_model2a_write(machine, UINT32_C(0x0050009c), &zero, sizeof(zero));
+        for (slot = 0u; status == VF2_OK && slot < UINT32_C(2); ++slot) {
+            status = vf2_model2a_read_u32(
+                machine, slot == 0u ? UINT32_C(0x00500804) : UINT32_C(0x00500808),
+                &fighter
+            );
+            if (status == VF2_OK) status = vf2_model2a_read_u32(machine, fighter, &fighter_flags);
+            if (status == VF2_OK) {
+                fighter_flags &= ~((UINT32_C(1) << 23u) | (UINT32_C(1) << 22u));
+                fighter_flags |= UINT32_C(1) << 26u;
+                status = vf2_model2a_write_u32(machine, fighter, fighter_flags);
+            }
+        }
+        if (status == VF2_OK) status = execute_selector3_sound_event(machine, UINT32_C(0x00bd1a60));
+        if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &runtime_flags);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x00508000), runtime_flags & ~(UINT32_C(1) << 16u)
+        );
+        if (status == VF2_OK) {
+            *next_phase = (uint8_t)(*next_phase + UINT8_C(1));
+            status = vf2_model2a_write(machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase));
+        }
+    }
     return status;
 }
 
@@ -8835,16 +8865,21 @@ vf2_status execute_frame_dispatch_tick(
                 UINT32_C(0x010016da)
             );
             if (status != VF2_OK) return status;
-            account_nested_procedure(cpu, UINT64_C(20), UINT64_C(20));
-            status = finish_recovered_procedure(machine, cpu, UINT64_C(468818));
-            if (status != VF2_OK) return status;
-            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
-            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
-            report->exit_address = cpu->ip;
-            report->iterations = UINT64_C(1);
-            report->recovered_instruction_count = UINT64_C(468818);
-            report->recovered_procedure_calls = UINT64_C(20);
-            report->recovered_procedure_returns = UINT64_C(21);
+            {
+                const int terminal = phase == UINT8_C(6);
+                const uint64_t calls = terminal ? UINT64_C(21) : UINT64_C(20);
+                const uint64_t instructions = terminal ? UINT64_C(468870) : UINT64_C(468818);
+                account_nested_procedure(cpu, calls, calls);
+                status = finish_recovered_procedure(machine, cpu, instructions);
+                if (status != VF2_OK) return status;
+                report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+                report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+                report->exit_address = cpu->ip;
+                report->iterations = UINT64_C(1);
+                report->recovered_instruction_count = instructions;
+                report->recovered_procedure_calls = calls;
+                report->recovered_procedure_returns = calls + UINT64_C(1);
+            }
             report->cpu_poststate_applied = 1;
             return VF2_OK;
         }
