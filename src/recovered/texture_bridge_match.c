@@ -8976,8 +8976,13 @@ vf2_status execute_frame_dispatch_tick(
         if (status == VF2_OK && entry_phase == UINT8_C(6)) {
             uint32_t base = 0u;
             uint32_t profile_flags = 0u;
+            uint32_t rows = 0u;
             uint32_t columns = 0u;
             uint32_t destination = UINT32_C(0x010055e0);
+            int16_t addend = 0;
+            int16_t word_mode = 0;
+            int32_t last_sample = 0;
+            int has_descriptor_poststate = 0;
 
             status = vf2_model2a_read_u32(
                 machine, UINT32_C(0x0050016c), &base
@@ -8991,9 +8996,44 @@ vf2_status execute_frame_dispatch_tick(
                 destination = UINT32_C(0x01005460);
             }
             if (status == VF2_OK) {
+                status = vf2_model2a_read(
+                    machine, UINT32_C(0x02a6c0da), &addend, sizeof(addend)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read(
+                    machine, UINT32_C(0x02a6c0da) + UINT32_C(2),
+                    &word_mode, sizeof(word_mode)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x02a6c0da) + UINT32_C(4), &rows
+                );
+            }
+            if (status == VF2_OK) {
                 status = vf2_model2a_read_u32(
                     machine, UINT32_C(0x02a6c0da) + UINT32_C(8), &columns
                 );
+            }
+            if (status == VF2_OK && rows != 0u && columns != 0u) {
+                const uint32_t sample_index = rows * columns - UINT32_C(1);
+                has_descriptor_poststate = 1;
+                if (word_mode == 0) {
+                    int8_t sample = 0;
+                    status = vf2_model2a_read(
+                        machine, UINT32_C(0x02a6c0da) + UINT32_C(12) +
+                            sample_index, &sample, sizeof(sample)
+                    );
+                    last_sample = (int32_t)sample;
+                } else {
+                    int16_t sample = 0;
+                    status = vf2_model2a_read(
+                        machine, UINT32_C(0x02a6c0da) + UINT32_C(12) +
+                            sample_index * UINT32_C(2), &sample, sizeof(sample)
+                    );
+                    last_sample = (int32_t)sample;
+                }
             }
             if (status == VF2_OK) {
                 status = vf2_model2a_write_u32(
@@ -9004,7 +9044,17 @@ vf2_status execute_frame_dispatch_tick(
             if (status != VF2_OK) return status;
 
             cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
             cpu->registers[VF2_I960_G0_REGISTER + 2u] = columns * UINT32_C(2);
+            if (has_descriptor_poststate) {
+                cpu->registers[VF2_I960_G0_REGISTER + 4u] =
+                    (uint32_t)(int32_t)addend;
+                cpu->registers[VF2_I960_G0_REGISTER + 5u] = 0u;
+                cpu->registers[VF2_I960_G0_REGISTER + 6u] =
+                    (uint32_t)(last_sample + (int32_t)addend);
+                cpu->registers[VF2_I960_G0_REGISTER + 7u] =
+                    (uint32_t)(int32_t)word_mode;
+            }
             cpu->registers[VF2_I960_G0_REGISTER + 9u] =
                 destination + columns * UINT32_C(2);
             set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
