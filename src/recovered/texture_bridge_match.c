@@ -9391,6 +9391,12 @@ vf2_status execute_frame_dispatch_tick(
                     last_sample = (int32_t)sample;
                 }
             }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, cpu->registers[1] + UINT32_C(0x000000c0),
+                    destination
+                );
+            }
             if (status != VF2_OK) return status;
 
             cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
