@@ -1,0 +1,107 @@
+name: Finish selector3 phase1
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/finish-selector3-phase1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch selector3 phase1
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/recovered/texture_bridge_match.c')
+          s = p.read_text()
+
+          # Fix 0x26ec semantics: bit1 clear uses the mode/color table;
+          # bit1 set uses the packed 0x3325..0x3328 RGB bytes.
+          old = '''    if (status == VF2_OK && (flags & (UINT32_C(1) << 1u)) != 0u) {\n        status = vf2_model2a_read(\n            machine, base + UINT32_C(0x3324), &mode, sizeof(mode)\n        );\n        if (status == VF2_OK && profile_class == UINT32_C(3)) {\n            *result = 0u;\n            return VF2_OK;\n        }\n        if (status == VF2_OK) {\n            status = vf2_model2a_read(\n                machine,\n                UINT32_C(0x000027ac) + (uint32_t)mode * UINT32_C(2) +\n                    (profile_class == UINT32_C(2) ? 0u : selector),\n                &byte_value, sizeof(byte_value)\n            );\n        }\n        table_index = (uint32_t)byte_value;\n        if (status == VF2_OK) {\n            status = vf2_model2a_read_u32(\n                machine, UINT32_C(0x000027e0) + table_index * UINT32_C(4),\n                result\n            );\n        }\n    } else if (status == VF2_OK) {\n        status = vf2_model2a_read(\n            machine,\n            base + UINT32_C(0x3325) +\n                (profile_class == 0u ? UINT32_C(2) : UINT32_C(0)),\n            &byte_value, sizeof(byte_value)\n        );\n        *result = (uint32_t)byte_value;\n        if (status == VF2_OK) {\n            status = vf2_model2a_read(\n                machine, base + UINT32_C(0x3326), &byte_value,\n                sizeof(byte_value)\n            );\n        }\n        if (status == VF2_OK) {\n            *result = (*result << 8u) | (uint32_t)byte_value;\n        }\n        if (status == VF2_OK) {\n            status = vf2_model2a_read(\n                machine,\n                base + UINT32_C(0x3327) +\n                    (profile_class == 0u ? UINT32_C(1) : UINT32_C(0)),\n                &byte_value, sizeof(byte_value)\n            );\n        }\n        if (status == VF2_OK) {\n            *result = (*result << 8u) | (uint32_t)byte_value;\n        }\n    }\n'''
+          new = '''    if (status == VF2_OK && (flags & (UINT32_C(1) << 1u)) == 0u) {\n        status = vf2_model2a_read(\n            machine, base + UINT32_C(0x3324), &mode, sizeof(mode)\n        );\n        if (status == VF2_OK && profile_class == UINT32_C(3)) {\n            *result = 0u;\n            return VF2_OK;\n        }\n        if (status == VF2_OK) {\n            status = vf2_model2a_read(\n                machine,\n                UINT32_C(0x000027ac) + (uint32_t)mode * UINT32_C(2) +\n                    (profile_class == UINT32_C(2) ? 0u : selector),\n                &byte_value, sizeof(byte_value)\n            );\n        }\n        table_index = (uint32_t)byte_value;\n        if (status == VF2_OK) {\n            status = vf2_model2a_read_u32(\n                machine, UINT32_C(0x000027e0) + table_index * UINT32_C(4),\n                result\n            );\n        }\n    } else if (status == VF2_OK) {\n        status = vf2_model2a_read(\n            machine, base + UINT32_C(0x3325), &byte_value, sizeof(byte_value)\n        );\n        *result = (uint32_t)byte_value;\n        if (status == VF2_OK) {\n            status = vf2_model2a_read(\n                machine, base + UINT32_C(0x3326), &byte_value,\n                sizeof(byte_value)\n            );\n        }\n        if (status == VF2_OK) {\n            *result = (*result << 8u) | (uint32_t)byte_value;\n        }\n        if (status == VF2_OK) {\n            status = vf2_model2a_read(\n                machine, base + UINT32_C(0x3327) + selector,\n                &byte_value, sizeof(byte_value)\n            );\n        }\n        if (status == VF2_OK) {\n            *result = (*result << 8u) | (uint32_t)byte_value;\n        }\n    }\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''    if (profile_class == UINT32_C(3)) {\n        *x_result = 0u;\n        *y_result = 0u;\n    } else if (profile_class == UINT32_C(2) &&\n               (flags & (UINT32_C(1) << 1u)) == 0u) {\n'''
+          new = '''    if (profile_class == UINT32_C(3)) {\n        *x_result = 0u;\n        *y_result = 0u;\n    } else if (profile_class == UINT32_C(2) &&\n               (flags & (UINT32_C(1) << 1u)) != 0u) {\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''static vf2_status execute_selector3_phase1(\n    vf2_model2a *machine,\n    vf2_i960_cpu *cpu,\n    uint8_t previous_phase,\n    uint8_t *next_phase\n)\n'''
+          new = '''static vf2_status execute_selector3_phase1(\n    vf2_model2a *machine,\n    vf2_i960_cpu *cpu,\n    uint8_t previous_phase,\n    uint8_t *next_phase,\n    int *profile_measure_called,\n    int *countdown_terminal,\n    uint32_t *measured_sum\n)\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''    if (cpu == NULL || next_phase == NULL) {\n        return VF2_ERROR_INVALID_ARGUMENT;\n    }\n    *next_phase = previous_phase;\n'''
+          new = '''    if (cpu == NULL || next_phase == NULL || profile_measure_called == NULL ||\n        countdown_terminal == NULL || measured_sum == NULL) {\n        return VF2_ERROR_INVALID_ARGUMENT;\n    }\n    *next_phase = previous_phase;\n    *profile_measure_called = 0;\n    *countdown_terminal = 0;\n    *measured_sum = 0u;\n'''
+          phase1 = s.index('static vf2_status execute_selector3_phase1(')
+          before, tail = s[:phase1], s[phase1:]
+          assert old in tail
+          s = before + tail.replace(old, new, 1)
+
+          old = '''    if (!countdown) {\n        status = execute_selector3_profile_measure(\n            machine, base, &x, &y\n        );\n'''
+          new = '''    if (!countdown) {\n        const uint32_t caller_sp = cpu->registers[1];\n\n        *profile_measure_called = 1;\n        /* 0xafe0 spills g0/g1 around 0x2584; 0x26ec spills g9.\n         * The two color lookups reuse the same child frame slot. */\n        status = vf2_model2a_write_u32(\n            machine, caller_sp + UINT32_C(0x80),\n            cpu->registers[VF2_I960_G0_REGISTER]\n        );\n        if (status == VF2_OK) {\n            status = vf2_model2a_write_u32(\n                machine, caller_sp + UINT32_C(0x84),\n                cpu->registers[VF2_I960_G0_REGISTER + 1u]\n            );\n        }\n        if (status == VF2_OK) {\n            status = vf2_model2a_write_u32(\n                machine, caller_sp + UINT32_C(0x140),\n                cpu->registers[VF2_I960_G0_REGISTER + 9u]\n            );\n        }\n        if (status == VF2_OK) {\n            status = execute_selector3_profile_measure(\n                machine, base, &x, &y\n            );\n        }\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''        if ((profile_flags & UINT32_C(1)) != 0u ||\n            (runtime_flags & (UINT32_C(1) << 1u)) == 0u) {\n            sum = x + y;\n        } else {\n            sum = x;\n        }\n        if (sum < UINT32_C(24)) {\n'''
+          new = '''        if ((profile_flags & UINT32_C(1)) != 0u ||\n            (runtime_flags & (UINT32_C(1) << 1u)) == 0u) {\n            sum = x + y;\n        } else {\n            sum = x;\n        }\n        *measured_sum = sum;\n        if (sum < UINT32_C(24)) {\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''    if (status == VF2_OK && (int32_t)counter <= 0) {\n        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));\n'''
+          new = '''    if (status == VF2_OK && (int32_t)counter <= 0) {\n        *countdown_terminal = 1;\n        *next_phase = (uint8_t)(previous_phase + UINT8_C(1));\n'''
+          phase1 = s.index('static vf2_status execute_selector3_phase1(')
+          nextfn = s.index('static vf2_status execute_selector3_phase3(', phase1)
+          segment=s[phase1:nextfn]
+          assert old in segment
+          s=s[:phase1]+segment.replace(old,new,1)+s[nextfn:]
+
+          # Track phase-1 branch metadata in the selector dispatcher.
+          old = '''        int fallback = 0;\n        int phase8_handoff = 0;\n'''
+          new = '''        int fallback = 0;\n        int phase8_handoff = 0;\n        int phase1_profile_measure_called = 0;\n        int phase1_countdown_terminal = 0;\n        uint32_t phase1_measured_sum = 0u;\n'''
+          assert old in s
+          s=s.replace(old,new,1)
+
+          # 0xacf8 wrapper side effects occur before every phase worker.
+          anchor = '''        if (phase == UINT8_C(0)) {\n            status = execute_selector3_mode0_special(\n'''
+          insert = '''        if (status == VF2_OK) {\n            status = vf2_model2a_write(\n                machine, UINT32_C(0x00500031), &entry_phase, sizeof(entry_phase)\n            );\n        }\n        if (status == VF2_OK) {\n            status = vf2_model2a_write_u32(\n                machine, UINT32_C(0x00500034),\n                (uint32_t)entry_phase << 1u\n            );\n        }\n        if (status != VF2_OK) {\n            return status;\n        }\n'''
+          assert anchor in s
+          s=s.replace(anchor,insert+anchor,1)
+
+          old = '''        } else if (phase == UINT8_C(1)) {\n            status = execute_selector3_phase1(\n                machine, cpu, phase, &phase\n            );\n'''
+          new = '''        } else if (phase == UINT8_C(1)) {\n            status = execute_selector3_phase1(\n                machine, cpu, phase, &phase,\n                &phase1_profile_measure_called,\n                &phase1_countdown_terminal,\n                &phase1_measured_sum\n            );\n'''
+          assert old in s
+          s=s.replace(old,new,1)
+
+          # Close the observed fast 0x1344 exit used by phase 1.  When both\n          # input gates are clear, 0x1344 returns -1 without side effects and\n          # 0xacf8 immediately returns instead of running common cleanup.\n          anchor = '''        if (status == VF2_OK && phase8_handoff) {\n'''
+          block = '''        if (status == VF2_OK && entry_phase == UINT8_C(1)) {\n            uint32_t system_flags = 0u;\n            uint32_t input_flags_1344 = 0u;\n            int fast_nonzero = 0;\n\n            status = vf2_model2a_read_u32(\n                machine, UINT32_C(0x00508000), &system_flags\n            );\n            if (status == VF2_OK && (system_flags & (UINT32_C(1) << 1u)) != 0u) {\n                fast_nonzero = 1;\n            } else if (status == VF2_OK) {\n                status = vf2_model2a_read_u32(\n                    machine, UINT32_C(0x00500700), &input_flags_1344\n                );\n                if (status == VF2_OK &&\n                    (input_flags_1344 & ((UINT32_C(1) << 4u) |\n                                         (UINT32_C(1) << 5u))) == 0u) {\n                    fast_nonzero = 1;\n                }\n            }\n            if (status != VF2_OK) {\n                return status;\n            }\n            if (fast_nonzero) {\n                const uint64_t calls = phase1_profile_measure_called\n                    ? UINT64_C(9) : UINT64_C(3);\n                uint64_t instructions = phase1_profile_measure_called\n                    ? (phase1_measured_sum < UINT32_C(24)\n                        ? UINT64_C(171) : UINT64_C(173))\n                    : UINT64_C(44);\n\n                if (phase1_countdown_terminal) {\n                    instructions += UINT64_C(3);\n                }\n                cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;\n                set_signed_condition(cpu, INT32_C(0), INT32_C(-1));\n                account_nested_procedure(cpu, calls, calls);\n                status = finish_recovered_procedure(machine, cpu, instructions);\n                if (status != VF2_OK) {\n                    return status;\n                }\n                report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;\n                report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;\n                report->exit_address = cpu->ip;\n                report->iterations = UINT64_C(1);\n                report->recovered_instruction_count = instructions;\n                report->recovered_procedure_calls = calls;\n                report->recovered_procedure_returns = calls + UINT64_C(1);\n                report->cpu_poststate_applied = 1;\n                return VF2_OK;\n            }\n        }\n'''
+          assert anchor in s
+          s=s.replace(anchor,block+anchor,1)
+
+          p.write_text(s)
+          PY
+      - name: Configure
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit
+        shell: bash
+        run: |
+          rm .github/workflows/finish-selector3-phase1.yml
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/texture_bridge_match.c .github/workflows/finish-selector3-phase1.yml
+          git commit -m 'Close selector3 phase1 fast-exit paths'
+          git push origin HEAD:master
