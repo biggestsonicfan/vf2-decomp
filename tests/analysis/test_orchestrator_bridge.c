@@ -1462,6 +1462,7 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){7}, 1u) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500168), VF2_MAIN_DATA_BASE) == VF2_OK);
+    write_rom_u32(main_data, UINT32_C(4), UINT32_C(0x12345678));
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500854), UINT32_C(0x00521300)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050085c), UINT32_C(0x00521304)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500860), UINT32_C(0x00521308)) == VF2_OK);
@@ -1476,7 +1477,7 @@ static void test_frame_dispatch_tick(void)
     CHECK(selector == UINT8_C(8));
     CHECK(read_test_u16(&machine, UINT32_C(0x00530026)) == UINT16_C(0xc000));
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x0050a00c), &value) == VF2_OK);
-    CHECK(value == VF2_MAIN_DATA_BASE + UINT32_C(4));
+    CHECK(value == UINT32_C(0x12345678));
 
     /* Phase eight is the delayed inline-text worker: its timer expires but
      * the opaque 0x9444 callback does not store a new phase here. */

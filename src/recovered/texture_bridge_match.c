@@ -7412,6 +7412,125 @@ static vf2_status execute_selector3_phase6(
     return status;
 }
 
+static vf2_status execute_selector3_phase7_pre_profile(
+    vf2_model2a *machine, uint32_t task0, uint32_t task1
+)
+{
+    uint32_t pointer = 0u;
+    uint32_t flags = 0u;
+    uint8_t zero = 0u;
+    uint8_t sixty_three = UINT8_C(0x63);
+    uint8_t copied = 0u;
+    vf2_status status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050086c), &pointer
+    );
+
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, pointer, &flags);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(
+        machine, pointer, flags | (UINT32_C(1) << 31u));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(
+        machine, pointer + UINT32_C(0x0c), UINT32_C(0x000640f4));
+
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, task0 + UINT32_C(0x69c), &zero, sizeof(zero));
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, task0 + UINT32_C(0x69d), &sixty_three, sizeof(sixty_three));
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, task1 + UINT32_C(0x69c), &zero, sizeof(zero));
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, task1 + UINT32_C(0x69d), &sixty_three, sizeof(sixty_three));
+
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, UINT32_C(0x00500057), &zero, sizeof(zero));
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, UINT32_C(0x00500058), &zero, sizeof(zero));
+    if (status == VF2_OK) status = vf2_model2a_read(
+        machine, UINT32_C(0x00500059), &copied, sizeof(copied));
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, UINT32_C(0x00500052), &copied, sizeof(copied));
+    return status;
+}
+
+static vf2_status execute_selector3_phase7_profile(
+    vf2_model2a *machine, vf2_i960_cpu *cpu, uint32_t task1
+)
+{
+    vf2_i960_cpu child;
+    vf2_hybrid_bridge_report child_report;
+    vf2_status status = VF2_OK;
+    uint32_t index = 0u;
+
+    child = *cpu;
+    child.registers[VF2_I960_G0_REGISTER + 7u] = task1;
+    memset(&child_report, 0, sizeof(child_report));
+    status = vf2_i960_cpu_enter_procedure(
+        &child, VF2_DISPLAY_PROFILE_APPLY_ENTRY, UINT32_C(0x00abcdef));
+    if (status != VF2_OK) return status;
+    child.executed_instructions += UINT64_C(1);
+    status = execute_display_profile_apply(machine, &child, &child_report);
+    if (status != VF2_OK || child.ip != UINT32_C(0x00abcdef))
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+
+    for (index = 0u; index < UINT32_C(10); ++index) {
+        cpu->registers[VF2_I960_G0_REGISTER + index] =
+            child.registers[VF2_I960_G0_REGISTER + index];
+    }
+    return VF2_OK;
+}
+
+static vf2_status execute_selector3_phase7_post_profile(vf2_model2a *machine)
+{
+    static const uint32_t clear31_ptrs[3] = {
+        UINT32_C(0x00500854), UINT32_C(0x0050085c), UINT32_C(0x00500860)
+    };
+    static const uint32_t clear3_ptrs[2] = {
+        UINT32_C(0x0050083c), UINT32_C(0x00500840)
+    };
+    uint32_t pointer = 0u;
+    uint32_t flags = 0u;
+    uint32_t index = 0u;
+    uint8_t thirteen = UINT8_C(13);
+    vf2_status status = VF2_OK;
+
+    for (index = 0u; status == VF2_OK && index < UINT32_C(3); ++index) {
+        status = vf2_model2a_read_u32(machine, clear31_ptrs[index], &pointer);
+        if (status == VF2_OK) status = vf2_model2a_read_u32(machine, pointer, &flags);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(
+            machine, pointer, flags & ~(UINT32_C(1) << 31u));
+    }
+    if (status == VF2_OK) status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500814), &pointer);
+    if (status == VF2_OK) status = vf2_model2a_write(
+        machine, pointer + UINT32_C(0x40), &thirteen, sizeof(thirteen));
+
+    for (index = 0u; status == VF2_OK && index < UINT32_C(2); ++index) {
+        status = vf2_model2a_read_u32(machine, clear3_ptrs[index], &pointer);
+        if (status == VF2_OK) status = vf2_model2a_read_u32(machine, pointer, &flags);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(
+            machine, pointer, flags & ~(UINT32_C(1) << 3u));
+    }
+
+    if (status == VF2_OK) status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500828), &pointer);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, pointer, &flags);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(
+        machine, pointer, flags | (UINT32_C(1) << 31u));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(
+        machine, pointer + UINT32_C(0x0c), UINT32_C(0x000221cc));
+
+    if (status == VF2_OK) status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050081c), &pointer);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, pointer, &flags);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(
+        machine, pointer, flags | (UINT32_C(1) << 31u));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(
+        machine, pointer + UINT32_C(0x0c), UINT32_C(0x0001b9ac));
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, pointer, &flags);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(
+        machine, pointer, flags | UINT32_C(3));
+    return status;
+}
+
 static vf2_status execute_selector3_phase7(
     vf2_model2a *machine,
     uint8_t previous_phase,
@@ -7472,8 +7591,13 @@ static vf2_status execute_selector3_phase7(
         );
     }
     if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, source + UINT32_C(4), &value
+        );
+    }
+    if (status == VF2_OK) {
         status = vf2_model2a_write_u32(
-            machine, UINT32_C(0x0050a00c), source + UINT32_C(4)
+            machine, UINT32_C(0x0050a00c), value
         );
     }
     if (status == VF2_OK) {
@@ -7614,6 +7738,9 @@ static vf2_status execute_selector3_phase7(
     if (status == VF2_OK) {
         status = vf2_model2a_write_u32(machine, task1 + UINT32_C(0x18),
                                        UINT32_C(0x3f800000));
+    }
+    if (status == VF2_OK) {
+        status = execute_selector3_phase7_pre_profile(machine, task0, task1);
     }
     if (status == VF2_OK) {
         status = vf2_model2a_write_u32(machine, UINT32_C(0x0050005c),
@@ -9069,6 +9196,32 @@ vf2_status execute_frame_dispatch_tick(
             report->recovered_instruction_count = UINT64_C(33867);
             report->recovered_procedure_calls = UINT64_C(6);
             report->recovered_procedure_returns = UINT64_C(7);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
+        if (status == VF2_OK && entry_phase == UINT8_C(7)) {
+            uint32_t task1 = 0u;
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00500808), &task1
+            );
+            if (status == VF2_OK)
+                status = execute_selector3_phase7_profile(machine, cpu, task1);
+            if (status == VF2_OK)
+                status = execute_selector3_phase7_post_profile(machine);
+            if (status != VF2_OK) return status;
+
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+            account_nested_procedure(cpu, UINT64_C(13), UINT64_C(13));
+            status = finish_recovered_procedure(machine, cpu, UINT64_C(90565));
+            if (status != VF2_OK) return status;
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = UINT64_C(90565);
+            report->recovered_procedure_calls = UINT64_C(13);
+            report->recovered_procedure_returns = UINT64_C(14);
             report->cpu_poststate_applied = 1;
             return VF2_OK;
         }
