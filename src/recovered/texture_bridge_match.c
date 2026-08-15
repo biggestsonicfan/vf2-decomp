@@ -5791,69 +5791,54 @@ static vf2_status execute_frame_phase17(
 }
 
 static vf2_status execute_selector3_display_text_at(
-    vf2_model2a *machine,
-    uint32_t source_base,
-    uint32_t destination_base
+    vf2_model2a *machine, uint32_t source_base, uint32_t destination_base
 )
 {
     int16_t addend = 0;
     int16_t word_mode = 0;
     uint16_t raw_addend = 0u;
-    uint16_t raw_word_mode = 0u;
-    uint32_t columns = 0u;
+    uint16_t raw_mode = 0u;
     uint32_t rows = 0u;
+    uint32_t columns = 0u;
+    uint32_t source = source_base + UINT32_C(12);
     uint32_t row = 0u;
-    uint32_t column = 0u;
-    vf2_status status = VF2_OK;
+    vf2_status status = read_u16(machine, source_base, &raw_addend);
 
-    status = read_u16(machine, source_base, &raw_addend);
     addend = (int16_t)raw_addend;
     if (status == VF2_OK) {
-        status = read_u16(machine, source_base + UINT32_C(2),
-                          &raw_word_mode);
-        word_mode = (int16_t)raw_word_mode;
+        status = read_u16(machine, source_base + UINT32_C(2), &raw_mode);
+        word_mode = (int16_t)raw_mode;
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, source_base + UINT32_C(4),
-                                      &columns);
+        status = vf2_model2a_read_u32(machine, source_base + UINT32_C(4), &rows);
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(machine, source_base + UINT32_C(8),
-                                      &rows);
+        status = vf2_model2a_read_u32(machine, source_base + UINT32_C(8), &columns);
     }
-    if (status != VF2_OK || columns > UINT32_C(0x1000) ||
-        rows > UINT32_C(0x1000)) {
+    if (status != VF2_OK || rows > UINT32_C(4096) || columns > UINT32_C(4096)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
-
     for (row = 0u; status == VF2_OK && row < rows; ++row) {
-        uint32_t source = source_base + UINT32_C(12);
-        uint32_t destination = destination_base + row * UINT32_C(0x100);
-
+        uint32_t column = 0u;
+        uint32_t destination = destination_base + row * UINT32_C(0x80);
         for (column = 0u; status == VF2_OK && column < columns; ++column) {
-            uint16_t sample = 0u;
-            uint16_t output = 0u;
-
+            int32_t sample = 0;
             if (word_mode == 0) {
-                uint8_t byte = 0u;
-
-                status = vf2_model2a_read(machine, source, &byte, sizeof(byte));
-                if (status != VF2_OK) {
-                    break;
-                }
-                output = (uint16_t)((int32_t)addend + (int32_t)byte);
+                uint8_t raw = 0u;
+                status = vf2_model2a_read(machine, source, &raw, sizeof(raw));
+                sample = (int32_t)(int8_t)raw;
                 source += UINT32_C(1);
             } else {
-                status = read_u16(machine, source, &sample);
-                if (status != VF2_OK) {
-                    break;
-                }
-                output = (uint16_t)((int32_t)addend +
-                                    (int32_t)(int16_t)sample);
+                uint16_t raw = 0u;
+                status = read_u16(machine, source, &raw);
+                sample = (int32_t)(int16_t)raw;
                 source += UINT32_C(2);
             }
-            status = write_u16(machine, destination, output);
-            destination += UINT32_C(2);
+            if (status == VF2_OK) {
+                status = write_u16(machine, destination,
+                    (uint16_t)((int32_t)addend + sample));
+                destination += UINT32_C(2);
+            }
         }
     }
     return status;
@@ -6153,9 +6138,15 @@ static vf2_status execute_selector3_mode0_prefix(vf2_model2a *machine)
         }
     }
     if (status == VF2_OK) {
-        status = clear_tile_plane_64x48(
-            machine, UINT32_C(0x01000000)
-        );
+        uint32_t row = 0u;
+        for (row = 0u; status == VF2_OK && row < UINT32_C(48); ++row) {
+            uint32_t column = 0u;
+            uint32_t destination = UINT32_C(0x01000000) + row * UINT32_C(0x80);
+            for (column = 0u; status == VF2_OK && column < UINT32_C(62); ++column) {
+                status = write_u16(machine, destination, UINT16_C(32));
+                destination += UINT32_C(2);
+            }
+        }
     }
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
@@ -7804,6 +7795,43 @@ static vf2_status execute_selector3_mode0_special(
     return status;
 }
 
+static vf2_status execute_selector3_phase0_profile(
+    vf2_model2a *machine, const vf2_i960_cpu *cpu
+)
+{
+    vf2_i960_cpu child;
+    vf2_hybrid_bridge_report child_report;
+    uint8_t first[16];
+    uint8_t second[16];
+    vf2_status status = VF2_OK;
+
+    status = vf2_model2a_read(machine, UINT32_C(0x000266f0), first, sizeof(first));
+    if (status == VF2_OK)
+        status = vf2_model2a_read(machine, UINT32_C(0x00026700), second, sizeof(second));
+    if (status == VF2_OK)
+        status = vf2_model2a_write(machine, UINT32_C(0x018004c0), first, sizeof(first));
+    if (status == VF2_OK)
+        status = vf2_model2a_write(machine, UINT32_C(0x018004e0), first, sizeof(first));
+    if (status == VF2_OK)
+        status = vf2_model2a_write(machine, UINT32_C(0x018004d0), second, sizeof(second));
+    if (status == VF2_OK)
+        status = vf2_model2a_write(machine, UINT32_C(0x018004f0), second, sizeof(second));
+    if (status != VF2_OK)
+        return status;
+
+    child = *cpu;
+    memset(&child_report, 0, sizeof(child_report));
+    status = vf2_i960_cpu_enter_procedure(
+        &child, VF2_DISPLAY_PROFILE_APPLY_ENTRY, UINT32_C(0x00abcdef));
+    if (status != VF2_OK)
+        return status;
+    child.executed_instructions += UINT64_C(1);
+    status = execute_display_profile_apply(machine, &child, &child_report);
+    if (status != VF2_OK || child.ip != UINT32_C(0x00abcdef))
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    return VF2_OK;
+}
+
 vf2_status execute_frame_dispatch_tick(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -8120,6 +8148,7 @@ vf2_status execute_frame_dispatch_tick(
     }
     if (selector == UINT8_C(3)) {
         uint8_t phase = 0u;
+        uint8_t entry_phase = 0u;
         uint32_t phase_target = 0u;
         int fallback = 0;
         int phase8_handoff = 0;
@@ -8130,6 +8159,7 @@ vf2_status execute_frame_dispatch_tick(
         status = vf2_model2a_read(machine, UINT32_C(0x00500030), &phase,
                                   sizeof(phase));
         if (status == VF2_OK) {
+            entry_phase = phase;
             status = vf2_model2a_read_u32(
                 machine, UINT32_C(0x0000aac4) + (uint32_t)phase * UINT32_C(4),
                 &phase_target
@@ -8246,8 +8276,51 @@ vf2_status execute_frame_dispatch_tick(
         }
         if (status == VF2_OK && fallback) {
             status = execute_frame_selector3_b0d8(
-                machine, phase, &phase, 1
+                machine, entry_phase == UINT8_C(0) ? UINT8_C(2) : phase,
+                &phase, 1
             );
+        }
+        if (status == VF2_OK && entry_phase == UINT8_C(0) && fallback) {
+            uint32_t player0 = 0u;
+            uint32_t player1 = 0u;
+
+            status = execute_selector3_phase0_profile(machine, cpu);
+            if (status == VF2_OK)
+                status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &player0);
+            if (status == VF2_OK)
+                status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &player1);
+            if (status != VF2_OK)
+                return status;
+
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0x0007ae10);
+            cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 3u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 4u] = UINT32_C(0xffff8000);
+            cpu->registers[VF2_I960_G0_REGISTER + 5u] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 6u] = UINT32_C(0xffff9300);
+            cpu->registers[VF2_I960_G0_REGISTER + 7u] = player1;
+            cpu->registers[VF2_I960_G0_REGISTER + 8u] = player0;
+            cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x0100407c);
+            set_signed_condition(cpu, INT32_C(1), INT32_C(0));
+
+            /* Measured complete ROM corridor: 123900 instructions,
+             * 15 calls, 16 returns. Child+call components are
+             * 12147 (8ef0), 21187 (8f1c), 11 (d918),
+             * 90373 (1fcc0 tree), 9 (1344), plus 173 direct/wrapper. */
+            account_nested_procedure(cpu, UINT64_C(15), UINT64_C(15));
+            status = finish_recovered_procedure(machine, cpu, UINT64_C(123900));
+            if (status != VF2_OK)
+                return status;
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = UINT64_C(123900);
+            report->recovered_procedure_calls = UINT64_C(15);
+            report->recovered_procedure_returns = UINT64_C(16);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
         }
         if (status == VF2_OK && phase8_handoff) {
             report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;

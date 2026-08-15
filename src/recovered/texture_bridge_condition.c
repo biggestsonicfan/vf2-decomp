@@ -498,9 +498,6 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     );
 
     if (status == VF2_OK) {
-        status = apply_selector3_phase0_bridge(machine, cpu, entry, report);
-    }
-    if (status == VF2_OK) {
         status = apply_selector2_queue_condition(machine, cpu, entry);
     }
     return status;
