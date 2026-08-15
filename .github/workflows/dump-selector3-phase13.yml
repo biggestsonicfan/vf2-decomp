@@ -1,0 +1,21 @@
+name: Dump selector3 phase13
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/dump-selector3-phase13.yml]
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
+              if n in s:
+                  i=s.index(n)
+                  print(s[max(0,i-7000):min(len(s),i+12000)])
+                  break
+          PY
