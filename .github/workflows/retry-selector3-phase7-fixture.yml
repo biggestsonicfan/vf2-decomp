@@ -22,7 +22,7 @@ jobs:
           p=Path('tests/analysis/test_orchestrator_bridge.c')
           s=p.read_text()
           old='''    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500168), VF2_MAIN_DATA_BASE) == VF2_OK);\n'''
-          new=old+'''    CHECK(vf2_model2a_write_u32(&machine, VF2_MAIN_DATA_BASE + UINT32_C(4), UINT32_C(0x12345678)) == VF2_OK);\n'''
+          new=old+'''    write_rom_u32(main_data, UINT32_C(4), UINT32_C(0x12345678));\n'''
           assert old in s
           s=s.replace(old,new,1)
           old='''    CHECK(value == VF2_MAIN_DATA_BASE + UINT32_C(4));\n'''
