@@ -15,11 +15,10 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import base64, re
+          import base64
           wf=Path('.github/workflows/close-selector3-phase7-b64.yml').read_text()
-          m=re.search(r"echo '([A-Za-z0-9+/=]+)' \\| base64 -d", wf)
-          assert m
-          exec(compile(base64.b64decode(m.group(1)), '/tmp/patch.py', 'exec'))
+          encoded=wf.split("echo '",1)[1].split("' | base64 -d",1)[0]
+          exec(compile(base64.b64decode(encoded), '/tmp/patch.py', 'exec'))
           p=Path('tests/analysis/test_orchestrator_bridge.c')
           s=p.read_text()
           old='''    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500168), VF2_MAIN_DATA_BASE) == VF2_OK);\n'''
