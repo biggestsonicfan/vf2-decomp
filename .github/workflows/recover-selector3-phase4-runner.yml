@@ -1,0 +1,46 @@
+name: Recover selector3 phase4 runner
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/recover-selector3-phase4-runner.yml
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply staged phase4 recovery
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          wf = Path('.github/workflows/recover-selector3-phase4.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = wf.index(marker) + len(marker)
+          end = wf.index("          PY\n", start)
+          script = wf[start:end]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in script.splitlines())
+          exec(compile(script, 'phase4_recovery.py', 'exec'))
+          PY
+      - name: Configure
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit
+        shell: bash
+        run: |
+          rm -f .github/workflows/recover-selector3-phase4.yml .github/workflows/recover-selector3-phase4-runner.yml .github/workflows/dump-selector3-phase4.yml
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/texture_bridge_match.c .github/workflows
+          git commit -m 'Recover selector3 phase4 initial path'
+          git push origin HEAD:master
