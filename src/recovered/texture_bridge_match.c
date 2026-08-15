@@ -7191,6 +7191,67 @@ static vf2_status execute_selector3_phase4(
     return status;
 }
 
+static vf2_status execute_selector3_phase5_timeline_observed(
+    vf2_model2a *machine, int *recovered
+)
+{
+    static const uint32_t slots[4] = {
+        UINT32_C(0x005001c8), UINT32_C(0x005001d0),
+        UINT32_C(0x005001cc), UINT32_C(0x005001d4)
+    };
+    static const uint32_t trigger_offsets[4] = {
+        UINT32_C(10), UINT32_C(4), UINT32_C(10), UINT32_C(4)
+    };
+    uint32_t total = 0u, timer = 0u, elapsed = 0u;
+    uint32_t pointers[4] = {0u,0u,0u,0u};
+    uint32_t event_pointer = 0u, fighter0 = 0u, fighter1 = 0u;
+    uint32_t value = 0u, flags = 0u;
+    uint16_t trigger = 0u;
+    uint8_t control = 0u;
+    uint32_t i = 0u;
+    vf2_status status = VF2_OK;
+
+    if (recovered == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    *recovered = 0;
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x0201f388), &total);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500024), &timer);
+    elapsed = total - timer;
+    for (i = 0u; status == VF2_OK && i < UINT32_C(4); ++i) {
+        status = vf2_model2a_read_u32(machine, slots[i], &pointers[i]);
+        if (status == VF2_OK) status = read_u16(machine, pointers[i] + trigger_offsets[i], &trigger);
+        if (status == VF2_OK && i == UINT32_C(1) && (uint32_t)trigger != elapsed) return VF2_OK;
+        if (status == VF2_OK && i != UINT32_C(1) && (uint32_t)trigger == elapsed) return VF2_OK;
+    }
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x005001e0), &event_pointer);
+    if (status == VF2_OK) status = read_u16(machine, event_pointer, &trigger);
+    if (status == VF2_OK && (uint32_t)trigger == elapsed) return VF2_OK;
+    if (status != VF2_OK) return status;
+
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &fighter0);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, pointers[1], &value);
+    if (status == VF2_OK && value != 0u) status = vf2_model2a_write_u32(machine, fighter0 + UINT32_C(0x194), value);
+    if (status == VF2_OK && value != 0u) status = vf2_model2a_read(machine, pointers[1] + UINT32_C(6), &control, sizeof(control));
+    if (status == VF2_OK && value != 0u) status = vf2_model2a_read_u32(machine, fighter0, &flags);
+    if (status == VF2_OK && value != 0u) {
+        flags |= UINT32_C(1) << 26u;
+        if (control != 0u) flags &= ~(UINT32_C(1) << 26u);
+        status = vf2_model2a_write_u32(machine, fighter0, flags);
+    }
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x005001d0), pointers[1] + UINT32_C(8));
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &fighter1);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, fighter0 + UINT32_C(0x18), &value);
+    if (status == VF2_OK && value == UINT32_C(0x447a0000)) {
+        status = vf2_model2a_read_u32(machine, fighter1, &flags);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, fighter1, flags | (UINT32_C(1) << 23u));
+    }
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, fighter1 + UINT32_C(0x18), &value);
+    if (status == VF2_OK && value == UINT32_C(0x447a0000)) {
+        status = vf2_model2a_read_u32(machine, fighter0, &flags);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, fighter0, flags | (UINT32_C(1) << 23u));
+    }
+    if (status == VF2_OK) *recovered = 1;
+    return status;
+}
 static vf2_status execute_selector3_phase5(
     vf2_model2a *machine,
     uint8_t previous_phase,
@@ -7201,13 +7262,15 @@ static vf2_status execute_selector3_phase5(
     uint32_t pointer = 0u;
     uint32_t flags = 0u;
     uint8_t zero = 0u;
+    int timeline_recovered = 0;
     vf2_status status = VF2_OK;
 
     if (next_phase == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     *next_phase = previous_phase;
-    status = vf2_model2a_read_u32(
+    status = execute_selector3_phase5_timeline_observed(machine, &timeline_recovered);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(
         machine, UINT32_C(0x00500024), &counter
     );
     if (status == VF2_OK) {
@@ -8882,6 +8945,33 @@ vf2_status execute_frame_dispatch_tick(
             }
             report->cpu_poststate_applied = 1;
             return VF2_OK;
+        }
+        if (status == VF2_OK && entry_phase == UINT8_C(5)) {
+            uint32_t total = 0u, timer = 0u, p = 0u;
+            uint32_t player0 = 0u;
+            status = vf2_model2a_read_u32(machine, UINT32_C(0x0201f388), &total);
+            if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500024), &timer);
+            if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x005001d0), &p);
+            if (status != VF2_OK) return status;
+            if (total - timer == UINT32_C(2) && p == UINT32_C(0x0201f5cc)) {
+                status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &player0);
+                if (status != VF2_OK) return status;
+                cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+                cpu->registers[VF2_I960_G0_REGISTER + 7u] = player0;
+                set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+                account_nested_procedure(cpu, UINT64_C(5), UINT64_C(5));
+                status = finish_recovered_procedure(machine, cpu, UINT64_C(81));
+                if (status != VF2_OK) return status;
+                report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+                report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+                report->exit_address = cpu->ip;
+                report->iterations = UINT64_C(1);
+                report->recovered_instruction_count = UINT64_C(81);
+                report->recovered_procedure_calls = UINT64_C(5);
+                report->recovered_procedure_returns = UINT64_C(6);
+                report->cpu_poststate_applied = 1;
+                return VF2_OK;
+            }
         }
         if (status == VF2_OK && phase8_handoff) {
             report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
