@@ -1,0 +1,45 @@
+name: Debug selector3 phase1
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/debug-selector3-phase1.yml
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply candidate patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          wf = Path('.github/workflows/finish-selector3-phase1-v2.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = wf.index(marker) + len(marker)
+          end = wf.index("          PY\n", start)
+          script = wf[start:end]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in script.splitlines())
+          exec(compile(script, 'phase1_v2_patch.py', 'exec'))
+
+          p=Path('tests/analysis/test_orchestrator_bridge.c')
+          s=p.read_text()
+          needle='''    CHECK(value == UINT32_C(1));\n\n    /* The alternate phase-one branch'''
+          repl='''    fprintf(stderr, "P1 countdown selector=%u phase=%u counter=%u\\n",\n            (unsigned)({ uint8_t q=0; vf2_model2a_read(&machine, UINT32_C(0x0050002a), &q, 1u); q; }),\n            (unsigned)selector, (unsigned)value);\n    CHECK(value == UINT32_C(1));\n\n    /* The alternate phase-one branch'''
+          assert needle in s
+          s=s.replace(needle,repl,1)
+          needle='''    CHECK(selector == UINT8_C(6));\n    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);'''
+          repl='''    fprintf(stderr, "P1 measure phase=%u counter-before-read=%u\\n", (unsigned)selector, (unsigned)value);\n    CHECK(selector == UINT8_C(6));\n    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);'''
+          assert needle in s
+          p.write_text(s.replace(needle,repl,1))
+          PY
+      - name: Configure
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON
+      - name: Build target
+        run: cmake --build build --target vf2_orchestrator_bridge_tests --parallel
+      - name: Run bridge test
+        run: ./build/vf2_orchestrator_bridge_tests
