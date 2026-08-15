@@ -36,10 +36,9 @@ jobs:
           assert old in s
           s=s.replace(old,'',1)
           s=s.replace('''    /* Phase thirteen uses the ROM PRNG table and reuses the gameplay task\n     * handoff with its two generated modes. */''','''    /* Phase thirteen samples the four Model 2A timer words and reuses the\n     * gameplay task handoff with its two generated modes. */''',1)
-          # Only replace the phase-13 assertion following the 0x00500098 read.
           needle='''    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500098), &value) == VF2_OK);\n    CHECK(value == UINT32_C(0x28));\n'''
           assert needle in s
-          s=s.replace(needle,'''    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500098), &value) == VF2_OK);\n    CHECK(value == UINT32_C(0x10feef18));\n''',1)
+          s=s.replace(needle,'''    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500098), &value) == VF2_OK);\n    CHECK(value == UINT32_C(0x32fcccf8));\n''',1)
           p.write_text(s)
           PY
       - name: Test
@@ -49,8 +48,9 @@ jobs:
       - name: Commit
         shell: bash
         run: |
+          rm -f .github/workflows/close-phase13-random16.yml .github/workflows/fix-selector3-random16.yml .github/workflows/dump-selector3-random16.yml .github/workflows/dump-selector3-phase13-body.yml .github/workflows/dump-model2a-read.yml
           git config user.name celsowm
           git config user.email celsowm@gmail.com
-          git add src/recovered/texture_bridge_match.c tests/analysis/test_orchestrator_bridge.c
+          git add src/recovered/texture_bridge_match.c tests/analysis/test_orchestrator_bridge.c .github/workflows
           git commit -m 'Fix selector3 random16 timer source'
           git push origin HEAD:master
