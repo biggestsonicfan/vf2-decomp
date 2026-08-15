@@ -7490,7 +7490,9 @@ static vf2_status execute_selector3_phase7_post_profile(vf2_model2a *machine)
     uint32_t flags = 0u;
     uint32_t index = 0u;
     uint8_t thirteen = UINT8_C(13);
-    vf2_status status = VF2_OK;
+    vf2_status status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0050a160), UINT32_C(0x3727c5ac)
+    );
 
     for (index = 0u; status == VF2_OK && index < UINT32_C(3); ++index) {
         status = vf2_model2a_read_u32(machine, clear31_ptrs[index], &pointer);
