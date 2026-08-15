@@ -7816,10 +7816,17 @@ static vf2_status execute_selector3_phase0_profile(
         status = vf2_model2a_write(machine, UINT32_C(0x018004d0), second, sizeof(second));
     if (status == VF2_OK)
         status = vf2_model2a_write(machine, UINT32_C(0x018004f0), second, sizeof(second));
+    if (status == VF2_OK)
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500034), UINT32_C(1));
+    if (status == VF2_OK)
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x005ff680), UINT32_C(0x01004000));
     if (status != VF2_OK)
         return status;
 
     child = *cpu;
+    /* 0x8f1c leaves g2 as the destination row width in bytes. 0x4b410,
+     * reached from 0x1fcc0, publishes that value in the command packet. */
+    child.registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(62 * 2);
     memset(&child_report, 0, sizeof(child_report));
     status = vf2_i960_cpu_enter_procedure(
         &child, VF2_DISPLAY_PROFILE_APPLY_ENTRY, UINT32_C(0x00abcdef));
