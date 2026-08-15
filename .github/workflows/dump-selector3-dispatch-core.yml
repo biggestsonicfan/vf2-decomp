@@ -1,0 +1,20 @@
+name: Dump selector3 dispatch core
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/dump-selector3-dispatch-core.yml]
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          a=s.index('if (selector == UINT8_C(3))')
+          b=s.index('if (selector == UINT8_C(4))',a)
+          x=s[a:b]
+          print(x)
+          PY
