@@ -27,10 +27,16 @@ jobs:
           p=Path('src/recovered/texture_bridge_match.c')
           s=p.read_text()
           s=s.replace('#include "recovery_internal.h"\n', '#include "recovery_internal.h"\n#include <stdio.h>\n', 1)
-          needle='''    if (status != VF2_OK) {\n        return status;\n    }\n    if (!countdown) {\n'''
+          dispatch=s.index('vf2_status execute_frame_dispatch_tick(')
+          body=s.index('{', dispatch)+1
+          s=s[:body]+'''\n    fprintf(stderr, "DISPATCH ip=%08x depth=%u\\n", (unsigned)cpu->ip, (unsigned)cpu->local_frame_depth);'''+s[body:]
+          needle='''    cpu->registers[3] = (uint32_t)selector;\n    selector_word = UINT32_C(1) << selector;\n'''
+          assert needle in s
+          s=s.replace(needle,'''    fprintf(stderr, "DISPATCH selector=%u\\n", (unsigned)selector);\n    cpu->registers[3] = (uint32_t)selector;\n    selector_word = UINT32_C(1) << selector;\n''',1)
           phase1=s.index('static vf2_status execute_selector3_phase1(')
           phase3=s.index('static vf2_status execute_selector3_phase3(', phase1)
           seg=s[phase1:phase3]
+          needle='''    if (status != VF2_OK) {\n        return status;\n    }\n    if (!countdown) {\n'''
           repl='''    if (status != VF2_OK) {\n        fprintf(stderr, "P1 status fail=%d mode=%u flags=%08x runtime=%08x input=%08x\\n", (int)status, (unsigned)mode, (unsigned)profile_flags, (unsigned)runtime_flags, (unsigned)input_flags);\n        return status;\n    }\n    fprintf(stderr, "P1 enter mode=%u flags=%08x runtime=%08x input=%08x countdown=%d\\n", (unsigned)mode, (unsigned)profile_flags, (unsigned)runtime_flags, (unsigned)input_flags, countdown);\n    if (!countdown) {\n'''
           assert needle in seg
           seg=seg.replace(needle,repl,1)
