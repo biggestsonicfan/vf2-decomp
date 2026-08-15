@@ -1,0 +1,19 @@
+name: Dump selector3 blit helper
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/dump-selector3-blit-helper.yml]
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          a=s.index('static vf2_status execute_selector3_display_text_at(')
+          b=s.index('\n}\n',a)+3
+          print(s[a:b])
+          PY
