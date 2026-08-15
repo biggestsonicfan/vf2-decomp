@@ -5945,7 +5945,7 @@ static vf2_status execute_selector3_profile_color(
             machine, base + UINT32_C(0x3320), &flags
         );
     }
-    if (status == VF2_OK && (flags & (UINT32_C(1) << 1u)) != 0u) {
+    if (status == VF2_OK && (flags & (UINT32_C(1) << 1u)) == 0u) {
         status = vf2_model2a_read(
             machine, base + UINT32_C(0x3324), &mode, sizeof(mode)
         );
@@ -5970,10 +5970,7 @@ static vf2_status execute_selector3_profile_color(
         }
     } else if (status == VF2_OK) {
         status = vf2_model2a_read(
-            machine,
-            base + UINT32_C(0x3325) +
-                (profile_class == 0u ? UINT32_C(2) : UINT32_C(0)),
-            &byte_value, sizeof(byte_value)
+            machine, base + UINT32_C(0x3325), &byte_value, sizeof(byte_value)
         );
         *result = (uint32_t)byte_value;
         if (status == VF2_OK) {
@@ -5987,9 +5984,7 @@ static vf2_status execute_selector3_profile_color(
         }
         if (status == VF2_OK) {
             status = vf2_model2a_read(
-                machine,
-                base + UINT32_C(0x3327) +
-                    (profile_class == 0u ? UINT32_C(1) : UINT32_C(0)),
+                machine, base + UINT32_C(0x3327) + selector,
                 &byte_value, sizeof(byte_value)
             );
         }
@@ -6476,14 +6471,13 @@ static vf2_status execute_selector3_profile_measure(
     }
     color0 = (color0 >> 16u) & UINT32_C(0xff);
     color1 = (color1 >> 16u) & UINT32_C(0xff);
-    if (color0 == 0u || color1 == 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
     if (profile_class == UINT32_C(3)) {
         *x_result = 0u;
         *y_result = 0u;
+    } else if (color0 == 0u || color1 == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
     } else if (profile_class == UINT32_C(2) &&
-               (flags & (UINT32_C(1) << 1u)) == 0u) {
+               (flags & (UINT32_C(1) << 1u)) != 0u) {
         *x_result = (first + second) / color0 + third;
         *y_result = fourth;
     } else {
@@ -6497,7 +6491,10 @@ static vf2_status execute_selector3_phase1(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
     uint8_t previous_phase,
-    uint8_t *next_phase
+    uint8_t *next_phase,
+    int *profile_measure_called,
+    int *countdown_terminal,
+    uint32_t *measured_sum
 )
 {
     uint32_t base = 0u;
@@ -6512,10 +6509,14 @@ static vf2_status execute_selector3_phase1(
     int countdown = 0;
     vf2_status status = VF2_OK;
 
-    if (cpu == NULL || next_phase == NULL) {
+    if (cpu == NULL || next_phase == NULL || profile_measure_called == NULL ||
+        countdown_terminal == NULL || measured_sum == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     *next_phase = previous_phase;
+    *profile_measure_called = 0;
+    *countdown_terminal = 0;
+    *measured_sum = 0u;
     status = vf2_model2a_read_u32(
         machine, UINT32_C(0x0050016c), &base
     );
@@ -6553,9 +6554,32 @@ static vf2_status execute_selector3_phase1(
         return status;
     }
     if (!countdown) {
-        status = execute_selector3_profile_measure(
-            machine, base, &x, &y
+        const uint32_t caller_sp = cpu->registers[1];
+
+        *profile_measure_called = 1;
+        /* 0xafe0 spills g0/g1 around 0x2584; 0x26ec spills g9.
+         * The two color lookups reuse the same child frame slot. */
+        status = vf2_model2a_write_u32(
+            machine, caller_sp + UINT32_C(0x80),
+            cpu->registers[VF2_I960_G0_REGISTER]
         );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, caller_sp + UINT32_C(0x84),
+                cpu->registers[VF2_I960_G0_REGISTER + 1u]
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, caller_sp + UINT32_C(0x140),
+                cpu->registers[VF2_I960_G0_REGISTER + 9u]
+            );
+        }
+        if (status == VF2_OK) {
+            status = execute_selector3_profile_measure(
+                machine, base, &x, &y
+            );
+        }
         if (status != VF2_OK) {
             return status;
         }
@@ -6567,6 +6591,7 @@ static vf2_status execute_selector3_phase1(
         } else {
             sum = x;
         }
+        *measured_sum = sum;
         if (sum < UINT32_C(24)) {
             *next_phase = UINT8_C(6);
             return vf2_model2a_write(
@@ -6585,6 +6610,7 @@ static vf2_status execute_selector3_phase1(
         );
     }
     if (status == VF2_OK && (int32_t)counter <= 0) {
+        *countdown_terminal = 1;
         *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
         status = vf2_model2a_write(
             machine, UINT32_C(0x00500030), next_phase, sizeof(*next_phase)
@@ -8159,6 +8185,9 @@ vf2_status execute_frame_dispatch_tick(
         uint32_t phase_target = 0u;
         int fallback = 0;
         int phase8_handoff = 0;
+        int phase1_profile_measure_called = 0;
+        int phase1_countdown_terminal = 0;
+        uint32_t phase1_measured_sum = 0u;
 
         if (target != UINT32_C(0x0000acf8)) {
             return VF2_ERROR_UNSUPPORTED;
@@ -8216,13 +8245,30 @@ vf2_status execute_frame_dispatch_tick(
              phase != UINT8_C(15))) {
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00500031), &entry_phase, sizeof(entry_phase)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x00500034),
+                (uint32_t)entry_phase << 1u
+            );
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
         if (phase == UINT8_C(0)) {
             status = execute_selector3_mode0_special(
                 machine, phase, &phase, &fallback
             );
         } else if (phase == UINT8_C(1)) {
             status = execute_selector3_phase1(
-                machine, cpu, phase, &phase
+                machine, cpu, phase, &phase,
+                &phase1_profile_measure_called,
+                &phase1_countdown_terminal,
+                &phase1_measured_sum
             );
         } else if (phase == UINT8_C(3)) {
             status = execute_selector3_phase3(
@@ -8328,6 +8374,58 @@ vf2_status execute_frame_dispatch_tick(
             report->recovered_procedure_returns = UINT64_C(16);
             report->cpu_poststate_applied = 1;
             return VF2_OK;
+        }
+        if (status == VF2_OK && entry_phase == UINT8_C(1)) {
+            uint32_t system_flags = 0u;
+            uint32_t input_flags_1344 = 0u;
+            int fast_nonzero = 0;
+
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00508000), &system_flags
+            );
+            if (status == VF2_OK && (system_flags & (UINT32_C(1) << 1u)) != 0u) {
+                fast_nonzero = 1;
+            } else if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00500700), &input_flags_1344
+                );
+                if (status == VF2_OK &&
+                    (input_flags_1344 & ((UINT32_C(1) << 4u) |
+                                         (UINT32_C(1) << 5u))) == 0u) {
+                    fast_nonzero = 1;
+                }
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            if (fast_nonzero) {
+                const uint64_t calls = phase1_profile_measure_called
+                    ? UINT64_C(9) : UINT64_C(3);
+                uint64_t instructions = phase1_profile_measure_called
+                    ? (phase1_measured_sum < UINT32_C(24)
+                        ? UINT64_C(171) : UINT64_C(173))
+                    : UINT64_C(44);
+
+                if (phase1_countdown_terminal) {
+                    instructions += UINT64_C(3);
+                }
+                cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+                set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+                account_nested_procedure(cpu, calls, calls);
+                status = finish_recovered_procedure(machine, cpu, instructions);
+                if (status != VF2_OK) {
+                    return status;
+                }
+                report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+                report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+                report->exit_address = cpu->ip;
+                report->iterations = UINT64_C(1);
+                report->recovered_instruction_count = instructions;
+                report->recovered_procedure_calls = calls;
+                report->recovered_procedure_returns = calls + UINT64_C(1);
+                report->cpu_poststate_applied = 1;
+                return VF2_OK;
+            }
         }
         if (status == VF2_OK && phase8_handoff) {
             report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;

@@ -1358,7 +1358,7 @@ static void test_frame_dispatch_tick(void)
     memset(&report, 0, sizeof(report));
     CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
     CHECK(vf2_model2a_read(&machine, UINT32_C(0x0050002a), &selector, 1u) == VF2_OK);
-    CHECK(selector == UINT8_C(4));
+    CHECK(selector == UINT8_C(3));
     CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
     CHECK(selector == UINT8_C(1));
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500024), &value) == VF2_OK);
