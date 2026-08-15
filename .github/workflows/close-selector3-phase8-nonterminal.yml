@@ -1,0 +1,37 @@
+name: Close selector3 phase8 nonterminal
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/close-selector3-phase8-nonterminal.yml]
+permissions:
+  contents: write
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch measured phase8 nonterminal corridor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/texture_bridge_match.c')
+          s=p.read_text()
+          marker='''        if (status == VF2_OK && phase8_handoff) {\n'''
+          assert marker in s
+          block='''        if (status == VF2_OK && entry_phase == UINT8_C(8) && !phase8_handoff) {\n            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;\n            set_signed_condition(cpu, INT32_C(0), INT32_C(-1));\n            account_nested_procedure(cpu, UINT64_C(3), UINT64_C(3));\n            status = finish_recovered_procedure(machine, cpu, UINT64_C(37));\n            if (status != VF2_OK) return status;\n\n            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;\n            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;\n            report->exit_address = cpu->ip;\n            report->iterations = UINT64_C(1);\n            report->recovered_instruction_count = UINT64_C(37);\n            report->recovered_procedure_calls = UINT64_C(3);\n            report->recovered_procedure_returns = UINT64_C(4);\n            report->cpu_poststate_applied = 1;\n            return VF2_OK;\n        }\n'''
+          s=s.replace(marker,block+marker,1)
+          p.write_text(s)
+          PY
+      - name: Test
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON && cmake --build build --parallel && ctest --test-dir build --output-on-failure
+      - name: Commit
+        run: |
+          rm -f .github/workflows/close-selector3-phase8-nonterminal.yml .github/workflows/dump-selector3-phase8.yml .github/workflows/dump-selector3-phase8-tail.yml
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/texture_bridge_match.c .github/workflows
+          git commit -m 'Close selector3 phase8 nonterminal path'
+          git push origin HEAD:master
