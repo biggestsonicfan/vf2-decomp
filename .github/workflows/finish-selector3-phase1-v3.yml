@@ -1,0 +1,69 @@
+name: Finish selector3 phase1 v3
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/finish-selector3-phase1-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply corrected phase1 recovery
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Reuse the validated v2 semantic patch, then fix the placement of
+          # the 0x1344 early-return block: it belongs after the phase worker.
+          wf = Path('.github/workflows/finish-selector3-phase1-v2.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = wf.index(marker) + len(marker)
+          end = wf.index("          PY\n", start)
+          script = wf[start:end]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in script.splitlines())
+          exec(compile(script, 'phase1_v2_patch.py', 'exec'))
+
+          p = Path('src/recovered/texture_bridge_match.c')
+          s = p.read_text()
+          branch = s.index('    if (selector == UINT8_C(3)) {')
+          worker = s.index('        if (phase == UINT8_C(0)) {', branch)
+          early = s.index('        if (status == VF2_OK && entry_phase == UINT8_C(1)) {', branch, worker)
+          early_end = worker
+          block = s[early:early_end]
+          s = s[:early] + s[early_end:]
+
+          branch = s.index('    if (selector == UINT8_C(3)) {')
+          fallback = s.index('        if (status == VF2_OK && fallback) {', branch)
+          handoff = s.index('        if (status == VF2_OK && phase8_handoff) {', fallback)
+          s = s[:handoff] + block + s[handoff:]
+          p.write_text(s)
+          PY
+      - name: Configure
+        env:
+          CC: clang
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit
+        shell: bash
+        run: |
+          rm -f \
+            .github/workflows/finish-selector3-phase1.yml \
+            .github/workflows/finish-selector3-phase1-v2.yml \
+            .github/workflows/finish-selector3-phase1-v3.yml \
+            .github/workflows/debug-selector3-phase1.yml \
+            .github/workflows/dump-selector3-phase1-candidate.yml
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/texture_bridge_match.c tests/analysis/test_orchestrator_bridge.c .github/workflows
+          git commit -m 'Close selector3 phase1 fast-exit paths'
+          git push origin HEAD:master
