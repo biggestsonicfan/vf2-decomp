@@ -24,6 +24,8 @@ jobs:
           s=s[:a]+x+s[b:]; p.write_text(s)
           PY
       - name: Configure build test
+        env:
+          CC: clang
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON && cmake --build build --parallel && ctest --test-dir build --output-on-failure
       - name: Commit
         run: rm -f .github/workflows/recover-selector3-phase4*.yml .github/workflows/dump-selector3-phase4.yml && git config user.name celsowm && git config user.email celsowm@gmail.com && git add src/recovered/texture_bridge_match.c .github/workflows && git commit -m 'Recover selector3 phase4 initial path' && git push origin HEAD:master
