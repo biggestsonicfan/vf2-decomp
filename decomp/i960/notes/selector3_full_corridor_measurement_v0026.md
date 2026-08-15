@@ -50,6 +50,14 @@ The ROM descriptor at `0x02a6c15e` is interpreted by `0x8f1c` as signed addend, 
 
 After the phase-zero worker, `0xacf8` calls `0x1344`. On the measured selector-3 state that helper returns nonzero, causing the ROM to return early from `0xacf8` instead of entering the common selector cleanup. The measured final selector/phase are therefore **selector 3 / phase 3**. This early-return behavior is the reason the old post-final-cluster correction had to undo selector/phase state after the fact.
 
-Implementation commit `f2f39dbfd4f24656bd344318031fceec6734e38f` moves this behavior into the selector-3 phase-zero dispatcher itself. Cleanup commit `085b997fec93e69c66dc6254f3df838c0925f286` removes the now-unreachable selector-3 post-final-cluster correction, including its `123638` instruction delta and residual call/return accounting. The cleanup was validated with the Clang ASan/UBSan configuration and `ctest` before commit.
+The first cleaned native whole-corridor comparison already matched the ROM accounting exactly at **123,900 / 15 / 16** and reduced the remaining snapshot difference to only three 32-bit side effects. Their origin was isolated by intermediate ROM snapshots:
 
-Full native-vs-ROM snapshot equivalence is validated separately after building the cleaned implementation.
+- `0x00500034` becomes `1` before entering `0x1fcc0`;
+- `0x005ff680` becomes `0x01004000` before entering `0x1fcc0`;
+- `0x005502ec` becomes `0x0000007c` inside `0x1fcc0` because `0x8f1c` leaves `g2 = 62 * 2`, and child `0x4b410` stores `g2` into the command packet.
+
+Running recovered `0x1fcc0` from the exact ROM profile-3 entry snapshot produces **90,372 instructions / 8 calls / 9 returns** and a complete snapshot match to the ROM exit, confirming the profile apply itself is recovered correctly. Commit `e231070820a05f36180d6427be1a0ed6980febec` moves the two pre-profile stores into phase zero and supplies the measured `g2=0x7c` child-entry value.
+
+Implementation commit `f2f39dbfd4f24656bd344318031fceec6734e38f` moves the phase-zero behavior into the selector-3 dispatcher. Cleanup commit `085b997fec93e69c66dc6254f3df838c0925f286` removes the now-unreachable selector-3 post-final-cluster correction, including its `123638` instruction delta and residual call/return accounting. The cleanup and side-effect fixes were validated with the Clang ASan/UBSan configuration and `ctest` before commit.
+
+Full native-vs-ROM snapshot equivalence is validated separately after building the side-effect-corrected implementation.
