@@ -1,0 +1,47 @@
+name: Fix selector3 final side effects
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/fix-selector3-final-side-effects.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply measured phase-zero side effects
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/recovered/texture_bridge_match.c')
+          s = p.read_text()
+
+          old = '''    if (status != VF2_OK)\n        return status;\n\n    child = *cpu;\n    memset(&child_report, 0, sizeof(child_report));\n    status = vf2_i960_cpu_enter_procedure(\n        &child, VF2_DISPLAY_PROFILE_APPLY_ENTRY, UINT32_C(0x00abcdef));\n'''
+          new = '''    if (status == VF2_OK)\n        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500034), UINT32_C(1));\n    if (status == VF2_OK)\n        status = vf2_model2a_write_u32(machine, UINT32_C(0x005ff680), UINT32_C(0x01004000));\n    if (status != VF2_OK)\n        return status;\n\n    child = *cpu;\n    /* 0x8f1c leaves g2 as the destination row width in bytes. 0x4b410,\n     * reached from 0x1fcc0, publishes that value in the command packet. */\n    child.registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(62 * 2);\n    memset(&child_report, 0, sizeof(child_report));\n    status = vf2_i960_cpu_enter_procedure(\n        &child, VF2_DISPLAY_PROFILE_APPLY_ENTRY, UINT32_C(0x00abcdef));\n'''
+          if old not in s:
+              raise SystemExit('phase0 profile anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit
+        shell: bash
+        run: |
+          rm .github/workflows/fix-selector3-final-side-effects.yml
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/texture_bridge_match.c .github/workflows/fix-selector3-final-side-effects.yml
+          git commit -m 'Match selector3 final cluster side effects'
+          git push origin HEAD:master
