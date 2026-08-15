@@ -7138,9 +7138,15 @@ static vf2_status execute_selector3_phase4(
         );
     }
     if (status == VF2_OK && (profile_flags & UINT32_C(1)) == 0u) {
-        status = execute_selector3_display_text(
-            machine, UINT32_C(0x02a6d8aa)
+        status = execute_selector3_display_text_at(
+            machine, UINT32_C(0x02a6d8aa), UINT32_C(0x010016da)
         );
+        if (status == VF2_OK) {
+            status = write_u16(machine, UINT32_C(0x01000ef4), UINT16_C(32));
+        }
+        if (status == VF2_OK) {
+            status = write_u16(machine, UINT32_C(0x01000ef6), UINT16_C(32));
+        }
     }
     if (status == VF2_OK) {
         *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
