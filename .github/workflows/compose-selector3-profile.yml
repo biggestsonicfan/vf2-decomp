@@ -1,0 +1,183 @@
+name: Temporary selector3 profile composition
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/compose-selector3-profile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose recovered display profile apply into selector3 bridge
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/texture_bridge_condition.c')
+          text = path.read_text()
+
+          start = text.index('static vf2_status selector3_apply_mode3_profile(')
+          end = text.index('static vf2_status apply_selector3_phase0_bridge(', start)
+          helper = r'''static vf2_status selector3_execute_display_profile_apply(
+              vf2_model2a *machine,
+              vf2_i960_cpu *cpu,
+              uint64_t *instructions,
+              uint64_t *calls,
+              uint64_t *returns
+          )
+          {
+              vf2_i960_cpu saved_cpu;
+              vf2_hybrid_bridge_report child;
+              uint64_t executed_after = 0u;
+              uint64_t calls_after = 0u;
+              uint64_t returns_after = 0u;
+              uint32_t maximum_depth_after = 0u;
+              vf2_status status = VF2_OK;
+
+              if (machine == NULL || cpu == NULL || instructions == NULL ||
+                  calls == NULL || returns == NULL) {
+                  return VF2_ERROR_INVALID_ARGUMENT;
+              }
+
+              saved_cpu = *cpu;
+              memset(&child, 0, sizeof(child));
+              status = vf2_i960_cpu_enter_procedure(
+                  cpu,
+                  VF2_DISPLAY_PROFILE_APPLY_ENTRY,
+                  VF2_MAIN_POST_CLUSTER_ENTRY
+              );
+              if (status != VF2_OK) {
+                  *cpu = saved_cpu;
+                  return status;
+              }
+
+              /* The recovered procedure report starts at its entry. The outer
+               * call instruction belongs to the still-composed selector-3
+               * corridor, so account it explicitly while peeling this child. */
+              cpu->executed_instructions += UINT64_C(1);
+              status = execute_display_profile_apply(machine, cpu, &child);
+              if (status != VF2_OK || cpu->ip != VF2_MAIN_POST_CLUSTER_ENTRY) {
+                  *cpu = saved_cpu;
+                  return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+              }
+
+              *instructions = child.recovered_instruction_count + UINT64_C(1);
+              *calls = child.recovered_procedure_calls + UINT64_C(1);
+              *returns = child.recovered_procedure_returns;
+              executed_after = cpu->executed_instructions;
+              calls_after = cpu->procedure_calls;
+              returns_after = cpu->procedure_returns;
+              maximum_depth_after = cpu->maximum_local_frame_depth;
+
+              /* The remaining selector-3 tail still owns the final CPU
+               * poststate. Keep the proven memory effects and accounting from
+               * display_profile_apply, but preserve the caller-visible CPU
+               * state until that outer tail is recovered as well. */
+              *cpu = saved_cpu;
+              cpu->executed_instructions = executed_after;
+              cpu->procedure_calls = calls_after;
+              cpu->procedure_returns = returns_after;
+              if (maximum_depth_after > cpu->maximum_local_frame_depth) {
+                  cpu->maximum_local_frame_depth = maximum_depth_after;
+              }
+              return VF2_OK;
+          }
+
+          '''
+          text = text[:start] + helper + text[end:]
+
+          old_vars = '''    uint8_t selector = UINT8_C(3);\n    uint8_t zero = 0u;\n    uint8_t three = UINT8_C(3);\n    vf2_status status = VF2_OK;'''
+          new_vars = '''    uint8_t selector = UINT8_C(3);\n    uint8_t zero = 0u;\n    uint8_t three = UINT8_C(3);\n    uint64_t profile_instructions = 0u;\n    uint64_t profile_calls = 0u;\n    uint64_t profile_returns = 0u;\n    uint64_t residual_instructions = 0u;\n    uint64_t residual_calls = 0u;\n    uint64_t residual_returns = 0u;\n    vf2_status status = VF2_OK;'''
+          if old_vars not in text:
+              raise SystemExit('selector3 variable block not found')
+          text = text.replace(old_vars, new_vars, 1)
+
+          old_call = '''    if (status == VF2_OK) {\n        status = selector3_apply_mode3_profile(machine);\n    }'''
+          new_call = '''    if (status == VF2_OK) {\n        status = selector3_execute_display_profile_apply(\n            machine, cpu,\n            &profile_instructions, &profile_calls, &profile_returns\n        );\n    }'''
+          if old_call not in text:
+              raise SystemExit('selector3 profile call not found')
+          text = text.replace(old_call, new_call, 1)
+
+          old_account = '''    cpu->executed_instructions += VF2_SELECTOR3_INSTRUCTION_DELTA;\n    cpu->procedure_calls += VF2_SELECTOR3_CALL_DELTA;\n    cpu->procedure_returns += VF2_SELECTOR3_RETURN_DELTA;\n    report->recovered_instruction_count += VF2_SELECTOR3_INSTRUCTION_DELTA;\n    report->recovered_procedure_calls += VF2_SELECTOR3_CALL_DELTA;\n    report->recovered_procedure_returns += VF2_SELECTOR3_RETURN_DELTA;'''
+          new_account = '''    if (profile_instructions > VF2_SELECTOR3_INSTRUCTION_DELTA ||\n        profile_calls > VF2_SELECTOR3_CALL_DELTA ||\n        profile_returns > VF2_SELECTOR3_RETURN_DELTA) {\n        return VF2_ERROR_UNSUPPORTED;\n    }\n    residual_instructions =\n        VF2_SELECTOR3_INSTRUCTION_DELTA - profile_instructions;\n    residual_calls = VF2_SELECTOR3_CALL_DELTA - profile_calls;\n    residual_returns = VF2_SELECTOR3_RETURN_DELTA - profile_returns;\n\n    cpu->executed_instructions += residual_instructions;\n    cpu->procedure_calls += residual_calls;\n    cpu->procedure_returns += residual_returns;\n    report->recovered_instruction_count +=\n        profile_instructions + residual_instructions;\n    report->recovered_procedure_calls += profile_calls + residual_calls;\n    report->recovered_procedure_returns += profile_returns + residual_returns;'''
+          if old_account not in text:
+              raise SystemExit('selector3 accounting block not found')
+          text = text.replace(old_account, new_account, 1)
+
+          if 'selector3_apply_mode3_profile' in text:
+              raise SystemExit('old synthetic profile helper still referenced')
+          path.write_text(text)
+
+          note = Path('decomp/i960/notes/selector3_profile_composition_v0026.md')
+          note.write_text(r'''# Selector-3 display-profile composition (v0.0.26)
+
+The selector-3 final-cluster bridge no longer emulates display setup through the hard-coded `selector3_apply_mode3_profile()` poststate.
+
+It now enters and executes the recovered `display_profile_apply` procedure at `0x0001fcc0`, including its recovered children:
+
+```text
+0x0001ff0c  display_profile_mode_constants
+0x0001fee4  display_profile_unit_fill
+0x0001fffc  display_color_profile_apply
+0x00002c38  color_table_rebuild
+0x0004b410  video_command_submit
+0x0002eab8  display_runtime_initialize
+0x00031004  display_transform_defaults
+0x00011704  video_table_expand_128
+```
+
+For the controlled profile-0 runtime vector documented in `display_profile_apply_profile0_measurement_v0026.md`, this composition peels:
+
+```text
+90,373 instructions  (outer call + 90,372 recovered procedure instructions)
+9 calls              (outer call + 8 nested calls)
+9 returns
+```
+
+from the former synthetic aggregate:
+
+```text
+123,638 instructions
+15 calls
+15 returns
+```
+
+leaving, for that vector, an opaque selector-3 residual of:
+
+```text
+33,265 instructions
+6 calls
+6 returns
+```
+
+The residual is calculated from the child report instead of hard-coding `33,265`, so alternate semantically supported profiles retain correct recovered accounting.
+
+The outer bridge still restores its previously proven CPU poststate after the recovered child because the code between this call and the final-cluster exit remains synthetic. Memory side effects from the recovered child are retained. This makes the boundary explicit: display-profile memory semantics and accounting are recovered, while the remaining tail still owns final register state until it is peeled separately.
+''')
+          PY
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit composed bridge
+        shell: bash
+        run: |
+          rm .github/workflows/compose-selector3-profile.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recovered/texture_bridge_condition.c decomp/i960/notes/selector3_profile_composition_v0026.md .github/workflows/compose-selector3-profile.yml
+          git commit -m "Compose display profile recovery into selector3 bridge"
+          git push origin HEAD:master
