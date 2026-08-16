@@ -1,0 +1,19 @@
+name: Apply selector17 index5 coin controls
+on: [push]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/apply_phase17_index5_coin_controls.py
+      - run: rm .github/workflows/apply-phase17-index5-coin-controls.yml scripts/apply_phase17_index5_coin_controls.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recovered/texture_bridge_match.c .github/workflows/apply-phase17-index5-coin-controls.yml scripts/apply_phase17_index5_coin_controls.py
+          git commit -m "Recover selector17 index5 coin controls"
+          git push
