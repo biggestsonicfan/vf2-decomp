@@ -2350,15 +2350,27 @@ static vf2_status execute_frame_phase17_bit7_index2(
     uint8_t flagged_phase_index
 )
 {
+    static const uint32_t base_input = UINT32_C(0x0ff7f700);
+    static const uint32_t up_input = UINT32_C(0x0ff7e700);
+    static const uint32_t down_input = UINT32_C(0x0ff7d700);
     uint32_t indirect_target = 0u;
     uint32_t input_flags = 0u;
     uint32_t navigation_flags = 0u;
     uint32_t released_flags = 0u;
     uint32_t previous_flags = 0u;
     uint32_t selector_mask = 0u;
+    uint32_t sound_control = 0u;
     uint8_t phase_a5 = 0u;
     uint8_t phase_a6 = 0u;
     const uint8_t spill = UINT8_C(0x56);
+    int selection_up = 0;
+    int selection_down = 0;
+    int punch4 = 0;
+    int punch8 = 0;
+    int diagnostic_exit = 0;
+    uint64_t instructions = UINT64_C(1844);
+    uint64_t calls = UINT64_C(12);
+    const char *status_line = "No.  0   Advertise                      ";
     vf2_status status = VF2_OK;
 
     if (flagged_phase_index != UINT8_C(0x82) ||
@@ -2394,6 +2406,11 @@ static vf2_status execute_frame_phase17_bit7_index2(
         );
     }
     if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500864), &sound_control
+        );
+    }
+    if (status == VF2_OK) {
         status = vf2_model2a_read(
             machine, UINT32_C(0x005000a5), &phase_a5, sizeof(phase_a5)
         );
@@ -2404,15 +2421,25 @@ static vf2_status execute_frame_phase17_bit7_index2(
         );
     }
     if (status != VF2_OK || indirect_target != UINT32_C(0x00059800) ||
-        input_flags != UINT32_C(0x0ff7f700) ||
-        (navigation_flags != 0u && navigation_flags != UINT32_C(4)) ||
-        released_flags != 0u || previous_flags != UINT32_C(0x0ff7f700) ||
+        released_flags != 0u || previous_flags != base_input ||
         selector_mask != UINT32_C(0x00020000) || phase_a5 != 0u ||
-        phase_a6 != UINT8_C(0xff)) {
+        phase_a6 != UINT8_C(0xff) || sound_control == 0u) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    if (navigation_flags == UINT32_C(4)) {
+    selection_up = input_flags == up_input && navigation_flags == 0u;
+    selection_down = input_flags == down_input && navigation_flags == 0u;
+    punch4 = input_flags == base_input && navigation_flags == UINT32_C(0x10);
+    punch8 = input_flags == base_input && navigation_flags == UINT32_C(0x100);
+    diagnostic_exit =
+        input_flags == base_input && navigation_flags == UINT32_C(4);
+    if (!(input_flags == base_input && navigation_flags == 0u) &&
+        !selection_up && !selection_down && !punch4 && !punch8 &&
+        !diagnostic_exit) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    if (diagnostic_exit) {
         static const uint32_t extra_text_records[3] = {
             UINT32_C(0x0005ff08), UINT32_C(0x0005ff14),
             UINT32_C(0x0005ff18)
@@ -2429,11 +2456,8 @@ static vf2_status execute_frame_phase17_bit7_index2(
         uint32_t last_source = 0u;
         uint32_t last_destination = 0u;
         uint64_t characters = 0u;
-        size_t command_index = 0u;
+        size_t index = 0u;
 
-        /* 0x598b4 handles TEST by issuing the five measured stop commands,
-         * then returns non-equal so 0x59804 enters the shared 0x5f140
-         * diagnostic teardown. */
         status = vf2_model2a_write(
             machine, UINT32_C(0x00504001), &queue_cursor,
             sizeof(queue_cursor)
@@ -2444,12 +2468,11 @@ static vf2_status execute_frame_phase17_bit7_index2(
                 sizeof(queue_cursor)
             );
         }
-        for (command_index = 0u; status == VF2_OK && command_index < 5u;
-             ++command_index) {
+        for (index = 0u; status == VF2_OK && index < 5u; ++index) {
             status = vf2_model2a_write_u32(
                 machine,
-                UINT32_C(0x0050402c) + (uint32_t)command_index * UINT32_C(4),
-                stop_commands[command_index]
+                UINT32_C(0x0050402c) + (uint32_t)index * UINT32_C(4),
+                stop_commands[index]
             );
         }
         if (status == VF2_OK) {
@@ -2463,9 +2486,7 @@ static vf2_status execute_frame_phase17_bit7_index2(
         }
         if (status == VF2_OK) {
             status = vf2_model2a_read_u32(
-                machine,
-                UINT32_C(0x0005feac) + UINT32_C(16),
-                &record
+                machine, UINT32_C(0x0005feac) + UINT32_C(16), &record
             );
         }
         if (status == VF2_OK) {
@@ -2479,12 +2500,10 @@ static vf2_status execute_frame_phase17_bit7_index2(
                 machine, destination - UINT32_C(4), UINT16_C(0x801c)
             );
         }
-        for (command_index = 0u; status == VF2_OK && command_index < 12u;
-             ++command_index) {
+        for (index = 0u; status == VF2_OK && index < 12u; ++index) {
             status = vf2_model2a_read_u32(
                 machine,
-                UINT32_C(0x0005feac) +
-                    (uint32_t)command_index * UINT32_C(8),
+                UINT32_C(0x0005feac) + (uint32_t)index * UINT32_C(8),
                 &record
             );
             if (status == VF2_OK) {
@@ -2494,10 +2513,9 @@ static vf2_status execute_frame_phase17_bit7_index2(
                 );
             }
         }
-        for (command_index = 0u; status == VF2_OK && command_index < 3u;
-             ++command_index) {
+        for (index = 0u; status == VF2_OK && index < 3u; ++index) {
             status = vf2_model2a_read_u32(
-                machine, extra_text_records[command_index], &record
+                machine, extra_text_records[index], &record
             );
             if (status == VF2_OK) {
                 status = phase16_copy_text_record(
@@ -2517,7 +2535,6 @@ static vf2_status execute_frame_phase17_bit7_index2(
         if (status != VF2_OK) {
             return status;
         }
-
         cpu->executed_instructions += UINT64_C(14450);
         cpu->procedure_calls += UINT64_C(24);
         cpu->procedure_returns += UINT64_C(24);
@@ -2558,7 +2575,6 @@ static vf2_status execute_frame_phase17_bit7_index2(
         cpu->registers[30] = UINT32_C(0x00000220);
         cpu->registers[31] = UINT32_C(0x005ff500);
         set_equal_condition(cpu);
-
         report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
         report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
         report->exit_address = cpu->ip;
@@ -2575,9 +2591,46 @@ static vf2_status execute_frame_phase17_bit7_index2(
         return VF2_OK;
     }
 
+    if (selection_up) {
+        status_line = "No.296   Wo13                           ";
+        instructions = UINT64_C(1482);
+        calls = UINT64_C(11);
+        status = write_u16(
+            machine, sound_control + UINT32_C(0x80), UINT16_C(296)
+        );
+    } else if (selection_down) {
+        status_line = "No.  1   stage clear                    ";
+        instructions = UINT64_C(1538);
+        calls = UINT64_C(11);
+        status = write_u16(
+            machine, sound_control + UINT32_C(0x80), UINT16_C(1)
+        );
+    } else if (punch4 || punch8) {
+        const uint8_t queue_cursor = UINT8_C(4);
+        instructions = punch4 ? UINT64_C(1873) : UINT64_C(1872);
+        calls = UINT64_C(13);
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00504001), &queue_cursor,
+            sizeof(queue_cursor)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x00504003), &queue_cursor,
+                sizeof(queue_cursor)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x0050402c), UINT32_C(0x00ad1001)
+            );
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
     status = write_phase17_index0_text(
-        machine, UINT32_C(23 * 0x80), UINT32_C(15),
-        "No.  0   Advertise                      "
+        machine, UINT32_C(23 * 0x80), UINT32_C(15), status_line
     );
     if (status == VF2_OK) {
         status = write_phase17_index0_text(
@@ -2609,14 +2662,13 @@ static vf2_status execute_frame_phase17_bit7_index2(
         return status;
     }
 
-    cpu->executed_instructions += UINT64_C(1844);
-    cpu->procedure_calls += UINT64_C(12);
-    cpu->procedure_returns += UINT64_C(12);
+    cpu->executed_instructions += instructions;
+    cpu->procedure_calls += calls;
+    cpu->procedure_returns += calls;
     status = vf2_i960_cpu_return_procedure(cpu, machine);
     if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a010)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
-
     cpu->registers[0] = 0u;
     cpu->registers[1] = UINT32_C(0x005ff580);
     cpu->registers[2] = UINT32_C(0x0000a010);
@@ -2659,9 +2711,9 @@ static vf2_status execute_frame_phase17_bit7_index2(
     report->iterations = UINT64_C(1);
     report->changed_values = UINT64_C(149);
     report->bytes_written = 295u;
-    report->recovered_instruction_count = UINT64_C(1844);
-    report->recovered_procedure_calls = UINT64_C(12);
-    report->recovered_procedure_returns = UINT64_C(13);
+    report->recovered_instruction_count = instructions;
+    report->recovered_procedure_calls = calls;
+    report->recovered_procedure_returns = calls + UINT64_C(1);
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }
