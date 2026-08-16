@@ -67,3 +67,20 @@ EXIT, COIN TO CREDIT, BONUS ADDER, COIN CHUTE #1 MULTIPLIER, and COIN CHUTE #2
 MULTIPLIER. The four editable values live at `0x3325..0x3328`, each wrapping
 over 0..8. An edit sets bit 1 of the mode word through `0x0005c7fc` and then
 recomputes the same 15-byte coin checksum.
+
+The manual values use a compact `displayed quantity - 1` encoding. COIN TO
+CREDIT `0..8` means 1..9 coins are required for one credit. BONUS ADDER zero is
+`NO BONUS ADDER`; values 1..8 mean 2..9 coins give one extra coin. Each chute
+multiplier `0..8` means one physical coin counts as 1..9 logical coins for that
+chute. `0x0005c828` renders these rules directly as text, for example
+`2 COINS 1 CREDIT`, `2 COINS GIVE 1 EXTRA COIN`, or
+`1 COIN COUNTS AS 2 COINS`.
+
+The recovered manual controller now covers `a7=1..4` idle/+/- using one shared
+0..8 circular editor. Idle consumes 2,266 instructions/18 calls/19 returns.
+A + edit consumes 2,475 instructions/20 calls/21 returns; - consumes 2,473 with
+the same call/return counts. All edits mirror the selected byte, set manual-mode
+bit 1 in both work RAM and backup SRAM, and recompute the same 15-byte checksum.
+The measured default-to-1/default-to-8 checksums are `0x2877`/`0x0d79` for
+COIN TO CREDIT, `0xac11`/`0x6ecd` for BONUS ADDER, `0x00e1`/`0x59e8` for chute
+#1 multiplier, and `0xff53`/`0xd49f` for chute #2 multiplier.
