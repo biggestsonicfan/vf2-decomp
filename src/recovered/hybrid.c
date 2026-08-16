@@ -4474,6 +4474,22 @@ static vf2_status hybrid_execute_game_info_18644(
         }
     }
     if (status == VF2_OK) r10 |= r14 & UINT32_C(0xc0000000);
+    /* Preserve the still-unrecovered 0x18788 signed-distance branch domain.
+     * This guard was present before the high-flag recovery and is independent
+     * of the newly recovered 0x18978..0x189a4 accumulation tail. */
+    if (status == VF2_OK) {
+        status = hybrid_read_u16(
+            machine, fighter0 + UINT32_C(0x000005b4), &short_value
+        );
+        r3 = (uint32_t)(int32_t)(int16_t)short_value - r11;
+        r15 = r3 << 16u;
+        r3 = r15 >> 16u;
+        r4 = UINT32_C(0x00001554);
+        r15 = 0u - r4;
+        if ((int32_t)r3 <= (int32_t)r15) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
             machine, fighter0 + UINT32_C(0x000005b8), &r13
