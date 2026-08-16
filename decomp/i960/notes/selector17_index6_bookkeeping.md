@@ -39,3 +39,28 @@ The phase is dispatched through ROM entry `0x0005c9b8` from table slot
 condition-code and instruction/call poststate rather than returning through the
 generic index-11 fallback. Later pages remain a separate extension of the same
 state machine.
+
+## Input state machine recovered from ROM
+
+The common stable-page input tail at `0x0005cb70` is now recovered as well. The
+five displayed pages use odd `a5` states (`1,3,5,7,9`), while page changes target
+the even construction state of the destination page. Canonical forward input
+`0x00500704 = 0x100` therefore maps `1->2`, `3->4`, `5->6`, `7->8`, and wraps
+`9->0`. Canonical reverse input `0x200` maps `3->0`, `5->2`, `7->4`, `9->6`,
+and wraps `1->8`. The construction frame then advances that even state to the
+next stable odd state exactly as the ROM does.
+
+Page 5 has an additional controller before the common page tail. The helper at
+`0x00060b50` interprets canonical `0x1000` as `+1` and `0x2000` as `-1`; the
+selected fighter in `a7` wraps over `0..9`. This is the lever-driven `MY CHAR`
+selector described on screen. The recovered implementation preserves the ROM's
+instruction deltas for normal and wrap transitions: page forward is idle +4
+instructions (+5 for `9->0`), page reverse is idle +3 (+4 for `1->8`), fighter
++ is idle +4 (+5 for `9->0`), and fighter - is idle +1 (+2 for `0->9`). These
+paths add no procedure calls beyond the already-accounted stable render.
+
+The TEST exit mask in the same ROM tail branches directly to the shared teardown
+at `0x0005f140`. That exit remains intentionally outside this cut until its full
+caller-visible poststate is measured; the recovered bridge continues to reject
+that input rather than substituting an estimated teardown state.
+

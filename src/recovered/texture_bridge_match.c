@@ -6614,6 +6614,8 @@ static vf2_status execute_frame_phase17_bit7_index6(
     uint8_t phase_a6 = 0u;
     uint8_t phase_a7 = 0u;
     const uint8_t spill = UINT8_C(0x56);
+    int page_navigation_delta = 0;
+    int fighter_delta = 0;
     uint64_t instructions = 0u;
     uint64_t calls = 0u;
     uint64_t characters = 0u;
@@ -6632,12 +6634,31 @@ static vf2_status execute_frame_phase17_bit7_index6(
     if (status == VF2_OK) status = vf2_model2a_read(machine, UINT32_C(0x005000a6), &phase_a6, sizeof(phase_a6));
     if (status == VF2_OK) status = vf2_model2a_read(machine, UINT32_C(0x005000a7), &phase_a7, sizeof(phase_a7));
     if (status != VF2_OK || indirect_target != UINT32_C(0x0005c9b8) ||
-        input_flags != base_input || navigation_flags != 0u || released_flags != 0u ||
+        input_flags != base_input || released_flags != 0u ||
         previous_flags != base_input || selector_mask != UINT32_C(0x00020000) ||
         phase_a5 > UINT8_C(9) || phase_a6 != UINT8_C(0xff) ||
         ((phase_a5 < UINT8_C(9) && phase_a7 != UINT8_C(0xff)) ||
          (phase_a5 == UINT8_C(9) && phase_a7 > UINT8_C(9)))) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    /* 0x0005cb70 is the common BOOKKEEPING input tail used by the stable
+     * odd states. Canonical 0x100/0x200 inputs move between pages; the ROM
+     * deliberately targets the even construction state of the destination
+     * page so that its static layout is rebuilt on the following frame.
+     * Page 5 additionally calls 0x00060b50 before that tail, using canonical
+     * 0x1000/0x2000 to rotate the selected fighter in a7 over 0..9. */
+    if ((phase_a5 & UINT8_C(1)) != 0u && navigation_flags == UINT32_C(0x100)) {
+        page_navigation_delta = 1;
+    } else if ((phase_a5 & UINT8_C(1)) != 0u &&
+               navigation_flags == UINT32_C(0x200)) {
+        page_navigation_delta = -1;
+    } else if (phase_a5 == UINT8_C(9) && navigation_flags == UINT32_C(0x1000)) {
+        fighter_delta = 1;
+    } else if (phase_a5 == UINT8_C(9) && navigation_flags == UINT32_C(0x2000)) {
+        fighter_delta = -1;
+    } else if (navigation_flags != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
     }
 
     status = phase_a5 <= UINT8_C(1)
@@ -6675,6 +6696,52 @@ static vf2_status execute_frame_phase17_bit7_index6(
     } else {
         instructions = UINT64_C(1904); calls = UINT64_C(34);
     }
+
+    if (status == VF2_OK && page_navigation_delta != 0) {
+        uint8_t next_page_state = 0u;
+        if (page_navigation_delta > 0) {
+            next_page_state = phase_a5 == UINT8_C(9)
+                ? UINT8_C(0)
+                : (uint8_t)(phase_a5 + UINT8_C(1));
+            /* Relative to the idle common tail, the normal + path executes
+             * four extra instructions; 9 -> 0 executes the wrap clear too. */
+            instructions += phase_a5 == UINT8_C(9)
+                ? UINT64_C(5) : UINT64_C(4);
+        } else {
+            next_page_state = phase_a5 == UINT8_C(1)
+                ? UINT8_C(8)
+                : (uint8_t)(phase_a5 - UINT8_C(3));
+            /* The reverse path subtracts three because stable states are odd
+             * and destination construction states are even. 1 -> 8 wraps. */
+            instructions += phase_a5 == UINT8_C(1)
+                ? UINT64_C(4) : UINT64_C(3);
+        }
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005000a5),
+            &next_page_state, sizeof(next_page_state)
+        );
+    } else if (status == VF2_OK && fighter_delta != 0) {
+        uint8_t next_fighter = phase_a7;
+        if (fighter_delta > 0) {
+            next_fighter = phase_a7 == UINT8_C(9)
+                ? UINT8_C(0)
+                : (uint8_t)(phase_a7 + UINT8_C(1));
+            instructions += phase_a7 == UINT8_C(9)
+                ? UINT64_C(5) : UINT64_C(4);
+        } else {
+            next_fighter = phase_a7 == UINT8_C(0)
+                ? UINT8_C(9)
+                : (uint8_t)(phase_a7 - UINT8_C(1));
+            /* 0x60b50's negative path is three instructions shorter than
+             * idle, leaving net +1 normally and +2 for the 0 -> 9 wrap. */
+            instructions += phase_a7 == UINT8_C(0)
+                ? UINT64_C(2) : UINT64_C(1);
+        }
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005000a7),
+            &next_fighter, sizeof(next_fighter)
+        );
+    }
     if (status == VF2_OK) {
         status = vf2_model2a_write(machine, UINT32_C(0x005ff602), &spill, sizeof(spill));
     }
@@ -6704,10 +6771,12 @@ static vf2_status execute_frame_phase17_bit7_index6(
     cpu->registers[13] = 0u;
     cpu->registers[14] = UINT32_C(3) + (uint32_t)phase_a5;
     cpu->registers[15] = UINT32_C(0x00008a00);
-    cpu->registers[16] = (phase_a5 & UINT8_C(1)) == 0u
-        ? UINT32_C(0x2e)
-        : (phase_a5 == UINT8_C(1) ? UINT32_C(0x00532d2d)
-            : (phase_a5 == UINT8_C(5) ? UINT32_C(0x00002d2d) : 0u));
+    cpu->registers[16] = fighter_delta != 0
+        ? (fighter_delta < 0 ? UINT32_MAX : UINT32_C(1))
+        : ((phase_a5 & UINT8_C(1)) == 0u
+            ? UINT32_C(0x2e)
+            : (phase_a5 == UINT8_C(1) ? UINT32_C(0x00532d2d)
+                : (phase_a5 == UINT8_C(5) ? UINT32_C(0x00002d2d) : 0u)));
     cpu->registers[17] = phase_a5 == UINT8_C(7) ? UINT32_C(0x01d0361c) : 0u;
     cpu->registers[18] = UINT32_C(0xc0a0a3d7);
     cpu->registers[19] = 0u;
