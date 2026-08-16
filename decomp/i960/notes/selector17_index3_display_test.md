@@ -63,21 +63,30 @@ clears bit 7 (`0x005000a4: 0x83 -> 0x03`), zeroes the auxiliary
 `0x0100d000..0x0100dbff` block, restores the common diagnostic menu and
 consumes 14,582 instructions (14,584 for `0x10`), 18 calls and 19 returns.
 
-The RGB adjustment matrix has also been measured for the active RED/GREEN/BLUE
-handlers. Relative to baseline `0x00500700 = 0x0ff7f700`, toggling input bit 8
+The active RED/GREEN/BLUE handlers are recovered as one channel-parametrized
+path. Relative to baseline `0x00500700 = 0x0ff7f700`, toggling input bit 8
 increments the selected channel bias, bit 9 decrements bias, bit 16 increments
 gain and bit 17 decrements gain. RED touches offsets `0x3356/0x3359`, GREEN
-`0x3357/0x335a`, and BLUE `0x3358/0x335b`.
+`0x3357/0x335a`, and BLUE `0x3358/0x335b`. Bias is clamped to 0..255 and gain
+to 16..255, matching `0x0005a310`. The handler also forces scroll to 31,
+updates the persistent mirror at `0x01d03356..35c`, recomputes the 29-byte
+configuration CRC stored at `0x01d03302`, and preserves the ROM ordering in
+which the displayed numeric values are rendered before the adjustment takes
+effect.
 
-The ROM transfer-table generator at `0x00002b4c` has been recovered
-semantically. For each level 0..31 it computes `sample = level * scroll`. A
-zero sample maps to zero; otherwise each RGB channel computes
-`bias + ((gain * sample) >> 8)` and saturates values at or above 256 to
-`0xffff`. The resulting value is replicated across 64 entries, with each level
-advancing the destination by `0x180` bytes. The channel tables live at palette
-RAM offsets `+0x10000`, `+0x14000`, and `+0x18000`. This explains the varying
-numbers of changed palette bytes after bias/gain edits and provides a direct C
-implementation path without captured LUT dumps.
+RGB navigation is likewise recovered from the measured state machine:
+RED forward/back goes to GREEN/EXIT, GREEN goes to BLUE/RED, and BLUE goes to
+EXIT/GREEN. The handlers retain strict input whitelisting: only the baseline,
+one measured raw-input bit toggle, the two measured navigation directions, and
+the measured DISPLAY TEST 2 transition are accepted.
+
+The ROM transfer-table generator at `0x00002b4c` is implemented semantically.
+For each level 0..31 it computes `sample = level * scroll`. A zero sample maps
+to zero; otherwise each RGB channel computes `bias + ((gain * sample) >> 8)`
+and saturates values at or above 256 to `0xffff`. The resulting value is
+replicated across 64 entries, with each level advancing the destination by
+`0x180` bytes. The channel tables live at palette RAM offsets `+0x10000`,
+`+0x14000`, and `+0x18000`. No captured transfer-table dump is used.
 
 The recovered numeric loop calls the existing decimal renderer through an
 explicit forward declaration; this keeps the helper single-sourced while
