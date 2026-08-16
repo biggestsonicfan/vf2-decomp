@@ -51,22 +51,33 @@ DISPLAY TEST 2/2 (`a5 = 10`) is another algorithmic renderer, not a stored tile
 dump. It writes a 64x48 border using the measured edge/corner tiles
 `0x8018/0x8011/0x8019`, `0x8013/0x800f/0x8012`, and
 `0x801a/0x8010/0x801b`, then overlays `DISPLAY TEST 2/2` and
-`PUSH TEST BUTTON TO EXIT`. The transition consumes 13,927 instructions, 6
-calls and 7 returns and advances to `a5 = 11`.
+`PUSH TEST BUTTON TO EXIT`. Interior rows preserve columns 62 and 63 as
+attribute spaces (`0x8020`) rather than the body tile. The renderer also fills
+the auxiliary tile block `0x0100d000..0x0100dbff` with `0xff`. The transition
+consumes 13,927 instructions, 6 calls and 7 returns and advances to `a5 = 11`.
 
 State 11 idles in 40 instructions, 2 calls and 3 returns. Measured TEST aliases
 `0x4`, `0x10`, `0x100`, and `0x04000000` in `0x00500704` all take the shared
 diagnostic teardown; the `0x10` path is two instructions longer. Teardown
-clears bit 7 (`0x005000a4: 0x83 -> 0x03`), restores the common diagnostic menu
-and consumes 14,582 instructions (14,584 for `0x10`), 18 calls and 19 returns.
+clears bit 7 (`0x005000a4: 0x83 -> 0x03`), zeroes the auxiliary
+`0x0100d000..0x0100dbff` block, restores the common diagnostic menu and
+consumes 14,582 instructions (14,584 for `0x10`), 18 calls and 19 returns.
 
 The RGB adjustment matrix has also been measured for the active RED/GREEN/BLUE
-handlers, though it remains a separate recovery step. Relative to baseline
-`0x00500700 = 0x0ff7f700`, toggling input bit 8 increments the selected
-channel bias, bit 9 decrements bias, bit 16 increments gain and bit 17
-decrements gain. RED touches offsets `0x3356/0x3359`, GREEN `0x3357/0x335a`,
-and BLUE `0x3358/0x335b`. The adjusted paths also rebuild the corresponding
-palette section, so they are intentionally not reduced to byte updates alone.
+handlers. Relative to baseline `0x00500700 = 0x0ff7f700`, toggling input bit 8
+increments the selected channel bias, bit 9 decrements bias, bit 16 increments
+gain and bit 17 decrements gain. RED touches offsets `0x3356/0x3359`, GREEN
+`0x3357/0x335a`, and BLUE `0x3358/0x335b`.
+
+The ROM transfer-table generator at `0x00002b4c` has been recovered
+semantically. For each level 0..31 it computes `sample = level * scroll`. A
+zero sample maps to zero; otherwise each RGB channel computes
+`bias + ((gain * sample) >> 8)` and saturates values at or above 256 to
+`0xffff`. The resulting value is replicated across 64 entries, with each level
+advancing the destination by `0x180` bytes. The channel tables live at palette
+RAM offsets `+0x10000`, `+0x14000`, and `+0x18000`. This explains the varying
+numbers of changed palette bytes after bias/gain edits and provides a direct C
+implementation path without captured LUT dumps.
 
 The recovered numeric loop calls the existing decimal renderer through an
 explicit forward declaration; this keeps the helper single-sourced while
