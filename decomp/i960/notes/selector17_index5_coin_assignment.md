@@ -90,5 +90,12 @@ Manual SERVICE navigation uses the same deferred-cursor state machine seen in
 GAME ASSIGNMENT: the current marker is erased, `a7` wraps over 0..4, and the new
 marker is drawn on the following frame. Forward normally consumes 2,270
 instructions and 17 calls (2,271 for wrap 4->0); backward normally consumes
-2,267/17 (2,268 for wrap 0->4). The nested EXIT action remains the final manual
-path to recover before returning to the main COIN ASSIGNMENT menu.
+2,267/17 (2,268 for wrap 0->4).
+
+The nested EXIT (`a7=0`) accepts either edit direction, restores `a7=0xff`, and
+clears the 62x40 manual-editor region beginning at tile row 4 while preserving
+the parent COIN ASSIGNMENT instruction rows. It does not modify the coin schema
+or checksum. The + path consumes 12,392 instructions/19 calls/20 returns; the
+- path consumes 12,389 with the same call/return counts. This completes the
+nested MANUAL SETTING state machine; main-menu entry/exit/navigation remain the
+next index-5 cut.
