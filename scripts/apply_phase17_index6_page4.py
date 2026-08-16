@@ -35,25 +35,22 @@ static vf2_status phase17_index6_render_page4(
         for(i=0u;status==VF2_OK&&i<33u;++i){status=write_phase17_index0_text(machine,(uint32_t)(10u+i)*UINT32_C(0x80),57u,"0");++count;}
     }
     for(row=0u;status==VF2_OK&&row<UINT32_C(48);++row)for(col=0u;status==VF2_OK&&col<UINT32_C(64);++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell&UINT16_C(0x7fff));}
-    /* Static spans. */
     { static const struct { uint8_t row,first,last; } base[] = {
         {2,26,36},{2,38,44},{5,26,37},{8,10,29},{8,42,57},{9,42,58},
-        {10,7,16},{11,7,16},{12,7,16},{13,7,16},
-        {16,10,29},{17,10,29},{18,10,29},{19,10,29},{20,10,29},{21,10,29},
+        {10,7,16},{11,7,16},{12,7,16},{13,7,16},{16,10,29},{17,10,29},{18,10,29},{19,10,29},{20,10,29},{21,10,29},
         {44,15,46},{45,18,42}
       };
       for(i=0u;status==VF2_OK&&i<sizeof(base)/sizeof(base[0]);++i)for(col=base[i].first;status==VF2_OK&&col<=base[i].last;++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+(uint32_t)base[i].row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}
     }
-    for(row=10u;status==VF2_OK&&row<=41u;++row){for(col=41u;status==VF2_OK&&col<=46u;++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));} {uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+UINT32_C(48*2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}}
+    for(row=10u;status==VF2_OK&&row<=41u;++row){for(col=41u;status==VF2_OK&&col<=46u;++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}{uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+UINT32_C(48*2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}}
     if(status==VF2_OK){for(col=42u;col<=46u;++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+UINT32_C(42*0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}}
     if(state==UINT8_C(7)&&status==VF2_OK){
-        static const struct{uint8_t row,first,last;} leftvals[]={
-          {8,32,37},{10,19,37},{11,27,37},{12,27,37},{13,27,37},{16,32,37},{17,32,37},{18,32,37},{19,32,37},{20,32,37},{21,32,37}
-        };
+        static const struct{uint8_t row,first,last;} leftvals[]={{8,32,37},{10,19,37},{11,27,37},{12,27,37},{13,27,37},{16,32,37},{17,32,37},{18,32,37},{19,32,37},{20,32,37},{21,32,37}};
         for(i=0u;status==VF2_OK&&i<sizeof(leftvals)/sizeof(leftvals[0]);++i)for(col=leftvals[i].first;status==VF2_OK&&col<=leftvals[i].last;++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+(uint32_t)leftvals[i].row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}
         for(row=10u;status==VF2_OK&&row<=42u;++row)for(col=52u;status==VF2_OK&&col<=57u;++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}
     }
-    if(status==VF2_OK&&characters!=NULL){*characters=count;} return status;
+    if(status==VF2_OK&&characters!=NULL){*characters=count;}
+    return status;
 }
 
 '''
@@ -79,21 +76,23 @@ new='''        else if (phase_a5 == UINT8_C(4)) { instructions = UINT64_C(14911)
     } else if (phase_a5 == UINT8_C(1)) {'''
 if old not in f:raise SystemExit('even accounting anchor missing')
 f=f.replace(old,new,1)
-old='''    } else {
-        instructions = UINT64_C(3122); calls = UINT64_C(99);
-    }'''
-new='''    } else if (phase_a5 == UINT8_C(5)) {
+old='''    } else if (phase_a5 == UINT8_C(5)) {
         instructions = UINT64_C(3122); calls = UINT64_C(99);
     } else {
         instructions = UINT64_C(1946); calls = UINT64_C(74);
     }'''
-if old not in f:raise SystemExit('odd accounting anchor missing')
-f=f.replace(old,new,1)
-f=f.replace('''        : (phase_a5 == UINT8_C(1) ? UINT32_C(0x00532d2d)
-            : (phase_a5 == UINT8_C(5) ? UINT32_C(0x00002d2d) : 0u));''','''        : (phase_a5 == UINT8_C(1) ? UINT32_C(0x00532d2d)
-            : (phase_a5 == UINT8_C(5) ? UINT32_C(0x00002d2d) : 0u));''',1)
+if old not in f:
+    old='''    } else {
+        instructions = UINT64_C(3122); calls = UINT64_C(99);
+    }'''
+    new='''    } else if (phase_a5 == UINT8_C(5)) {
+        instructions = UINT64_C(3122); calls = UINT64_C(99);
+    } else {
+        instructions = UINT64_C(1946); calls = UINT64_C(74);
+    }'''
+    if old not in f:raise SystemExit('odd accounting anchor missing')
+    f=f.replace(old,new,1)
 f=f.replace('''            : (phase_a5 == UINT8_C(3) ? UINT32_C(0x010014e6) : UINT32_C(0x0100135c)));''','''            : (phase_a5 == UINT8_C(3) ? UINT32_C(0x010014e6)
                 : (phase_a5 == UINT8_C(5) ? UINT32_C(0x0100135c) : UINT32_C(0x01001568))));''',1)
-# state7 has persistent backup pointer in r17.
 f=f.replace('cpu->registers[17] = 0u;','cpu->registers[17] = phase_a5 == UINT8_C(7) ? UINT32_C(0x01d0361c) : 0u;',1)
 s=s[:a]+f+s[b:];p.write_text(s)
