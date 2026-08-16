@@ -37,9 +37,7 @@ flag-accumulation paths are native. This includes the high-result `+0x5b6`
 update. The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
-`0x18644` threshold outcome are also covered. Unobserved downstream comparisons
-and other conditional branches remain
-ROM-backed or unsupported.
+`0x18644` threshold outcome are also covered. The `0x18978..0x189a4` high-state flag tail is native as well: bits 26..29 use the measured progress/limit gate and bits 30..31 are accumulated unconditionally. Unobserved downstream comparisons and other conditional branches remain ROM-backed or unsupported.
 
 The same bridge now covers the following `fa_player` task entry at
 `0x00013f08`. Its observed 842-instruction bootstrap through the first nested

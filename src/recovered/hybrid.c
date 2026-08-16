@@ -4279,6 +4279,7 @@ static vf2_status hybrid_execute_game_info_18644(
     uint32_t r14 = 0u;
     uint32_t r15 = 0u;
     uint32_t body_instructions = 101u;
+    uint32_t tail_instruction_delta = 0u;
     bool high_result = false;
     bool countdown_path = false;
     uint16_t short_value = 0u;
@@ -4459,52 +4460,20 @@ static vf2_status hybrid_execute_game_info_18644(
         r10 |= UINT32_C(1) << 11u;
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(
-            machine, fighter1 + UINT32_C(0x00000844), &r14
-        );
-        r3 = (UINT32_C(1) << 26u) & r14;
-        if (r3 != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
+        uint16_t progress = 0u;
+        uint16_t limit = 0u;
+        status = vf2_model2a_read_u32(machine, fighter1 + UINT32_C(0x00000844), &r14);
+        r3 = r14 & UINT32_C(0x3c000000);
+        if (status == VF2_OK && r3 != 0u) {
+            status = hybrid_read_u16(machine, fighter1 + UINT32_C(0x0000084e), &progress);
+            if (status == VF2_OK) status = hybrid_read_u16(machine, fighter1 + UINT32_C(0x000001aa), &limit);
+            if (status == VF2_OK) {
+                tail_instruction_delta += UINT32_C(3);
+                if (progress >= limit) { r10 |= r3; ++tail_instruction_delta; }
+            }
         }
     }
-    if (status == VF2_OK) {
-        r3 = (UINT32_C(1) << 30u) & r14;
-        if (r3 != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
-        }
-    }
-    if (status == VF2_OK) {
-        status = hybrid_read_u16(
-            machine, fighter0 + UINT32_C(0x000005b4), &short_value
-        );
-        r3 = (uint32_t)(int32_t)(int16_t)short_value - r11;
-        r15 = r3 << 16u;
-        r3 = r15 >> 16u;
-        r4 = UINT32_C(0x00001554);
-        r15 = 0u - r4;
-        if ((int32_t)r3 <= (int32_t)r15) {
-            status = VF2_ERROR_UNSUPPORTED;
-        }
-    }
-    if (status == VF2_OK) {
-        status = hybrid_read_u8(
-            machine,
-            UINT32_C(0x0050016c) + UINT32_C(0x00003351),
-            &byte_value
-        );
-        if (status == VF2_OK && (byte_value & (UINT8_C(1) << 6u)) != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
-        }
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(
-            machine, fighter1 + UINT32_C(0x00000844), &r14
-        );
-        r3 = (UINT32_C(1) << 26u) & r14;
-        if (r3 != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
-        }
-    }
+    if (status == VF2_OK) r10 |= r14 & UINT32_C(0xc0000000);
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
             machine, fighter0 + UINT32_C(0x000005b8), &r13
@@ -4596,7 +4565,7 @@ static vf2_status hybrid_execute_game_info_18644(
     if (status == VF2_OK) {
         hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
         cpu->ip = UINT32_C(0x00018a50);
-        cpu->executed_instructions += body_instructions;
+        cpu->executed_instructions += body_instructions + tail_instruction_delta;
         status = vf2_i960_cpu_return_procedure(cpu, machine);
         if (status == VF2_OK) {
             ++cpu->executed_instructions;
