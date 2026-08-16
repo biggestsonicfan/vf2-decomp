@@ -35,7 +35,8 @@ with an all-zero VS record:
 - TEST exit (`0x04000104`): 16173 / 50 / 51
 
 Synthetic nonzero records were also measured to recover dynamic bar
-accounting. Changing only the first pair gave:
+accounting. These fixtures retained the canonical fighter-advance input
+`0x1000`; changing only the first pair gave:
 
 - 1/1: 1991 instructions, 44 calls
 - 1/0: 2060 instructions, 54 calls
@@ -44,7 +45,8 @@ accounting. Changing only the first pair gave:
 - 1/2: 1968 instructions, 41 calls
 - 2/1: 2017 instructions, 48 calls
 
-These establish that each emitted full/partial bar tile adds one
-nested `0x8440` call and seven net instructions relative to the
-blank path, with the fractional/full-width edge adjustments encoded
-in the recovered helper.
+Subtracting the measured four-instruction fighter-advance path from
+these fixtures establishes the state-9 bar delta: `13 + 7*T` for an
+exact tile boundary, `11 + 7*T` when a partial tile is emitted, and one
+less instruction for a completely full 20-tile bar. Each emitted
+full/partial tile adds one nested `0x8440` call.

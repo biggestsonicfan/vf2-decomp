@@ -6709,12 +6709,12 @@ static vf2_status phase17_index6_rate_bar(
 
     if (status == VF2_OK && instruction_delta != NULL) {
         /* Relative to the all-zero (-1.0) helper path measured in the ROM.
-         * The caller's nonzero-sum branch costs three extra instructions.
+         * This delta is relative to the measured zero-sum state-9 path.
          * Each emitted 0x8440 tile adds seven net instructions; a fractional
          * tile saves two, while a completely full 20-tile bar saves one. */
         uint64_t delta = remainder == 0u
-            ? UINT64_C(17) + UINT64_C(7) * (uint64_t)filled
-            : UINT64_C(15) + UINT64_C(7) * (uint64_t)filled;
+            ? UINT64_C(13) + UINT64_C(7) * (uint64_t)filled
+            : UINT64_C(11) + UINT64_C(7) * (uint64_t)filled;
         if (filled == width && remainder == 0u) {
             --delta;
         }
@@ -6886,7 +6886,7 @@ static vf2_status execute_frame_phase17_bit7_index6(
     if (exit_requested) {
         static const uint64_t exit_instructions[5] = {
             UINT64_C(16037), UINT64_C(17895), UINT64_C(17391),
-            UINT64_C(16215), UINT64_C(16169)
+            UINT64_C(16215), UINT64_C(16173)
         };
         static const uint64_t exit_calls[5] = {
             UINT64_C(95), UINT64_C(144), UINT64_C(115),
@@ -7006,6 +7006,12 @@ static vf2_status execute_frame_phase17_bit7_index6(
         cpu->registers[29] = UINT32_C(0x00516480);
         cpu->registers[30] = UINT32_C(0x00000220);
         cpu->registers[31] = UINT32_C(0x005ff500);
+        if (phase_a5 == UINT8_C(9)) {
+            cpu->registers[14] = UINT32_C(0x00009f9c);
+            cpu->registers[15] = UINT32_C(0x00008800);
+            cpu->registers[18] = 0u;
+            cpu->registers[22] = UINT32_C(0x10);
+        }
         cpu->arithmetic_control =
             (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
         cpu->compare_result = VF2_I960_COMPARE_EQUAL;
@@ -7043,7 +7049,7 @@ static vf2_status execute_frame_phase17_bit7_index6(
     } else if (phase_a5 == UINT8_C(7)) {
         instructions = UINT64_C(1946); calls = UINT64_C(74);
     } else {
-        instructions = UINT64_C(1900) + render_instruction_delta;
+        instructions = UINT64_C(1904) + render_instruction_delta;
         calls = UINT64_C(34) + render_call_delta;
     }
 
