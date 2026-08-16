@@ -1,0 +1,51 @@
+name: Recover game-info shared chkbit
+on:
+  push:
+    paths:
+      - tools/recover_game_info_shared_chkbit.py
+      - .github/workflows/recover-game-info-shared-chkbit.yml
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/recover_game_info_shared_chkbit.py
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: |
+          exe=$(find build -type f -name vf2i960 | head -n1)
+          test -n "$exe"
+          cp "$exe" vf2i960
+          chmod +x vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-shared-chkbit
+          path: vf2i960
+          if-no-files-found: error
+      - name: Document and commit
+        run: |
+          cat > decomp/i960/notes/game_info_189a8_shared_chkbit.md <<'EOF'
+          # fa_game_info shared CHKBIT/ALTERBIT tail (`0x189a8..0x189bc`)
+
+          Differential validation of the type-22 corridors exposed a previously implicit condition-code mismatch. The shared `0x18644` tail computes `(r10 >> 5) ^ fighter0.flags`, executes `CHKBIT 10`, and feeds that condition directly to `ALTERBIT 3,r10`. Later `bbs`/`bbc`/`cmpob*` branches do not replace the arithmetic condition in the reference executor, so this CHKBIT remains observable at the task boundary unless `0x18bd4` executes its later `CHKBIT 10`.
+
+          The native bridge now reproduces both the bit-3 accumulation and the condition state instead of forcing `COMPARE_NONE` at return. This is shared semantics for both `0x164ac -> 0x18644` and `0x164c0 -> 0x18644` call sites.
+          EOF
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('docs/UNCOVERED_BRANCHES.md'); s=p.read_text()
+          old='The `0x18978..0x189a4` high-state flag tail is native as well: bits 26..29 use the measured progress/limit gate and bits 30..31 are accumulated unconditionally.'
+          new='The `0x18978..0x189a4` high-state flag tail is native as well: bits 26..29 use the measured progress/limit gate and bits 30..31 are accumulated unconditionally. The following shared `0x189a8..0x189bc` CHKBIT/ALTERBIT tail is native too, including its observable condition-code result and bit-3 accumulation.'
+          if old not in s: raise SystemExit('docs anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c docs/UNCOVERED_BRANCHES.md decomp/i960/notes/game_info_189a8_shared_chkbit.md
+          git rm -f tools/recover_game_info_shared_chkbit.py .github/workflows/recover-game-info-shared-chkbit.yml
+          git commit -m 'Recover fa_game_info shared chkbit tail'
+          git push
