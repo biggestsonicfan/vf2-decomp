@@ -40,13 +40,22 @@ transition consumes 1,624 instructions with the same 37 calls and 38 returns;
 relative to the no-release second visit, the only additional architectural
 change is `0x005000a5 = 2`.
 
-The actual exit is therefore deferred to the third visit: `a5 = 2` selects
-`0x000597a8`, which refreshes the INPUT TEST once more and tests
-`0x00500708 & 0x04000004` before branching to the shared diagnostic teardown at
-`0x0005f140`.
+On the following scheduler cycle the video/input path clears released flags
+back to zero while preserving `a5 = 2`. The third visit therefore normally
+enters `0x000597a8` with `0x00500708 = 0`; that idle path again consumes 1,622
+instructions, 37 calls and 38 returns and leaves the INPUT TEST display intact.
+
+A fresh TEST release on this third visit (`0x00500708 = 0x4`) takes the actual
+exit. After refreshing the input-test state, `0x000597a8` branches to the
+shared diagnostic teardown at `0x0005f140`. From `0x0000a6c0` to
+`0x0000a010`, the measured teardown consumes 15,895 instructions, 53 procedure
+calls and 54 procedure returns. It clears bit 7 from the phase index
+(`0x005000a4: 0x81 -> 0x01`), clears/restores the diagnostic tile plane, marks
+phase 1 active, redraws all twelve phase labels plus the three extra records,
+and normalizes the observed stack spill to `00 00 56`.
 
 The recovered implementation remains restricted to measured input states:
 first visit uses `0x00500700 = 0x0ff7f700`, `0x00500704 = 0`, matching previous
-input and selector mask `0x00020000`; second-visit recovery accepts released
-flags zero or the measured TEST-release value `0x4`. Other input-state variants
-and the third-visit teardown remain separate recovery cases.
+input and selector mask `0x00020000`; second- and third-visit recovery accept
+released flags zero or the measured TEST-release value `0x4`. Other input-state
+variants remain explicit unsupported cases.
