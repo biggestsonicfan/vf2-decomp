@@ -27,3 +27,10 @@ state before displaying `COMPLETE` and entering state 4's countdown.  The state
 1 cancellation path also enters the shared TEST MENU teardown.  Both remain
 explicitly unsupported until their full persistent-memory/poststate effects are
 recovered and strict-differentially validated.
+
+
+## Destructive confirmation and completion
+
+The `0x04000104` confirmation from state 3 is now recovered for the measured live RNG seed `0xcbf33340`. `0x6001c` clears both backup bookkeeping windows, `0x5427c` rebuilds eighteen 16-byte records (six fixed selections plus twelve unique RNG-selected names), and `0x5ff7c` reproduces the table-driven 0x644-byte checksum. The measured confirmation frame is 40,712 instructions / 21 calls / 22 returns, leaves RNG seed `0xd7925570`, sets state 4 and countdown 100, and draws `COMPLETED`.
+
+State 4 idle decrements the countdown at 35 / 2 / 3. Its terminal 1 -> 0 path restores the TEST MENU at 14,308 / 18 / 19. State-1 cancellation through `0x60b84` restores the same menu at 14,313 / 19 / 20. The destructive branch deliberately rejects other RNG seeds until independently measured; the algorithm itself is ported rather than replaced with a snapshot dump.
