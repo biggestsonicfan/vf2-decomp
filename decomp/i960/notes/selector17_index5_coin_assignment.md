@@ -114,9 +114,12 @@ two SERVICE/TEST instruction rows; + consumes 14,063 instructions/36 calls and
 - consumes 14,060/36. On EXIT (`a5=0`), + is the real exit: it clears bit 7 of
 `a4` (`0x85 -> 0x05`), restores the common TEST MENU through the same ROM text
 records used by the other diagnostics, and consumes 19,056 instructions/74
-calls. EXIT - does not leave COIN ASSIGNMENT; it simply redraws the parent menu
-and consumes 4,185 instructions/35 calls. None of these four actions changes
-the coin configuration or its checksum.
+calls. The exact ROM poststate also leaves exit scratch at
+`0x005ff780=1`, `0x005ff784=0x0059c388`, and bytes `0x90,0x59` at
+`0x005ff801..0x005ff802`. EXIT - does not leave COIN ASSIGNMENT; it simply
+redraws the parent menu, consumes 4,185 instructions/35 calls, and ends with the
+same `r17=0x3f4f5c29`, `r18=0xc0a0a3d7` state as the ROM. None of these four
+actions changes the coin configuration or its checksum.
 
 With main navigation, MANUAL entry, nested editing/navigation/exit, and parent
 EXIT all recovered, selector-17 index 5 is functionally complete for the
