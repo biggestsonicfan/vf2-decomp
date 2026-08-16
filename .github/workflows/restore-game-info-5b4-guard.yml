@@ -1,0 +1,25 @@
+name: Restore game info 5b4 guard
+on:
+  push:
+    paths:
+      - tools/restore_game_info_5b4_guard.py
+      - .github/workflows/restore-game-info-5b4-guard.yml
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/restore_game_info_5b4_guard.py
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c
+          git rm -f tools/restore_game_info_5b4_guard.py .github/workflows/restore-game-info-5b4-guard.yml
+          git commit -m 'Restore fa_game_info distance guard'
+          git push
