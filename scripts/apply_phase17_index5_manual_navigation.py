@@ -1,0 +1,26 @@
+from pathlib import Path
+p=Path('src/recovered/texture_bridge_match.c')
+s=p.read_text()
+s=s.replace('''    int edit_delta = 0;\n    uint16_t checksum = 0u;''','''    int edit_delta = 0;\n    int manual_navigation_delta = 0;\n    uint16_t checksum = 0u;''',1)
+s=s.replace('''    if (navigation_flags == UINT32_C(0x100)) edit_delta = 1;\n    else if (navigation_flags == UINT32_C(0x200)) edit_delta = -1;\n    else if (navigation_flags != 0u) return VF2_ERROR_UNSUPPORTED;''','''    if (navigation_flags == UINT32_C(0x100)) edit_delta = 1;\n    else if (navigation_flags == UINT32_C(0x200)) edit_delta = -1;\n    else if (phase_a5 == UINT8_C(5) && navigation_flags == UINT32_C(0x1000))\n        manual_navigation_delta = 1;\n    else if (phase_a5 == UINT8_C(5) && navigation_flags == UINT32_C(0x2000))\n        manual_navigation_delta = -1;\n    else if (navigation_flags != 0u) return VF2_ERROR_UNSUPPORTED;''',1)
+old='''        if (status == VF2_OK) {\n            status = write_u16(\n                machine,\n                UINT32_C(0x01000000) +\n                    manual_cursor_rows[phase_a7] * UINT32_C(0x80) +\n                    UINT32_C(16 * 2),\n                UINT16_C(0x801c)\n            );\n        }\n\n        if (status == VF2_OK && edit_delta != 0 && phase_a7 != 0u) {'''
+new='''        if (status == VF2_OK) {\n            status = write_u16(\n                machine,\n                UINT32_C(0x01000000) +\n                    manual_cursor_rows[phase_a7] * UINT32_C(0x80) +\n                    UINT32_C(16 * 2),\n                manual_navigation_delta == 0\n                    ? UINT16_C(0x801c) : UINT16_C(0x8020)\n            );\n        }\n\n        if (status == VF2_OK && manual_navigation_delta != 0) {\n            int next = (int)phase_a7 + manual_navigation_delta;\n            const uint8_t old_selection = phase_a7;\n            uint8_t next_selection = 0u;\n            if (next < 0) next = 4;\n            else if (next > 4) next = 0;\n            next_selection = (uint8_t)next;\n            status = vf2_model2a_write(\n                machine, UINT32_C(0x005000a7),\n                &next_selection, sizeof(next_selection)\n            );\n            instructions = manual_navigation_delta > 0\n                ? (old_selection == UINT8_C(4)\n                    ? UINT64_C(2271) : UINT64_C(2270))\n                : (old_selection == UINT8_C(0)\n                    ? UINT64_C(2268) : UINT64_C(2267));\n            calls = UINT64_C(17);\n        } else if (status == VF2_OK && edit_delta != 0 && phase_a7 != 0u) {'''
+if old not in s: raise SystemExit('cursor block not found')
+s=s.replace(old,new,1)
+old='''        } else {\n            instructions = phase_a7 == 0u ? UINT64_C(2264) : UINT64_C(2266);\n            calls = UINT64_C(18);\n        }'''
+new='''        } else if (manual_navigation_delta == 0) {\n            instructions = phase_a7 == 0u ? UINT64_C(2264) : UINT64_C(2266);\n            calls = UINT64_C(18);\n        }'''
+if old not in s: raise SystemExit('idle block not found')
+s=s.replace(old,new,1)
+old='''        cpu->registers[16] = edit_delta == 0 ? 0u : (uint32_t)checksum;\n        cpu->registers[17] = edit_delta == 0 ? UINT32_C(0x3f4f5c29) : 0u;\n        cpu->registers[18] = edit_delta == 0 ? UINT32_C(0xc0a0a3d7) : UINT32_C(15);'''
+new='''        cpu->registers[16] = manual_navigation_delta != 0\n            ? (manual_navigation_delta < 0 ? UINT32_MAX : UINT32_C(1))\n            : (edit_delta == 0 ? 0u : (uint32_t)checksum);\n        cpu->registers[17] = edit_delta == 0\n            ? UINT32_C(0x3f4f5c29) : 0u;\n        cpu->registers[18] = edit_delta == 0\n            ? UINT32_C(0xc0a0a3d7) : UINT32_C(15);'''
+if old not in s: raise SystemExit('regs block not found')
+s=s.replace(old,new,1)
+old='''        cpu->registers[25] = UINT32_C(0x01001150);'''
+new='''        cpu->registers[25] = manual_navigation_delta == 0\n            ? UINT32_C(0x01001150)\n            : (UINT32_C(0x01000000) +\n               manual_cursor_rows[phase_a7] * UINT32_C(0x80) +\n               UINT32_C(0x20));'''
+if old not in s: raise SystemExit('r25 block not found')
+s=s.replace(old,new,1)
+old='''        cpu->arithmetic_control =\n            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);\n        cpu->compare_result = VF2_I960_COMPARE_EQUAL;'''
+new='''        if (manual_navigation_delta == 0) {\n            cpu->arithmetic_control =\n                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);\n            cpu->compare_result = VF2_I960_COMPARE_EQUAL;\n        } else {\n            static const uint32_t nav_cc_forward[5] = {1u, 1u, 1u, 2u, 4u};\n            static const uint32_t nav_cc_back[5] = {2u, 1u, 1u, 1u, 1u};\n            const uint32_t cc = manual_navigation_delta > 0\n                ? nav_cc_forward[phase_a7] : nav_cc_back[phase_a7];\n            cpu->arithmetic_control =\n                (cpu->arithmetic_control & ~UINT32_C(7)) | cc;\n            cpu->compare_result = cc == UINT32_C(1)\n                ? VF2_I960_COMPARE_GREATER\n                : (cc == UINT32_C(2)\n                    ? VF2_I960_COMPARE_EQUAL : VF2_I960_COMPARE_LESS);\n        }'''
+if old not in s: raise SystemExit('condition block not found')
+s=s.replace(old,new,1)
+p.write_text(s)
