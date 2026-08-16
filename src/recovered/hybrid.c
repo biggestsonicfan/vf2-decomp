@@ -4575,7 +4575,26 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, fighter1 + UINT32_C(0x0000019f), &byte_value
         );
         if (status == VF2_OK && byte_value == UINT8_C(22)) {
-            status = VF2_ERROR_UNSUPPORTED;
+            uint16_t progress = 0u;
+            uint16_t target = 0u;
+            status = hybrid_read_u16(
+                machine, fighter0 + UINT32_C(0x000001aa), &progress
+            );
+            if (status == VF2_OK) {
+                status = hybrid_read_u16(
+                    machine, fighter0 + UINT32_C(0x0000080a), &target
+                );
+            }
+            if (status == VF2_OK) {
+                /* 0x18a30..0x18a3c: the common mismatch path returns
+                 * immediately after comparing progress with target-1. */
+                tail_instruction_delta += UINT32_C(4);
+                if ((uint32_t)progress == (uint32_t)target - UINT32_C(1)) {
+                    /* The equal case reaches the r9 threshold and may call
+                     * 0x18bd4; keep that subpath explicit until recovered. */
+                    status = VF2_ERROR_UNSUPPORTED;
+                }
+            }
         }
     }
     if (status == VF2_OK) {
