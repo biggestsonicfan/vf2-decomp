@@ -1723,9 +1723,22 @@ static vf2_status execute_frame_phase17_bit7_index0(
         cpu->registers[29] = UINT32_C(0x00516480);
         cpu->registers[30] = UINT32_C(0x00000220);
         cpu->registers[31] = UINT32_C(0x005ff500);
-        cpu->arithmetic_control =
-            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
-        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        if (manual_navigation_delta == 0) {
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+            cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        } else {
+            static const uint32_t nav_cc_forward[5] = {1u, 1u, 1u, 2u, 4u};
+            static const uint32_t nav_cc_back[5] = {2u, 1u, 1u, 1u, 1u};
+            const uint32_t cc = manual_navigation_delta > 0
+                ? nav_cc_forward[phase_a7] : nav_cc_back[phase_a7];
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | cc;
+            cpu->compare_result = cc == UINT32_C(1)
+                ? VF2_I960_COMPARE_GREATER
+                : (cc == UINT32_C(2)
+                    ? VF2_I960_COMPARE_EQUAL : VF2_I960_COMPARE_LESS);
+        }
 
         report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
         report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
@@ -5359,6 +5372,7 @@ static vf2_status execute_frame_phase17_bit7_index5(
     uint8_t credits[6] = {0u};
     const uint8_t spill = UINT8_C(0x56);
     int edit_delta = 0;
+    int manual_navigation_delta = 0;
     uint16_t checksum = 0u;
     uint64_t instructions = UINT64_C(4188);
     uint64_t calls = UINT64_C(35);
@@ -5394,6 +5408,10 @@ static vf2_status execute_frame_phase17_bit7_index5(
     }
     if (navigation_flags == UINT32_C(0x100)) edit_delta = 1;
     else if (navigation_flags == UINT32_C(0x200)) edit_delta = -1;
+    else if (phase_a5 == UINT8_C(5) && navigation_flags == UINT32_C(0x1000))
+        manual_navigation_delta = 1;
+    else if (phase_a5 == UINT8_C(5) && navigation_flags == UINT32_C(0x2000))
+        manual_navigation_delta = -1;
     else if (navigation_flags != 0u) return VF2_ERROR_UNSUPPORTED;
     if ((phase_a5 == 0u ||
          (phase_a5 == UINT8_C(5) && phase_a7 == 0u)) && edit_delta != 0) {
@@ -5521,11 +5539,29 @@ static vf2_status execute_frame_phase17_bit7_index5(
                 UINT32_C(0x01000000) +
                     manual_cursor_rows[phase_a7] * UINT32_C(0x80) +
                     UINT32_C(16 * 2),
-                UINT16_C(0x801c)
+                manual_navigation_delta == 0
+                    ? UINT16_C(0x801c) : UINT16_C(0x8020)
             );
         }
 
-        if (status == VF2_OK && edit_delta != 0 && phase_a7 != 0u) {
+        if (status == VF2_OK && manual_navigation_delta != 0) {
+            int next = (int)phase_a7 + manual_navigation_delta;
+            const uint8_t old_selection = phase_a7;
+            uint8_t next_selection = 0u;
+            if (next < 0) next = 4;
+            else if (next > 4) next = 0;
+            next_selection = (uint8_t)next;
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x005000a7),
+                &next_selection, sizeof(next_selection)
+            );
+            instructions = manual_navigation_delta > 0
+                ? (old_selection == UINT8_C(4)
+                    ? UINT64_C(2271) : UINT64_C(2270))
+                : (old_selection == UINT8_C(0)
+                    ? UINT64_C(2268) : UINT64_C(2267));
+            calls = UINT64_C(17);
+        } else if (status == VF2_OK && edit_delta != 0 && phase_a7 != 0u) {
             int next = (int)manual_values[phase_a7 - 1u] + edit_delta;
             uint8_t value = 0u;
             if (next < 0) next = 8;
@@ -5562,7 +5598,7 @@ static vf2_status execute_frame_phase17_bit7_index5(
             }
             instructions = edit_delta > 0 ? UINT64_C(2475) : UINT64_C(2473);
             calls = UINT64_C(20);
-        } else {
+        } else if (manual_navigation_delta == 0) {
             instructions = phase_a7 == 0u ? UINT64_C(2264) : UINT64_C(2266);
             calls = UINT64_C(18);
         }
@@ -5597,16 +5633,24 @@ static vf2_status execute_frame_phase17_bit7_index5(
         cpu->registers[13] = 0u;
         cpu->registers[14] = UINT32_C(2);
         cpu->registers[15] = UINT32_C(0x00008a00);
-        cpu->registers[16] = edit_delta == 0 ? 0u : (uint32_t)checksum;
-        cpu->registers[17] = edit_delta == 0 ? UINT32_C(0x3f4f5c29) : 0u;
-        cpu->registers[18] = edit_delta == 0 ? UINT32_C(0xc0a0a3d7) : UINT32_C(15);
+        cpu->registers[16] = manual_navigation_delta != 0
+            ? (manual_navigation_delta < 0 ? UINT32_MAX : UINT32_C(1))
+            : (edit_delta == 0 ? 0u : (uint32_t)checksum);
+        cpu->registers[17] = edit_delta == 0
+            ? UINT32_C(0x3f4f5c29) : 0u;
+        cpu->registers[18] = edit_delta == 0
+            ? UINT32_C(0xc0a0a3d7) : UINT32_C(15);
         cpu->registers[19] = 0u;
         cpu->registers[20] = UINT32_C(0x00560000);
         cpu->registers[21] = UINT32_C(0x0050e850);
         cpu->registers[22] = UINT32_C(0x000055b6);
         cpu->registers[23] = UINT32_C(0x00510980);
         cpu->registers[24] = UINT32_C(0x00512980);
-        cpu->registers[25] = UINT32_C(0x01001150);
+        cpu->registers[25] = manual_navigation_delta == 0
+            ? UINT32_C(0x01001150)
+            : (UINT32_C(0x01000000) +
+               manual_cursor_rows[phase_a7] * UINT32_C(0x80) +
+               UINT32_C(0x20));
         cpu->registers[26] = UINT32_C(0x00800000);
         cpu->registers[27] = UINT32_C(0x00880000);
         cpu->registers[28] = UINT32_C(0x00004000);
