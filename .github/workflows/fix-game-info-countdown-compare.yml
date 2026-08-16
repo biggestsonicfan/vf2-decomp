@@ -1,0 +1,41 @@
+name: Fix game-info countdown compare
+on:
+  push:
+    paths:
+      - tools/fix_game_info_countdown_compare.py
+      - .github/workflows/fix-game-info-countdown-compare.yml
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/fix_game_info_countdown_compare.py
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: |
+          exe=$(find build -type f -name vf2i960 | head -n1)
+          test -n "$exe"
+          cp "$exe" vf2i960
+          chmod +x vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-countdown-compare
+          path: vf2i960
+          if-no-files-found: error
+      - name: Document and commit
+        run: |
+          cat > decomp/i960/notes/game_info_164f0_countdown_compare.md <<'EOF'
+          # fa_game_info countdown compare (`0x164f0`)
+
+          The recovered task tail already mirrored the two fighter `+0x1200` clears and the `0x0050a0b6` countdown decrement, but it omitted the architectural comparison result of `cmpobe 0,r3` at `0x164f0`. Controlled ROM snapshots show countdown zero exits with `COMPARE_EQUAL` / condition bits `2`; countdown one exits with `COMPARE_LESS` / condition bits `4` after decrementing to zero. Because the source is an unsigned byte, every nonzero countdown uses the latter result.
+          EOF
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_164f0_countdown_compare.md
+          git rm -f tools/fix_game_info_countdown_compare.py .github/workflows/fix-game-info-countdown-compare.yml
+          git commit -m 'Fix fa_game_info countdown compare state'
+          git push
