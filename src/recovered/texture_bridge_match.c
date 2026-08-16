@@ -5281,7 +5281,7 @@ static vf2_status execute_frame_phase17_bit7_index4(
             machine, cpu, report, 0, 0u, characters
         );
     }
-    if (phase_a5 == UINT8_C(0)) {
+    if (phase_a5 == UINT8_C(0) && navigation_delta == 0) {
         return finish_frame_phase17_index4_exit_control(
             machine, cpu, report, edit_delta, characters
         );
