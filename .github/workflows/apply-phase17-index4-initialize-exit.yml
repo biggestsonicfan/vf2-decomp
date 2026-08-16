@@ -1,0 +1,18 @@
+name: Apply selector17 index4 initialize exit
+on: [push]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/apply_phase17_index4_initialize_exit.py
+      - run: rm .github/workflows/apply-phase17-index4-initialize-exit.yml scripts/apply_phase17_index4_initialize_exit.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Recover selector17 index4 initialize and exit"
+          git push
