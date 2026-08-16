@@ -3050,6 +3050,7 @@ static vf2_status execute_frame_phase17_bit7_index3(
                 } else {
                     if (column == 0u) tile = UINT16_C(0x8013);
                     else if (column == UINT32_C(61)) tile = UINT16_C(0x8012);
+                    else if (column >= UINT32_C(62)) tile = UINT16_C(0x8020);
                 }
                 status = write_u16(
                     machine,
@@ -3058,6 +3059,13 @@ static vf2_status execute_frame_phase17_bit7_index3(
                     tile
                 );
             }
+        }
+        if (status == VF2_OK) {
+            uint8_t aux[UINT32_C(0xc00)];
+            memset(aux, 0xff, sizeof(aux));
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x0100d000), aux, sizeof(aux)
+            );
         }
         if (status == VF2_OK) {
             status = write_phase17_index0_text(
@@ -3125,6 +3133,13 @@ static vf2_status execute_frame_phase17_bit7_index3(
             status = clear_tile_plane_64x48(
                 machine, UINT32_C(0x01000000)
             );
+            if (status == VF2_OK) {
+                uint8_t aux[UINT32_C(0xc00)];
+                memset(aux, 0, sizeof(aux));
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x0100d000), aux, sizeof(aux)
+                );
+            }
             if (status == VF2_OK) {
                 status = vf2_model2a_write(
                     machine, UINT32_C(0x005000a4), &phase_index,
