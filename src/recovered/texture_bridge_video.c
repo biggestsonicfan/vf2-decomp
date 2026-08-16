@@ -116,6 +116,16 @@ vf2_status execute_video_register_compose(
          * relevant video bits changed. Its non-zero callback path executes
          * two more instructions than the initial installation path. */
         instructions += UINT64_C(2);
+    } else if (callback == UINT32_C(0x00001284) &&
+               (newly_enabled & UINT32_C(0x00f7f700)) > UINT32_C(0x000001fe)) {
+        /* Measured active-input path through 0x00001200: r9 is the masked
+         * newly-enabled control word and the installed table contributes only
+         * one byte shifted left by one. A value above 0x1fe therefore cannot
+         * match; the ROM takes cmpobne and reinstalls the 0x1284 fallback.
+         * Keep smaller values and other callback tables explicit unsupported
+         * until they are measured. */
+        callback = UINT32_C(0x00001284);
+        instructions += UINT64_C(6);
     } else {
         return VF2_ERROR_UNSUPPORTED;
     }
