@@ -1,0 +1,40 @@
+name: Apply selector17 index7 completion v2
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/apply-phase17-index7-complete-v2.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix staged recovery telemetry
+        run: |
+          sed -i 's/,chars=0u//' scripts/apply_phase17_index7_complete.py
+          sed -i 's/phase17_index7_render_choices(machine,0,&chars)/phase17_index7_render_choices(machine,0,NULL)/' scripts/apply_phase17_index7_complete.py
+          sed -i 's/report->diagnostic_text_copies=chars;//' scripts/apply_phase17_index7_complete.py
+      - name: Apply recovery
+        run: python3 scripts/apply_phase17_index7_complete.py
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit recovery
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm scripts/apply_phase17_index7_complete.py
+          git rm .github/workflows/apply-phase17-index7-complete.yml
+          git rm .github/workflows/apply-phase17-index7-complete-v2.yml
+          git add src/recovered/texture_bridge_match.c decomp/i960/notes/selector17_index7_backup_ram_clear.md
+          git commit -m "Complete selector17 index7 backup clear"
+          git push
