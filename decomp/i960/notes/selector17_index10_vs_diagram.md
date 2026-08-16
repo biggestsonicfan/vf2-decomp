@@ -1,35 +1,15 @@
-# selector17 bit-7 index10 — VS DIAGRAM
+# Selector17 bit-7 index 10: VS DIAGRAM
 
-ROM slot `0x0005fef8` points to `0x0005f234`; flagged phase index is `0x8a`.
-
-The handler has two `a5` states through the jump table at `0x0005f248`:
-
-- state 0: `0x0005f250`
-- state 1: `0x0005f590`
+ROM slot `0x0005fef8` selects entry `0x0005f234` (`a4 = 0x8a`). The handler has two states.
 
 ## State 0
 
-State 0 is deterministic UI setup. It renders `LOSES(%)`, the eleven fighter labels/names (AKIRA, JACKY, SARAH, KAGE, LAU, JEFFRY, PAI, WOLF, SHUN, DURAL, LION), six diagram glyphs, and `PUSH TEST BUTTON TO EXIT.`, then increments `0x005000a5` from 0 to 1.
-
-Measured isolated ROM corridor: **1650 instructions / 31 calls / 32 returns**.
-
-The recovered-C bridge implements this state completely.
+Builds the static VS diagram: LOSS/WIN headings, eleven fighter abbreviations and names, border glyphs, and the TEST-button exit prompt, then advances `a5` to 1. Measured handler corridor: 1,650 instructions, 31 calls, 32 returns.
 
 ## State 1
 
-State 1 rebuilds the diagram every frame. The ROM:
+The live body iterates the 11 x 11 matchup table rooted at `base + 0x36a4`. For each pair it reads the two 16-bit counters, computes the displayed percentage with the i960 floating conversion/divide/multiply/round sequence, and renders it with `0x7ff0`. It then sums each fighter row, stores totals at `0x00500280` and fighter ids at `0x00500244`, sorts those parallel arrays ascending by the computed score, renders rank values 1000..11000, and rebuilds the diagram borders. `0x8440` is the one-tile primitive `*(u16*)g9 = 0x8000 | g0`.
 
-1. iterates an 11x11 matchup matrix using the fighter-order table at `0x0005fd08` and records rooted at `base + 0x36a4`;
-2. reads two 16-bit counters for each ordered pairing and converts them to a percentage-like score (`10000 * losses / total` when both counters are present, with explicit zero/empty handling);
-3. renders the matrix cells;
-4. computes one aggregate score for each fighter and stores fighter indices at `0x00500244` and scores at `0x00500280`;
-5. bubble-sorts those 11 `(fighter, score)` pairs by score;
-6. renders rank values and the diagram/bracket decorations from constant tables at `0x0005fd34`, `0x0005fd78`, and `0x0005fdb4`;
-7. exits through the shared TEST MENU teardown at `0x0005f140` when `(input & 0x04000104) != 0`.
+Measured handler corridors: normal refresh 36,729 instructions / 1,436 calls / 1,437 returns; TEST exit 51,001 / 1,452 / 1,453. The TEST check is at the end of the refresh, so exit still recomputes/redraws the full diagram before shared teardown at `0x5f140`.
 
-Measured isolated ROM corridors:
-
-- idle/update: **36729 instructions / 1436 calls / 1437 returns**;
-- TEST exit: **51001 instructions / 1452 calls / 1453 returns**.
-
-State 1 remains intentionally unsupported in recovered C until the numeric/tile rendering semantics of helpers `0x00007ff0` and `0x00008440` are translated without relying on ROM execution. This keeps the bridge strict rather than substituting an approximate visualization.
+The recovered bridge now implements both states, including the parallel-array sort, numeric formatting, border construction, parent-menu restoration, and measured CPU post-state.
