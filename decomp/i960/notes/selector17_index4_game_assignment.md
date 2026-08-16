@@ -29,5 +29,19 @@ instructions, 38 calls and 39 returns. SERVICE forward (`0x00500704 = 0x1000`)
 moves `a5 0 -> 1` in 3,050 instructions, 37 calls and 38 returns; SERVICE back
 (`0x2000`) wraps `a5 0 -> 15` in 3,048 instructions, 37 calls and 38 returns.
 Navigation erases the old cursor and the newly selected cursor is drawn on the
-following frame, matching the ROM state machine. Value-edit handlers remain
-separate ROM-backed recovery cases.
+following frame, matching the ROM state machine.
+
+MATCH COUNT(1P), state `a5 = 1`, is the first recovered editable assignment.
+Its idle frame consumes 3,045 instructions, 38 calls and 39 returns. The
+`0x00060b84` edit delta uses canonical `0x00500704 = 0x100` for +1 and `0x200`
+for -1. The value at `[0x0050016c] + 0x3340` wraps over the inclusive range
+2..5: the measured default 2 becomes 3 on +1 and wraps to 5 on -1.
+
+An edit is persisted byte-for-byte to backup SRAM `0x01d03340`, then the same
+29-byte assignment/configuration block beginning at `base + 0x3340` is passed
+to the existing CRC routine and the resulting 16-bit CRC is stored at
+`0x01d03302`. The measured 2->3 transition consumes 3,417 instructions, 40
+calls and 41 returns and yields CRC `0x785c`; the 2->5 wrap consumes 3,415
+instructions with the same call/return counts and yields CRC `0x7a4a`. The
+value is rendered before the edit takes effect, matching the ROM's handler
+ordering.
