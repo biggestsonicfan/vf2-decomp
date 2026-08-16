@@ -64,3 +64,14 @@ For EASY/NORMAL/HARD/HARDEST respectively, ENERGY MAX(1P) is
 is 16/15/14/13. The recovered C reads these tables at `0x5b32c`, `0x5b334`, and
 `0x5b33c`, updates both work configuration and backup SRAM, and then recomputes
 the same 29-byte configuration CRC.
+
+Six assignments are direct packed-bit toggles in `base + 0x3351`: ADVERTISE
+SOUND bit 0 (`a5=7`), CONTINUE bit 1 (`a5=8`), DRINK bit 3 (`a5=9`), VS FINISH
+bit 5 (`a5=12`), RANKING MODE bit 4 (`a5=13`), and VERSION bit 6 (`a5=14`).
+Their ROM handlers differ only in the selected bit. Both edit directions toggle
+the bit, mirror the complete byte to `0x01d03351`, and recompute the same CRC.
+Idle consumes 3,045 instructions/38 calls/39 returns; `0x100` consumes 3,412
+instructions/40 calls/41 returns and `0x200` consumes 3,409 with the same
+call/return counts. The C recovery uses one bit-parametrized path and obtains
+the final cursor address from the ROM descriptor instead of duplicating menu
+coordinates.
