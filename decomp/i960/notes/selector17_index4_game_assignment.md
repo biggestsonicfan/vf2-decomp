@@ -75,3 +75,20 @@ instructions/40 calls/41 returns and `0x200` consumes 3,409 with the same
 call/return counts. The C recovery uses one bit-parametrized path and obtains
 the final cursor address from the ROM descriptor instead of duplicating menu
 coordinates.
+
+COUNTRY (`a5=10`) is a three-state controller over JAPAN/USA/EXPORT. The value
+at `base + 0x3350` wraps over 0..2 and is persisted at `0x01d03350`. The helper
+at `0x0005b12c` then enforces a domain rule: any non-Japan country forces the
+DRINK flag (bit 3 of `base + 0x3351`) on before the 29-byte configuration CRC is
+recomputed. Idle consumes 3,045 instructions; +1 and -1 consume 3,427 and 3,425
+instructions respectively, with 41 nested calls.
+
+DISPLAY TYPE (`a5=11`) toggles bit 2 of the same packed configuration byte but
+has a larger semantic side effect. `0x0005b190` selects a complete video
+calibration profile. With bit 2 clear, RGB bias is 64/64/64, gain is 37/37/37,
+and scroll is 31. With bit 2 set (C.R.T.), bias is 117/117/117, gain is
+34/34/34, and scroll remains 31. Those seven bytes are mirrored to backup SRAM,
+then `0x0005a460` rebuilds the three 32-level transfer tables. The recovered C
+reuses the same `phase17_index3_rebuild_transfer_tables()` implementation used
+by DISPLAY TEST rather than duplicating the LUT algorithm. Toggle frames consume
+16,890 (+) or 16,887 (-) instructions and 43 calls before the common CRC commit.
