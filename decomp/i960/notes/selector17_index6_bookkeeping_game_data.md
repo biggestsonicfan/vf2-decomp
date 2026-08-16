@@ -37,7 +37,7 @@ The recovered frame accounting includes the already-measured
 BOOKKEEPING dispatch/wrapper overhead: 20595/144/145 and
 4576/133/134 respectively.
 
-This cut admits the measured zero-data path for all sixteen hidden GAME DATA slots. Non-zero statistics remain an explicit next extension.
+This cut admits both zero and non-zero GAME DATA for all sixteen hidden slots.
 
 ## All hidden character slots
 
@@ -54,3 +54,20 @@ dispatcher, while construction-state cost is `20527 + 8*strlen(body_name)`
 instructions with 142/143 calls/returns. Adding the outer frame overhead gives
 the recovered accounting `20555 + 8*strlen(body_name)` / 144 / 145 for even
 states and 4576 / 133 / 134 for odd states.
+
+## Non-zero GAME DATA semantics
+
+Controlled ROM probes on the AKIRA block establish the live formulas. Time
+fields use 1/64-second ticks. TOTAL renders `(ticks>>6)` as D/H/M/S; AVG divides
+ticks by GAME COUNT before the same shift and renders M/S; MIN/MAX are 32-bit
+tick values rendered as M/S. Each 1P round record contains total, wins and a
+64-bit tick accumulator; displayed seconds are `ticks>>6`, average is
+`seconds/total`, and win rate is `1000*wins/total`. The 33 VS histogram words
+are direct counters.
+
+A non-zero GAME COUNT selects the numeric AVG helper, changing the measured
+path by -27 instructions and +4 nested calls. A non-zero round total selects
+the AVG/WINRATE path, changing that record by -24 instructions and +1 nested
+call. Values that leave the small ROM decimal table retain the already-recovered
+decimal helper's dynamic instruction delta. The bridge now renders non-zero
+statistics for all sixteen slots rather than accepting only zeroed records.
