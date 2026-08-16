@@ -67,3 +67,7 @@ channel bias, bit 9 decrements bias, bit 16 increments gain and bit 17
 decrements gain. RED touches offsets `0x3356/0x3359`, GREEN `0x3357/0x335a`,
 and BLUE `0x3358/0x335b`. The adjusted paths also rebuild the corresponding
 palette section, so they are intentionally not reduced to byte updates alone.
+
+The recovered numeric loop calls the existing decimal renderer through an
+explicit forward declaration; this keeps the helper single-sourced while
+preserving strict C17 builds with warnings-as-errors.
