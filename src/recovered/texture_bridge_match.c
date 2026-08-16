@@ -5413,8 +5413,7 @@ static vf2_status execute_frame_phase17_bit7_index5(
     else if (phase_a5 == UINT8_C(5) && navigation_flags == UINT32_C(0x2000))
         manual_navigation_delta = -1;
     else if (navigation_flags != 0u) return VF2_ERROR_UNSUPPORTED;
-    if ((phase_a5 == 0u ||
-         (phase_a5 == UINT8_C(5) && phase_a7 == 0u)) && edit_delta != 0) {
+    if (phase_a5 == 0u && edit_delta != 0) {
         return VF2_ERROR_UNSUPPORTED;
     }
     for (index = 0u; index < sizeof(credits); ++index) {
@@ -5434,6 +5433,87 @@ static vf2_status execute_frame_phase17_bit7_index5(
             machine, base + UINT32_C(0x3325), manual_values,
             sizeof(manual_values)
         );
+
+        if (status == VF2_OK && phase_a7 == 0u && edit_delta != 0) {
+            const uint8_t parent_state = UINT8_C(0xff);
+            uint32_t row = 0u;
+            uint32_t col = 0u;
+            for (row = 4u; status == VF2_OK && row < 44u; ++row) {
+                for (col = 0u; status == VF2_OK && col < 62u; ++col) {
+                    status = write_u16(
+                        machine,
+                        UINT32_C(0x01000000) + row * UINT32_C(0x80) + col * UINT32_C(2),
+                        UINT16_C(0x0020)
+                    );
+                }
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x005000a7),
+                    &parent_state, sizeof(parent_state)
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_write(
+                    machine, UINT32_C(0x005ff602), &spill, sizeof(spill)
+                );
+            }
+            if (status != VF2_OK) return status;
+
+            instructions = edit_delta > 0 ? UINT64_C(12392) : UINT64_C(12389);
+            calls = UINT64_C(19);
+            cpu->executed_instructions += instructions;
+            cpu->procedure_calls += calls;
+            cpu->procedure_returns += calls;
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+            if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a010)) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
+            cpu->registers[0] = 0u;
+            cpu->registers[1] = UINT32_C(0x005ff580);
+            cpu->registers[2] = UINT32_C(0x0000a010);
+            cpu->registers[3] = 0u;
+            cpu->registers[4] = UINT32_C(0x00515400);
+            cpu->registers[5] = UINT32_C(0x3f800000);
+            cpu->registers[6] = 0u;
+            cpu->registers[7] = 0u;
+            cpu->registers[8] = UINT32_MAX;
+            cpu->registers[9] = UINT32_MAX;
+            cpu->registers[10] = UINT32_MAX;
+            cpu->registers[11] = UINT32_MAX;
+            cpu->registers[12] = 0u;
+            cpu->registers[13] = 0u;
+            cpu->registers[14] = UINT32_C(2);
+            cpu->registers[15] = UINT32_C(0x00008a00);
+            cpu->registers[16] = UINT32_C(62);
+            cpu->registers[17] = 0u;
+            cpu->registers[18] = UINT32_C(0xc0a0a3d7);
+            cpu->registers[19] = 0u;
+            cpu->registers[20] = UINT32_C(0x00560000);
+            cpu->registers[21] = UINT32_C(0x0050e850);
+            cpu->registers[22] = UINT32_C(0x000055b6);
+            cpu->registers[23] = UINT32_C(0x00510980);
+            cpu->registers[24] = UINT32_C(0x00512980);
+            cpu->registers[25] = UINT32_C(0x01001600);
+            cpu->registers[26] = UINT32_C(0x00800000);
+            cpu->registers[27] = UINT32_C(0x00880000);
+            cpu->registers[28] = UINT32_C(0x00004000);
+            cpu->registers[29] = UINT32_C(0x00516480);
+            cpu->registers[30] = UINT32_C(0x00000220);
+            cpu->registers[31] = UINT32_C(0x005ff500);
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+            cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = instructions;
+            report->recovered_procedure_calls = calls;
+            report->recovered_procedure_returns = calls + UINT64_C(1);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
         for (index = 0u; status == VF2_OK && index < 4u; ++index) {
             if (manual_values[index] > UINT8_C(8)) {
                 return VF2_ERROR_UNSUPPORTED;
