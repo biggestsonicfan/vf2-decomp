@@ -35,7 +35,28 @@ At the `0x00000c04` boundary the reference state is:
 - `0x005001dc = 0x00001284`; and
 - runtime flags at `0x00508000` remain `0x00008a00`.
 
+## Full-cycle validation and checkpoint state
+
+With the recovered callback branch, the same controlled state crosses the
+complete frame/scheduler cycle to the next `fa_game_info` entry at `0x0001645c`
+in 36 native differential blocks and 14,290 recovered instructions.
+
+A follow-up two-stage reference experiment initially appeared to disagree by
+four bytes at the start of buffer RAM. That was a checkpoint artifact rather
+than a runtime mismatch: snapshot version 5 serialized the geometry and video
+memory arrays but omitted the Model 2 FIFO's transient
+`geometry_write_start`, `geometry_read_start`, `geometry_control` and
+`geometry_program_count` fields. Restoring at the intermediate `0x0000a010`
+scheduler boundary therefore reset the hidden FIFO state while leaving the
+mirrored registers intact.
+
+Snapshot version 6 now serializes and restores those four fields explicitly.
+The live differential also compares them as `model2-state`, preventing hidden
+hardware-state drift from passing merely because the byte-addressable memory
+regions still match. Version-5 checkpoints remain readable: the write/read
+pointers and control word are reconstructed from their mirrored registers and
+the formerly unserialized program count defaults to zero.
+
 This closes the first branch reached by deliberately leaving the long validated
-idle corridor through a live input/control mutation. The next differential
-boundary is determined by continuing the same controlled state with the rebuilt
-native runtime.
+idle corridor through a live input/control mutation and makes subsequent
+checkpoint-based exploration of geometry-active states materially safer.
