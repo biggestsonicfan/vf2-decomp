@@ -1,0 +1,34 @@
+name: Apply selector17 index8 TGP TEST recovery
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/apply-phase17-index8-tgp.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply recovery
+        run: python3 scripts/apply_phase17_index8_tgp_test.py
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit recovery
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm scripts/apply_phase17_index8_tgp_test.py
+          git rm .github/workflows/apply-phase17-index8-tgp.yml
+          git add src/recovered/texture_bridge_match.c decomp/i960/notes/selector17_index8_tgp_test.md
+          git commit -m "Recover selector17 index8 TGP TEST"
+          git push
