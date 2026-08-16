@@ -99,3 +99,6 @@ or checksum. The + path consumes 12,392 instructions/19 calls/20 returns; the
 - path consumes 12,389 with the same call/return counts. This completes the
 nested MANUAL SETTING state machine; main-menu entry/exit/navigation remain the
 next index-5 cut.
+
+The navigation implementation is scoped only to the index-5 manual finisher;
+the earlier diagnostic finishers retain their original condition-code behavior.
