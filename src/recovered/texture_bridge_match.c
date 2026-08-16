@@ -1,5 +1,6 @@
 #include "texture_bridge_internal.h"
 #include "recovery_internal.h"
+#include <stdio.h>
 vf2_status finish_recovered_procedure(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
