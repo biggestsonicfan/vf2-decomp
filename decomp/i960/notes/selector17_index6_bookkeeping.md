@@ -8,9 +8,11 @@ first clean frame begins at `0x0000a6c0` with `a4 = 0x86`, `a5 = 0`,
 `a6 = 0xff`, `a7 = 0xff`, and zero navigation flags.
 
 The first observed page is `BOOKKEEPING 1/5`. Its first render consumes 15,309
-i960 instructions, 27 calls and 28 returns and advances `a5` from 0 to 1. The
-screen is headed `GLOBAL DATA` and contains COIN CHUTE #1/#2, TOTAL COINS,
-COIN CREDITS, SERVICE CREDITS, TOTAL CREDITS, TOTAL TIME, PLAY TIME,
+i960 instructions and advances `a5` from 0 to 1. At the clean `a6c0` boundary
+the snapshot delta is 25 nested calls and 26 returns; the earlier scouting log
+included two outer wrapper calls and therefore reported 27/28. The screen is
+headed `GLOBAL DATA` and contains COIN CHUTE #1/#2, TOTAL COINS, COIN CREDITS,
+SERVICE CREDITS, TOTAL CREDITS, TOTAL TIME, PLAY TIME,
 PLAY TIME RATIO(*1000), TOTAL GAME COUNT, 1P/VS counts, several average-time
 fields, and the footer `PUSH SERVICE BUTTON TO CONTINUE.` /
 `PUSH TEST BUTTON TO EXIT.`
@@ -26,5 +28,14 @@ Scouting page 2 exposed that `cvtilr` was decoded but not executed by the local
 i960 interpreter. Native support has therefore been added in the executor as a
 signed 64-bit register-pair to real32 conversion, alongside the existing
 `cvtir`, `mulr`, `divr`, `cmpr`, and `cvtri` support. This is an architectural
-executor improvement rather than a BOOKKEEPING-specific bypass; page recovery
-continues from the same ROM-backed snapshot after that opcode becomes executable.
+executor improvement rather than a BOOKKEEPING-specific bypass.
+
+The recovered index-6 cut now owns both phases of BOOKKEEPING 1/5 for the
+measured empty/default bookkeeping state. State `a5=0` reconstructs the static
+GLOBAL DATA layout and advances to `a5=1`; state `a5=1` renders the zero-count,
+zero-time and undefined-ratio forms (`----` / `--M --S`) exactly as observed.
+The phase is dispatched through ROM entry `0x0005c9b8` from table slot
+`0x0005fed8`, and the recovered finisher reproduces the measured CPU register,
+condition-code and instruction/call poststate rather than returning through the
+generic index-11 fallback. Later pages remain a separate extension of the same
+state machine.
