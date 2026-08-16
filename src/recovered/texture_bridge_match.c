@@ -5622,6 +5622,13 @@ static vf2_status execute_frame_phase17_bit7_index5(
                 machine, UINT32_C(0x005000a7),
                 &next_selection, sizeof(next_selection)
             );
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x005ff680),
+                    manual_navigation_delta < 0
+                        ? UINT32_MAX : UINT32_C(1)
+                );
+            }
             instructions = manual_navigation_delta > 0
                 ? (old_selection == UINT8_C(4)
                     ? UINT64_C(2271) : UINT64_C(2270))
