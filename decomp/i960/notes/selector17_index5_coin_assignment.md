@@ -25,17 +25,41 @@ bytes (`0x3320..0x332e`) and stores the 16-bit result at backup SRAM
 chutes. Bit 1 marks manual coin parameters; preset edits clear it, while edits
 inside MANUAL SETTING set it before recomputing the 15-byte checksum.
 
-`CREDIT TO 1P START` uses an index at `0x3329`, and `CREDIT TO VS START` uses
-an index at `0x332c`. Each index wraps over 0..14. Two ROM lookup tables at
-`0x5bc74` and `0x5bc84` map the index to the visible START and CONTINUE credit
-counts. For example, the measured default index 2 maps to 2 credits for START
-and 2 for CONTINUE; index 3 maps to 3/1; index 1 maps to 2/1. The derived bytes
-are stored at `0x332a/0x332b` for 1P and `0x332d/0x332e` for VS.
+COIN CHUTE TYPE (`a5=1`) is a direct COMMON/INDIVIDUAL controller. Either edit
+direction toggles bit 0 after clearing manual-mode bit 1, mirrors the complete
+mode word to backup SRAM, and recomputes the 15-byte checksum. From the measured
+COMMON default, both directions produce INDIVIDUAL and checksum `0xa417`.
+The + path consumes 4,405 instructions/38 calls/39 returns and the - path
+consumes 4,402 with the same call/return counts.
 
-`COIN/CREDIT SETTING` uses preset index `0x3324`, wrapping over 0..25. The ROM
-contains transition tables at `0x61500`, `0x6151a`, and `0x61534` for preserving
-valid preset relationships when the chute mode changes. The measured default
-is preset 0, displayed as setting #1.
+`CREDIT TO 1P START` (`a5=2`) uses an index at `0x3329`, and `CREDIT TO VS
+START` (`a5=3`) uses an index at `0x332c`. Each index wraps over 0..14. Two ROM
+lookup tables at `0x5bc74` and `0x5bc84` map the index to the visible START and
+CONTINUE credit counts. The recovered C reads these ROM tables directly rather
+than duplicating them, preserving the original representation where only valid
+START/CONTINUE combinations are expressible.
+
+For example, the measured default index 2 maps to 2 credits for START and 2 for
+CONTINUE. Index 3 maps to 3/1 and index 1 maps to 2/1. The derived bytes are
+stored at `0x332a/0x332b` for 1P and `0x332d/0x332e` for VS and mirrored to
+backup SRAM together with the index. Both controllers have 4,190-instruction
+idle frames. Their + and - edits consume 4,405 and 4,402 instructions with 38
+calls; measured checksums are `0x7ec6`/`0x5fd7` for 1P and
+`0x3e89`/`0x63d8` for VS.
+
+`COIN/CREDIT SETTING` (`a5=4`) uses preset index `0x3324`, wrapping over 0..25.
+The measured default is preset 0, displayed as setting #1; + selects preset 1
+and - wraps to preset 25. Those transitions consume 4,403 and 4,401
+instructions with 37 calls and yield checksums `0xd2a2` and `0x2511`.
+The ROM contains additional transition tables at `0x61500`, `0x6151a`, and
+`0x61534` for preserving valid preset relationships when the chute mode changes.
+
+The recovered controller cut now covers idle/+/- for COIN CHUTE TYPE,
+CREDIT TO 1P START, CREDIT TO VS START, and COIN/CREDIT SETTING from the
+measured default configuration. All four share the same persistence/checksum
+path; the two credit handlers also share the same ROM-driven START/CONTINUE
+pair derivation. This intentionally models the coin system as one schema rather
+than four unrelated handlers.
 
 MANUAL SETTING is a nested state machine selected by `a7` rather than another
 flat main-menu handler. Entering it sets `a7 = 0` and opens a five-item editor:
@@ -43,9 +67,3 @@ EXIT, COIN TO CREDIT, BONUS ADDER, COIN CHUTE #1 MULTIPLIER, and COIN CHUTE #2
 MULTIPLIER. The four editable values live at `0x3325..0x3328`, each wrapping
 over 0..8. An edit sets bit 1 of the mode word through `0x0005c7fc` and then
 recomputes the same 15-byte coin checksum.
-
-The first recovered C cut currently accepts the measured default entry state
-only: COMMON chute type, preset #1, and 2/2 credit pairs for both 1P and VS. It
-reproduces the ROM-observed tile writes and exact CPU post-state. Further coin
-controllers are intentionally kept as separate ROM-backed cases until their
-full preset/manual side effects are validated.
