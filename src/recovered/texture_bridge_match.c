@@ -11530,6 +11530,116 @@ static vf2_status execute_frame_phase17_zero_control_menu(
     return VF2_OK;
 }
 
+static vf2_status execute_frame_phase17_bit7_index10(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report,
+    uint8_t flagged_phase_index
+)
+{
+    static const struct {
+        uint32_t address;
+        const char *text;
+    } labels[] = {
+        {UINT32_C(0x01000694), "LOSES(%)"},
+        {UINT32_C(0x01000814), "AKI"},
+        {UINT32_C(0x0100081c), "JAC"},
+        {UINT32_C(0x01000824), "SAR"},
+        {UINT32_C(0x0100082c), "KAG"},
+        {UINT32_C(0x01000834), "LAU"},
+        {UINT32_C(0x0100083c), "JEF"},
+        {UINT32_C(0x01000844), "PAI"},
+        {UINT32_C(0x0100084c), "WOL"},
+        {UINT32_C(0x01000854), "SHU"},
+        {UINT32_C(0x0100085c), "DUR"},
+        {UINT32_C(0x01000864), "LIO"},
+        {UINT32_C(0x01000904), "AKIRA"},
+        {UINT32_C(0x01000a04), "JACKY"},
+        {UINT32_C(0x01000b04), "SARAH"},
+        {UINT32_C(0x01000c04), "KAGE"},
+        {UINT32_C(0x01000d04), "LAU"},
+        {UINT32_C(0x01000e04), "JEFFRY"},
+        {UINT32_C(0x01000f04), "PAI"},
+        {UINT32_C(0x01001004), "WOLF"},
+        {UINT32_C(0x01001104), "SHUN"},
+        {UINT32_C(0x01001204), "DURAL"},
+        {UINT32_C(0x01001304), "LION"},
+        {UINT32_C(0x010016a6), "PUSH TEST BUTTON TO EXIT."}
+    };
+    static const uint16_t diagram_glyphs[6] = {
+        UINT16_C(0x02c1), UINT16_C(0x02d6), UINT16_C(0x02c7),
+        UINT16_C(0x02d2), UINT16_C(0x02ce), UINT16_C(0x02cb)
+    };
+    static const uint32_t diagram_columns[6] = {
+        UINT32_C(23), UINT32_C(24), UINT32_C(25),
+        UINT32_C(27), UINT32_C(28), UINT32_C(29)
+    };
+    const uint32_t base_input = UINT32_C(0x0ff7f700);
+    uint32_t target=0u,input=0u,navigation=0u,released=0u,previous=0u,mask=0u;
+    uint8_t a5=0u,a6=0u,a7=0u,next=UINT8_C(1),spill=UINT8_C(0x56);
+    size_t index=0u;
+    vf2_status status=VF2_OK;
+
+    if (flagged_phase_index != UINT8_C(0x8a) || cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status=vf2_model2a_read_u32(machine,UINT32_C(0x0005fef8),&target);
+    if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x00500700),&input);
+    if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x00500704),&navigation);
+    if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x00500708),&released);
+    if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x0050070c),&previous);
+    if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x0050002c),&mask);
+    if(status==VF2_OK)status=vf2_model2a_read(machine,UINT32_C(0x005000a5),&a5,1u);
+    if(status==VF2_OK)status=vf2_model2a_read(machine,UINT32_C(0x005000a6),&a6,1u);
+    if(status==VF2_OK)status=vf2_model2a_read(machine,UINT32_C(0x005000a7),&a7,1u);
+    if(status!=VF2_OK || target!=UINT32_C(0x0005f234) || input!=base_input ||
+       navigation!=0u || released!=0u || previous!=base_input ||
+       mask!=UINT32_C(0x00020000) || a5!=0u || a6!=UINT8_C(0xff) || a7!=UINT8_C(0xff)) {
+        return status==VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    for(index=0u; status==VF2_OK && index<sizeof(labels)/sizeof(labels[0]); ++index) {
+        uint32_t relative=labels[index].address-UINT32_C(0x01000000);
+        uint32_t row_base=relative & ~UINT32_C(0x7f);
+        uint32_t column=(relative & UINT32_C(0x7f))/UINT32_C(2);
+        status=write_phase17_index0_text(machine,row_base,column,labels[index].text);
+    }
+    for(index=0u; status==VF2_OK && index<6u; ++index) {
+        status=write_u16(machine,
+            UINT32_C(0x01000000)+UINT32_C(16*0x80)+diagram_columns[index]*UINT32_C(2),
+            diagram_glyphs[index]);
+    }
+    if(status==VF2_OK)status=vf2_model2a_write(machine,UINT32_C(0x005000a5),&next,1u);
+    if(status==VF2_OK)status=vf2_model2a_write(machine,UINT32_C(0x005ff602),&spill,1u);
+    if(status!=VF2_OK)return status;
+
+    cpu->registers[0]=0u;cpu->registers[1]=UINT32_C(0x005ff580);cpu->registers[2]=UINT32_C(0x0000a010);cpu->registers[3]=0u;
+    cpu->registers[4]=UINT32_C(0x00515400);cpu->registers[5]=UINT32_C(0x3f800000);cpu->registers[6]=0u;cpu->registers[7]=0u;
+    cpu->registers[8]=UINT32_MAX;cpu->registers[9]=UINT32_MAX;cpu->registers[10]=UINT32_MAX;cpu->registers[11]=UINT32_MAX;
+    cpu->registers[12]=0u;cpu->registers[13]=0u;cpu->registers[14]=UINT32_C(5);cpu->registers[15]=UINT32_C(0x00008a00);
+    cpu->registers[16]=UINT32_C(0x2e);cpu->registers[17]=UINT32_C(0x3f4f5c29);cpu->registers[18]=UINT32_C(0xc0a0a3d7);cpu->registers[19]=0u;
+    cpu->registers[20]=UINT32_C(0x00560000);cpu->registers[21]=UINT32_C(0x0050e850);cpu->registers[22]=UINT32_C(0x000055b6);
+    cpu->registers[23]=UINT32_C(0x00510980);cpu->registers[24]=UINT32_C(0x00512980);cpu->registers[25]=UINT32_C(0x01001726);
+    cpu->registers[26]=UINT32_C(0x00800000);cpu->registers[27]=UINT32_C(0x00880000);cpu->registers[28]=UINT32_C(0x00004000);
+    cpu->registers[29]=UINT32_C(0x00516480);cpu->registers[30]=UINT32_C(0x00000220);cpu->registers[31]=UINT32_C(0x005ff500);
+    cpu->arithmetic_control=(cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+    cpu->compare_result=VF2_I960_COMPARE_GREATER;
+    cpu->executed_instructions += UINT64_C(1650);
+    cpu->procedure_calls += UINT64_C(31);
+    cpu->procedure_returns += UINT64_C(31);
+    status=vf2_i960_cpu_return_procedure(cpu,machine);
+    if(status!=VF2_OK || cpu->ip!=UINT32_C(0x0000a010))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
+    report->kind=VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+    report->entry_address=VF2_FRAME_DISPATCH_TICK_ENTRY;
+    report->exit_address=cpu->ip;
+    report->iterations=UINT64_C(1);
+    report->recovered_instruction_count=UINT64_C(1650);
+    report->recovered_procedure_calls=UINT64_C(31);
+    report->recovered_procedure_returns=UINT64_C(32);
+    report->cpu_poststate_applied=1;
+    return VF2_OK;
+}
+
 static vf2_status execute_frame_phase17(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -11631,7 +11741,12 @@ static vf2_status execute_frame_phase17(
                 machine, cpu, report, phase_index
             );
         }
-return execute_frame_phase17_bit7_index11(
+        if (phase_index == UINT8_C(0x8a)) {
+            return execute_frame_phase17_bit7_index10(
+                machine, cpu, report, phase_index
+            );
+        }
+        return execute_frame_phase17_bit7_index11(
             machine, cpu, report, saved_g4, phase_index
         );
     }
