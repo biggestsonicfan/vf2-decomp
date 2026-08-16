@@ -98,8 +98,15 @@ clears the 62x40 manual-editor region beginning at tile row 4 while preserving
 the parent COIN ASSIGNMENT instruction rows. It does not modify the coin schema
 or checksum. The + path consumes 12,392 instructions/19 calls/20 returns; the
 - path consumes 12,389 with the same call/return counts. This completes the
-nested MANUAL SETTING state machine; main-menu entry/exit/navigation remain the
-next index-5 cut.
+nested MANUAL SETTING state machine.
 
-The navigation implementation is scoped only to the index-5 manual finisher;
+The parent COIN ASSIGNMENT SERVICE cursor is also a circular state machine,
+wrapping over `a5=0..5`. Forward normally consumes 4,194 instructions/34 calls
+(4,195 for wrap 5->0); backward normally consumes 4,191/34 (4,192 for wrap
+0->5). As in the nested editor, the old cursor is erased in the transition frame,
+`0x005ff680` receives the signed delta, and the new cursor is rendered on the
+following frame. The recovered main-navigation cut intentionally leaves the
+TEST actions for main EXIT and MANUAL entry as a separate final index-5 step.
+
+The navigation implementation is scoped only to the index-5 state machines;
 the earlier diagnostic finishers retain their original condition-code behavior.
