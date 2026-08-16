@@ -4497,6 +4497,7 @@ static vf2_status hybrid_execute_game_info_18644(
     uint32_t r15 = 0u;
     uint32_t body_instructions = 101u;
     uint32_t tail_instruction_delta = 0u;
+    bool preserve_tail_compare = false;
     bool high_result = false;
     bool countdown_path = false;
     uint16_t short_value = 0u;
@@ -4819,13 +4820,16 @@ static vf2_status hybrid_execute_game_info_18644(
                          * count includes 0x18bd4, 0x1ab34 and 0x18b58. */
                         tail_instruction_delta += UINT32_C(1) +
                             helper_instructions;
+                        preserve_tail_compare = true;
                     }
                 }
             }
         }
     }
     if (status == VF2_OK) {
-        hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+        if (!preserve_tail_compare) {
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+        }
         cpu->ip = UINT32_C(0x00018a50);
         cpu->executed_instructions += body_instructions + tail_instruction_delta;
         status = vf2_i960_cpu_return_procedure(cpu, machine);
