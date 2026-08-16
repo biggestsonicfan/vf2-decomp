@@ -45,3 +45,22 @@ calls and 41 returns and yields CRC `0x785c`; the 2->5 wrap consumes 3,415
 instructions with the same call/return counts and yields CRC `0x7a4a`. The
 value is rendered before the edit takes effect, matching the ROM's handler
 ordering.
+
+MATCH COUNT(VS), state `a5 = 2`, uses the same circular 2..5 controller and
+persistence path against `base + 0x3341`. Its instruction/call counts are
+identical to the 1P handler. From the measured default 2, +1 produces 3 and CRC
+`0xac2e`; -1 wraps to 5 and produces CRC `0x7756`. The recovery therefore
+shares one parametrized MATCH COUNT implementation across the two descriptors.
+
+DIFFICULTY, state `a5 = 3`, wraps over 0..3 and maps through the ROM string table
+EASY/NORMAL/HARD/HARDEST. The measured default is 1 (NORMAL). +1 produces HARD
+in 3,430 instructions, 41 calls and 42 returns with CRC `0x2dfd`; -1 produces
+EASY in 3,427 instructions with the same call/return counts and CRC `0x5a6a`.
+
+Difficulty edits call `0x0005b2cc`, which derives the read-only assignment
+fields from three four-entry ROM tables rather than arithmetic in the handler.
+For EASY/NORMAL/HARD/HARDEST respectively, ENERGY MAX(1P) is
+176/160/144/128, ENERGY MAX(VS) is 220/200/180/160, and the STAGE WIDTH index
+is 16/15/14/13. The recovered C reads these tables at `0x5b32c`, `0x5b334`, and
+`0x5b33c`, updates both work configuration and backup SRAM, and then recomputes
+the same 29-byte configuration CRC.
