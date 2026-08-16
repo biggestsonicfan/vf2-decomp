@@ -198,6 +198,10 @@ vf2_status vf2_i960_snapshot_capture(vf2_i960_snapshot *snapshot, const vf2_i960
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     snapshot->cpu = *cpu;
+    snapshot->geometry_write_start = machine->geometry_write_start;
+    snapshot->geometry_read_start = machine->geometry_read_start;
+    snapshot->geometry_control = machine->geometry_control;
+    snapshot->geometry_program_count = machine->geometry_program_count;
     writable_regions(snapshot, destination);
     machine_regions(machine, source);
     for (index = 0u; index < VF2_SNAPSHOT_REGION_COUNT && status == VF2_OK; ++index) {
@@ -230,6 +234,10 @@ vf2_status vf2_i960_snapshot_restore(const vf2_i960_snapshot *snapshot, vf2_i960
     for (index = 0u; index < VF2_SNAPSHOT_REGION_COUNT; ++index) {
         memcpy((uint8_t *)destination[index].data, source[index].data, source[index].size);
     }
+    machine->geometry_write_start = snapshot->geometry_write_start;
+    machine->geometry_read_start = snapshot->geometry_read_start;
+    machine->geometry_control = snapshot->geometry_control;
+    machine->geometry_program_count = snapshot->geometry_program_count;
     return VF2_OK;
 }
 
@@ -273,6 +281,10 @@ vf2_status vf2_i960_snapshot_write_file(const vf2_i960_snapshot *snapshot, const
             ok = write_u32(file, snapshot->cpu.local_frames[index].registers[reg]);
         }
     }
+    ok = ok && write_u32(file, snapshot->geometry_write_start);
+    ok = ok && write_u32(file, snapshot->geometry_read_start);
+    ok = ok && write_u32(file, snapshot->geometry_control);
+    ok = ok && write_u32(file, snapshot->geometry_program_count);
     ok = ok && write_u32(file, VF2_SNAPSHOT_REGION_COUNT);
     for (index = 0u; ok && index < VF2_SNAPSHOT_REGION_COUNT; ++index) {
         ok = regions[index].size <= UINT32_MAX && write_u32(file, (uint32_t)regions[index].size);
@@ -324,7 +336,8 @@ vf2_status vf2_i960_snapshot_read_file(vf2_i960_snapshot *snapshot, const char *
     }
     vf2_i960_snapshot_destroy(snapshot);
     if (!read_bytes(file, magic, sizeof(magic)) || memcmp(magic, snapshot_magic, sizeof(magic)) != 0 ||
-        !read_u32(file, &version) || version != VF2_I960_SNAPSHOT_VERSION ||
+        !read_u32(file, &version) || version < 5u ||
+        version > VF2_I960_SNAPSHOT_VERSION ||
         !read_u32(file, &snapshot->cpu.sat) || !read_u32(file, &snapshot->cpu.prcb) ||
         !read_u32(file, &snapshot->cpu.ip) || !read_u32(file, &snapshot->cpu.process_control) ||
         !read_u32(file, &snapshot->cpu.arithmetic_control) || !read_u32(file, &snapshot->cpu.interrupt_control) ||
@@ -360,6 +373,15 @@ vf2_status vf2_i960_snapshot_read_file(vf2_i960_snapshot *snapshot, const char *
             }
         }
     }
+    if (version >= 6u &&
+        (!read_u32(file, &snapshot->geometry_write_start) ||
+         !read_u32(file, &snapshot->geometry_read_start) ||
+         !read_u32(file, &snapshot->geometry_control) ||
+         !read_u32(file, &snapshot->geometry_program_count))) {
+        fclose(file);
+        vf2_i960_snapshot_destroy(snapshot);
+        return VF2_ERROR_IO;
+    }
     if (!read_u32(file, &region_count) || region_count != VF2_SNAPSHOT_REGION_COUNT) {
         fclose(file);
         vf2_i960_snapshot_destroy(snapshot);
@@ -376,6 +398,29 @@ vf2_status vf2_i960_snapshot_read_file(vf2_i960_snapshot *snapshot, const char *
     for (index = 0u; index < VF2_SNAPSHOT_REGION_COUNT && status == VF2_OK; ++index) {
         *regions[index].size = sizes[index];
         status = allocate_read_region(file, regions[index].data, sizes[index]);
+    }
+    if (status == VF2_OK && version == 5u) {
+        if (snapshot->geometry_size < UINT32_C(0x300c) ||
+            snapshot->video_control_size < UINT32_C(12)) {
+            status = VF2_ERROR_BAD_SIZE;
+        } else {
+            const uint8_t *write_start = snapshot->geometry + UINT32_C(0x1008);
+            const uint8_t *read_start = snapshot->geometry + UINT32_C(0x3008);
+            const uint8_t *control = snapshot->video_control + UINT32_C(8);
+            snapshot->geometry_write_start =
+                ((uint32_t)write_start[0] | ((uint32_t)write_start[1] << 8u) |
+                 ((uint32_t)write_start[2] << 16u) | ((uint32_t)write_start[3] << 24u)) &
+                UINT32_C(0x000fffff);
+            snapshot->geometry_read_start =
+                ((uint32_t)read_start[0] | ((uint32_t)read_start[1] << 8u) |
+                 ((uint32_t)read_start[2] << 16u) | ((uint32_t)read_start[3] << 24u)) &
+                UINT32_C(0x000fffff);
+            snapshot->geometry_control =
+                (uint32_t)control[0] | ((uint32_t)control[1] << 8u) |
+                ((uint32_t)control[2] << 16u) | ((uint32_t)control[3] << 24u);
+            /* v5 did not serialize the transient program-word count. */
+            snapshot->geometry_program_count = 0u;
+        }
     }
     if (fclose(file) != 0 && status == VF2_OK) {
         status = VF2_ERROR_IO;
@@ -494,6 +539,32 @@ vf2_status vf2_i960_compare_live_state(
     if (expected_cpu->local_frame_depth != actual_cpu->local_frame_depth) {
         return VF2_OK;
     }
+    {
+        const uint32_t expected_model2[4] = {
+            expected_machine->geometry_write_start,
+            expected_machine->geometry_read_start,
+            expected_machine->geometry_control,
+            expected_machine->geometry_program_count
+        };
+        const uint32_t actual_model2[4] = {
+            actual_machine->geometry_write_start,
+            actual_machine->geometry_read_start,
+            actual_machine->geometry_control,
+            actual_machine->geometry_program_count
+        };
+        for (index = 0u; index < 4u; ++index) {
+            if (expected_model2[index] != actual_model2[index]) {
+                if (diff->equal) {
+                    diff->equal = false;
+                    (void)snprintf(diff->component, sizeof(diff->component), "model2-state");
+                    diff->first_offset = index;
+                    diff->expected_value = expected_model2[index];
+                    diff->actual_value = actual_model2[index];
+                }
+                ++diff->differing_bytes;
+            }
+        }
+    }
     for (index = 0u; index < expected_cpu->local_frame_depth; ++index) {
         size_t reg = 0u;
         for (reg = 0u; reg < VF2_I960_LOCAL_REGISTER_COUNT; ++reg) {
@@ -573,6 +644,32 @@ vf2_status vf2_i960_snapshot_compare(
         diff->expected_value = expected->cpu.ip;
         diff->actual_value = actual->cpu.ip;
         ++diff->differing_bytes;
+    }
+    {
+        const uint32_t expected_model2[4] = {
+            expected->geometry_write_start,
+            expected->geometry_read_start,
+            expected->geometry_control,
+            expected->geometry_program_count
+        };
+        const uint32_t actual_model2[4] = {
+            actual->geometry_write_start,
+            actual->geometry_read_start,
+            actual->geometry_control,
+            actual->geometry_program_count
+        };
+        for (index = 0u; index < 4u; ++index) {
+            if (expected_model2[index] != actual_model2[index]) {
+                if (diff->equal) {
+                    diff->equal = false;
+                    (void)snprintf(diff->component, sizeof(diff->component), "model2-state");
+                    diff->first_offset = index;
+                    diff->expected_value = expected_model2[index];
+                    diff->actual_value = actual_model2[index];
+                }
+                ++diff->differing_bytes;
+            }
+        }
     }
     for (index = 0u; index < VF2_I960_REGISTER_COUNT; ++index) {
         if (expected->cpu.registers[index] != actual->cpu.registers[index]) {

@@ -37,6 +37,10 @@ int vf2_test_i960_snapshot(void)
     memset(machine.texture_ram1, 0x82, machine.texture_ram1_size);
     memset(machine.luma_ram, 0x7f, machine.luma_ram_size);
     memset(machine.system_control, 0x9a, machine.system_control_size);
+    machine.geometry_write_start = UINT32_C(0x1234);
+    machine.geometry_read_start = UINT32_C(0x5678);
+    machine.geometry_control = UINT32_C(0x80000005);
+    machine.geometry_program_count = UINT32_C(42);
     vf2_i960_cpu_reset(&cpu, 0x10u, 0x20u, 0x30u);
     cpu.registers[16] = 0x12345678u;
     cpu.process_control = 0x11111111u;
@@ -67,7 +71,11 @@ int vf2_test_i960_snapshot(void)
         second.texture_ram0_size != machine.texture_ram0_size ||
         second.texture_ram1_size != machine.texture_ram1_size ||
         second.texture_ram0[0x600u] != UINT8_C(0x81) ||
-        second.texture_ram1[0x600u] != UINT8_C(0x82)) {
+        second.texture_ram1[0x600u] != UINT8_C(0x82) ||
+        second.geometry_write_start != UINT32_C(0x1234) ||
+        second.geometry_read_start != UINT32_C(0x5678) ||
+        second.geometry_control != UINT32_C(0x80000005) ||
+        second.geometry_program_count != UINT32_C(42)) {
         (void)remove(path);
         vf2_i960_snapshot_destroy(&first);
         vf2_i960_snapshot_destroy(&second);
@@ -117,6 +125,21 @@ int vf2_test_i960_snapshot(void)
             vf2_model2a_shutdown(&machine);
             return 5;
         }
+        live_machine.geometry_write_start ^= UINT32_C(4);
+        status = vf2_i960_compare_live_state(
+            &cpu, &machine, &live_cpu, &live_machine, &diff
+        );
+        if (status != VF2_OK || diff.equal ||
+            strcmp(diff.component, "model2-state") != 0 ||
+            diff.first_offset != 0u) {
+            vf2_model2a_shutdown(&live_machine);
+            (void)remove(path);
+            vf2_i960_snapshot_destroy(&first);
+            vf2_i960_snapshot_destroy(&second);
+            vf2_model2a_shutdown(&machine);
+            return 6;
+        }
+        live_machine.geometry_write_start ^= UINT32_C(4);
         live_machine.work_ram[7] ^= 1u;
         status = vf2_i960_compare_live_state(
             &cpu,
@@ -133,7 +156,7 @@ int vf2_test_i960_snapshot(void)
             vf2_i960_snapshot_destroy(&first);
             vf2_i960_snapshot_destroy(&second);
             vf2_model2a_shutdown(&machine);
-            return 6;
+            return 7;
         }
         status = vf2_i960_snapshot_capture(&first, &cpu, &machine);
         if (status != VF2_OK || first.work_ram != reused_work_ram) {
@@ -142,7 +165,7 @@ int vf2_test_i960_snapshot(void)
             vf2_i960_snapshot_destroy(&first);
             vf2_i960_snapshot_destroy(&second);
             vf2_model2a_shutdown(&machine);
-            return 7;
+            return 8;
         }
         vf2_model2a_shutdown(&live_machine);
     }

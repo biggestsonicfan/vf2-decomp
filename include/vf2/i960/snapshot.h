@@ -9,10 +9,14 @@
 #include "vf2/model2a.h"
 #include "vf2/status.h"
 
-#define VF2_I960_SNAPSHOT_VERSION 5u
+#define VF2_I960_SNAPSHOT_VERSION 6u
 
 typedef struct vf2_i960_snapshot {
     vf2_i960_cpu cpu;
+    uint32_t geometry_write_start;
+    uint32_t geometry_read_start;
+    uint32_t geometry_control;
+    uint32_t geometry_program_count;
     uint8_t *geometry;
     size_t geometry_size;
     uint8_t *copro_port;
