@@ -5840,6 +5840,13 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         }
         if (status == VF2_OK) {
             native_instructions += UINT64_C(6); /* mov/stib, mov/stib, ldob/cmpobe */
+            /* 0x164f0 CMPobe 0,r3 leaves its comparison observable at the
+             * task RET: zero is EQUAL; every nonzero uint8 countdown is LESS
+             * when comparing literal 0 against r3. */
+            hybrid_set_compare_result(
+                cpu, countdown == 0u ? VF2_I960_COMPARE_EQUAL
+                                     : VF2_I960_COMPARE_LESS
+            );
             if (countdown != 0u) {
                 --countdown;
                 status = vf2_model2a_write(
