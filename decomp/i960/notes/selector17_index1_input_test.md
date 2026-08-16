@@ -38,7 +38,10 @@ A released TEST bit does not exit on that same second visit. With
 then promotes the secondary selector from `a5 = 1` to `a5 = 2`. This measured
 transition consumes 1,624 instructions with the same 37 calls and 38 returns;
 relative to the no-release second visit, the only additional architectural
-change is `0x005000a5 = 2`.
+change is `0x005000a5 = 2`. The release branch also leaves the i960 compare
+condition as LESS (`arithmetic_control & 7 == 4`), whereas the no-release path
+returns EQUAL; strict differential validation treats that condition code as
+part of the architectural post-state.
 
 On the following scheduler cycle the video/input path clears released flags
 back to zero while preserving `a5 = 2`. The third visit therefore normally
