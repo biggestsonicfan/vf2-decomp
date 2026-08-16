@@ -4497,7 +4497,6 @@ static vf2_status hybrid_execute_game_info_18644(
     uint32_t r15 = 0u;
     uint32_t body_instructions = 101u;
     uint32_t tail_instruction_delta = 0u;
-    bool preserve_tail_compare = false;
     bool high_result = false;
     bool countdown_path = false;
     uint16_t short_value = 0u;
@@ -4692,6 +4691,24 @@ static vf2_status hybrid_execute_game_info_18644(
         }
     }
     if (status == VF2_OK) r10 |= r14 & UINT32_C(0xc0000000);
+    if (status == VF2_OK) {
+        /* 0x189a8..0x189bc: the first SHLO result is overwritten by SHRO,
+         * then CHKBIT 10 controls ALTERBIT 3 and remains the condition code
+         * unless the later type-22 helper executes its own CHKBIT. */
+        status = vf2_model2a_read_u32(machine, fighter0, &r4);
+        if (status == VF2_OK) {
+            r3 = (r10 >> 5u) ^ r4;
+            const bool bit10_set =
+                (r3 & (UINT32_C(1) << 10u)) != 0u;
+            hybrid_set_compare_result(
+                cpu, bit10_set ? VF2_I960_COMPARE_EQUAL
+                               : VF2_I960_COMPARE_NONE
+            );
+            r10 = bit10_set
+                ? r10 | (UINT32_C(1) << 3u)
+                : r10 & ~(UINT32_C(1) << 3u);
+        }
+    }
     /* Preserve the still-unrecovered 0x18788 signed-distance branch domain.
      * This guard was present before the high-flag recovery and is independent
      * of the newly recovered 0x18978..0x189a4 accumulation tail. */
@@ -4820,16 +4837,12 @@ static vf2_status hybrid_execute_game_info_18644(
                          * count includes 0x18bd4, 0x1ab34 and 0x18b58. */
                         tail_instruction_delta += UINT32_C(1) +
                             helper_instructions;
-                        preserve_tail_compare = true;
                     }
                 }
             }
         }
     }
     if (status == VF2_OK) {
-        if (!preserve_tail_compare) {
-            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
-        }
         cpu->ip = UINT32_C(0x00018a50);
         cpu->executed_instructions += body_instructions + tail_instruction_delta;
         status = vf2_i960_cpu_return_procedure(cpu, machine);
