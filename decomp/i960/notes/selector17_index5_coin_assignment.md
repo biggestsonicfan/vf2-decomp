@@ -84,3 +84,7 @@ bit 1 in both work RAM and backup SRAM, and recompute the same 15-byte checksum.
 The measured default-to-1/default-to-8 checksums are `0x2877`/`0x0d79` for
 COIN TO CREDIT, `0xac11`/`0x6ecd` for BONUS ADDER, `0x00e1`/`0x59e8` for chute
 #1 multiplier, and `0xff53`/`0xd49f` for chute #2 multiplier.
+
+The manual recovery is validated against ROM-backed snapshots for all four
+editable states in both directions; the remaining nested EXIT/navigation paths
+are kept separate until their teardown and cursor transitions are measured.
