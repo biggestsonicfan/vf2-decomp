@@ -72,7 +72,8 @@ to 16..255, matching `0x0005a310`. The handler also forces scroll to 31,
 updates the persistent mirror at `0x01d03356..35c`, recomputes the 29-byte
 configuration CRC stored at `0x01d03302`, and preserves the ROM ordering in
 which the displayed numeric values are rendered before the adjustment takes
-effect.
+effect. The temporary generator parameters at `0x00500234..0x0050023a` are
+interleaved as biasR/gainR, biasG/gainG, biasB/gainB, scroll.
 
 RGB navigation is likewise recovered from the measured state machine:
 RED forward/back goes to GREEN/EXIT, GREEN goes to BLUE/RED, and BLUE goes to
@@ -85,7 +86,7 @@ For each level 0..31 it computes `sample = level * scroll`. A zero sample maps
 to zero; otherwise each RGB channel computes `bias + ((gain * sample) >> 8)`
 and saturates values at or above 256 to `0xffff`. The resulting value is
 replicated across 64 entries, with each level advancing the destination by
-`0x180` bytes. The channel tables live at palette RAM offsets `+0x10000`,
+`0x200` bytes. The channel tables live at palette RAM offsets `+0x10000`,
 `+0x14000`, and `+0x18000`. No captured transfer-table dump is used.
 
 The recovered numeric loop calls the existing decimal renderer through an
