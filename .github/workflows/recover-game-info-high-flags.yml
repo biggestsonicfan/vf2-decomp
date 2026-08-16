@@ -1,0 +1,41 @@
+name: Recover game info high flags
+on:
+  push:
+    paths:
+      - tools/recover_game_info_high_flags.py
+      - .github/workflows/recover-game-info-high-flags.yml
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply recovery
+        run: python3 tools/recover_game_info_high_flags.py
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Document and commit
+        run: |
+          cat > decomp/i960/notes/game_info_18644_high_flags.md <<'EOF'
+          # fa_game_info 0x18644 high state flags
+          Controlled ROM probes recover the `0x18978..0x189a4` high-state flag tail. Bits 26..29 (`0x3c000000`) use the unsigned `+0x84e` progress versus `+0x1aa` limit gate; entering that branch costs three instructions and the OR costs one more when progress >= limit. Bits 30..31 (`0xc0000000`) are always accumulated and add no conditional cost. From the real sixth-dispatch snapshot the baseline was 677 instructions/12 calls to `0x16500`; bit26 measured 681/12, bit30 677/12, and bit26+30 681/12. `fighter0+0x5b8` became respectively `0x00000002`, `0x04000002`, `0x40000002`, and `0x44000002`.
+          EOF
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('docs/UNCOVERED_BRANCHES.md'); s=p.read_text()
+          old='`0x18644` threshold outcome are also covered. Unobserved downstream comparisons\nand other conditional branches remain\nROM-backed or unsupported.'
+          new='`0x18644` threshold outcome are also covered. The `0x18978..0x189a4` high-state flag tail is native as well: bits 26..29 use the measured progress/limit gate and bits 30..31 are accumulated unconditionally. Unobserved downstream comparisons and other conditional branches remain ROM-backed or unsupported.'
+          if old not in s: raise SystemExit('docs anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c docs/UNCOVERED_BRANCHES.md decomp/i960/notes/game_info_18644_high_flags.md
+          git rm -f tools/recover_game_info_high_flags.py .github/workflows/recover-game-info-high-flags.yml
+          git commit -m 'Recover fa_game_info high state flags'
+          git push
