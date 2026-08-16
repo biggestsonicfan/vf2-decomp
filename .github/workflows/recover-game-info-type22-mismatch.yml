@@ -1,0 +1,29 @@
+name: Recover game info type22 mismatch
+on:
+  push:
+    paths:
+      - tools/recover_game_info_type22_mismatch.py
+      - .github/workflows/recover-game-info-type22-mismatch.yml
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/recover_game_info_type22_mismatch.py
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Document and commit
+        run: |
+          cat > decomp/i960/notes/game_info_18644_type22.md <<'EOF'
+          # fa_game_info 0x18644 type-22 mismatch
+          The tail at `0x18a28` checks fighter 1 byte `+0x19f`. Value 22 continues by loading fighter 0 halfwords `+0x1aa` and `+0x80a`, subtracting one from the latter as a 32-bit value, and returning immediately when they differ. Controlled sixth-dispatch probes with either fighter selected as the type-22 peer measured 681 instructions/12 calls to `0x16500`, versus 677/12 for the baseline: exactly four extra instructions and no side effects. The equality case continues to the `r9` threshold and possible `0x18bd4` call, so it remains unsupported.
+          EOF
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_18644_type22.md
+          git rm -f tools/recover_game_info_type22_mismatch.py .github/workflows/recover-game-info-type22-mismatch.yml
+          git commit -m 'Recover fa_game_info type-22 mismatch'
+          git push
