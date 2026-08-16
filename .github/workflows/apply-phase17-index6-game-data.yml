@@ -1,0 +1,81 @@
+name: Apply selector17 index6 GAME DATA recovery
+on:
+  push:
+    paths:
+      - tools/apply_phase17_index6_game_data.py
+      - .github/workflows/apply-phase17-index6-game-data.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply recovery
+        run: python3 tools/apply_phase17_index6_game_data.py
+      - name: Write recovery note
+        run: |
+          cat > decomp/i960/notes/selector17_index6_bookkeeping_game_data.md <<'EOF'
+          # selector17 index6 BOOKKEEPING — hidden GAME DATA pair
+
+          The BOOKKEEPING jump table at `0x0005c9cc` continues beyond the
+          five user-facing pages. States 10/11 dispatch to `0x0005dce0` and
+          `0x0005e2bc`. State 10 builds the first per-character GAME DATA
+          screen (AKIRA), while state 11 renders its counters from the
+          512-byte block at `0x01d00000`.
+
+          State 10 clears a 62x44 area beginning at tile address `0x01000200`
+          and exposes the ROM strings GAME COUNT 1P/VS, TOTAL/AVG/MIN/MAX TIME,
+          CONTINUE/SET/DRAW counts, WIN BY K.O./RINGOUT/JUDGE counts, an 11-row
+          1P round table, and a 33-bin VS game-time histogram. It then enters
+          state 11.
+
+          State 11 layout recovered from `0x0005e2bc`:
+
+          - `+0x000/+0x004`: GAME COUNT 1P / VS
+          - `+0x008/+0x010`: 64-bit TOTAL TIME 1P / VS
+          - `+0x018/+0x138`: MIN TIME 1P / VS
+          - `+0x01c/+0x13c`: MAX TIME 1P / VS
+          - `+0x020/+0x140`: CONTINUE COUNT 1P / VS
+          - `+0x024/+0x144`: SET COUNT 1P / VS
+          - `+0x028/+0x148`: DRAW COUNT 1P / VS
+          - `+0x02c/+0x14c`: WIN BY K.O. 1P / VS
+          - `+0x030/+0x150`: WIN BY RINGOUT 1P / VS
+          - `+0x034/+0x154`: WIN BY JUDGE 1P / VS
+          - `+0x038`: eleven 16-byte 1P round records
+          - `+0x158`: thirty-three 32-bit VS histogram bins
+
+          Direct ROM measurements with a synthetic local-frame sentinel:
+
+          - state 10 body: 20564 instructions, 142 calls, 143 returns
+          - state 11 body with a zeroed 512-byte AKIRA block and valid SP:
+            4545 instructions, 131 calls, 132 returns
+
+          The recovered frame accounting includes the already-measured
+          BOOKKEEPING dispatch/wrapper overhead: 20595/144/145 and
+          4576/133/134 respectively.
+
+          This cut intentionally admits only the measured zero-data state-11
+          path. The ROM reuses the same 10/11 bodies for later hidden character
+          slots; non-zero statistics and repeated slots will be generalized in
+          the next recovery cut.
+          EOF
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Publish analysis binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-index6-game-data
+          path: build/vf2i960
+      - name: Commit recovery
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/texture_bridge_match.c decomp/i960/notes/selector17_index6_bookkeeping_game_data.md
+          git rm -f tools/apply_phase17_index6_game_data.py .github/workflows/apply-phase17-index6-game-data.yml
+          git commit -m 'Recover BOOKKEEPING AKIRA game data'
+          git push
