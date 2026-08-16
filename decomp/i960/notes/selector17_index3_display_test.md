@@ -32,14 +32,38 @@ label write had produced `0x8020` while the reference preserved an existing
 separate measured runs. The observed stack scratch words are also reproduced
 rather than ignored by the fast path.
 
-Secondary state `a5 = 8` is the cursor-entry transition for EXIT. Its next
-visit consumes 87 instructions, 4 calls and 5 returns, writes the cursor tile
-`0x801c` at row 45 column 22, advances `a5` to 9 and otherwise leaves the test
-pattern intact.
+The cursor states form pairs. Even secondary states 2/4/6/8 draw the cursor for
+RED/GREEN/BLUE/EXIT and advance to active states 3/5/7/9. Each measured cursor
+transition consumes 87 instructions, 4 calls and 5 returns. The implementation
+uses one parametrized cursor path rather than four duplicated state bodies.
 
-The selector states form pairs: even states 2/4/6/8 draw the cursor for
-RED/GREEN/BLUE/EXIT and advance to active states 3/5/7/9. The active state 9
-has been measured as the initial interactive loop; its idle path renders the
-seven numeric fields from `[0x0050016c] + 0x3356..0x335c` (initially
-64/64/64, 37/37/37 and scroll 31) without regenerating the pattern or palette.
-Further active controls remain separate ROM-backed recovery cases.
+The active EXIT state (`a5 = 9`) has an idle path of 271 instructions, 11 calls
+and 12 returns. It renders the seven numeric fields from `[0x0050016c] +
+0x3356..0x335c` (initially 64/64/64, 37/37/37 and scroll 31) without
+regenerating the pattern or palette. Measured navigation from EXIT is:
+
+- `0x00500704 = 0x1000`: `a5 9 -> 2` (RED), 47 instructions;
+- `0x00500704 = 0x2000`: `a5 9 -> 6` (BLUE), 48 instructions;
+- `0x10`, `0x100`, or `0x200`: `a5 9 -> 10`, consuming 52, 53, or 54
+  instructions respectively and entering DISPLAY TEST 2/2.
+
+DISPLAY TEST 2/2 (`a5 = 10`) is another algorithmic renderer, not a stored tile
+dump. It writes a 64x48 border using the measured edge/corner tiles
+`0x8018/0x8011/0x8019`, `0x8013/0x800f/0x8012`, and
+`0x801a/0x8010/0x801b`, then overlays `DISPLAY TEST 2/2` and
+`PUSH TEST BUTTON TO EXIT`. The transition consumes 13,927 instructions, 6
+calls and 7 returns and advances to `a5 = 11`.
+
+State 11 idles in 40 instructions, 2 calls and 3 returns. Measured TEST aliases
+`0x4`, `0x10`, `0x100`, and `0x04000000` in `0x00500704` all take the shared
+diagnostic teardown; the `0x10` path is two instructions longer. Teardown
+clears bit 7 (`0x005000a4: 0x83 -> 0x03`), restores the common diagnostic menu
+and consumes 14,582 instructions (14,584 for `0x10`), 18 calls and 19 returns.
+
+The RGB adjustment matrix has also been measured for the active RED/GREEN/BLUE
+handlers, though it remains a separate recovery step. Relative to baseline
+`0x00500700 = 0x0ff7f700`, toggling input bit 8 increments the selected
+channel bias, bit 9 decrements bias, bit 16 increments gain and bit 17
+decrements gain. RED touches offsets `0x3356/0x3359`, GREEN `0x3357/0x335a`,
+and BLUE `0x3358/0x335b`. The adjusted paths also rebuild the corresponding
+palette section, so they are intentionally not reduced to byte updates alone.
