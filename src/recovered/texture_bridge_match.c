@@ -2718,6 +2718,12 @@ static vf2_status execute_frame_phase17_bit7_index2(
     return VF2_OK;
 }
 
+static vf2_status phase17_zero_render_decimal(
+    vf2_model2a *machine,
+    int32_t value,
+    uint32_t destination
+);
+
 static vf2_status finish_frame_phase17_index3_observed(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
