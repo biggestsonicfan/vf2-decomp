@@ -6746,9 +6746,10 @@ static vf2_status phase17_index6_render_page5(
     };
     static const uint8_t rows[10]={14,16,18,20,22,24,26,28,30,32};
     size_t i=0u;uint32_t row=0u,col=0u;uint64_t count=0u;
-    vf2_status status=clear_tile_plane_64x48(machine,UINT32_C(0x01000000));
+    vf2_status status=VF2_OK;
     if(fighter>UINT8_C(9))return VF2_ERROR_UNSUPPORTED;
-    for(i=0u;status==VF2_OK&&i<sizeof(fixed)/sizeof(fixed[0]);++i){status=write_phase17_index0_text(machine,(uint32_t)fixed[i].row*UINT32_C(0x80),fixed[i].col,fixed[i].text);count+=(uint64_t)strlen(fixed[i].text);}
+    if(state!=UINT8_C(9))status=clear_tile_plane_64x48(machine,UINT32_C(0x01000000));
+    if(state!=UINT8_C(9))for(i=0u;status==VF2_OK&&i<sizeof(fixed)/sizeof(fixed[0]);++i){status=write_phase17_index0_text(machine,(uint32_t)fixed[i].row*UINT32_C(0x80),fixed[i].col,fixed[i].text);count+=(uint64_t)strlen(fixed[i].text);}
     if(state==UINT8_C(9)){
         static const uint8_t fighter_map[10]={0u,1u,2u,3u,4u,5u,6u,7u,8u,10u};
         const uint32_t record=UINT32_C(0x01d036a4)+(uint32_t)fighter_map[fighter]*UINT32_C(48);
@@ -6773,6 +6774,7 @@ static vf2_status phase17_index6_render_page5(
             count+=UINT64_C(32);
         }
     }
+    if(state==UINT8_C(9)){if(status==VF2_OK&&characters!=NULL)*characters=count;return status;}
     for(row=0u;status==VF2_OK&&row<UINT32_C(48);++row)for(col=0u;status==VF2_OK&&col<UINT32_C(64);++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell&UINT16_C(0x7fff));}
     {static const struct{uint8_t row,first,last;} base[]={{2,26,36},{2,38,44},{5,25,38},{8,27,36},{10,20,29},{12,6,57},{14,6,10},{16,6,10},{18,6,10},{20,6,9},{22,6,8},{24,6,11},{26,6,8},{28,6,9},{30,6,9},{32,6,9},{43,12,49},{44,15,46},{45,18,42}};for(i=0u;status==VF2_OK&&i<sizeof(base)/sizeof(base[0]);++i)for(col=base[i].first;status==VF2_OK&&col<=base[i].last;++col){uint16_t cell=0u;const uint32_t ad=UINT32_C(0x01000000)+(uint32_t)base[i].row*UINT32_C(0x80)+col*UINT32_C(2);status=read_u16(machine,ad,&cell);if(status==VF2_OK)status=write_u16(machine,ad,cell|UINT16_C(0x8000));}}
     if(state==UINT8_C(9)&&status==VF2_OK){
@@ -6884,7 +6886,7 @@ static vf2_status execute_frame_phase17_bit7_index6(
     if (exit_requested) {
         static const uint64_t exit_instructions[5] = {
             UINT64_C(16037), UINT64_C(17895), UINT64_C(17391),
-            UINT64_C(16215), UINT64_C(16173)
+            UINT64_C(16215), UINT64_C(16169)
         };
         static const uint64_t exit_calls[5] = {
             UINT64_C(95), UINT64_C(144), UINT64_C(115),
@@ -7041,7 +7043,7 @@ static vf2_status execute_frame_phase17_bit7_index6(
     } else if (phase_a5 == UINT8_C(7)) {
         instructions = UINT64_C(1946); calls = UINT64_C(74);
     } else {
-        instructions = UINT64_C(1904) + render_instruction_delta;
+        instructions = UINT64_C(1900) + render_instruction_delta;
         calls = UINT64_C(34) + render_call_delta;
     }
 
@@ -7121,7 +7123,8 @@ static vf2_status execute_frame_phase17_bit7_index6(
     cpu->registers[14] = phase_a5 == UINT8_C(9)
         ? UINT32_C(0x00009f9c)
         : UINT32_C(3) + (uint32_t)phase_a5;
-    cpu->registers[15] = UINT32_C(0x00008a00);
+    cpu->registers[15] = phase_a5 == UINT8_C(9)
+        ? UINT32_C(0x00008800) : UINT32_C(0x00008a00);
     cpu->registers[16] = fighter_delta != 0
         ? (fighter_delta < 0 ? UINT32_MAX : UINT32_C(1))
         : ((phase_a5 & UINT8_C(1)) == 0u
@@ -7134,7 +7137,8 @@ static vf2_status execute_frame_phase17_bit7_index6(
     cpu->registers[19] = 0u;
     cpu->registers[20] = UINT32_C(0x00560000);
     cpu->registers[21] = UINT32_C(0x0050e850);
-    cpu->registers[22] = UINT32_C(0x000055b6);
+    cpu->registers[22] = phase_a5 == UINT8_C(9)
+        ? UINT32_C(0x10) : UINT32_C(0x000055b6);
     cpu->registers[23] = UINT32_C(0x00510980);
     cpu->registers[24] = UINT32_C(0x00512980);
     cpu->registers[25] = (phase_a5 & UINT8_C(1)) == 0u
