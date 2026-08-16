@@ -59,8 +59,17 @@ instructions (+5 for `9->0`), page reverse is idle +3 (+4 for `1->8`), fighter
 + is idle +4 (+5 for `9->0`), and fighter - is idle +1 (+2 for `0->9`). These
 paths add no procedure calls beyond the already-accounted stable render.
 
-The TEST exit mask in the same ROM tail branches directly to the shared teardown
-at `0x0005f140`. That exit remains intentionally outside this cut until its full
-caller-visible poststate is measured; the recovered bridge continues to reject
-that input rather than substituting an estimated teardown state.
+The TEST exit mask in the same ROM tail is `0x04000014` and has precedence over
+page navigation. The canonical TEST bit (`0x00000004`) was injected only after
+the clean `0x0000a6c0` frame boundary so the scheduler could not consume it
+before the BOOKKEEPING handler. Native ROM measurements from stable states
+`a5=1,3,5,7,9` are respectively 16,037/95/96, 17,895/144/145,
+17,391/115/116, 16,215/90/91, and 16,173/50/51
+(instructions/calls/returns). All five converge on the same caller-visible CPU
+poststate. The shared teardown at `0x0005f140` clears the 64x48 diagnostic tile
+plane, clears bit 7 of `a4` (`0x86 -> 0x06`), restores the twelve parent TEST
+MENU records plus the three common instruction records, and redraws the
+BOOKKEEPING cursor. The recovered bridge now reproduces that teardown and its
+measured poststate, completing selector-17 index 6 for the measured empty/default
+bookkeeping configuration.
 
