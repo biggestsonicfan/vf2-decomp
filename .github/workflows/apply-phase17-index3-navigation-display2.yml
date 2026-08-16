@@ -1,0 +1,22 @@
+name: Apply selector17 index3 navigation and display2
+on:
+  push:
+    branches: [master]
+    paths:
+      - scripts/apply_phase17_index3_navigation_display2.py
+      - .github/workflows/apply-phase17-index3-navigation-display2.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/apply_phase17_index3_navigation_display2.py
+      - run: rm .github/workflows/apply-phase17-index3-navigation-display2.yml scripts/apply_phase17_index3_navigation_display2.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Recover selector17 index3 navigation and display test 2"
+          git push
