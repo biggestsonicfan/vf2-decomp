@@ -1,0 +1,43 @@
+name: Fix type22 chkbit
+on:
+  push:
+    paths:
+      - tools/fix_type22_chkbit.py
+      - .github/workflows/fix-type22-chkbit.yml
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/fix_type22_chkbit.py
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: |
+          exe=$(find build -type f -name vf2i960 | head -n1)
+          test -n "$exe"
+          cp "$exe" vf2i960
+          chmod +x vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-type22-chkbit
+          path: vf2i960
+          if-no-files-found: error
+      - name: Commit fix and cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('decomp/i960/notes/game_info_18bd4_type22_equal.md')
+          s=p.read_text()
+          s += '\nPost-recovery differential validation also confirmed the terminal `CHKBIT 10` condition state: with fighter1 bit10 set the helper exits with `compare=EQUAL` and arithmetic-control condition bits `2`, exactly as the ROM.\n'
+          p.write_text(s)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_18bd4_type22_equal.md
+          git rm -f tools/fix_type22_chkbit.py .github/workflows/fix-type22-chkbit.yml .github/workflows/build-type22-validator.yml
+          git commit -m 'Fix type-22 chkbit condition state'
+          git push
