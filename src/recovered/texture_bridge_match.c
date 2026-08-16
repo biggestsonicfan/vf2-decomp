@@ -11625,9 +11625,27 @@ static vf2_status phase17_index10_render_state1(vf2_model2a *machine)
     for(i=1u;status==VF2_OK&&i<11u;++i)for(j=i;status==VF2_OK&&j<11u;++j)if((int32_t)scores[i-1u]>(int32_t)scores[j]){uint32_t t=scores[i-1u];scores[i-1u]=scores[j];scores[j]=t;t=fighters[i-1u];fighters[i-1u]=fighters[j];fighters[j]=t;status=vf2_model2a_write_u32(machine,UINT32_C(0x00500280)+(i-1u)*UINT32_C(4),scores[i-1u]);if(status==VF2_OK)status=vf2_model2a_write_u32(machine,UINT32_C(0x00500280)+j*UINT32_C(4),scores[j]);if(status==VF2_OK)status=vf2_model2a_write_u32(machine,UINT32_C(0x00500244)+(i-1u)*UINT32_C(4),fighters[i-1u]);if(status==VF2_OK)status=vf2_model2a_write_u32(machine,UINT32_C(0x00500244)+j*UINT32_C(4),fighters[j]);}
     for(i=0u;status==VF2_OK&&i<11u;++i){uint32_t row=UINT32_C(18)+fighters[i]*UINT32_C(2);status=phase17_index10_decimal(machine,(int32_t)((i+UINT32_C(1))*UINT32_C(1000)),UINT32_C(0x01000000)+row*UINT32_C(0x80)+UINT32_C(57*2));}
     for(i=0u;status==VF2_OK&&i<11u;++i)status=write_phase17_index0_text(machine,(UINT32_C(18)+i*UINT32_C(2))*UINT32_C(0x80),UINT32_C(60),"    ");
-    if(status==VF2_OK)status=phase17_index10_tile(machine,UINT32_C(15),UINT32_C(1),UINT16_C(24));if(status==VF2_OK)status=phase17_index10_tile(machine,UINT32_C(15),UINT32_C(61),UINT16_C(25));
+    if (status == VF2_OK) {
+        status = phase17_index10_tile(
+            machine, UINT32_C(15), UINT32_C(1), UINT16_C(24)
+        );
+    }
+    if (status == VF2_OK) {
+        status = phase17_index10_tile(
+            machine, UINT32_C(15), UINT32_C(61), UINT16_C(25)
+        );
+    }
     for(i=2u;status==VF2_OK&&i<61u;++i)status=phase17_index10_tile(machine,UINT32_C(15),i,UINT16_C(21));
-    if(status==VF2_OK)status=phase17_index10_tile(machine,UINT32_C(39),UINT32_C(1),UINT16_C(26));if(status==VF2_OK)status=phase17_index10_tile(machine,UINT32_C(39),UINT32_C(61),UINT16_C(27));
+    if (status == VF2_OK) {
+        status = phase17_index10_tile(
+            machine, UINT32_C(39), UINT32_C(1), UINT16_C(26)
+        );
+    }
+    if (status == VF2_OK) {
+        status = phase17_index10_tile(
+            machine, UINT32_C(39), UINT32_C(61), UINT16_C(27)
+        );
+    }
     for(i=2u;status==VF2_OK&&i<61u;++i)status=phase17_index10_tile(machine,UINT32_C(39),i,UINT16_C(21));
     for(i=0u;status==VF2_OK&&i<15u;++i)for(j=16u;status==VF2_OK&&j<39u;++j)status=phase17_index10_tile(machine,j,vertical_cols[i],UINT16_C(22));
     for(i=0u;status==VF2_OK&&i<11u;++i)for(j=1u;status==VF2_OK&&j<62u;++j)status=phase17_index10_tile(machine,horizontal_rows[i],j,horizontal_tiles[j-1u]);
@@ -11645,9 +11663,30 @@ static vf2_status execute_frame_phase17_bit7_index10(
     if(a5==UINT8_C(0)){
         const uint8_t next=UINT8_C(1);if(navigation!=0u)return VF2_ERROR_UNSUPPORTED;status=phase17_index10_render_state0(machine);if(status==VF2_OK)status=vf2_model2a_write(machine,UINT32_C(0x005000a5),&next,sizeof(next));instructions=UINT64_C(1650);calls=UINT64_C(31);
     }else{
-        if(navigation!=0u&&(navigation&UINT32_C(0x04000104))==0u)return VF2_ERROR_UNSUPPORTED;status=phase17_index10_render_state1(machine);if(status==VF2_OK&&(navigation&UINT32_C(0x04000104))!=0u){status=phase17_index10_restore_menu(machine);exiting=1;instructions=UINT64_C(51001);calls=UINT64_C(1452);}else if(status==VF2_OK){instructions=UINT64_C(36729);calls=UINT64_C(1436);}
+        if (navigation != 0u &&
+            (navigation & UINT32_C(0x04000104)) == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = phase17_index10_render_state1(machine);
+        if (status == VF2_OK &&
+            (navigation & UINT32_C(0x04000104)) != 0u) {
+            status = phase17_index10_restore_menu(machine);
+            exiting = 1;
+            instructions = UINT64_C(51001);
+            calls = UINT64_C(1452);
+        } else if (status == VF2_OK) {
+            instructions = UINT64_C(36729);
+            calls = UINT64_C(1436);
+        }
     }
-    if(status==VF2_OK&&!exiting)status=vf2_model2a_write(machine,UINT32_C(0x005ff602),&spill,sizeof(spill));if(status!=VF2_OK)return status;
+    if (status == VF2_OK && !exiting) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005ff602), &spill, sizeof(spill)
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
     cpu->executed_instructions+=instructions;cpu->procedure_calls+=calls;cpu->procedure_returns+=calls;status=vf2_i960_cpu_return_procedure(cpu,machine);if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a010))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     if(a5==UINT8_C(0)){phase17_index7_post(cpu,UINT32_C(0x2e),UINT32_C(0x3f4f5c29),UINT32_C(0xc0a0a3d7),UINT32_C(0x01001726),UINT32_C(5),0);cpu->arithmetic_control=(cpu->arithmetic_control&~UINT32_C(7))|UINT32_C(1);cpu->compare_result=VF2_I960_COMPARE_GREATER;}else phase17_index10_post(cpu,exiting);
     report->kind=VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;report->entry_address=VF2_FRAME_DISPATCH_TICK_ENTRY;report->exit_address=cpu->ip;report->iterations=UINT64_C(1);report->recovered_instruction_count=instructions;report->recovered_procedure_calls=calls;report->recovered_procedure_returns=calls+UINT64_C(1);report->cpu_poststate_applied=1;return VF2_OK;
