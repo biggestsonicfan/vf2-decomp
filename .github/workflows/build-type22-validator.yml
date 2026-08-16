@@ -1,0 +1,24 @@
+name: Build type22 validator
+on:
+  push:
+    paths:
+      - .github/workflows/build-type22-validator.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: |
+          exe=$(find build -type f -name vf2i960 | head -n1)
+          test -n "$exe"
+          cp "$exe" vf2i960
+          chmod +x vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-type22-validator
+          path: vf2i960
+          if-no-files-found: error
