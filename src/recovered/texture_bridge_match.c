@@ -2018,7 +2018,7 @@ static vf2_status execute_frame_phase17_bit7_index1(
         primary_target != UINT32_C(0x00059718) ||
         secondary_target != UINT32_C(0x00059738) ||
         input_flags != UINT32_C(0x0ff7f700) || navigation_flags != 0u ||
-        released_flags != 0u ||
+        (released_flags != 0u && released_flags != UINT32_C(4)) ||
         previous_flags != UINT32_C(0x0ff7f700) ||
         selector_mask != UINT32_C(0x00020000) ||
         phase_a5 > UINT8_C(1) || phase_a6 != UINT8_C(0xff)) {
@@ -2027,8 +2027,17 @@ static vf2_status execute_frame_phase17_bit7_index1(
 
     if (phase_a5 == UINT8_C(1)) {
         const uint8_t spill = UINT8_C(0x56);
+        const int release_transition = released_flags == UINT32_C(4);
 
-        status = write_u16(machine, UINT32_C(0x005ff600), UINT16_C(0));
+        if (release_transition) {
+            const uint8_t next_phase = UINT8_C(2);
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x005000a5), &next_phase, sizeof(next_phase)
+            );
+        }
+        if (status == VF2_OK) {
+            status = write_u16(machine, UINT32_C(0x005ff600), UINT16_C(0));
+        }
         if (status == VF2_OK) {
             status = vf2_model2a_write(
                 machine, UINT32_C(0x005ff602), &spill, sizeof(spill)
@@ -2037,7 +2046,8 @@ static vf2_status execute_frame_phase17_bit7_index1(
         if (status != VF2_OK) {
             return status;
         }
-        cpu->executed_instructions += UINT64_C(1622);
+        cpu->executed_instructions +=
+            release_transition ? UINT64_C(1624) : UINT64_C(1622);
         cpu->procedure_calls += UINT64_C(37);
         cpu->procedure_returns += UINT64_C(37);
         status = vf2_i960_cpu_return_procedure(cpu, machine);
@@ -2081,9 +2091,10 @@ static vf2_status execute_frame_phase17_bit7_index1(
         report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
         report->exit_address = cpu->ip;
         report->iterations = UINT64_C(1);
-        report->changed_values = UINT64_C(3);
-        report->bytes_written = 3u;
-        report->recovered_instruction_count = UINT64_C(1622);
+        report->changed_values = release_transition ? UINT64_C(4) : UINT64_C(3);
+        report->bytes_written = release_transition ? 4u : 3u;
+        report->recovered_instruction_count =
+            release_transition ? UINT64_C(1624) : UINT64_C(1622);
         report->recovered_procedure_calls = UINT64_C(37);
         report->recovered_procedure_returns = UINT64_C(38);
         report->cpu_poststate_applied = 1;
