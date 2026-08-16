@@ -92,3 +92,23 @@ then `0x0005a460` rebuilds the three 32-level transfer tables. The recovered C
 reuses the same `phase17_index3_rebuild_transfer_tables()` implementation used
 by DISPLAY TEST rather than duplicating the LUT algorithm. Toggle frames consume
 16,890 (+) or 16,887 (-) instructions and 43 calls before the common CRC commit.
+
+INITIALIZE (`a5=15`) calls `0x0006010c`, which is the factory-default writer for
+the whole 29-byte assignment block. Defaults include MATCH COUNT 2/2,
+DIFFICULTY NORMAL, the eleven per-round assignment bytes set to 1, stage width
+15, JAPAN, all packed flags clear, ENERGY MAX 160/200, and the standard video
+profile bias 64/gain 37/scroll 31. The routine mirrors the complete block to
+backup SRAM, rebuilds the same RGB transfer tables, and the caller recomputes
+the configuration CRC. Either edit direction triggers initialization: + uses
+16,941 instructions and - uses 16,938, both with 43 calls. The measured default
+fixture was already at factory values, which is why its memory diff was mostly
+renderer/scratch even though the ROM executed the full reset path.
+
+EXIT (`a5=0`) checks the edit delta returned by `0x00060b84`. Positive delta
+enters the shared diagnostic teardown at `0x0005f140`, clears the 64x48 tile
+plane, clears bit 7 of the phase index (`0x84 -> 0x04`), and restores the parent
+selector-17 menu records. The measured exit consumes 17,317 instructions,
+54 calls and 55 returns. Negative delta does not exit; it is a 3,041-instruction
+no-op ending with the ROM's GREATER condition. The generic index4 post-state
+also preserves the ROM-observed `r9 = 0xffffffff` residue on idle/navigation
+frames.
