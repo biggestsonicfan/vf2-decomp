@@ -27,16 +27,26 @@ helpers write some spaces as `0x8020` while leaving other existing `0x0020`
 cells untouched; both render identically but are distinct in strict snapshot
 comparison.
 
-The second visit (`a5 = 1`) enters the alternate body behind `0x00059718`.
-With `0x00500708 = 0` no input release/exit condition fires and the already
-rendered INPUT TEST screen is left untouched. The measured path from
-`0x0000a6c0` to `0x0000a010` consumes 1,622 i960 instructions, 37 procedure
-calls and 38 procedure returns; only the observed `00 00 56` stack-spill bytes
-are normalized. This case is kept separate from the TEST-button exit, whose
-branch tests `0x00500708 & 0x04000004`.
+The second visit (`a5 = 1`) enters the body at `0x0005977c`. With
+`0x00500708 = 0`, the already rendered INPUT TEST screen is left untouched and
+the measured path from `0x0000a6c0` to `0x0000a010` consumes 1,622 i960
+instructions, 37 procedure calls and 38 procedure returns; only the observed
+`00 00 56` stack-spill bytes are normalized.
 
-The recovered implementation is intentionally restricted to measured input
-states: first visit uses `0x00500700 = 0x0ff7f700`, `0x00500704 = 0`, matching
-previous input and selector mask `0x00020000`; the second visit additionally
-requires released flags to remain zero. Input-state variants and the later
-TEST-button exit remain separate recovery cases.
+A released TEST bit does not exit on that same second visit. With
+`0x00500708 = 0x00000004`, `0x0005977c` performs the same input-test refresh,
+then promotes the secondary selector from `a5 = 1` to `a5 = 2`. This measured
+transition consumes 1,624 instructions with the same 37 calls and 38 returns;
+relative to the no-release second visit, the only additional architectural
+change is `0x005000a5 = 2`.
+
+The actual exit is therefore deferred to the third visit: `a5 = 2` selects
+`0x000597a8`, which refreshes the INPUT TEST once more and tests
+`0x00500708 & 0x04000004` before branching to the shared diagnostic teardown at
+`0x0005f140`.
+
+The recovered implementation remains restricted to measured input states:
+first visit uses `0x00500700 = 0x0ff7f700`, `0x00500704 = 0`, matching previous
+input and selector mask `0x00020000`; second-visit recovery accepts released
+flags zero or the measured TEST-release value `0x4`. Other input-state variants
+and the third-visit teardown remain separate recovery cases.
