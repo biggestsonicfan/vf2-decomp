@@ -6503,7 +6503,10 @@ static vf2_status phase17_index6_render_page3(
     if(state==UINT8_C(5)) for(i=0u;status==VF2_OK&&i<sizeof(values)/sizeof(values[0]);++i){ status=write_phase17_index0_text(machine,(uint32_t)values[i].row*UINT32_C(0x80),values[i].col,values[i].text); count+=(uint64_t)strlen(values[i].text); }
     for(row=0u;status==VF2_OK&&row<UINT32_C(48);++row) for(col=0u;status==VF2_OK&&col<UINT32_C(64);++col){ uint16_t cell=0u; const uint32_t ad=UINT32_C(0x01000000)+row*UINT32_C(0x80)+col*UINT32_C(2); status=read_u16(machine,ad,&cell); if(status==VF2_OK) status=write_u16(machine,ad,cell&UINT16_C(0x7fff)); }
     for(i=0u;status==VF2_OK&&i<sizeof(spans)/sizeof(spans[0]);++i) if(spans[i].state==state) for(col=spans[i].first;status==VF2_OK&&col<=spans[i].last;++col){ uint16_t cell=0u; const uint32_t ad=UINT32_C(0x01000000)+(uint32_t)spans[i].row*UINT32_C(0x80)+col*UINT32_C(2); status=read_u16(machine,ad,&cell); if(status==VF2_OK) status=write_u16(machine,ad,cell|UINT16_C(0x8000)); }
-    if(status==VF2_OK&&characters!=NULL)*characters=count; return status;
+    if (status == VF2_OK && characters != NULL) {
+        *characters = count;
+    }
+    return status;
 }
 
 static vf2_status execute_frame_phase17_bit7_index6(
