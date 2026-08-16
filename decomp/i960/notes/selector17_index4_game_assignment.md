@@ -109,6 +109,7 @@ enters the shared diagnostic teardown at `0x0005f140`, clears the 64x48 tile
 plane, clears bit 7 of the phase index (`0x84 -> 0x04`), and restores the parent
 selector-17 menu records. The measured exit consumes 17,317 instructions,
 54 calls and 55 returns. Negative delta does not exit; it is a 3,041-instruction
-no-op ending with the ROM's GREATER condition. The generic index4 post-state
-also preserves the ROM-observed `r9 = 0xffffffff` residue on idle/navigation
-frames.
+no-op ending with the ROM's GREATER condition. SERVICE forward/back are handled
+by the common descriptor-navigation path before EXIT action dispatch, preserving
+the measured 3,050/3,048 instruction counts. The generic index4 post-state also
+preserves the ROM-observed `r9 = 0xffffffff` residue on idle/navigation frames.
