@@ -6787,11 +6787,21 @@ static vf2_status phase17_index6_render_page5(
 
 static vf2_status phase17_index6_render_game_data_static(
     vf2_model2a *machine,
+    uint8_t slot,
     uint64_t *characters
 )
 {
+    static const char *names[16] = {
+        "AKIRA","JACKY","SARAH","KAGE","LAU","JEFFRY","PAI","WOLF",
+        "SHUN","ACHO","LION","MUE","KOJAC","-----","-----","-----"
+    };
+    static const char *headers[16] = {
+        "AKIRA  ","JACKY  ","SARAH  ","KAGE   ","LAU    ","JEFFRY ",
+        "PAI    ","WOLF   ","SHUN   ","DURAL  ","LION   ","MUE    ",
+        "KOJACKY","-------","-------","-------"
+    };
     static const struct { uint8_t row, col; const char *text; } fixed[] = {
-        {4,22,"GAME DATA"},{4,34,"AKIRA"},
+        {4,22,"GAME DATA"},
         {6,17,"GAME COUNT 1P"},{7,17,"GAME COUNT VS"},
         {8,4,"TOTAL TIME 1P"},{9,4,"TOTAL TIME VS"},
         {10,6,"AVG TIME 1P"},{11,6,"AVG TIME VS"},
@@ -6812,8 +6822,7 @@ static vf2_status phase17_index6_render_game_data_static(
         {8,42,"-----VS DATA-----"},{9,42,"GAMETIME    COUNT"},
         {10,42,"   (sec)  (times)"},
         {44,15,"PUSH SERVICE BUTTON TO CONTINUE."},
-        {45,18,"PUSH TEST BUTTON TO EXIT."},
-        {2,38,"AKIRA  "}
+        {45,18,"PUSH TEST BUTTON TO EXIT."}
     };
     static const char *ranges[33] = {
         "~ 10","~ 13","~ 16","~ 19","~ 22","~ 25","~ 28","~ 31",
@@ -6826,6 +6835,9 @@ static vf2_status phase17_index6_render_game_data_static(
     uint64_t count = 0u;
     vf2_status status = VF2_OK;
 
+    if (slot >= UINT8_C(16)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
     for (row = 4u; status == VF2_OK && row < 48u; ++row) {
         for (col = 0u; status == VF2_OK && col < 62u; ++col) {
             status = write_u16(
@@ -6840,6 +6852,18 @@ static vf2_status phase17_index6_render_game_data_static(
             fixed[i].col, fixed[i].text
         );
         count += (uint64_t)strlen(fixed[i].text);
+    }
+    if (status == VF2_OK) {
+        status = write_phase17_index0_text(
+            machine, UINT32_C(4 * 0x80), UINT32_C(34), names[slot]
+        );
+        count += (uint64_t)strlen(names[slot]);
+    }
+    if (status == VF2_OK) {
+        status = write_phase17_index0_text(
+            machine, UINT32_C(2 * 0x80), UINT32_C(38), headers[slot]
+        );
+        count += (uint64_t)strlen(headers[slot]);
     }
     for (i = 0u; status == VF2_OK && i < 33u; ++i) {
         const uint32_t r = UINT32_C(11) + (uint32_t)i;
@@ -6913,19 +6937,31 @@ static vf2_status phase17_index6_finish_game_data_pair(
     uint64_t calls = 0u;
     vf2_status status = VF2_OK;
 
-    if (state == UINT8_C(10)) {
-        const uint8_t next = UINT8_C(11);
-        status = phase17_index6_render_game_data_static(machine, &characters);
+    if (state >= UINT8_C(10) && state <= UINT8_C(40) &&
+        (state & UINT8_C(1)) == 0u) {
+        const uint8_t slot = (uint8_t)((state - UINT8_C(10)) >> 1u);
+        const uint8_t next = (uint8_t)(state + UINT8_C(1));
+        static const uint8_t name_lengths[16] = {
+            5u,5u,5u,4u,3u,6u,3u,4u,4u,4u,4u,3u,5u,5u,5u,5u
+        };
+        status = phase17_index6_render_game_data_static(machine, slot, &characters);
         if (status == VF2_OK) {
             status = vf2_model2a_write(machine, UINT32_C(0x005000a5), &next, sizeof(next));
         }
-        instructions = UINT64_C(20595);
+        instructions = UINT64_C(20555) +
+            UINT64_C(8) * (uint64_t)name_lengths[slot];
         calls = UINT64_C(144);
-    } else if (state == UINT8_C(11)) {
+    } else if (state >= UINT8_C(11) && state <= UINT8_C(41) &&
+               (state & UINT8_C(1)) != 0u) {
+        const uint8_t slot = (uint8_t)((state - UINT8_C(11)) >> 1u);
         uint32_t offset = 0u;
         uint8_t value = 0u;
         for (offset = 0u; status == VF2_OK && offset < UINT32_C(0x200); ++offset) {
-            status = vf2_model2a_read(machine, UINT32_C(0x01d00000) + offset, &value, sizeof(value));
+            status = vf2_model2a_read(
+                machine, UINT32_C(0x01d00000) +
+                    (uint32_t)slot * UINT32_C(0x200) + offset,
+                &value, sizeof(value)
+            );
             if (status == VF2_OK && value != 0u) {
                 return VF2_ERROR_UNSUPPORTED;
             }
@@ -6962,16 +6998,17 @@ static vf2_status phase17_index6_finish_game_data_pair(
     cpu->registers[12]=0u; cpu->registers[13]=0u;
     cpu->registers[14]=UINT32_C(3)+(uint32_t)state;
     cpu->registers[15]=UINT32_C(0x00008a00);
-    cpu->registers[16]=state==UINT8_C(10)?UINT32_C(0x2e):0u;
+    cpu->registers[16]=(state & UINT8_C(1)) == 0u ? UINT32_C(0x2e) : 0u;
     cpu->registers[17]=0u; cpu->registers[18]=UINT32_C(0xc0a0a3d7);
     cpu->registers[19]=0u; cpu->registers[20]=UINT32_C(0x00560000);
     cpu->registers[21]=UINT32_C(0x0050e850); cpu->registers[22]=UINT32_C(0x000055b6);
     cpu->registers[23]=UINT32_C(0x00510980); cpu->registers[24]=UINT32_C(0x00512980);
-    cpu->registers[25]=state==UINT8_C(10)?UINT32_C(0x01001724):UINT32_C(0x010015e8);
+    cpu->registers[25]=(state & UINT8_C(1)) == 0u
+        ? UINT32_C(0x01001724) : UINT32_C(0x010015e8);
     cpu->registers[26]=UINT32_C(0x00800000); cpu->registers[27]=UINT32_C(0x00880000);
     cpu->registers[28]=UINT32_C(0x00004000); cpu->registers[29]=UINT32_C(0x00516480);
     cpu->registers[30]=UINT32_C(0x00000220); cpu->registers[31]=UINT32_C(0x005ff500);
-    if (state == UINT8_C(10)) {
+    if ((state & UINT8_C(1)) == 0u) {
         cpu->arithmetic_control=(cpu->arithmetic_control&~UINT32_C(7))|UINT32_C(1);
         cpu->compare_result=VF2_I960_COMPARE_GREATER;
     } else {
@@ -7034,7 +7071,7 @@ static vf2_status execute_frame_phase17_bit7_index6(
     if (status != VF2_OK || indirect_target != UINT32_C(0x0005c9b8) ||
         input_flags != base_input || released_flags != 0u ||
         previous_flags != base_input || selector_mask != UINT32_C(0x00020000) ||
-        phase_a5 > UINT8_C(11) || phase_a6 != UINT8_C(0xff) ||
+        phase_a5 > UINT8_C(41) || phase_a6 != UINT8_C(0xff) ||
         ((phase_a5 < UINT8_C(9) && phase_a7 != UINT8_C(0xff)) ||
          (phase_a5 == UINT8_C(9) && phase_a7 > UINT8_C(9)) ||
          (phase_a5 >= UINT8_C(10) && phase_a7 != UINT8_C(0xff)))) {

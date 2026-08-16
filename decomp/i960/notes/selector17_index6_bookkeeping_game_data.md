@@ -37,7 +37,20 @@ The recovered frame accounting includes the already-measured
 BOOKKEEPING dispatch/wrapper overhead: 20595/144/145 and
 4576/133/134 respectively.
 
-This cut intentionally admits only the measured zero-data state-11
-path. The ROM reuses the same 10/11 bodies for later hidden character
-slots; non-zero statistics and repeated slots will be generalized in
-the next recovery cut.
+This cut admits the measured zero-data path for all sixteen hidden GAME DATA slots. Non-zero statistics remain an explicit next extension.
+
+## All hidden character slots
+
+The shared pair is reused for 16 slots, states 10..41. The body-name table is
+`AKIRA, JACKY, SARAH, KAGE, LAU, JEFFRY, PAI, WOLF, SHUN, ACHO, LION, MUE,
+KOJAC, -----, -----, -----`. The independent header table labels the same slots
+`AKIRA, JACKY, SARAH, KAGE, LAU, JEFFRY, PAI, WOLF, SHUN, DURAL, LION, MUE,
+KOJACKY, -------, -------, -------`; the ACHO/DURAL and KOJAC/KOJACKY aliases
+are therefore preserved rather than normalized.
+
+Direct ROM measurements of all 32 states with each 512-byte block zeroed show
+that every odd render state is invariant at 4548/131/132 from the index-6
+dispatcher, while construction-state cost is `20527 + 8*strlen(body_name)`
+instructions with 142/143 calls/returns. Adding the outer frame overhead gives
+the recovered accounting `20555 + 8*strlen(body_name)` / 144 / 145 for even
+states and 4576 / 133 / 134 for odd states.
