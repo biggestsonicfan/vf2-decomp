@@ -1653,6 +1653,60 @@ static void test_frame_dispatch_tick(void)
     CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
     CHECK(selector == UINT8_C(16));
 
+    /* Phase sixteen decrements the task countdown and stays while the
+     * result is nonzero (measured ROM corridor: 34 instructions). */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(16 * 4), UINT32_C(0x0000c414)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){16}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(2)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK);
+    CHECK(report.recovered_instruction_count == UINT64_C(34));
+    CHECK(report.recovered_procedure_calls == UINT64_C(3));
+    CHECK(report.recovered_procedure_returns == UINT64_C(4));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(16));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00520050), &value) == VF2_OK);
+    CHECK(value == UINT32_C(1));
+
+    /* The zero countdown takes the three-instruction advance epilogue and
+     * increments the phase byte to seventeen (37 instructions). */
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){16}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00520050), UINT32_C(1)) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK);
+    CHECK(report.recovered_instruction_count == UINT64_C(37));
+    CHECK(report.recovered_procedure_calls == UINT64_C(3));
+    CHECK(report.recovered_procedure_returns == UINT64_C(4));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(17));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00520050), &value) == VF2_OK);
+    CHECK(value == UINT32_C(0));
+
+    /* Phase seventeen clears the phase byte, wrapping the selector-3 cycle
+     * back to phase zero (31 instructions). */
+    write_rom_u32(
+        rom, UINT32_C(0x0000aac4) + UINT32_C(17 * 4), UINT32_C(0x0000c448)
+    );
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &(uint8_t){3}, 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x00500030), &(uint8_t){17}, 1u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0000a6c0));
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK);
+    CHECK(report.recovered_instruction_count == UINT64_C(31));
+    CHECK(report.recovered_procedure_calls == UINT64_C(3));
+    CHECK(report.recovered_procedure_returns == UINT64_C(4));
+    CHECK(vf2_model2a_read(&machine, UINT32_C(0x00500030), &selector, 1u) == VF2_OK);
+    CHECK(selector == UINT8_C(0));
+
     vf2_model2a_shutdown(&machine);
     free(main_data);
     free(rom);

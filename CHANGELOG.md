@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- completed selector 3's phase table: phases 16 (`0x0000c414`) and 17
+  (`0x0000c448`) are recovered, closing the last two entries of the
+  eighteen-entry table at `0x0000aac4`. Phase 16 decrements the task
+  countdown at `[0x00500834]+0x50`, staying on the phase for a measured
+  34-instruction tick and advancing the phase byte to 17 through its
+  three-instruction zero epilogue (37 instructions); phase 17 clears the
+  phase byte to zero and wraps the cycle in 31 instructions. Controlled
+  native-versus-reference runs from a natural `0x0000a6c0` snapshot match
+  exactly — instruction/call/return accounting (3 calls / 4 returns per
+  tick), complete CPU condition state and every mutable memory region —
+  with the harness calibrated against the published phase-8 (37/3/4) and
+  phase-11 (34/3/4) corridors first;
+- fixed a pre-existing master regression in the post-boot input-profile
+  differential exposed by re-running it: three recovered blocks left stale
+  comparison state after the reference executor learned the architectural
+  condition effects of compare- and bit-branch instructions. The
+  input-profile entry now tracks the last executed compare/bit test per
+  path, the float-defaults block reproduces the `0x1ff0c` closing compares
+  instead of hard-coded EQUAL, and the profile loader reproduces its
+  closing `cmpobne 4`. All seven controlled cases match again at all three
+  block boundaries and the full 49-target local CTest suite is green;
 - closed selector 17's former `phase_state == 0` control-menu entry wall through
   `0x00055008`: all 14 idle entries (0-13), every neighboring forward/reverse
   transition and both 0/13 wraps are native, with input bit-5 release/held/latch

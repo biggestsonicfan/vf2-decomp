@@ -84,11 +84,17 @@ contracts.
 ## Validation
 
 The focused core, game, and native-runtime targets pass locally against the
-supported 36-file ROM set. The full 45-target MSVC/Ninja Release CTest run is
-not currently green: the optimized TGP executable and several ROM-backed
-observation targets terminate with access violations, while the sanitizer TGP
-build passes. That toolchain/test-harness issue is separate from the native
-runtime corridor and must be resolved before claiming a clean full suite.
+supported 36-file ROM set, and the full 49-target GCC/Ninja Release CTest run
+is green, including the previously failing post-boot input-profile
+differential (three recovered blocks left stale comparison state after the
+reference executor learned the architectural condition effects of compare-
+and bit-branch instructions; they now reproduce the measured poststates).
+The full MSVC/Ninja Release CTest run is a separate, still-open
+toolchain/test-harness issue: the optimized TGP executable and several
+ROM-backed observation targets terminate with access violations there, while
+the sanitizer TGP build passes. That issue is separate from the native
+runtime corridor and must be resolved before claiming a clean full suite on
+that toolchain.
 
 Public CI cannot contain the proprietary ROM set, so GitHub Actions covers the
 warning-as-error GCC/Clang builds and sanitizers while strict ROM-backed
@@ -354,3 +360,15 @@ controlled states are strict complete-live-state ROM matches. The former missing
 menu-index/entry wall is therefore closed; remaining selector-17 phase-zero work
 is branch-level control combinations inside already recovered screens, alongside
 other bit-7 indirect table entries and unrelated input modes.
+
+Selector 3's phase table is now complete. The table at `0x0000aac4` holds
+exactly eighteen entries, and the final two are recovered from a controlled
+natural `0x0000a6c0` snapshot (task pointer `0x00515b00`, harness calibrated
+against the published phase-8/phase-11 corridors): phase 16 decrements the
+countdown at `[0x00500834]+0x50` and stays on a 34-instruction tick, its zero
+result taking the three-instruction epilogue that advances the phase byte to 17
+(37 instructions), and phase 17 clears the phase byte to zero, wrapping the
+cycle, in 31 instructions. All three corridors return through the
+`0xae30 -> 0xa6f4` ret chain to `0x0000a010` with 3 calls / 4 returns, and
+controlled native-versus-reference runs match complete CPU condition state and
+every mutable memory region exactly.

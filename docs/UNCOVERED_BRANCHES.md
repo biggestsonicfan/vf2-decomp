@@ -176,10 +176,13 @@ camera/material/polygon and texture state helpers; input bit 5 covers release,
 held and latched behavior on every screen, including index 13's special
 43-instruction held-button early exit. Ninety-eight controlled cases are strict
 ROM-backed complete-live-state matches, so there are no longer missing
-phase-zero menu indices or entry transitions. Selector 3 phase 8's opaque
-`0x00009444` handoff and phase 16 and above, remaining input modes, other bit-7
-indirect table entries, and unmeasured branch-level control combinations inside
-the now-native phase-zero screens remain unsupported. The subsequent
+phase-zero menu indices or entry transitions. Selector 3's phase table is now
+complete: all eighteen entries (phases 0-17) are native, including phase 16's
+countdown stay/advance pair at `0x0000c414` and phase 17's phase-reset wrap at
+`0x0000c448`, each strict-matched against the reference at the `0x0000a010`
+boundary. Remaining input modes, other bit-7 indirect table entries, and
+unmeasured branch-level control combinations inside the now-native phase-zero
+screens remain unsupported. The subsequent
 `0x00002de4` palette-page upload is covered for both its inactive
 condition-preserving return and its active 28-page RGB upload path.
 

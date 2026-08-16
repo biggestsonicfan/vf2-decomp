@@ -8320,6 +8320,53 @@ static vf2_status execute_selector3_phase15(
     return status;
 }
 
+static vf2_status execute_selector3_phase16(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    uint32_t pointer = 0u;
+    uint32_t counter = 0u;
+    vf2_status status = VF2_OK;
+
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = previous_phase;
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500834), &pointer);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, pointer + UINT32_C(0x50),
+                                      &counter);
+    }
+    if (status == VF2_OK) {
+        --counter;
+        status = vf2_model2a_write_u32(machine, pointer + UINT32_C(0x50),
+                                       counter);
+    }
+    if (status != VF2_OK || counter != 0u) {
+        return status;
+    }
+    *next_phase = (uint8_t)(previous_phase + UINT8_C(1));
+    return vf2_model2a_write(machine, UINT32_C(0x00500030), next_phase,
+                             sizeof(*next_phase));
+}
+
+static vf2_status execute_selector3_phase17(
+    vf2_model2a *machine,
+    uint8_t previous_phase,
+    uint8_t *next_phase
+)
+{
+    if (next_phase == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *next_phase = UINT8_C(0);
+    (void)previous_phase;
+    return vf2_model2a_write(machine, UINT32_C(0x00500030), next_phase,
+                             sizeof(*next_phase));
+}
+
 static vf2_status execute_selector3_mode0_special(
     vf2_model2a *machine,
     uint8_t previous_phase,
@@ -8824,6 +8871,10 @@ vf2_status execute_frame_dispatch_tick(
              phase_target != UINT32_C(0x0000c0a4)) ||
             (phase == UINT8_C(15) &&
              phase_target != UINT32_C(0x0000c268)) ||
+            (phase == UINT8_C(16) &&
+             phase_target != UINT32_C(0x0000c414)) ||
+            (phase == UINT8_C(17) &&
+             phase_target != UINT32_C(0x0000c448)) ||
             (phase != UINT8_C(0) && phase != UINT8_C(1) &&
              phase != UINT8_C(2) && phase != UINT8_C(3) &&
              phase != UINT8_C(4) && phase != UINT8_C(5) &&
@@ -8832,7 +8883,8 @@ vf2_status execute_frame_dispatch_tick(
              phase != UINT8_C(10) &&
              phase != UINT8_C(11) && phase != UINT8_C(12) &&
              phase != UINT8_C(13) && phase != UINT8_C(14) &&
-             phase != UINT8_C(15))) {
+             phase != UINT8_C(15) && phase != UINT8_C(16) &&
+             phase != UINT8_C(17))) {
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
         if (status == VF2_OK) {
@@ -8910,6 +8962,14 @@ vf2_status execute_frame_dispatch_tick(
             );
         } else if (phase == UINT8_C(15)) {
             status = execute_selector3_phase15(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(16)) {
+            status = execute_selector3_phase16(
+                machine, phase, &phase
+            );
+        } else if (phase == UINT8_C(17)) {
+            status = execute_selector3_phase17(
                 machine, phase, &phase
             );
         } else {
@@ -9322,6 +9382,49 @@ vf2_status execute_frame_dispatch_tick(
             report->exit_address = cpu->ip;
             report->iterations = UINT64_C(1);
             report->recovered_instruction_count = UINT64_C(48);
+            report->recovered_procedure_calls = UINT64_C(3);
+            report->recovered_procedure_returns = UINT64_C(4);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
+        /* Phase 16 decrements the task countdown at [0x00500834]+0x50 and
+         * stays on the phase while the result is nonzero (34 instructions);
+         * the zero result takes the three-instruction advance epilogue that
+         * increments the phase byte to 17 (37 instructions). */
+        if (status == VF2_OK && entry_phase == UINT8_C(16)) {
+            const uint64_t instructions =
+                phase != entry_phase ? UINT64_C(37) : UINT64_C(34);
+
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+            account_nested_procedure(cpu, UINT64_C(3), UINT64_C(3));
+            status = finish_recovered_procedure(machine, cpu, instructions);
+            if (status != VF2_OK) return status;
+
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = instructions;
+            report->recovered_procedure_calls = UINT64_C(3);
+            report->recovered_procedure_returns = UINT64_C(4);
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
+        /* Phase 17 clears the phase byte to zero, wrapping the selector-3
+         * phase cycle, and returns before the generic selector cleanup. */
+        if (status == VF2_OK && entry_phase == UINT8_C(17)) {
+            cpu->registers[VF2_I960_G0_REGISTER] = UINT32_MAX;
+            set_signed_condition(cpu, INT32_C(0), INT32_C(-1));
+            account_nested_procedure(cpu, UINT64_C(3), UINT64_C(3));
+            status = finish_recovered_procedure(machine, cpu, UINT64_C(31));
+            if (status != VF2_OK) return status;
+
+            report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
+            report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
+            report->exit_address = cpu->ip;
+            report->iterations = UINT64_C(1);
+            report->recovered_instruction_count = UINT64_C(31);
             report->recovered_procedure_calls = UINT64_C(3);
             report->recovered_procedure_returns = UINT64_C(4);
             report->cpu_poststate_applied = 1;

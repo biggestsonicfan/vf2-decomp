@@ -3963,6 +3963,11 @@ execute_post_boot_input_profile_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
     uint8_t input_mode = 0u;
     uint8_t mode_control = 0u;
     uint8_t r14_value = 0u;
+    /* -1 while only ordinal compare operands are known; otherwise the
+     * compare_result the block must leave in the CPU. */
+    int32_t condition = -1;
+    uint32_t compare_left = 0u;
+    uint32_t compare_right = 0u;
     bool force_mode12 = false;
     bool special_mode10 = false;
     vf2_status status = VF2_OK;
@@ -4003,19 +4008,29 @@ execute_post_boot_input_profile_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
         return status;
     }
 
-    /* 0x1fcc0..0x1fcec: the two asymmetric fighter-mode pairs select mode 12. */
+    /* 0x1fcc0..0x1fcec: the two asymmetric fighter-mode pairs select mode 12.
+     * The ordinal branch compares update the arithmetic condition; track the
+     * last one executed so the block exit reproduces the ROM poststate. */
     recovered_instructions += UINT64_C(4); /* ld/ld/ldob/cmpobne */
+    compare_left = 2u;
+    compare_right = fighter0_mode;
     r14_value = fighter0_mode;
     if (fighter0_mode == UINT8_C(2)) {
         recovered_instructions += UINT64_C(2); /* ldob/cmpobe */
+        compare_left = 1u;
+        compare_right = fighter1_mode;
         r14_value = fighter1_mode;
         force_mode12 = fighter1_mode == UINT8_C(1);
     }
     if (!force_mode12) {
         recovered_instructions += UINT64_C(2); /* ldob/cmpobne */
+        compare_left = 1u;
+        compare_right = fighter0_mode;
         r14_value = fighter0_mode;
         if (fighter0_mode == UINT8_C(1)) {
             recovered_instructions += UINT64_C(2); /* ldob/cmpobne */
+            compare_left = 2u;
+            compare_right = fighter1_mode;
             r14_value = fighter1_mode;
             force_mode12 = fighter1_mode == UINT8_C(2);
         }
@@ -4035,14 +4050,22 @@ execute_post_boot_input_profile_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
     }
 
     /* 0x1fd14..0x1fd98: bit 21/20 and an existing mode 10 choose the
-     * special mode-10 constants; control byte 2 converts mode 10 to mode 11. */
+     * special mode-10 constants; control byte 2 converts mode 10 to mode 11.
+     * The bit tests themselves set the arithmetic condition: a set tested
+     * bit leaves EQUAL and a clear bit leaves NONE. */
     recovered_instructions += UINT64_C(2); /* ld flags / bbc bit 21 */
     if ((flags & UINT32_C(0x00200000)) != 0u) {
         recovered_instructions += UINT64_C(2); /* ld flags / bbs bit 20 */
         special_mode10 = (flags & UINT32_C(0x00100000)) != 0u;
+        condition = special_mode10 ? 2 : 0;
+    } else {
+        condition = 0;
     }
     if (!special_mode10) {
         recovered_instructions += UINT64_C(2); /* ldob mode / cmpobne 10 */
+        compare_left = 10u;
+        compare_right = input_mode;
+        condition = -1;
         if (input_mode == UINT8_C(10)) {
             status = vf2_model2a_read(machine, UINT32_C(0x0050004c), &mode_control,
                                       sizeof(mode_control));
@@ -4051,6 +4074,8 @@ execute_post_boot_input_profile_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
             }
             r14_value = mode_control;
             recovered_instructions += UINT64_C(2); /* ldob / cmpobe 2 */
+            compare_left = 2u;
+            compare_right = mode_control;
             if (mode_control == UINT8_C(2)) {
                 input_mode = UINT8_C(11);
                 recovered_instructions += UINT64_C(2); /* lda/stib */
@@ -4095,6 +4120,19 @@ execute_post_boot_input_profile_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
     cpu->registers[4] = fighter1;
     cpu->registers[14] = r14_value;
     cpu->registers[15] = profile_b;
+    /* Reproduce the ROM condition left by the last compare or bit test on
+     * the taken path; the trailing lda/st instructions do not modify it. */
+    if (condition < 0) {
+        condition = compare_right < compare_left ? 3
+                  : compare_right > compare_left ? 1 : 2;
+    }
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) |
+        (uint32_t)(condition == 3 ? 1 : condition == 1 ? 4 : condition == 2 ? 2 : 0);
+    cpu->compare_result = condition == 3 ? VF2_I960_COMPARE_GREATER
+                        : condition == 1 ? VF2_I960_COMPARE_LESS
+                        : condition == 2 ? VF2_I960_COMPARE_EQUAL
+                                         : VF2_I960_COMPARE_NONE;
     cpu->ip = VF2_NATIVE_POST_BOOT_FLOAT_DEFAULTS_ENTRY;
     cpu->executed_instructions = start_instructions + recovered_instructions;
 
@@ -4173,9 +4211,21 @@ execute_post_boot_float_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    cpu->arithmetic_control =
-        (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
-    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    /* The final ordinal compares in 0x1ff0c leave EQUAL on the taken mode
+     * branches and compare(6, mode) on the ordinary fall-through. */
+    if (input_mode == UINT8_C(6) || input_mode == UINT8_C(10)) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    } else if (input_mode < UINT8_C(6)) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+        cpu->compare_result = VF2_I960_COMPARE_GREATER;
+    } else {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+        cpu->compare_result = VF2_I960_COMPARE_LESS;
+    }
     cpu->executed_instructions = start_instructions + recovered_instructions;
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_FLOAT_DEFAULTS_INIT;
     report->exit_address = cpu->ip;
@@ -4256,6 +4306,21 @@ execute_post_boot_input_profile_load(vf2_model2a *machine, vf2_i960_cpu *cpu,
     cpu->registers[7] = halfwords[2];
     cpu->registers[12] = input_mode;
     cpu->registers[15] = profile == UINT8_C(4) ? UINT32_C(0x000010cc) : profile;
+    /* The closing cmpobne 4 leaves compare(4, profile); the following
+     * loads and stores do not modify the condition. */
+    if (profile < UINT8_C(4)) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+        cpu->compare_result = VF2_I960_COMPARE_GREATER;
+    } else if (profile > UINT8_C(4)) {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+        cpu->compare_result = VF2_I960_COMPARE_LESS;
+    } else {
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    }
     cpu->ip = VF2_NATIVE_POST_BOOT_INPUT_PROFILE_LOAD_EXIT;
     cpu->executed_instructions = start_instructions +
         (profile == UINT8_C(4) ? UINT64_C(19) : UINT64_C(17));
