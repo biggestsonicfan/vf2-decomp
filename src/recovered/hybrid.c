@@ -4441,7 +4441,14 @@ static vf2_status hybrid_execute_game_info_type22_equal(
         status = vf2_model2a_read_u32(machine, fighter0, &fighter0_flags);
     }
     if (status == VF2_OK) {
-        fighter0_flags = (fighter1_flags & (UINT32_C(1) << 10u)) != 0u
+        const bool bit10_set =
+            (fighter1_flags & (UINT32_C(1) << 10u)) != 0u;
+        /* 0x18c54 CHKBIT 10 supplies the condition consumed by the
+         * following ALTERBIT 6 and remains the helper's final condition. */
+        hybrid_set_compare_result(
+            cpu, bit10_set ? VF2_I960_COMPARE_EQUAL : VF2_I960_COMPARE_NONE
+        );
+        fighter0_flags = bit10_set
             ? fighter0_flags | (UINT32_C(1) << 6u)
             : fighter0_flags & ~(UINT32_C(1) << 6u);
         status = vf2_model2a_write_u32(machine, fighter0, fighter0_flags);
