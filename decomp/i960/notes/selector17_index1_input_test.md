@@ -21,6 +21,12 @@ instructions, 51 procedure calls and 52 procedure returns. The first visit
 sets `0x005000a5 = 1`; apart from the input-test tile output, only the observed
 stack spill bytes are normalized to `00 00 56`.
 
+The tile reproduction follows the ROM's exact write runs rather than treating
+visually blank gaps as written spaces. This matters because the diagnostic text
+helpers write some spaces as `0x8020` while leaving other existing `0x0020`
+cells untouched; both render identically but are distinct in strict snapshot
+comparison.
+
 The recovered implementation is intentionally restricted to the measured input
 state (`0x00500700 = 0x0ff7f700`, `0x00500704 = 0`, matching previous input,
 selector mask `0x00020000`). Input-state variants and the later TEST-button exit
