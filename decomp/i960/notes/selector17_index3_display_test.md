@@ -25,8 +25,12 @@ The renderer is not stored as a captured tile dump. Its measured structure is:
 
 The screen labels are reproduced at their measured coordinates: DISPLAY TEST
 1/2, COLOR/BIAS/GAIN/SCROLL, RED/GREEN/BLUE/EXIT, and the lever/PUNCH/KICK
-instructions. The observed stack scratch words are also reproduced rather than
-ignored by the fast path.
+instructions. The ROM does not write every visually blank separator as an
+attribute-space tile. Strict comparison exposed eleven bytes where a combined
+label write had produced `0x8020` while the reference preserved an existing
+`0x0020`; the final recovery therefore emits COLOR, BIAS and GAIN/SCROLL as
+separate measured runs. The observed stack scratch words are also reproduced
+rather than ignored by the fast path.
 
 Secondary state `a5 = 8` is the cursor-entry transition for EXIT. Its next
 visit consumes 87 instructions, 4 calls and 5 returns, writes the cursor tile
