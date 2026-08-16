@@ -62,22 +62,26 @@ the formerly unserialized program count defaults to zero.
 Keeping the active control state for a second cycle reaches frame selector 17
 with `0x005000a4 = 0x80`, `0x005000a5 = 0`, and `0x005000a6 = 0xff`. The
 frame dispatcher at `0x0000a6c0` calls `0x00010b5c`, which forwards through
-`0x00058fe0`; clearing bit 7 from the phase index selects table entry zero at
-`0x0005fea8`, whose target is `0x00059180`.
+`0x00058fe0`. Clearing bit 7 from the phase index selects table entry zero at
+`0x0005fea8`; that entry points to `0x00059164`. The `0x00059164` stage then
+uses `0x005000a5` as a secondary dispatch selector, and the observed value zero
+selects `0x00059180`, the ROM/RAM diagnostic body.
 
-The target is the board ROM/RAM diagnostic. The observed success path draws
-`* * *  ROM  * * *`, reports IC 4-15 as `GOOD`, draws `* * *  RAM  * * *`,
-reports IC 16, 17, 45-50, 54, 55, 57-59, 65 and 66 as `GOOD`, and ends with
-`PUSH TEST BUTTON TO EXIT.`. Its large checksum and walking-pattern loops make
-interpreter execution intentionally expensive: from the `0x0000a6c0` entry to
-`0x0000a010` the reference consumes 255,660,164 instructions, 1,695,831
-procedure calls and 1,695,832 procedure returns.
+The observed success path draws `* * *  ROM  * * *`, reports IC 4-15 as
+`GOOD`, draws `* * *  RAM  * * *`, reports IC 16, 17, 45-50, 54, 55, 57-59,
+65 and 66 as `GOOD`, and ends with `PUSH TEST BUTTON TO EXIT.`. Its large
+checksum and walking-pattern loops make interpreter execution intentionally
+expensive: from the `0x0000a6c0` entry to `0x0000a010` the reference consumes
+255,660,164 instructions, 1,695,831 procedure calls and 1,695,832 procedure
+returns.
 
 The recovered path is deliberately restricted to the measured all-good state.
 It reproduces the diagnostic tile output and architectural post-state directly
 instead of replaying hundreds of millions of interpreted test-loop
 instructions. Error-reporting variants remain unsupported until they have ROM
-measurements of their own.
+measurements of their own. A full snapshot comparison at the `0x0000a010`
+boundary matches the reference across CPU state, all serialized memory regions,
+and the Model 2 FIFO state.
 
 This closes the first branch reached by deliberately leaving the long validated
 idle corridor through a live input/control mutation and makes subsequent
