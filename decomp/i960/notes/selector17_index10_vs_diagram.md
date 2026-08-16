@@ -13,3 +13,7 @@ The live body iterates the 11 x 11 matchup table rooted at `base + 0x36a4`. For 
 Measured handler corridors: normal refresh 36,729 instructions / 1,436 calls / 1,437 returns; TEST exit 51,001 / 1,452 / 1,453. The TEST check is at the end of the refresh, so exit still recomputes/redraws the full diagram before shared teardown at `0x5f140`.
 
 The recovered bridge now implements both states, including the parallel-array sort, numeric formatting, border construction, parent-menu restoration, and measured CPU post-state.
+
+## Border table
+
+The horizontal border loop consumes the full 61-entry ROM table at `0x5fdb4..0x5fea4`, one tile per column 1..61. It begins with `0x13`, uses `0x0f` at the internal intersections, and ends with `0x12`; this is not a 15-entry pattern expanded in groups.

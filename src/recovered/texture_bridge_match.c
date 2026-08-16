@@ -11604,7 +11604,7 @@ static vf2_status phase17_index10_render_state1(vf2_model2a *machine)
 {
     static const uint8_t vertical_cols[15]={1u,9u,13u,17u,21u,25u,29u,33u,37u,41u,45u,49u,53u,57u,61u};
     static const uint8_t horizontal_rows[11]={17u,19u,21u,23u,25u,27u,29u,31u,33u,35u,37u};
-    static const uint8_t horizontal_tiles[15]={19u,21u,21u,21u,21u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u};
+    static const uint8_t horizontal_tiles[61]={19u,21u,21u,21u,21u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,15u,21u,21u,21u,18u};
     uint32_t base=0u;uint32_t fighters[11],scores[11];uint32_t i=0u,j=0u;vf2_status status=vf2_model2a_read_u32(machine,UINT32_C(0x0050016c),&base);
     for(i=0u;status==VF2_OK&&i<11u;++i){
         for(j=0u;status==VF2_OK&&j<11u;++j){
@@ -11630,7 +11630,7 @@ static vf2_status phase17_index10_render_state1(vf2_model2a *machine)
     if(status==VF2_OK)status=phase17_index10_tile(machine,UINT32_C(39),UINT32_C(1),UINT16_C(26));if(status==VF2_OK)status=phase17_index10_tile(machine,UINT32_C(39),UINT32_C(61),UINT16_C(27));
     for(i=2u;status==VF2_OK&&i<61u;++i)status=phase17_index10_tile(machine,UINT32_C(39),i,UINT16_C(21));
     for(i=0u;status==VF2_OK&&i<15u;++i)for(j=16u;status==VF2_OK&&j<39u;++j)status=phase17_index10_tile(machine,j,vertical_cols[i],UINT16_C(22));
-    for(i=0u;status==VF2_OK&&i<11u;++i)for(j=1u;status==VF2_OK&&j<62u;++j)status=phase17_index10_tile(machine,horizontal_rows[i],j,horizontal_tiles[(j-1u)/UINT32_C(4) < 15u ? (j-1u)/UINT32_C(4) : 14u]);
+    for(i=0u;status==VF2_OK&&i<11u;++i)for(j=1u;status==VF2_OK&&j<62u;++j)status=phase17_index10_tile(machine,horizontal_rows[i],j,horizontal_tiles[j-1u]);
     return status;
 }
 
