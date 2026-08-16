@@ -11,6 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fix patch locator
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('tools/apply_phase17_index10_complete.py')
+          s=p.read_text()
+          old="end = s.index('static vf2_status execute_frame_phase17_bit7_index11(', start)"
+          new="""brace = s.index('{', start)\ndepth = 0\nend = None\nfor pos in range(brace, len(s)):\n    if s[pos] == '{': depth += 1\n    elif s[pos] == '}':\n        depth -= 1\n        if depth == 0:\n            end = pos + 1\n            while end < len(s) and s[end] in '\\r\\n': end += 1\n            break\nif end is None: raise RuntimeError('unterminated index10 function')"""
+          if old not in s: raise SystemExit('old locator missing')
+          p.write_text(s.replace(old,new,1))
+          PY
       - name: Apply recovery
         run: python3 tools/apply_phase17_index10_complete.py
       - name: Configure
