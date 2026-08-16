@@ -1612,7 +1612,7 @@ static vf2_status execute_frame_phase17_bit7_index0(
             machine, UINT32_C(0x005000a6), &phase_a6, sizeof(phase_a6)
         );
     }
-    if (status != VF2_OK || indirect_target != UINT32_C(0x00059180) ||
+    if (status != VF2_OK || indirect_target != UINT32_C(0x00059164) ||
         input_flags != UINT32_C(0x0ff7f700) || navigation_flags != 0u ||
         previous_flags != UINT32_C(0x0ff7f700) ||
         selector_mask != UINT32_C(0x00020000) ||
