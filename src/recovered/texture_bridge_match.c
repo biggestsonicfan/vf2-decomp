@@ -1723,22 +1723,9 @@ static vf2_status execute_frame_phase17_bit7_index0(
         cpu->registers[29] = UINT32_C(0x00516480);
         cpu->registers[30] = UINT32_C(0x00000220);
         cpu->registers[31] = UINT32_C(0x005ff500);
-        if (manual_navigation_delta == 0) {
-            cpu->arithmetic_control =
-                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
-            cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-        } else {
-            static const uint32_t nav_cc_forward[5] = {1u, 1u, 1u, 2u, 4u};
-            static const uint32_t nav_cc_back[5] = {2u, 1u, 1u, 1u, 1u};
-            const uint32_t cc = manual_navigation_delta > 0
-                ? nav_cc_forward[phase_a7] : nav_cc_back[phase_a7];
-            cpu->arithmetic_control =
-                (cpu->arithmetic_control & ~UINT32_C(7)) | cc;
-            cpu->compare_result = cc == UINT32_C(1)
-                ? VF2_I960_COMPARE_GREATER
-                : (cc == UINT32_C(2)
-                    ? VF2_I960_COMPARE_EQUAL : VF2_I960_COMPARE_LESS);
-        }
+        cpu->arithmetic_control =
+            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
 
         report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
         report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
@@ -5737,9 +5724,22 @@ static vf2_status execute_frame_phase17_bit7_index5(
         cpu->registers[29] = UINT32_C(0x00516480);
         cpu->registers[30] = UINT32_C(0x00000220);
         cpu->registers[31] = UINT32_C(0x005ff500);
-        cpu->arithmetic_control =
-            (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
-        cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        if (manual_navigation_delta == 0) {
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+            cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+        } else {
+            static const uint32_t nav_cc_forward[5] = {1u, 1u, 1u, 2u, 4u};
+            static const uint32_t nav_cc_back[5] = {2u, 1u, 1u, 1u, 1u};
+            const uint32_t cc = manual_navigation_delta > 0
+                ? nav_cc_forward[phase_a7] : nav_cc_back[phase_a7];
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | cc;
+            cpu->compare_result = cc == UINT32_C(1)
+                ? VF2_I960_COMPARE_GREATER
+                : (cc == UINT32_C(2)
+                    ? VF2_I960_COMPARE_EQUAL : VF2_I960_COMPARE_LESS);
+        }
 
         report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
         report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
