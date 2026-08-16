@@ -1,0 +1,48 @@
+name: Recover game info type22 equal
+on:
+  push:
+    paths:
+      - tools/recover_game_info_type22_equal.py
+      - .github/workflows/recover-game-info-type22-equal.yml
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply recovery
+        run: python3 tools/recover_game_info_type22_equal.py
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Document and commit
+        run: |
+          cat > decomp/i960/notes/game_info_18bd4_type22_equal.md <<'EOF'
+          # fa_game_info type-22 equal path (`0x18bd4`)
+
+          Controlled ROM probes distinguish the synthetic sentinel case from a coherent type-22 record. The type byte at `fighter1+0x19f` is the high byte of the 32-bit descriptor at `+0x19c`; forcing only the byte produced `0x16000000`, whose low 13-bit handle is zero and resolves through table entry zero to the `0x09090000` sentinel. A coherent descriptor `0x1600000d` resolves handle 13 through `0x0200d34c` to a type-5 record at `0x02014676`.
+
+          With fighter0 `+0x1aa == +0x80a - 1` and the measured r9 threshold selecting the call, the ROM executes `0x18a4c -> 0x18bd4 -> 0x1ab34`, then `0x18c04 -> 0x18b58`, and returns to `0x16500`. Relative to the type-22 mismatch corridor, the coherent call path adds exactly 55 instructions and 3 calls/3 returns. The frame totals are 736 instructions/15 calls versus 681/12 for the mismatch probe. The visible writes are `fighter0+0x198 = 0x11000064` (type-5 payload value `0x64`) and `fighter1+0x198 = 0x1000000d` (the original handle); the remaining flag/state writes are idempotent in the measured state.
+
+          The native recovery implements the generic `0x1ab34` record walk and the measured bit-2-clear `0x18b58` subpath. The bit-2-set directions remain explicitly unsupported until separately measured.
+          EOF
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('docs/UNCOVERED_BRANCHES.md')
+          s=p.read_text()
+          old='The `0x18978..0x189a4` high-state flag tail is native as well: bits 26..29 use the measured progress/limit gate and bits 30..31 are accumulated unconditionally. Unobserved downstream comparisons and other conditional branches remain ROM-backed or unsupported.'
+          new='The `0x18978..0x189a4` high-state flag tail is native as well: bits 26..29 use the measured progress/limit gate and bits 30..31 are accumulated unconditionally. The type-22 tail now covers both the progress mismatch and the coherent equal-progress `0x18bd4` call path, including the generic `0x1ab34` type-record resolver and the measured bit-2-clear `0x18b58` branch. Unobserved downstream comparisons and other conditional branches remain ROM-backed or unsupported.'
+          if old not in s:
+              raise SystemExit('docs anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c docs/UNCOVERED_BRANCHES.md decomp/i960/notes/game_info_18bd4_type22_equal.md
+          git rm -f tools/recover_game_info_type22_equal.py .github/workflows/recover-game-info-type22-equal.yml
+          git commit -m 'Recover fa_game_info type-22 equal path'
+          git push
