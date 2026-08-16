@@ -1,0 +1,18 @@
+name: Fix selector17 index5 manual stdio v2
+on: [push]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sed -i '2a\#include <stdio.h>' src/recovered/texture_bridge_match.c
+      - run: rm .github/workflows/fix-phase17-index5-manual-stdio-v2.yml .github/workflows/fix-phase17-index5-manual-stdio.yml
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix selector17 index5 manual formatter include"
+          git push
