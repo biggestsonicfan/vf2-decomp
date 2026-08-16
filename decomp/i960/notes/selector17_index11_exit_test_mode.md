@@ -1,90 +1,41 @@
 # selector17 bit-7 index11 — EXIT TEST MODE
 
-## Dispatch
+Entry slot `0x0005ff00` targets `0x0005ef60`; the flagged phase index is `0x8b`.
 
-- selector17 bit 7 index: `11` (`a4 == 0x8b`)
-- selector table slot: `0x0005ff00`
-- indirect target: `0x0005ef60`
-- wrapper chain used by the recovered frame path: `0x0000a6c0 -> 0x00010b5c -> 0x00058fe0 -> 0x0005ef60`
+The ROM handler has two persistent states rather than a conventional menu:
 
-This index is not a normal return-to-menu item. It begins the test-mode shutdown sequence and eventually branches directly back to the boot entry.
+- `a5 == 0`: first visit. It updates the game meter, recomputes the 15-byte coin/config CRC through `0x5ff54 -> 0x9480`, clears the diagnostic plane, renders the exit-mode diagnostic record, stores a 320-frame countdown at `0x00500024`, and changes `a5` to `0xff`.
+- `a5 == 0xff`: decrements the countdown. Positive values return normally. A non-positive value executes the terminal reset path at `0x5f07c` and branches directly to boot entry `0x000000b0`.
 
-## Observed corridor
+## Static-RAM backup-mode warning
 
-The recovered bridge intentionally covers the selector17/index11 corridor measured from the TEST MENU. Other branches inside the shared `0x0005ef60` routine that are selected by unrelated game modes remain outside this recovery.
+The previously unsupported first-visit branch is selected when bit 0 of `0x00500171` is clear. The ROM does not abort; after the ordinary first-visit screen it renders two inline strings via the `0x9444` text helper:
 
-Entry invariants used by the bridge include:
+- `0x5f00c`: `STATIC RAM IS 'BACK-UP MODE'` at tile destination `0x01000f26` (row 30, column 19).
+- `0x5f03c`: `AND YOUR CHANGES ARE INVALID !!` at `0x010010a4` (row 33, column 18).
 
-- flagged phase index `0x8b`
-- selector table target `0x0005ef60`
-- valid model state (`mode != 25`, low two base flags clear)
-- first visit: `a5 == 0` and test-mode system flag bit 0 set
-- continuation: `a5 == 0xff`
+Direct ROM measurements from `0x5ef60` to the caller return show:
 
-## Per-frame common work
+| path | raw instructions | raw calls | full frame bridge accounting |
+| --- | ---: | ---: | ---: |
+| first visit, normal | 13,259 | 25 | 13,286 / 27 / 28 |
+| first visit, backup mode | 13,817 | 29 | 13,844 / 31 / 32 |
+| countdown > 0 | 599 | 23 | 626 / 25 / 26 |
+| terminal countdown | 13,171 to `0xb0` | 25 | 13,194 / 27 / 25 |
 
-Every observed invocation first runs the same bookkeeping path:
-
-1. reconstruct the real i960 call frames for `a6c0 -> 10b5c -> 58fe0`;
-2. call the recovered meter/bookkeeping update path (`0x20f0`);
-3. recompute the CRC over the 15-byte block at `base + 0x3320` through `0x5ff54 -> 0x9480`;
-4. store that CRC at backup SRAM `0x01d03300`.
-
-Keeping the real call frames matters because the routine uses stack/local-window values later in the exit path.
-
-## First visit (`a5 == 0`)
-
-The routine:
-
-- clears the 64x48 diagnostic tile plane at `0x01000000`;
-- renders the ROM text record referenced by `0x0005ff1c`;
-- writes countdown `320` to `0x00500024`;
-- changes `a5` to `0xff`.
-
-Measured aggregate for the complete frame dispatch tick:
-
-- instructions: `13286`
-- procedure calls: `27`
-- procedure returns: `28`
-
-## Continuation (`a5 == 0xff`)
-
-Each normal frame decrements `0x00500024` and returns through `0x5ef60`, `0x58fe0`, `0x10b5c`, and finally the frame-dispatch wrapper.
-
-Measured aggregate for a non-terminal continuation tick:
-
-- instructions: `626`
-- procedure calls: `25`
-- procedure returns: `26`
-
-The countdown therefore spends 319 continuation frames after the initial arm at 320 before entering the terminal branch.
+The +558 instruction / +4 call delta on backup mode comes from the two warning-text helper invocations and their nested work. The recovered bridge renders both strings and accounts those four nested procedures explicitly.
 
 ## Terminal reset
 
-When the decremented countdown is signed `<= 0`, the ROM does not return through the normal selector wrappers. The recovered terminal path reproduces the observed shutdown effects:
+At countdown expiry the ROM:
 
-- writes `0x8000` to `0x00500082`;
-- clears bit 15 from both layer words at `0x0100a00c` / `0x0100a00e`;
-- clears transient byte `0x0050009c`;
-- clears the diagnostic tile plane;
-- clears bits 0 and 1 from the layer-control word reached through `0x0050081c`;
-- zeros input/released/previous navigation words at `0x00500700`, `0x00500704`, `0x00500708`, and `0x0050070c`;
-- writes zero to `0x00e80004`;
-- runs helper `0x0006116c` and writes the four-word reset sentinel at `0x0059cfe0`:
-  - `0x52455320`
-  - `0x4e4c2053`
-  - `0x4e204544`
-  - `0x20514555`
-- branches directly to boot entry `0x000000b0`.
+1. writes `0x8000` to `0x00500082`;
+2. clears bit 15 from the two words at `0x0100a00c`;
+3. clears `0x0050009c`;
+4. clears the 64x48 diagnostic tile plane;
+5. clears video-control bits 0 and 1 through the pointer at `0x0050081c`;
+6. zeros the four input words at `0x00500700..0x0050070c`;
+7. writes zero to `0x00e80004`;
+8. calls `0x6116c`, leaves the RESET sentinel words in `0x0059cfe0`, and branches to boot entry `0xb0` rather than returning through the phase wrappers.
 
-Measured aggregate for the terminal frame:
-
-- instructions: `13194`
-- procedure calls: `27`
-- procedure returns: `25`
-
-The lower return count is intentional: the terminal path abandons the selector/wrapper return chain and jumps to boot.
-
-## Recovery boundary
-
-For selector17 index11, the observed TEST MENU exit sequence is functionally recovered end-to-end: first visit, countdown continuation, and terminal reset. The shared routine at `0x0005ef60` has other mode-dependent semantics elsewhere in the game; those should be recovered as their own callers are measured rather than being inferred from this test-mode path.
+No ROM or snapshot bytes are stored in the repository; measurements were made locally against the owned VF2 v2.1 ROM set.

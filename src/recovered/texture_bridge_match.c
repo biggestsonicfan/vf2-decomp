@@ -7636,14 +7636,19 @@ static vf2_status execute_frame_phase17_bit7_index11(
     first_visit = phase_a5 == 0u;
     if (status != VF2_OK || mode == UINT8_C(25) ||
         (base_flags & UINT32_C(3)) != 0u ||
-        (!first_visit && phase_a5 != UINT8_C(0xff)) ||
-        (first_visit && (system_flags & UINT8_C(1)) == 0u)) {
+        (!first_visit && phase_a5 != UINT8_C(0xff))) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
-    expected_instructions =
-        first_visit ? UINT64_C(13286) : UINT64_C(626);
-    expected_calls = first_visit ? UINT64_C(27) : UINT64_C(25);
-    expected_returns = first_visit ? UINT64_C(28) : UINT64_C(26);
+    if (first_visit && (system_flags & UINT8_C(1)) == 0u) {
+        expected_instructions = UINT64_C(13844);
+        expected_calls = UINT64_C(31);
+        expected_returns = UINT64_C(32);
+    } else {
+        expected_instructions =
+            first_visit ? UINT64_C(13286) : UINT64_C(626);
+        expected_calls = first_visit ? UINT64_C(27) : UINT64_C(25);
+        expected_returns = first_visit ? UINT64_C(28) : UINT64_C(26);
+    }
 
     /* Recreate the ROM call chain a6c0 -> 10b5c -> 58fe0. Keeping these
      * frames real, instead of merely adjusting aggregate counters, preserves
@@ -7811,6 +7816,28 @@ static vf2_status execute_frame_phase17_bit7_index11(
             );
         }
         cpu->registers[6] = system_flags;
+        if (status == VF2_OK && (system_flags & UINT8_C(1)) == 0u) {
+            static const char backup_mode_text[] =
+                "STATIC RAM IS 'BACK-UP MODE'";
+            static const char invalid_changes_text[] =
+                "AND YOUR CHANGES ARE INVALID !!";
+
+            status = write_phase17_index0_text(
+                machine, UINT32_C(30 * 0x80), UINT32_C(19),
+                backup_mode_text
+            );
+            if (status == VF2_OK) {
+                status = write_phase17_index0_text(
+                    machine, UINT32_C(33 * 0x80), UINT32_C(18),
+                    invalid_changes_text
+                );
+            }
+            if (status == VF2_OK) {
+                characters += (uint64_t)(sizeof(backup_mode_text) - 1u);
+                characters += (uint64_t)(sizeof(invalid_changes_text) - 1u);
+                account_nested_procedure(cpu, UINT64_C(4), UINT64_C(4));
+            }
+        }
     } else {
         uint32_t countdown = 0u;
 
