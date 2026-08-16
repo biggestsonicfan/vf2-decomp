@@ -2954,8 +2954,17 @@ static vf2_status execute_frame_phase17_bit7_index3(
     }
     if (status == VF2_OK) {
         status = write_phase17_index0_text(
-            machine, UINT32_C(41 * 0x80), UINT32_C(17),
-            "COLOR         BIAS  GAIN SCROLL:"
+            machine, UINT32_C(41 * 0x80), UINT32_C(17), "COLOR"
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_phase17_index0_text(
+            machine, UINT32_C(41 * 0x80), UINT32_C(31), "BIAS"
+        );
+    }
+    if (status == VF2_OK) {
+        status = write_phase17_index0_text(
+            machine, UINT32_C(41 * 0x80), UINT32_C(37), "GAIN SCROLL:"
         );
     }
     if (status == VF2_OK) {
