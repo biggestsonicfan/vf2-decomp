@@ -1033,6 +1033,23 @@ static vf2_status execute_instruction(
             float_to_bits((float)(int32_t)first)
         );
     }
+    if (strcmp(mnemonic, "cvtilr") == 0) {
+        uint8_t source = 0u;
+        uint64_t raw = 0u;
+        int64_t value = 0;
+        if (instruction->operands[0].kind != VF2_I960_OPERAND_REGISTER ||
+            instruction->operands[0].value.reg + 1u >= VF2_I960_REGISTER_COUNT) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        source = instruction->operands[0].value.reg;
+        raw = (uint64_t)cpu->registers[source] |
+            ((uint64_t)cpu->registers[source + 1u] << 32u);
+        memcpy(&value, &raw, sizeof(value));
+        return set_register(
+            cpu, &instruction->operands[1],
+            float_to_bits((float)value)
+        );
+    }
     if (strcmp(mnemonic, "cmpdeco") == 0 || strcmp(mnemonic, "cmpdeci") == 0 ||
         strcmp(mnemonic, "cmpinco") == 0 || strcmp(mnemonic, "cmpinci") == 0) {
         status = operand_value(cpu, &instruction->operands[0], &first);
