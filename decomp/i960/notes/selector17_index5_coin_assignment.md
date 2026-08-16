@@ -76,15 +76,19 @@ chute. `0x0005c828` renders these rules directly as text, for example
 `2 COINS 1 CREDIT`, `2 COINS GIVE 1 EXTRA COIN`, or
 `1 COIN COUNTS AS 2 COINS`.
 
-The recovered manual controller now covers `a7=1..4` idle/+/- using one shared
+The recovered manual controller covers `a7=1..4` idle/+/- using one shared
 0..8 circular editor. Idle consumes 2,266 instructions/18 calls/19 returns.
 A + edit consumes 2,475 instructions/20 calls/21 returns; - consumes 2,473 with
 the same call/return counts. All edits mirror the selected byte, set manual-mode
 bit 1 in both work RAM and backup SRAM, and recompute the same 15-byte checksum.
 The measured default-to-1/default-to-8 checksums are `0x2877`/`0x0d79` for
 COIN TO CREDIT, `0xac11`/`0x6ecd` for BONUS ADDER, `0x00e1`/`0x59e8` for chute
-#1 multiplier, and `0xff53`/`0xd49f` for chute #2 multiplier.
+#1 multiplier, and `0xff53`/`0xd49f` for chute #2 multiplier. All twelve
+idle/+/- cases match ROM snapshots exactly.
 
-The manual recovery is validated against ROM-backed snapshots for all four
-editable states in both directions; the remaining nested EXIT/navigation paths
-are kept separate until their teardown and cursor transitions are measured.
+Manual SERVICE navigation uses the same deferred-cursor state machine seen in
+GAME ASSIGNMENT: the current marker is erased, `a7` wraps over 0..4, and the new
+marker is drawn on the following frame. Forward normally consumes 2,270
+instructions and 17 calls (2,271 for wrap 4->0); backward normally consumes
+2,267/17 (2,268 for wrap 0->4). The nested EXIT action remains the final manual
+path to recover before returning to the main COIN ASSIGNMENT menu.
