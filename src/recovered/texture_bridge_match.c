@@ -5564,6 +5564,23 @@ static vf2_status execute_frame_phase17_bit7_index5(
                 machine, UINT32_C(0x005ff680), UINT32_C(0x010005d4)
             );
         }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x005ff780), UINT32_C(1)
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, UINT32_C(0x005ff784), UINT32_C(0x0059c388)
+            );
+        }
+        if (status == VF2_OK) {
+            const uint8_t exit_scratch[2] = {UINT8_C(0x90), UINT8_C(0x59)};
+            status = vf2_model2a_write(
+                machine, UINT32_C(0x005ff801), exit_scratch,
+                sizeof(exit_scratch)
+            );
+        }
         if (status != VF2_OK) return status;
 
         instructions = UINT64_C(19056);
@@ -6144,8 +6161,14 @@ static vf2_status execute_frame_phase17_bit7_index5(
             : (main_navigation_delta != 0
                 ? (main_navigation_delta < 0 ? UINT32_MAX : UINT32_C(1))
                 : (edit_delta == 0 ? 0u : (uint32_t)checksum));
-    cpu->registers[17] = edit_delta == 0 ? UINT32_C(0x3f4f5c29) : 0u;
-    cpu->registers[18] = edit_delta == 0 ? UINT32_C(0xc0a0a3d7) : UINT32_C(15);
+    cpu->registers[17] =
+        (phase_a5 == UINT8_C(0) && edit_delta < 0)
+            ? UINT32_C(0x3f4f5c29)
+            : (edit_delta == 0 ? UINT32_C(0x3f4f5c29) : 0u);
+    cpu->registers[18] =
+        (phase_a5 == UINT8_C(0) && edit_delta < 0)
+            ? UINT32_C(0xc0a0a3d7)
+            : (edit_delta == 0 ? UINT32_C(0xc0a0a3d7) : UINT32_C(15));
     cpu->registers[19] = 0u;
     cpu->registers[20] = UINT32_C(0x00560000);
     cpu->registers[21] = UINT32_C(0x0050e850);
