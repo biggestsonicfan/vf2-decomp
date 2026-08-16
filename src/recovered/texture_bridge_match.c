@@ -2836,12 +2836,12 @@ static vf2_status phase17_index3_rebuild_transfer_tables(
 
     for (channel = 0u; status == VF2_OK && channel < 3u; ++channel) {
         status = vf2_model2a_write(
-            machine, UINT32_C(0x00500234) + channel,
+            machine, UINT32_C(0x00500234) + channel * UINT32_C(2),
             &values[channel], sizeof(values[channel])
         );
         if (status == VF2_OK) {
             status = vf2_model2a_write(
-                machine, UINT32_C(0x00500237) + channel,
+                machine, UINT32_C(0x00500235) + channel * UINT32_C(2),
                 &values[channel + UINT32_C(3)],
                 sizeof(values[channel + UINT32_C(3)])
             );
@@ -2869,7 +2869,7 @@ static vf2_status phase17_index3_rebuild_transfer_tables(
                  ++entry) {
                 status = write_u16(
                     machine,
-                    channel_bases[channel] + level * UINT32_C(0x180) +
+                    channel_bases[channel] + level * UINT32_C(0x200) +
                         entry * UINT32_C(2),
                     stored
                 );
