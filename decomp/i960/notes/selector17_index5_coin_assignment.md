@@ -90,7 +90,8 @@ Manual SERVICE navigation uses the same deferred-cursor state machine seen in
 GAME ASSIGNMENT: the current marker is erased, `a7` wraps over 0..4, and the new
 marker is drawn on the following frame. Forward normally consumes 2,270
 instructions and 17 calls (2,271 for wrap 4->0); backward normally consumes
-2,267/17 (2,268 for wrap 0->4).
+2,267/17 (2,268 for wrap 0->4). The signed navigation delta is also mirrored in
+scratch word `0x005ff680` (`+1` or `0xffffffff`) exactly as in the ROM.
 
 The nested EXIT (`a7=0`) accepts either edit direction, restores `a7=0xff`, and
 clears the 62x40 manual-editor region beginning at tile row 4 while preserving
