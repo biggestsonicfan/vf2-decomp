@@ -105,8 +105,21 @@ wrapping over `a5=0..5`. Forward normally consumes 4,194 instructions/34 calls
 (4,195 for wrap 5->0); backward normally consumes 4,191/34 (4,192 for wrap
 0->5). As in the nested editor, the old cursor is erased in the transition frame,
 `0x005ff680` receives the signed delta, and the new cursor is rendered on the
-following frame. The recovered main-navigation cut intentionally leaves the
-TEST actions for main EXIT and MANUAL entry as a separate final index-5 step.
+following frame. All twelve measured parent-navigation transitions match ROM
+snapshots exactly.
 
-The navigation implementation is scoped only to the index-5 state machines;
-the earlier diagnostic finishers retain their original condition-code behavior.
+The parent TEST actions are asymmetric. On MANUAL SETTING (`a5=5`, `a7=0xff`),
+both edit directions enter the nested editor by storing `a7=0` and rendering the
+two SERVICE/TEST instruction rows; + consumes 14,063 instructions/36 calls and
+- consumes 14,060/36. On EXIT (`a5=0`), + is the real exit: it clears bit 7 of
+`a4` (`0x85 -> 0x05`), restores the common TEST MENU through the same ROM text
+records used by the other diagnostics, and consumes 19,056 instructions/74
+calls. EXIT - does not leave COIN ASSIGNMENT; it simply redraws the parent menu
+and consumes 4,185 instructions/35 calls. None of these four actions changes
+the coin configuration or its checksum.
+
+With main navigation, MANUAL entry, nested editing/navigation/exit, and parent
+EXIT all recovered, selector-17 index 5 is functionally complete for the
+measured COMMON/default configuration. The implementation remains deliberately
+ROM-driven for credit lookup and common-menu text restoration rather than
+copying those tables into C.
