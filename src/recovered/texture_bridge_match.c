@@ -2236,7 +2236,13 @@ static vf2_status execute_frame_phase17_bit7_index1(
         cpu->registers[29] = UINT32_C(0x00516480);
         cpu->registers[30] = UINT32_C(0x00000220);
         cpu->registers[31] = UINT32_C(0x005ff500);
-        set_equal_condition(cpu);
+        if (release_transition) {
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+            cpu->compare_result = VF2_I960_COMPARE_LESS;
+        } else {
+            set_equal_condition(cpu);
+        }
         report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
         report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
         report->exit_address = cpu->ip;
