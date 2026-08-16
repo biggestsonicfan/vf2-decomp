@@ -1,0 +1,22 @@
+name: Fix selector17 index1 tile runs
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fix_phase17_index1_tile_runs.py
+      - run: rm .github/workflows/fix-phase17-index1-tile-runs.yml scripts/fix_phase17_index1_tile_runs.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Match selector17 input-test tile writes"
+          git push
