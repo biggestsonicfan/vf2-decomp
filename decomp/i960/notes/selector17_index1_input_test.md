@@ -27,7 +27,16 @@ helpers write some spaces as `0x8020` while leaving other existing `0x0020`
 cells untouched; both render identically but are distinct in strict snapshot
 comparison.
 
-The recovered implementation is intentionally restricted to the measured input
-state (`0x00500700 = 0x0ff7f700`, `0x00500704 = 0`, matching previous input,
-selector mask `0x00020000`). Input-state variants and the later TEST-button exit
-remain separate recovery cases.
+The second visit (`a5 = 1`) enters the alternate body behind `0x00059718`.
+With `0x00500708 = 0` no input release/exit condition fires and the already
+rendered INPUT TEST screen is left untouched. The measured path from
+`0x0000a6c0` to `0x0000a010` consumes 1,622 i960 instructions, 37 procedure
+calls and 38 procedure returns; only the observed `00 00 56` stack-spill bytes
+are normalized. This case is kept separate from the TEST-button exit, whose
+branch tests `0x00500708 & 0x04000004`.
+
+The recovered implementation is intentionally restricted to measured input
+states: first visit uses `0x00500700 = 0x0ff7f700`, `0x00500704 = 0`, matching
+previous input and selector mask `0x00020000`; the second visit additionally
+requires released flags to remain zero. Input-state variants and the later
+TEST-button exit remain separate recovery cases.
