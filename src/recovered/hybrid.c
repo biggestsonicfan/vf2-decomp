@@ -4542,6 +4542,7 @@ static vf2_status hybrid_execute_game_info_18644(
     uint32_t tail_instruction_delta = 0u;
     uint32_t relative_position_setbits = 0u;
     uint32_t signed_distance_instruction_delta = 0u;
+    uint32_t state8_bit1_instruction_delta = 0u;
     uint16_t fighter0_distance_raw = 0u;
     uint16_t fighter1_distance_raw = 0u;
     bool high_result = false;
@@ -4736,6 +4737,7 @@ static vf2_status hybrid_execute_game_info_18644(
                 mode_bit6_supported_bit8 =
                     r7 == 0u &&
                     (extra_state == 0u ||
+                     extra_state == (UINT32_C(1) << 1u) ||
                      extra_state == (UINT32_C(1) << 6u) ||
                      extra_state == (UINT32_C(1) << 14u) ||
                      extra_state == (UINT32_C(1) << 15u) ||
@@ -4751,12 +4753,27 @@ static vf2_status hybrid_execute_game_info_18644(
                          ((UINT32_C(1) << 15u) |
                           (UINT32_C(1) << 16u)));
                 if (!mode_bit6_supported_bit8) {
-                    /* Bit 1 enters the 0x188cc state tree, bit 4 uses a
-                     * distinct fast path, and two-sided bit 8 changes the
-                     * fighter-order accounting. Keep those fail-closed. */
+                    /* Bit 4 uses a distinct fast path and two-sided bit 8
+                     * changes the fighter-order accounting. Keep those
+                     * unmeasured combinations fail-closed. */
                     status = VF2_ERROR_UNSUPPORTED;
                 }
             }
+        }
+    }
+    if (status == VF2_OK &&
+        (((r7 | r8) & (UINT32_C(1) << 1u)) != 0u) &&
+        (((r7 | r8) & (UINT32_C(1) << 8u)) != 0u)) {
+        const uint32_t isolated_state8_bit1 =
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u);
+        const bool forward_isolated =
+            r7 == 0u && r8 == isolated_state8_bit1;
+        const bool reverse_isolated =
+            r7 == isolated_state8_bit1 && r8 == 0u;
+        if (!forward_isolated && !reverse_isolated) {
+            /* Only the two fighter-order orientations of isolated
+             * state8+bit1 are ROM-backed here. */
+            status = VF2_ERROR_UNSUPPORTED;
         }
     }
     if (status == VF2_OK &&
@@ -4779,6 +4796,68 @@ static vf2_status hybrid_execute_game_info_18644(
         }
         if (status == VF2_OK && set_bit11) {
             r10 |= UINT32_C(1) << 11u;
+        }
+    }
+    /* 0x188cc..0x18978: the isolated state8+bit1 corridor enters a
+     * distance/type sub-tree before the shared tail. Account this relative
+     * to the ordinary bit-8 path, whose two BBC instructions are already
+     * included by the exact-state formula. */
+    if (status == VF2_OK && r7 == 0u &&
+        r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) {
+        uint8_t fighter1_type = 0u;
+        status = hybrid_read_u8(
+            machine, fighter1 + UINT32_C(0x0000019f), &fighter1_type
+        );
+        if (status == VF2_OK && fighter1_type == UINT8_C(24)) {
+            state8_bit1_instruction_delta = UINT32_C(2);
+        } else if (status == VF2_OK) {
+            const uint16_t distance0 = (uint16_t)(
+                (uint32_t)(int32_t)(int16_t)fighter0_distance_raw - r11
+            );
+            const bool first_exact =
+                distance0 == UINT16_C(0x1554) ||
+                distance0 == UINT16_C(0xeaac);
+
+            if (!first_exact) {
+                state8_bit1_instruction_delta = UINT32_C(11);
+            } else {
+                const uint16_t distance1 = (uint16_t)(
+                    (uint32_t)(int32_t)(int16_t)fighter1_distance_raw - r11
+                );
+                const bool second_mirrored_exact =
+                    distance1 == UINT16_C(0x6aac) ||
+                    distance1 == UINT16_C(0x9554);
+
+                if (!second_mirrored_exact) {
+                    state8_bit1_instruction_delta = UINT32_C(20);
+                } else {
+                    uint32_t state844 = 0u;
+                    uint32_t state_mask = UINT32_C(0x03ff8000);
+
+                    state8_bit1_instruction_delta = UINT32_C(30);
+                    if ((int32_t)r9 > (int32_t)UINT32_C(0x40000000)) {
+                        state_mask &= ~((UINT32_C(1) << 22u) |
+                                        (UINT32_C(1) << 23u));
+                        state8_bit1_instruction_delta += UINT32_C(2);
+                    }
+                    if ((int32_t)r9 > (int32_t)UINT32_C(0x3fe66666)) {
+                        state_mask &= ~((UINT32_C(1) << 18u) |
+                                        (UINT32_C(1) << 21u) |
+                                        (UINT32_C(1) << 19u));
+                        state8_bit1_instruction_delta += UINT32_C(3);
+                    }
+                    if ((int32_t)r9 > (int32_t)UINT32_C(0x3fcccccd)) {
+                        state_mask &= ~(UINT32_C(1) << 20u);
+                        state8_bit1_instruction_delta += UINT32_C(1);
+                    }
+                    status = vf2_model2a_read_u32(
+                        machine, fighter1 + UINT32_C(0x00000844), &state844
+                    );
+                    if (status == VF2_OK) {
+                        r10 |= state844 & state_mask;
+                    }
+                }
+            }
         }
     }
     if (status == VF2_OK) {
@@ -5011,11 +5090,19 @@ static vf2_status hybrid_execute_game_info_18644(
                 (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
                 (UINT32_C(1) << 26u);
             const uint32_t active_state = (r7 | r8) & observed_state_mask;
+            const uint32_t state8_bit1 =
+                (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u);
+            const bool isolated_state8_bit1_forward =
+                r7 == 0u && r8 == state8_bit1;
+            const bool isolated_state8_bit1_reverse =
+                r7 == state8_bit1 && r8 == 0u;
             const bool exact_state_accounting =
                 !countdown_path &&
                 (!mode_bit6 || mode_bit6_supported_bit8) &&
                 active_state != 0u &&
-                ((r7 | r8) & ~observed_state_mask) == 0u;
+                (isolated_state8_bit1_forward ||
+                 isolated_state8_bit1_reverse ||
+                 ((r7 | r8) & ~observed_state_mask) == 0u);
 
             if (exact_state_accounting) {
                 uint32_t prefix_count = UINT32_C(43);
@@ -5145,6 +5232,7 @@ static vf2_status hybrid_execute_game_info_18644(
                 ++body_instructions;
             }
             body_instructions += signed_distance_instruction_delta;
+            body_instructions += state8_bit1_instruction_delta;
         }
     }
     if (status == VF2_OK && !shared_bit1_path) {
