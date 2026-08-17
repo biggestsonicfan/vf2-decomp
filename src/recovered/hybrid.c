@@ -4540,6 +4540,10 @@ static vf2_status hybrid_execute_game_info_18644(
     uint32_t r15 = 0u;
     uint32_t body_instructions = 101u;
     uint32_t tail_instruction_delta = 0u;
+    uint32_t relative_position_setbits = 0u;
+    uint32_t signed_distance_instruction_delta = 0u;
+    uint16_t fighter0_distance_raw = 0u;
+    uint16_t fighter1_distance_raw = 0u;
     bool high_result = false;
     bool countdown_path = false;
     bool mode_bit6 = false;
@@ -4675,20 +4679,24 @@ static vf2_status hybrid_execute_game_info_18644(
         status = hybrid_read_u16(
             machine, fighter0 + UINT32_C(0x000005b4), &short_value
         );
+        fighter0_distance_raw = short_value;
         r4 = (uint32_t)(int32_t)(int16_t)short_value;
         r4 = (r11 - r4) + UINT32_C(0x00004000);
         if ((r4 & UINT32_C(0x00008000)) != 0u) {
             r10 |= UINT32_C(1);
+            ++relative_position_setbits;
         }
     }
     if (status == VF2_OK) {
         status = hybrid_read_u16(
             machine, fighter1 + UINT32_C(0x000005b4), &short_value
         );
+        fighter1_distance_raw = short_value;
         r4 = (uint32_t)(int32_t)(int16_t)short_value;
         r4 = (r11 - r4) + UINT32_C(0x00004000);
         if ((r4 & UINT32_C(0x00008000)) == 0u) {
             r10 |= UINT32_C(2);
+            ++relative_position_setbits;
         }
     }
     if (status == VF2_OK) {
@@ -4785,20 +4793,49 @@ static vf2_status hybrid_execute_game_info_18644(
                 : r10 & ~(UINT32_C(1) << 3u);
         }
     }
-    /* Preserve the still-unrecovered 0x18788 signed-distance branch domain.
-     * This guard was present before the high-flag recovery and is independent
-     * of the newly recovered 0x18978..0x189a4 accumulation tail. */
-    if (status == VF2_OK) {
-        status = hybrid_read_u16(
-            machine, fighter0 + UINT32_C(0x000005b4), &short_value
+    /* 0x18770..0x18890: countdown, r7.bit4 and the r8 fast-mask skip
+     * the signed-distance tree entirely.  Otherwise the first comparison
+     * continues only for exactly +/-0x1554.  The second comparison either
+     * selects 0x18858 for the same exact pair, or toggles bit 15 and tests
+     * again; that mirrored equality corresponds to +/-0x6aac.  Recover the
+     * neutral rejoin-to-0x18890 corridors and keep state-setting subbranches
+     * explicit until separately measured. */
+    if (status == VF2_OK && !countdown_path &&
+        (r7 & (UINT32_C(1) << 4u)) == 0u &&
+        (r8 & ((UINT32_C(1) << 4u) | (UINT32_C(1) << 14u) |
+               (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+               (UINT32_C(1) << 26u))) == 0u) {
+        const uint16_t distance0 = (uint16_t)(
+            (uint32_t)(int32_t)(int16_t)fighter0_distance_raw - r11
         );
-        r3 = (uint32_t)(int32_t)(int16_t)short_value - r11;
-        r15 = r3 << 16u;
-        r3 = r15 >> 16u;
-        r4 = UINT32_C(0x00001554);
-        r15 = 0u - r4;
-        if ((int32_t)r3 <= (int32_t)r15) {
-            status = VF2_ERROR_UNSUPPORTED;
+        const uint16_t distance1 = (uint16_t)(
+            (uint32_t)(int32_t)(int16_t)fighter1_distance_raw - r11
+        );
+        const bool first_exact = distance0 == UINT16_C(0x1554) ||
+                                 distance0 == UINT16_C(0xeaac);
+        const bool second_exact = distance1 == UINT16_C(0x1554) ||
+                                  distance1 == UINT16_C(0xeaac);
+        const bool second_mirrored_exact =
+            distance1 == UINT16_C(0x6aac) ||
+            distance1 == UINT16_C(0x9554);
+        const uint32_t branch_mask =
+            (UINT32_C(1) << 2u) | (UINT32_C(1) << 9u) |
+            (UINT32_C(1) << 10u) | (UINT32_C(1) << 13u) |
+            (UINT32_C(1) << 28u);
+
+        if (first_exact) {
+            if (second_exact) {
+                if ((r8 & branch_mask) != 0u) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                } else {
+                    signed_distance_instruction_delta = UINT32_C(11);
+                }
+            } else if ((r8 & (branch_mask | (UINT32_C(1) << 1u))) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                signed_distance_instruction_delta = second_mirrored_exact
+                    ? UINT32_C(20) : UINT32_C(15);
+            }
         }
     }
     if (status == VF2_OK) {
@@ -4935,6 +4972,14 @@ static vf2_status hybrid_execute_game_info_18644(
                     body_instructions -= UINT32_C(9);
                 }
             }
+        }
+        if (status == VF2_OK) {
+            if (relative_position_setbits == 0u) {
+                --body_instructions;
+            } else if (relative_position_setbits == 2u) {
+                ++body_instructions;
+            }
+            body_instructions += signed_distance_instruction_delta;
         }
     }
     if (status == VF2_OK && !shared_bit1_path) {
