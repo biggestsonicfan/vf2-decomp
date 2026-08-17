@@ -4641,14 +4641,16 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, fighter0 + UINT32_C(0x000005b6), (uint16_t)r11
         );
     }
+    /* 0x18738..0x18768 accumulates relative-position bits; crossing
+     * the signed 0x4000 window is ordinary state, not an unsupported path. */
     if (status == VF2_OK) {
         status = hybrid_read_u16(
             machine, fighter0 + UINT32_C(0x000005b4), &short_value
         );
         r4 = (uint32_t)(int32_t)(int16_t)short_value;
-        r4 = (r11 - r4) + UINT32_C(0x00004000);
+        r4 = (r4 - r11) + UINT32_C(0x00004000);
         if ((r4 & UINT32_C(0x00008000)) != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
+            r10 |= UINT32_C(1);
         }
     }
     if (status == VF2_OK) {
@@ -4656,13 +4658,12 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, fighter1 + UINT32_C(0x000005b4), &short_value
         );
         r4 = (uint32_t)(int32_t)(int16_t)short_value;
-        r4 = (r11 - r4) + UINT32_C(0x00004000);
-        if ((r4 & UINT32_C(0x00008000)) != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
+        r4 = (r4 - r11) + UINT32_C(0x00004000);
+        if ((r4 & UINT32_C(0x00008000)) == 0u) {
+            r10 |= UINT32_C(2);
         }
     }
     if (status == VF2_OK) {
-        r10 |= UINT32_C(2);
         status = hybrid_read_u8(
             machine, UINT32_C(0x0050a0b6), &byte_value
         );
