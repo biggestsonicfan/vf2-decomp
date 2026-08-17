@@ -3,8 +3,6 @@ on: [push]
 jobs:
   probe:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Apply bit8 matrix candidate
@@ -15,112 +13,102 @@ jobs:
           path = Path('src/recovered/hybrid.c')
           text = path.read_text()
 
-          old_locals = '''    bool countdown_path = false;
-              bool mode_bit6 = false;
-              bool shared_bit1_path = false;
-          '''
-          new_locals = '''    bool countdown_path = false;
-              bool mode_bit6 = false;
-              bool mode_bit6_supported_bit8 = false;
-              bool shared_bit1_path = false;
-          '''
-          if old_locals not in text:
-              raise SystemExit('locals anchor not found')
-          text = text.replace(old_locals, new_locals, 1)
+          anchor = '    bool mode_bit6 = false;\n'
+          if anchor not in text:
+              raise SystemExit('mode bit6 local not found')
+          text = text.replace(
+              anchor,
+              anchor + '    bool mode_bit6_supported_bit8 = false;\n',
+              1,
+          )
 
-          old_guard = '''            if (status == VF2_OK &&
-                              (r8 & (UINT32_C(1) << 8u)) != 0u &&
-                              (r7 != 0u || r8 != (UINT32_C(1) << 8u))) {
-                              /* The isolated fighter1 state-bit-8 corridor has exact
-                               * mode-bit-6 accounting. Mixed state combinations remain
-                               * bounded until their pairwise costs are recovered. */
+          guard_start_marker = '''            if (status == VF2_OK &&
+                          (r8 & (UINT32_C(1) << 8u)) != 0u &&
+          '''
+          guard_start = text.find(guard_start_marker)
+          if guard_start < 0:
+              raise SystemExit('mode bit6 guard start not found')
+          guard_end = text.find('            }\n', guard_start)
+          if guard_end < 0:
+              raise SystemExit('mode bit6 guard end not found')
+          guard_end += len('            }\n')
+          new_guard = '''            if (status == VF2_OK &&
+                          (r8 & (UINT32_C(1) << 8u)) != 0u) {
+                          const uint32_t extra_state =
+                              r8 & ~(UINT32_C(1) << 8u);
+                          mode_bit6_supported_bit8 =
+                              r7 == 0u &&
+                              (extra_state == 0u ||
+                               extra_state == (UINT32_C(1) << 6u) ||
+                               extra_state == (UINT32_C(1) << 14u) ||
+                               extra_state == (UINT32_C(1) << 15u) ||
+                               extra_state == (UINT32_C(1) << 16u) ||
+                               extra_state == (UINT32_C(1) << 21u) ||
+                               extra_state == (UINT32_C(1) << 26u) ||
+                               extra_state == (UINT32_C(1) << 29u) ||
+                               extra_state == (UINT32_C(1) << 30u) ||
+                               extra_state ==
+                                   ((UINT32_C(1) << 14u) |
+                                    (UINT32_C(1) << 15u)) ||
+                               extra_state ==
+                                   ((UINT32_C(1) << 15u) |
+                                    (UINT32_C(1) << 16u)));
+                          if (!mode_bit6_supported_bit8) {
+                              /* Bit 1 enters the 0x188cc state tree, bit 4 uses a
+                               * distinct fast path, and two-sided bit 8 changes the
+                               * fighter-order accounting. Keep those fail-closed. */
                               status = VF2_ERROR_UNSUPPORTED;
                           }
+                      }
           '''
-          new_guard = '''            if (status == VF2_OK &&
-                              (r8 & (UINT32_C(1) << 8u)) != 0u) {
-                              const uint32_t extra_state =
-                                  r8 & ~(UINT32_C(1) << 8u);
-                              mode_bit6_supported_bit8 =
-                                  r7 == 0u &&
-                                  (extra_state == 0u ||
-                                   extra_state == (UINT32_C(1) << 6u) ||
-                                   extra_state == (UINT32_C(1) << 14u) ||
-                                   extra_state == (UINT32_C(1) << 15u) ||
-                                   extra_state == (UINT32_C(1) << 16u) ||
-                                   extra_state == (UINT32_C(1) << 21u) ||
-                                   extra_state == (UINT32_C(1) << 26u) ||
-                                   extra_state == (UINT32_C(1) << 29u) ||
-                                   extra_state == (UINT32_C(1) << 30u) ||
-                                   extra_state ==
-                                       ((UINT32_C(1) << 14u) |
-                                        (UINT32_C(1) << 15u)) ||
-                                   extra_state ==
-                                       ((UINT32_C(1) << 15u) |
-                                        (UINT32_C(1) << 16u)));
-                              if (!mode_bit6_supported_bit8) {
-                                  /* Bit 1 enters the 0x188cc state tree, bit 4 uses a
-                                   * distinct fast path, and two-sided bit 8 changes the
-                                   * fighter-order accounting. Keep those fail-closed. */
-                                  status = VF2_ERROR_UNSUPPORTED;
+          text = text[:guard_start] + new_guard + text[guard_end:]
+
+          exact_start_marker = '''            const bool mode_bit6_isolated_bit8 =
+          '''
+          exact_start = text.find(exact_start_marker)
+          if exact_start < 0:
+              raise SystemExit('exact accounting start not found')
+          exact_end_marker = '''                ((r7 | r8) & ~observed_state_mask) == 0u;
+          '''
+          exact_end = text.find(exact_end_marker, exact_start)
+          if exact_end < 0:
+              raise SystemExit('exact accounting end not found')
+          exact_end += len(exact_end_marker)
+          new_exact = '''            const bool exact_state_accounting =
+                          !countdown_path &&
+                          (!mode_bit6 || mode_bit6_supported_bit8) &&
+                          active_state != 0u &&
+                          ((r7 | r8) & ~observed_state_mask) == 0u;
+          '''
+          text = text[:exact_start] + new_exact + text[exact_end:]
+
+          adjust_start_marker = '''                    if (mode_bit6_isolated_bit8) {
+          '''
+          adjust_start = text.find(adjust_start_marker)
+          if adjust_start < 0:
+              raise SystemExit('bit8 adjustment start not found')
+          adjust_end = text.find('                    }\n', adjust_start)
+          if adjust_end < 0:
+              raise SystemExit('bit8 adjustment end not found')
+          adjust_end += len('                    }\n')
+          new_adjust = '''                    if (mode_bit6_supported_bit8) {
+                              const uint32_t priority_state =
+                                  r8 & ((UINT32_C(1) << 14u) |
+                                        (UINT32_C(1) << 15u) |
+                                        (UINT32_C(1) << 16u));
+                              const bool compound_priority =
+                                  priority_state ==
+                                      ((UINT32_C(1) << 14u) |
+                                       (UINT32_C(1) << 15u)) ||
+                                  priority_state ==
+                                      ((UINT32_C(1) << 15u) |
+                                       (UINT32_C(1) << 16u));
+                              if (!compound_priority) {
+                                  body_instructions -= UINT32_C(2);
                               }
                           }
           '''
-          if old_guard not in text:
-              raise SystemExit('mode bit6 guard anchor not found')
-          text = text.replace(old_guard, new_guard, 1)
-
-          old_exact = '''            const bool mode_bit6_isolated_bit8 =
-                              mode_bit6 && r7 == 0u &&
-                              r8 == (UINT32_C(1) << 8u);
-                          const bool exact_state_accounting =
-                              !countdown_path &&
-                              (!mode_bit6 || mode_bit6_isolated_bit8) &&
-                              active_state != 0u &&
-                              ((r7 | r8) & ~observed_state_mask) == 0u;
-          '''
-          new_exact = '''            const bool exact_state_accounting =
-                              !countdown_path &&
-                              (!mode_bit6 || mode_bit6_supported_bit8) &&
-                              active_state != 0u &&
-                              ((r7 | r8) & ~observed_state_mask) == 0u;
-          '''
-          if old_exact not in text:
-              raise SystemExit('exact accounting anchor not found')
-          text = text.replace(old_exact, new_exact, 1)
-
-          old_adjust = '''                    if (mode_bit6_isolated_bit8) {
-                                  /* The mode-bit-6 + isolated-bit-8 priority path
-                                   * rejoins two instructions earlier than the generic
-                                   * exact-state formula. */
-                                  body_instructions -= UINT32_C(2);
-                              }
-          '''
-          new_adjust = '''                    if (mode_bit6_supported_bit8) {
-                                  const uint32_t priority_state =
-                                      r8 & ((UINT32_C(1) << 14u) |
-                                            (UINT32_C(1) << 15u) |
-                                            (UINT32_C(1) << 16u));
-                                  const bool compound_priority =
-                                      priority_state ==
-                                          ((UINT32_C(1) << 14u) |
-                                           (UINT32_C(1) << 15u)) ||
-                                      priority_state ==
-                                          ((UINT32_C(1) << 15u) |
-                                           (UINT32_C(1) << 16u));
-                                  if (!compound_priority) {
-                                      /* Controlled mode-bit-6 probes with bit 8 plus
-                                       * one supported state flag rejoin two instructions
-                                       * earlier. The two measured priority pairs already
-                                       * match the generic exact-state formula. */
-                                      body_instructions -= UINT32_C(2);
-                                  }
-                              }
-          '''
-          if old_adjust not in text:
-              raise SystemExit('bit8 adjustment anchor not found')
-          text = text.replace(old_adjust, new_adjust, 1)
-
+          text = text[:adjust_start] + new_adjust + text[adjust_end:]
           path.write_text(text)
           PY
       - name: Configure strict build
