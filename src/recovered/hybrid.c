@@ -4711,17 +4711,23 @@ static vf2_status hybrid_execute_game_info_18644(
         (r7 & (UINT32_C(1) << 8u)) != 0u &&
         (r8 & (UINT32_C(1) << 8u)) != 0u &&
         (r7 != (UINT32_C(1) << 8u) ||
-         r8 != (UINT32_C(1) << 8u)) &&
-        (countdown_path ||
-         !((r7 == (UINT32_C(1) << 8u) &&
-            (r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) ||
-             r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u)))) ||
-           (r8 == (UINT32_C(1) << 8u) &&
-            (r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) ||
-             r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))))))) {
-        /* Only the isolated bilateral state-bit-8 corridor is ROM-backed.
-         * Mixed bilateral states remain fail-closed. */
-        status = VF2_ERROR_UNSUPPORTED;
+         r8 != (UINT32_C(1) << 8u))) {
+        const uint32_t state8 = UINT32_C(1) << 8u;
+        const uint32_t state8_bit1 = state8 | (UINT32_C(1) << 1u);
+        const uint32_t state8_bit4 = state8 | (UINT32_C(1) << 4u);
+        const bool bilateral_bit1 =
+            (r7 == state8 && r8 == state8_bit1) ||
+            (r8 == state8 && r7 == state8_bit1);
+        const bool bilateral_bit4 =
+            (r7 == state8 && r8 == state8_bit4) ||
+            (r8 == state8 && r7 == state8_bit4);
+        if ((!bilateral_bit1 && !bilateral_bit4) ||
+            (countdown_path && !bilateral_bit1)) {
+            /* Countdown composes only with the measured bilateral bit1
+             * pair. Bilateral bit4 countdown and other mixtures remain
+             * explicit ROM boundaries. */
+            status = VF2_ERROR_UNSUPPORTED;
+        }
     }
     /* The nonzero countdown corridor enters the shared 0x18890 tail. */
     if (status == VF2_OK) {
@@ -5295,8 +5301,10 @@ static vf2_status hybrid_execute_game_info_18644(
             body_instructions += state8_bit1_instruction_delta;
             if (countdown_path &&
                 return_address == UINT32_C(0x000164b0) &&
-                r7 == (UINT32_C(1) << 8u) &&
-                r8 == (UINT32_C(1) << 8u)) {
+                (r7 & (UINT32_C(1) << 8u)) != 0u &&
+                (r8 & (UINT32_C(1) << 8u)) != 0u) {
+                /* The measured bilateral countdown corridors rejoin one
+                 * instruction earlier in the first fighter order. */
                 --body_instructions;
             }
             if (!countdown_path &&
