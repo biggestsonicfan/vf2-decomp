@@ -4802,7 +4802,11 @@ static vf2_status hybrid_execute_game_info_18644(
         r12 ^= r7;
         r12 ^= r8;
         if ((r12 & (UINT32_C(1) << 21u)) != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
+            /* 0x18a1c..0x18a20: BBC 21 falls through to SETBIT 4.
+             * Controlled forward/reverse fighter probes show exactly one
+             * extra instruction per affected 0x18644 invocation. */
+            r10 |= UINT32_C(1) << 4u;
+            ++body_instructions;
         }
     }
     if (status == VF2_OK) {
