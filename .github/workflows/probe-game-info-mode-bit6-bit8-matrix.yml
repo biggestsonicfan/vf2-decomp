@@ -8,7 +8,121 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Apply bit8 matrix candidate
-        run: python -c "import base64; exec(base64.b64decode('CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKcCA9IFBhdGgoInNyYy9yZWNvdmVyZWQvaHlicmlkLmMiKQpzID0gcC5yZWFkX3RleHQoKQoKb2xkX2xvY2FscyA9ICIiIiAgICBib29sIGNvdW50ZG93bl9wYXRoID0gZmFsc2U7CiAgICBib29sIG1vZGVfYml0NiA9IGZhbHNlOwogICAgYm9vbCBzaGFyZWRfYml0MV9wYXRoID0gZmFsc2U7CiIiIgpuZXdfbG9jYWxzID0gIiIiICAgIGJvb2wgY291bnRkb3duX3BhdGggPSBmYWxzZTsKICAgIGJvb2wgbW9kZV9iaXQ2ID0gZmFsc2U7CiAgICBib29sIG1vZGVfYml0Nl9zdXBwb3J0ZWRfYml0OCA9IGZhbHNlOwogICAgYm9vbCBzaGFyZWRfYml0MV9wYXRoID0gZmFsc2U7CiIiIgppZiBvbGRfbG9jYWxzIG5vdCBpbiBzOgogICAgcmFpc2UgU3lzdGVtRXhpdCgibG9jYWxzIGFuY2hvciBub3QgZm91bmQiKQpzID0gcy5yZXBsYWNlKG9sZF9sb2NhbHMsIG5ld19sb2NhbHMsIDEpCgpvbGRfZ3VhcmQgPSAiIiIgICAgICAgICAgICBpZiAoc3RhdHVzID09IFZGMl9PSyAmJgogICAgICAgICAgICAgICAgKHI4ICYgKFVJTlQzMl9DKDEpIDw8IDh1KSkgIT0gMHUgJiYKICAgICAgICAgICAgICAgIChyNyAhPSAwdSB8fCByOCAhPSAoVUlOVDMyX0MoMSkgPDwgOHUpKSkgewogICAgICAgICAgICAgICAgLyogVGhlIGlzb2xhdGVkIGZpZ2h0ZXIxIHN0YXRlLWJpdC04IGNvcnJpZG9yIGhhcyBleGFjdAogICAgICAgICAgICAgICAgICogbW9kZS1iaXQtNiBhY2NvdW50aW5nLiBNaXhlZCBzdGF0ZSBjb21iaW5hdGlvbnMgcmVtYWluCiAgICAgICAgICAgICAgICAgKiBib3VuZGVkIHVudGlsIHRoZWlyIHBhaXJ3aXNlIGNvc3RzIGFyZSByZWNvdmVyZWQuICovCiAgICAgICAgICAgICAgICBzdGF0dXMgPSBWRjJfRVJST1JfVU5TVVBQT1JURUQ7CiAgICAgICAgICAgIH0KIiIiCm5ld19ndWFyZCA9ICIiIiAgICAgICAgICAgIGlmIChzdGF0dXMgPT0gVkYyX09LICYmCiAgICAgICAgICAgICAgICAocjggJiAoVUlOVDMyX0MoMSkgPDwgOHUpKSAhPSAwdSkgewogICAgICAgICAgICAgICAgY29uc3QgdWludDMyX3QgZXh0cmFfc3RhdGUgPQogICAgICAgICAgICAgICAgICAgIHI4ICYgfmYoVUlOVDMyX0MoMSkgPDwgOHUpOwogICAgICAgICAgICAgICAgbW9kZV9iaXQ2X3N1cHBvcnRlZF9iaXQ4ID0KICAgICAgICAgICAgICAgICAgICByNyA9PSAwdSAmJgogICAgICAgICAgICAgICAgICAgIChleHRyYV9zdGF0ZSA9PSAwdSB8fAogICAgICAgICAgICAgICAgICAgICBleHRyYV9zdGF0ZSA9PSAoVUlOVDMyX0MoMSkgPDwgNnUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09IChVSU5UMzJfQygxKSA8PCAxNHUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09IChVSU5UMzJfQygxKSA8PCAxNXUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09IChVSU5UMzJfQygxKSA8PCAxNnUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09IChVSU5UMzJfQygxKSA8PCAyMXUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09IChVSU5UMzJfQygxKSA8PCAyNnUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09IChVSU5UMzJfQygxKSA8PCAyOXUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09IChVSU5UMzJfQygxKSA8PCAzMHUpIHx8CiAgICAgICAgICAgICAgICAgICAgIGV4dHJhX3N0YXRlID09ICgoVUlOVDMyX0MoMSkgPDwgMTR1KSB8CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMTV1KSkgfHwKICAgICAgICAgICAgICAgICAgICAgZXh0cmFfc3RhdGUgPT0gKChVSU5UMzJfQygxKSA8PCAxNXUpIHwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIChVSU5UMzJfQygxKSA8PCAxNnUpKSk7CiAgICAgICAgICAgICAgICBpZiAoIW1vZGVfYml0Nl9zdXBwb3J0ZWRfYml0OCkgewogICAgICAgICAgICAgICAgICAgIC8qIEtlZXAgdW5tZWFzdXJlZCBiaXQtOCBjb21iaW5hdGlvbnMgZmFpbC1jbG9zZWQ6CiAgICAgICAgICAgICAgICAgICAgICogYml0IDEgZW50ZXJzIHRoZSAweDE4OGNjIHN0YXRlIHRyZWUsIGJpdCA0IHVzZXMgYQogICAgICAgICAgICAgICAgICAgICAqIGRpc3RpbmN0IGZhc3QgcGF0aCwgYW5kIHR3by1zaWRlZCBiaXQgOCBjaGFuZ2VzIHRoZQogICAgICAgICAgICAgICAgICAgICAqIGZpZ2h0ZXItb3JkZXIgYWNjb3VudGluZy4gKi8KICAgICAgICAgICAgICAgICAgICBzdGF0dXMgPSBWRjJfRVJST1JfVU5TVVBQT1JURUQ7CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KIiIiCmlmIG9sZF9ndWFyZCBub3QgaW4gczogICAgcmFpc2UgU3lzdGVtRXhpdCgi c2ltcGxlIGJpdDggZ3VhcmQgbm90IGZvdW5kIikKcyA9IHMucmVwbGFjZShvbGRfZ3VhcmQsIG5ld19ndWFyZCwgMSkKCm9sZF9leGFjdCA9ICIiIiAgICAgICAgICAgIGNvbnN0IGJvb2wgbW9kZV9iaXQ2X2lzb2xhdGVkX2JpdDggPQogICAgICAgICAgICAgICAgbW9kZV9iaXQ2ICYmIHI3ID09IDB1ICYmCiAgICAgICAgICAgICAgICByOCA9PSAoVUlOVDMyX0MoMSkgPDwgOHUpOwogICAgICAgICAgICBjb25zdCBib29sIGV4YWN0X3N0YXRlX2FjY291bnRpbmcgPQogICAgICAgICAgICAgICAgIWNvdW50ZG93bl9wYXRoICYmCiAgICAgICAgICAgICAgICAoIW1vZGVfYml0NiB8fCBtb2RlX2JpdDZfaXNvbGF0ZWRfYml0OCkgJiYKICAgICAgICAgICAgICAgIGFjdGl2ZV9zdGF0ZSAhPSAwdSAmJgogICAgICAgICAgICAgICAgKChyNyB8IHI4KSAmIH5vYnNlcnZlZF9zdGF0ZV9tYXNrKSA9PSAwdTsKIiIiCm5ld19leGFjdCA9ICIiIiAgICAgICAgICAgIGNvbnN0IGJvb2wgZXhhY3Rfc3RhdGVfYWNjb3VudGluZyA9CiAgICAgICAgICAgICAgICAhY291bnRkb3duX3BhdGggJiYKICAgICAgICAgICAgICAgICghbW9kZV9iaXQ2IHx8IG1vZGVfYml0Nl9zdXBwb3J0ZWRfYml0OCkgJiYKICAgICAgICAgICAgICAgIGFjdGl2ZV9zdGF0ZSAhPSAwdSAmJgogICAgICAgICAgICAgICAgKChyNyB8IHI4KSAmIH5vYnNlcnZlZF9zdGF0ZV9tYXNrKSA9PSAwdTsKIiIiCmlmIG9sZF9leGFjdCBub3QgaW4gczogICAgcmFpc2UgU3lzdGVtRXhpdCgi c2ltcGxlIGV4YWN0IHByZWRpY2F0ZSBub3QgZm91bmQiKQpzID0gcy5yZXBsYWNlKG9sZF9leGFjdCwgbmV3X2V4YWN0LCAxKQoKb2xkX2FkanVzdCA9ICIiIiAgICAgICAgICAgICAgICAgICAgaWYgKG1vZGVfYml0Nl9pc29sYXRlZF9iaXQ4KSB7CiAgICAgICAgICAgICAgICAgICAgICAgIC8qIFRoZSBtb2RlLWJpdC02ICsgaXNvbGF0ZWQtYml0LTggcHJpb3JpdHkgcGF0aAogICAgICAgICAgICAgICAgICAgICAgICAgKiByZWpvaW5zIHR3byBpbnN0cnVjdGlvbnMgZWFybGllciB0aGFuIHRoZSBnZW5lcmljCiAgICAgICAgICAgICAgICAgICAgICAgICAqIGV4YWN0LXN0YXRlIGZvcm11bGEuICovCiAgICAgICAgICAgICAgICAgICAgICAgIGJvZHlfaW5zdHJ1Y3Rpb25zIC09IFVJTlQzMl9DKDIpOwogICAgICAgICAgICAgICAgICAgIH0KIiIiCm5ld19hZGp1c3QgPSAiIiIgICAgICAgICAgICAgICAgICAgIGlmIChtb2RlX2JpdDZfc3VwcG9ydGVkX2JpdDgpIHsKICAgICAgICAgICAgICAgICAgICAgICAgY29uc3QgdWludDMyX3QgcHJpb3JpdHlfc3RhdGUgPQogICAgICAgICAgICAgICAgICAgICAgICAgICAgcjggJiAoKFVJTlQzMl9DKDEpIDw8IDE0dSkgfAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDE1dSkgfAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDE2dSkpOwogICAgICAgICAgICAgICAgICAgICAgICBjb25zdCBib29sIGNvbXBvdW5kX3ByaW9yaXR5ID0KICAgICAgICAgICAgICAgICAgICAgICAgICAgIHByaW9yaXR5X3N0YXRlID09CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICgoVUlOVDMyX0MoMSkgPDwgMTR1KSB8CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMTV1KSkgfHwKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHByaW9yaXR5X3N0YXRlID09CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICgoVUlOVDMyX0MoMSkgPDwgMTV1KSB8CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMTZ1KSk7CiAgICAgICAgICAgICAgICAgICAgICAgIGlmICghY29tcG91bmRfcHJpb3JpdHkpIHsKICAgICAgICAgICAgICAgICAgICAgICAgICAgIC8qIENvbnRyb2xsZWQgbW9kZS1iaXQtNiBwcm9iZXMgd2l0aCBiaXQgOCBwbHVzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKiBvbmUgb2JzZXJ2ZWQgc3RhdGUgZmxhZyByZWpvaW4gdHdvIGluc3RydWN0aW9ucwogICAgICAgICAgICAgICAgICAgICAgICAgICAgICogZWFybGllciB0aGFuIHRoZSBnZW5lcmljIGV4YWN0LXN0YXRlIGZvcm11bGEuCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKiBUaGUgMTQrMTUgYW5kIDE1KzE2IHByaW9yaXR5IHBhaXJzIGFscmVhZHkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAqIG1hdGNoIHRoZSBnZW5lcmljIGNvdW50LiAqLwogICAgICAgICAgICAgICAgICAgICAgICAgIGJvZHlfaW5zdHJ1Y3Rpb25zIC09IFVJTlQzMl9DKDIpOwogICAgICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICAgICAgfQoiIiIKaWYgb2xkX2FkanVzdCBub3QgaW4gczogICAgcmFpc2UgU3lzdGVtRXhpdCgi c2ltcGxlIGFkanVzdG1lbnQgbm90IGZvdW5kIikKcyA9IHMucmVwbGFjZShvbGRfYWRqdXN0LCBuZXdfYWRqdXN0LCAxKQoKcC53cml0ZV90ZXh0KHMpCg=='))"
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+
+          old_locals = '''    bool countdown_path = false;
+              bool mode_bit6 = false;
+              bool shared_bit1_path = false;
+          '''
+          new_locals = '''    bool countdown_path = false;
+              bool mode_bit6 = false;
+              bool mode_bit6_supported_bit8 = false;
+              bool shared_bit1_path = false;
+          '''
+          if old_locals not in text:
+              raise SystemExit('locals anchor not found')
+          text = text.replace(old_locals, new_locals, 1)
+
+          old_guard = '''            if (status == VF2_OK &&
+                              (r8 & (UINT32_C(1) << 8u)) != 0u &&
+                              (r7 != 0u || r8 != (UINT32_C(1) << 8u))) {
+                              /* The isolated fighter1 state-bit-8 corridor has exact
+                               * mode-bit-6 accounting. Mixed state combinations remain
+                               * bounded until their pairwise costs are recovered. */
+                              status = VF2_ERROR_UNSUPPORTED;
+                          }
+          '''
+          new_guard = '''            if (status == VF2_OK &&
+                              (r8 & (UINT32_C(1) << 8u)) != 0u) {
+                              const uint32_t extra_state =
+                                  r8 & ~(UINT32_C(1) << 8u);
+                              mode_bit6_supported_bit8 =
+                                  r7 == 0u &&
+                                  (extra_state == 0u ||
+                                   extra_state == (UINT32_C(1) << 6u) ||
+                                   extra_state == (UINT32_C(1) << 14u) ||
+                                   extra_state == (UINT32_C(1) << 15u) ||
+                                   extra_state == (UINT32_C(1) << 16u) ||
+                                   extra_state == (UINT32_C(1) << 21u) ||
+                                   extra_state == (UINT32_C(1) << 26u) ||
+                                   extra_state == (UINT32_C(1) << 29u) ||
+                                   extra_state == (UINT32_C(1) << 30u) ||
+                                   extra_state ==
+                                       ((UINT32_C(1) << 14u) |
+                                        (UINT32_C(1) << 15u)) ||
+                                   extra_state ==
+                                       ((UINT32_C(1) << 15u) |
+                                        (UINT32_C(1) << 16u)));
+                              if (!mode_bit6_supported_bit8) {
+                                  /* Bit 1 enters the 0x188cc state tree, bit 4 uses a
+                                   * distinct fast path, and two-sided bit 8 changes the
+                                   * fighter-order accounting. Keep those fail-closed. */
+                                  status = VF2_ERROR_UNSUPPORTED;
+                              }
+                          }
+          '''
+          if old_guard not in text:
+              raise SystemExit('mode bit6 guard anchor not found')
+          text = text.replace(old_guard, new_guard, 1)
+
+          old_exact = '''            const bool mode_bit6_isolated_bit8 =
+                              mode_bit6 && r7 == 0u &&
+                              r8 == (UINT32_C(1) << 8u);
+                          const bool exact_state_accounting =
+                              !countdown_path &&
+                              (!mode_bit6 || mode_bit6_isolated_bit8) &&
+                              active_state != 0u &&
+                              ((r7 | r8) & ~observed_state_mask) == 0u;
+          '''
+          new_exact = '''            const bool exact_state_accounting =
+                              !countdown_path &&
+                              (!mode_bit6 || mode_bit6_supported_bit8) &&
+                              active_state != 0u &&
+                              ((r7 | r8) & ~observed_state_mask) == 0u;
+          '''
+          if old_exact not in text:
+              raise SystemExit('exact accounting anchor not found')
+          text = text.replace(old_exact, new_exact, 1)
+
+          old_adjust = '''                    if (mode_bit6_isolated_bit8) {
+                                  /* The mode-bit-6 + isolated-bit-8 priority path
+                                   * rejoins two instructions earlier than the generic
+                                   * exact-state formula. */
+                                  body_instructions -= UINT32_C(2);
+                              }
+          '''
+          new_adjust = '''                    if (mode_bit6_supported_bit8) {
+                                  const uint32_t priority_state =
+                                      r8 & ((UINT32_C(1) << 14u) |
+                                            (UINT32_C(1) << 15u) |
+                                            (UINT32_C(1) << 16u));
+                                  const bool compound_priority =
+                                      priority_state ==
+                                          ((UINT32_C(1) << 14u) |
+                                           (UINT32_C(1) << 15u)) ||
+                                      priority_state ==
+                                          ((UINT32_C(1) << 15u) |
+                                           (UINT32_C(1) << 16u));
+                                  if (!compound_priority) {
+                                      /* Controlled mode-bit-6 probes with bit 8 plus
+                                       * one supported state flag rejoin two instructions
+                                       * earlier. The two measured priority pairs already
+                                       * match the generic exact-state formula. */
+                                      body_instructions -= UINT32_C(2);
+                                  }
+                              }
+          '''
+          if old_adjust not in text:
+              raise SystemExit('bit8 adjustment anchor not found')
+          text = text.replace(old_adjust, new_adjust, 1)
+
+          path.write_text(text)
+          PY
       - name: Configure strict build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
@@ -21,10 +135,3 @@ jobs:
         with:
           name: vf2i960-game-info-mode-bit6-bit8-matrix-probe
           path: vf2i960
-      - name: Cleanup probe workflow
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/workflows/probe-game-info-mode-bit6-bit8-matrix.yml
-          git commit -m 'ci: cleanup mode bit6 bit8 matrix probe'
-          git push
