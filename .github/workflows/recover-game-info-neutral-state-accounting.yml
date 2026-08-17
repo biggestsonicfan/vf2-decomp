@@ -1,0 +1,40 @@
+name: Recover game-info neutral state accounting
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extend structural accounting domain
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c')
+          s=p.read_text()
+          old='''            const uint32_t observed_state_mask =\n                (UINT32_C(1) << 4u) | (UINT32_C(1) << 8u) |\n                (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |\n                (UINT32_C(1) << 16u) | (UINT32_C(1) << 26u);'''
+          new='''            const uint32_t observed_state_mask =\n                (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u) |\n                (UINT32_C(1) << 8u) | (UINT32_C(1) << 14u) |\n                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |\n                (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |\n                (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u);'''
+          if old not in s: raise SystemExit('mask needle missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator
+        run: cp build/vf2i960 vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-neutral-state-accounting
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/recovered/hybrid.c
+          git rm .github/workflows/recover-game-info-neutral-state-accounting.yml
+          git commit -m 'Expand structural fa_game_info accounting domain'
+          git push
