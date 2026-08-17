@@ -4738,6 +4738,8 @@ static vf2_status hybrid_execute_game_info_18644(
                     r7 == 0u &&
                     (extra_state == 0u ||
                      extra_state == (UINT32_C(1) << 1u) ||
+                     (!countdown_path &&
+                      extra_state == (UINT32_C(1) << 4u)) ||
                      extra_state == (UINT32_C(1) << 6u) ||
                      extra_state == (UINT32_C(1) << 14u) ||
                      extra_state == (UINT32_C(1) << 15u) ||
@@ -4753,13 +4755,20 @@ static vf2_status hybrid_execute_game_info_18644(
                          ((UINT32_C(1) << 15u) |
                           (UINT32_C(1) << 16u)));
                 if (!mode_bit6_supported_bit8) {
-                    /* Bit 4 uses a distinct fast path and two-sided bit 8
-                     * changes the fighter-order accounting. Keep those
-                     * unmeasured combinations fail-closed. */
+                    /* The isolated bit-4 fast path is ROM-backed only
+                     * with a zero countdown. Two-sided bit 8 and mixed
+                     * state combinations remain fail-closed. */
                     status = VF2_ERROR_UNSUPPORTED;
                 }
             }
         }
+    }
+    if (status == VF2_OK && mode_bit6 && countdown_path &&
+        r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&
+        r8 == 0u) {
+        /* The swapped isolated state8+bit4 countdown corridor has not
+         * been recovered; keep the direct-entry orientation fail-closed. */
+        status = VF2_ERROR_UNSUPPORTED;
     }
     if (status == VF2_OK &&
         (((r7 | r8) & (UINT32_C(1) << 1u)) != 0u) &&
@@ -5226,6 +5235,14 @@ static vf2_status hybrid_execute_game_info_18644(
             }
         }
         if (status == VF2_OK) {
+            if (!countdown_path && mode_bit6 &&
+                r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&
+                r8 == 0u) {
+                /* In the swapped fighter order, mode bit 6 plus isolated
+                 * state bits 8+4 rejoins eight instructions earlier than
+                 * the generic mode-bit-6 fallback accounting. */
+                body_instructions -= UINT32_C(8);
+            }
             if (relative_position_setbits == 0u) {
                 --body_instructions;
             } else if (relative_position_setbits == 2u) {
