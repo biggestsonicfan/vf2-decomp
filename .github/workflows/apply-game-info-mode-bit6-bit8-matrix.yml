@@ -1,0 +1,165 @@
+name: Apply game-info mode bit6 bit8 matrix
+on: [push]
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply recovered matrix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+
+          anchor = '    bool mode_bit6 = false;\n'
+          if anchor not in text:
+              raise SystemExit('mode bit6 local not found')
+          text = text.replace(
+              anchor,
+              anchor + '    bool mode_bit6_supported_bit8 = false;\n',
+              1,
+          )
+
+          guard_start_marker = '''            if (status == VF2_OK &&
+                          (r8 & (UINT32_C(1) << 8u)) != 0u &&
+          '''
+          guard_start = text.find(guard_start_marker)
+          if guard_start < 0:
+              raise SystemExit('mode bit6 guard start not found')
+          guard_end = text.find('            }\n', guard_start)
+          if guard_end < 0:
+              raise SystemExit('mode bit6 guard end not found')
+          guard_end += len('            }\n')
+          new_guard = '''            if (status == VF2_OK &&
+                          (r8 & (UINT32_C(1) << 8u)) != 0u) {
+                          const uint32_t extra_state =
+                              r8 & ~(UINT32_C(1) << 8u);
+                          mode_bit6_supported_bit8 =
+                              r7 == 0u &&
+                              (extra_state == 0u ||
+                               extra_state == (UINT32_C(1) << 6u) ||
+                               extra_state == (UINT32_C(1) << 14u) ||
+                               extra_state == (UINT32_C(1) << 15u) ||
+                               extra_state == (UINT32_C(1) << 16u) ||
+                               extra_state == (UINT32_C(1) << 21u) ||
+                               extra_state == (UINT32_C(1) << 26u) ||
+                               extra_state == (UINT32_C(1) << 29u) ||
+                               extra_state == (UINT32_C(1) << 30u) ||
+                               extra_state ==
+                                   ((UINT32_C(1) << 14u) |
+                                    (UINT32_C(1) << 15u)) ||
+                               extra_state ==
+                                   ((UINT32_C(1) << 15u) |
+                                    (UINT32_C(1) << 16u)));
+                          if (!mode_bit6_supported_bit8) {
+                              /* Bit 1 enters the 0x188cc state tree, bit 4 uses a
+                               * distinct fast path, and two-sided bit 8 changes the
+                               * fighter-order accounting. Keep those fail-closed. */
+                              status = VF2_ERROR_UNSUPPORTED;
+                          }
+                      }
+          '''
+          text = text[:guard_start] + new_guard + text[guard_end:]
+
+          exact_start = text.find(
+              '            const bool mode_bit6_isolated_bit8 =\n'
+          )
+          if exact_start < 0:
+              raise SystemExit('exact accounting start not found')
+          exact_end_marker = '''                ((r7 | r8) & ~observed_state_mask) == 0u;
+          '''
+          exact_end = text.find(exact_end_marker, exact_start)
+          if exact_end < 0:
+              raise SystemExit('exact accounting end not found')
+          exact_end += len(exact_end_marker)
+          new_exact = '''            const bool exact_state_accounting =
+                          !countdown_path &&
+                          (!mode_bit6 || mode_bit6_supported_bit8) &&
+                          active_state != 0u &&
+                          ((r7 | r8) & ~observed_state_mask) == 0u;
+          '''
+          text = text[:exact_start] + new_exact + text[exact_end:]
+
+          adjust_start = text.find(
+              '                    if (mode_bit6_isolated_bit8) {\n'
+          )
+          if adjust_start < 0:
+              raise SystemExit('bit8 adjustment start not found')
+          adjust_end = text.find('                    }\n', adjust_start)
+          if adjust_end < 0:
+              raise SystemExit('bit8 adjustment end not found')
+          adjust_end += len('                    }\n')
+          new_adjust = '''                    if (mode_bit6_supported_bit8) {
+                              const uint32_t priority_state =
+                                  r8 & ((UINT32_C(1) << 14u) |
+                                        (UINT32_C(1) << 15u) |
+                                        (UINT32_C(1) << 16u));
+                              const bool compound_priority =
+                                  priority_state ==
+                                      ((UINT32_C(1) << 14u) |
+                                       (UINT32_C(1) << 15u)) ||
+                                  priority_state ==
+                                      ((UINT32_C(1) << 15u) |
+                                       (UINT32_C(1) << 16u));
+                              if (!compound_priority) {
+                                  /* Controlled ROM-backed mode-bit-6 probes with
+                                   * bit 8 plus one supported state flag rejoin two
+                                   * instructions earlier. The measured 14+15 and
+                                   * 15+16 priority pairs already match the generic
+                                   * exact-state formula. */
+                                  body_instructions -= UINT32_C(2);
+                              }
+                          }
+          '''
+          text = text[:adjust_start] + new_adjust + text[adjust_end:]
+          path.write_text(text)
+
+          note = Path('decomp/i960/notes/game_info_18644_mode_bit6.md')
+          note.write_text('''# fa_game_info `0x18644` mode bit 6 (`base+0x3351`)
+
+The ROM tail at `0x18898..0x188ac` uses `bbc 6`, so nonzero values with bit 6 clear are not a separate branch. A controlled `base+0x3351 = 0x01` probe matches the zero baseline at 678 instructions for the full task.
+
+With `base+0x3351 = 0x40` and fighter bit 29 clear, the ROM executes the extra `ld (g8),r15` / `bbs 29,r15` pair and rejoins the normal tail. The full task measures 683 instructions. Isolated `0x18644` entry/return probes measure 102 -> 105 instructions for the first invocation and 97 -> 99 for the swapped second invocation, explaining the +5 total. This recovery covers that neutral bit-6-set corridor; bit29-set and combinations with the already-special state/countdown branches remain explicit unsupported boundaries.
+
+A controlled state-bit-8 probe closes the `r7 = 0`, `r8 = 0x00000100` corridor with mode bit 6 set. The mode-clear control matches at 684 instructions; the mode-bit-6 variant matches at 689. At the two `0x18644` invocations the ROM measures 101 -> 104 instructions for the first fighter order and 97 -> 99 after the caller swaps the fighters. The bit-8 exact-state formula therefore uses the bit-8 priority count only on the first order and rejoins two instructions earlier than the generic exact-state formula there.
+
+The same controlled fifth-dispatch snapshot was then expanded into a mode-bit-6 + fighter1-bit-8 state matrix. Exact ROM/native matches were obtained for isolated bit 8 (689 instructions), plus bit 6 (876), bit 14 (870), bit 15 (679), bit 16 (877), bit 21 (691), bit 26 (680), bit 29 (690), bit 30 (689), and the priority pairs bit 14 + bit 15 (869) and bit 15 + bit 16 (876). The single-extra-state cases use the same two-instruction earlier rejoin; the two measured priority pairs already match the generic exact-state count.
+
+The deliberately unproved fringes remain fail-closed: bit 8 + bit 4 follows a distinct fast path, bit 8 + bit 1 enters the `0x188cc` state tree, and bit 8 present on both fighters changes the fighter-order accounting. Those cases must be recovered independently rather than inferred from the measured matrix.
+''')
+
+          changelog = Path('CHANGELOG.md')
+          change = changelog.read_text()
+          old = '''- recovered the isolated `fa_game_info` mode-bit-6 + fighter1 state-bit-8
+            corridor at `0x00018644`: controlled ROM-backed replay from the fifth-dispatch
+            snapshot matches the original i960 exactly at 689 instructions (684 with mode
+            bit 6 clear), while mixed bit-8 state combinations remain fail-closed;
+          '''
+          new = '''- expanded `fa_game_info` mode-bit-6 + fighter1 state-bit-8 recovery at
+            `0x00018644` across a controlled ROM-backed state matrix: isolated bit 8 and
+            bit 8 combined with bits 6, 14, 15, 16, 21, 26, 29 or 30, plus priority pairs
+            14+15 and 15+16, all match the original i960 exactly; isolated mode-bit-6 is
+            689 instructions versus 684 with mode bit 6 clear, while bit 8 + bit 4,
+            bit 8 + bit 1 and two-sided bit 8 remain explicitly fail-closed;
+          '''
+          if old not in change:
+              raise SystemExit('changelog anchor not found')
+          changelog.write_text(change.replace(old, new, 1))
+          PY
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit recovered matrix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_18644_mode_bit6.md CHANGELOG.md
+          git commit -m 'Expand fa_game_info mode bit6 bit8 matrix'
+          git push
