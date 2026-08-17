@@ -7,6 +7,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply state8 bit1 candidate
         run: python .github/scripts/probe_game_info_state8_bit1.py
+      - name: Add direct 18644 differential command
+        run: python .github/scripts/probe_game_info_18644_direct.py
       - name: Configure strict build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
@@ -17,5 +19,5 @@ jobs:
         run: cp build/vf2i960 ./vf2i960
       - uses: actions/upload-artifact@v4
         with:
-          name: vf2i960-game-info-state8-bit1-probe
+          name: vf2i960-game-info-18644-direct-probe
           path: vf2i960
