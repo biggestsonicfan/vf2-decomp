@@ -4825,10 +4825,34 @@ static vf2_status hybrid_execute_game_info_18644(
 
         if (first_exact) {
             if (second_exact) {
+                signed_distance_instruction_delta = UINT32_C(11);
                 if ((r8 & branch_mask) != 0u) {
-                    status = VF2_ERROR_UNSUPPORTED;
-                } else {
-                    signed_distance_instruction_delta = UINT32_C(11);
+                    status = vf2_model2a_read_u32(
+                        machine, fighter0 + UINT32_C(0x00000634), &r3
+                    );
+                    if (status == VF2_OK) {
+                        status = vf2_model2a_read_u32(
+                            machine, fighter0 + UINT32_C(0x000005f4), &r4
+                        );
+                    }
+                    if (status == VF2_OK &&
+                        hybrid_float_from_bits(r4) > hybrid_float_from_bits(r3)) {
+                        signed_distance_instruction_delta += UINT32_C(4);
+                    } else if (status == VF2_OK) {
+                        status = vf2_model2a_read_u32(machine, fighter1, &r15);
+                        if (status == VF2_OK &&
+                            (r15 & (UINT32_C(1) << 8u)) != 0u) {
+                            r10 |= UINT32_C(1) << 13u;
+                            signed_distance_instruction_delta += UINT32_C(7);
+                        } else if (status == VF2_OK &&
+                                   (r8 & (UINT32_C(1) << 25u)) != 0u) {
+                            r10 |= UINT32_C(1) << 13u;
+                            signed_distance_instruction_delta += UINT32_C(8);
+                        } else if (status == VF2_OK) {
+                            r10 |= UINT32_C(1) << 10u;
+                            signed_distance_instruction_delta += UINT32_C(9);
+                        }
+                    }
                 }
             } else if ((r8 & (branch_mask | (UINT32_C(1) << 1u))) != 0u) {
                 status = VF2_ERROR_UNSUPPORTED;
