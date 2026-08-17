@@ -1,0 +1,44 @@
+name: Recover game-info distance bits
+on:
+  push:
+    paths:
+      - .github/workflows/recover-game-info-distance-bits.yml
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover 0x18738..0x18768 accumulation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c'); s=p.read_text()
+          old='''    if (status == VF2_OK) {\n        status = hybrid_read_u16(\n            machine, fighter0 + UINT32_C(0x000005b4), &short_value\n        );\n        r4 = (uint32_t)(int32_t)(int16_t)short_value;\n        r4 = (r11 - r4) + UINT32_C(0x00004000);\n        if ((r4 & UINT32_C(0x00008000)) != 0u) {\n            status = VF2_ERROR_UNSUPPORTED;\n        }\n    }\n    if (status == VF2_OK) {\n        status = hybrid_read_u16(\n            machine, fighter1 + UINT32_C(0x000005b4), &short_value\n        );\n        r4 = (uint32_t)(int32_t)(int16_t)short_value;\n        r4 = (r11 - r4) + UINT32_C(0x00004000);\n        if ((r4 & UINT32_C(0x00008000)) != 0u) {\n            status = VF2_ERROR_UNSUPPORTED;\n        }\n    }\n    if (status == VF2_OK) {\n        r10 |= UINT32_C(2);\n        status = hybrid_read_u8(\n            machine, UINT32_C(0x0050a0b6), &byte_value\n        );\n'''
+          new='''    /* 0x18738..0x18768 accumulates relative-position bits; crossing\n     * the signed 0x4000 window is ordinary state, not an unsupported path. */\n    if (status == VF2_OK) {\n        status = hybrid_read_u16(\n            machine, fighter0 + UINT32_C(0x000005b4), &short_value\n        );\n        r4 = (uint32_t)(int32_t)(int16_t)short_value;\n        r4 = (r4 - r11) + UINT32_C(0x00004000);\n        if ((r4 & UINT32_C(0x00008000)) != 0u) {\n            r10 |= UINT32_C(1);\n        }\n    }\n    if (status == VF2_OK) {\n        status = hybrid_read_u16(\n            machine, fighter1 + UINT32_C(0x000005b4), &short_value\n        );\n        r4 = (uint32_t)(int32_t)(int16_t)short_value;\n        r4 = (r4 - r11) + UINT32_C(0x00004000);\n        if ((r4 & UINT32_C(0x00008000)) == 0u) {\n            r10 |= UINT32_C(2);\n        }\n    }\n    if (status == VF2_OK) {\n        status = hybrid_read_u8(\n            machine, UINT32_C(0x0050a0b6), &byte_value\n        );\n'''
+          if old not in s: raise SystemExit('distance-bit anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: |
+          exe=$(find build -type f -name vf2i960 | head -n1)
+          cp "$exe" vf2i960 && chmod +x vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-distance-bits
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/recovered/hybrid.c
+          git rm -f .github/workflows/recover-game-info-distance-bits.yml
+          git commit -m 'Recover fa_game_info distance flag accumulation'
+          git push origin HEAD:master
