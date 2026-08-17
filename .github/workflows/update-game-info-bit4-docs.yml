@@ -1,0 +1,20 @@
+name: Update game-info bit4 docs
+on: [push]
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update documentation
+        run: python .github/scripts/update_game_info_bit4_docs.py
+      - name: Commit documentation and cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/scripts/update_game_info_bit4_docs.py
+          git rm .github/workflows/update-game-info-bit4-docs.yml
+          git add CHANGELOG.md decomp/i960/notes/game_info_18644_mode_bit6.md
+          git commit -m "docs: record state8 bit4 fast path"
+          git push
