@@ -7,10 +7,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
       - name: Restore pre-bit8-priority source
-        run: git show 84a83eff41ddaa869fbdac8aa34c52e2abe85d32^:src/recovered/hybrid.c > src/recovered/hybrid.c
+        run: |
+          git fetch origin b631d9f567b9a54cab13199b0f063e857c8652ed --depth=1
+          git show FETCH_HEAD:src/recovered/hybrid.c > src/recovered/hybrid.c
       - name: Configure strict build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
