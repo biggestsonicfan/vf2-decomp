@@ -9,10 +9,10 @@ if old not in text:
     raise SystemExit("whitelist anchor not found")
 text = text.replace(old, new, 1)
 
-old = """            const bool isolated_state8_bit1_reverse =\n                r7 == state8_bit1 && r8 == 0u;\n            const bool exact_state_accounting =\n                !countdown_path &&\n                (!mode_bit6 || mode_bit6_supported_bit8) &&\n"""
-new = """            const bool isolated_state8_bit1_reverse =\n                r7 == state8_bit1 && r8 == 0u;\n            const uint32_t state8_bit4 =\n                (UINT32_C(1) << 8u) | (UINT32_C(1) << 4u);\n            const bool isolated_state8_bit4_reverse =\n                r7 == state8_bit4 && r8 == 0u;\n            const bool exact_state_accounting =\n                !countdown_path &&\n                (!mode_bit6 || mode_bit6_supported_bit8 ||\n                 isolated_state8_bit4_reverse) &&\n"""
+old = """        if (status == VF2_OK) {\n            if (relative_position_setbits == 0u) {\n                --body_instructions;\n"""
+new = """        if (status == VF2_OK) {\n            if (mode_bit6 &&\n                r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&\n                r8 == 0u) {\n                /* In the swapped fighter order, mode bit 6 plus isolated\n                 * state bits 8+4 rejoins eight instructions earlier than\n                 * the generic mode-bit-6 fallback accounting. */\n                body_instructions -= UINT32_C(8);\n            }\n            if (relative_position_setbits == 0u) {\n                --body_instructions;\n"""
 if old not in text:
-    raise SystemExit("exact-accounting anchor not found")
+    raise SystemExit("post-accounting anchor not found")
 text = text.replace(old, new, 1)
 
 path.write_text(text)
