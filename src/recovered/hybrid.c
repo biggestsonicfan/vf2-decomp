@@ -4756,7 +4756,12 @@ static vf2_status hybrid_execute_game_info_18644(
             body_instructions = 101u;
         }
         if (countdown_path && (r8 & (UINT32_C(1) << 15u)) == 0u) {
-            body_instructions = 85u;
+            /* Controlled ROM probes show the countdown corridor removes
+             * exactly 13 instructions from either observed baseline: the
+             * ordinary 101-instruction body becomes 88, while the prior
+             * +0x5b8 bit-1 corridor's 96-instruction body becomes 83. */
+            body_instructions =
+                (r3 & (UINT32_C(1) << 1u)) != 0u ? 83u : 88u;
         }
     }
     if (status == VF2_OK) {
