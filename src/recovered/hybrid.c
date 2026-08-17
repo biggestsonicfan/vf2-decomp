@@ -4830,13 +4830,18 @@ static vf2_status hybrid_execute_game_info_18644(
             body_instructions +=
                 (r3 & (UINT32_C(1) << 1u)) != 0u ? 2u : 3u;
         }
-        if ((r8 & (UINT32_C(1) << 26u)) != 0u) {
-            /* 0x18778..0x18784 masks state bits 4/14/15/16/26. With the
-             * isolated bit-26 state observed in either fighter, the BNE at
-             * 0x18784 jumps directly to 0x18890. Entry/return probes of both
-             * dispatcher invocations show this removes exactly nine
-             * instructions and has no additional visible memory/register
-             * side effects on the measured neutral corridor. */
+        if ((r8 & (UINT32_C(1) << 26u)) != 0u &&
+            !countdown_path &&
+            (r7 & (UINT32_C(1) << 4u)) == 0u &&
+            (r8 & ((UINT32_C(1) << 4u) |
+                   (UINT32_C(1) << 14u) |
+                   (UINT32_C(1) << 15u) |
+                   (UINT32_C(1) << 16u))) == 0u) {
+            /* 0x18778..0x18784 masks state bits 4/14/15/16/26.  Bit26
+             * removes nine instructions only when it is the first reason
+             * to take the shared 0x18890 fast path.  Countdown, r7.bit4 and
+             * r8 bits 4/14/15/16 already enter that path, so bit26 adds no
+             * further delta in those combinations. */
             body_instructions -= UINT32_C(9);
         }
     }
