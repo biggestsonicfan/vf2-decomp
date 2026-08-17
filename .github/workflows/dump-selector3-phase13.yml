@@ -1,14 +1,16 @@
-name: Validate bilateral countdown
+name: Apply bilateral countdown recovery
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
+permissions:
+  contents: write
 jobs:
-  validate:
+  apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply candidate
+      - name: Apply recovery and restore workflow
         shell: bash
         run: |
           python3 - <<'PY'
@@ -28,10 +30,12 @@ jobs:
           if old not in s: raise SystemExit('second-order anchor missing')
           s=s.replace(old,new,1)
           old='''            body_instructions += state8_bit1_instruction_delta;\n            if (!countdown_path &&\n'''
-          new='''            body_instructions += state8_bit1_instruction_delta;\n            if (countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {\n                --body_instructions;\n            }\n            if (!countdown_path &&\n'''
+          new='''            body_instructions += state8_bit1_instruction_delta;\n            if (countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {\n                /* The isolated bilateral countdown path rejoins one\n                 * instruction earlier in the first fighter order. */\n                --body_instructions;\n            }\n            if (!countdown_path &&\n'''
           if old not in s: raise SystemExit('countdown correction anchor missing')
           s=s.replace(old,new,1)
           p.write_text(s)
+
+          Path('.github/workflows/dump-selector3-phase13.yml').write_text('''name: Dump selector3 phase13\non:\n  push:\n    branches: [master]\n    paths: [.github/workflows/dump-selector3-phase13.yml]\njobs:\n  dump:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - shell: bash\n        run: |\n          python3 - <<'PY2'\n          from pathlib import Path\n          s=Path('src/recovered/texture_bridge_match.c').read_text()\n          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:\n              if n in s:\n                  i=s.index(n)\n                  print(s[max(0,i-7000):min(len(s),i+12000)])\n                  break\n          PY2\n''')
           PY
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
@@ -39,7 +43,10 @@ jobs:
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vf2i960-bilateral-countdown-candidate
-          path: build/vf2i960
+      - name: Commit recovery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recovered/hybrid.c .github/workflows/dump-selector3-phase13.yml
+          git commit -m "Recover fa_game_info bilateral state8 countdown corridor"
+          git push
