@@ -5078,26 +5078,26 @@ static vf2_status hybrid_execute_game_info_18644(
                     body_instructions =
                         prefix_count + early_count + tail_count;
                     if (mode_bit6_supported_bit8) {
-                    const uint32_t priority_state =
-                        r8 & ((UINT32_C(1) << 14u) |
-                              (UINT32_C(1) << 15u) |
-                              (UINT32_C(1) << 16u));
-                    const bool compound_priority =
-                        priority_state ==
-                            ((UINT32_C(1) << 14u) |
-                             (UINT32_C(1) << 15u)) ||
-                        priority_state ==
-                            ((UINT32_C(1) << 15u) |
-                             (UINT32_C(1) << 16u));
-                    if (!compound_priority) {
-                        /* Controlled ROM-backed mode-bit-6 probes with
-                         * bit 8 plus one supported state flag rejoin two
-                         * instructions earlier. The measured 14+15 and
-                         * 15+16 priority pairs already match the generic
-                         * exact-state formula. */
-                        body_instructions -= UINT32_C(2);
-                    }
-                }
+              const uint32_t priority_state =
+                  r8 & ((UINT32_C(1) << 14u) |
+                        (UINT32_C(1) << 15u) |
+                        (UINT32_C(1) << 16u));
+              const bool compound_priority =
+                  priority_state ==
+                      ((UINT32_C(1) << 14u) |
+                       (UINT32_C(1) << 15u)) ||
+                  priority_state ==
+                      ((UINT32_C(1) << 15u) |
+                       (UINT32_C(1) << 16u));
+              if (!compound_priority) {
+                  /* Controlled ROM-backed mode-bit-6 probes with
+                   * bit 8 plus one supported state flag rejoin two
+                   * instructions earlier. The measured 14+15 and
+                   * 15+16 priority pairs already match the generic
+                   * exact-state formula. */
+                  body_instructions -= UINT32_C(2);
+              }
+          }
                 }
             } else {
                 if (shared_bit1_path) {
