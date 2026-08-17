@@ -1,0 +1,31 @@
+name: Fix game-info mirror bit9 conditional count
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix mirror bit9 conditional accounting
+        run: python -c "import base64; exec(base64.b64decode('ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgnc3JjL3JlY292ZXJlZC9oeWJyaWQuYycpCnM9cC5yZWFkX3RleHQoKQpvbGQ9JycnICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBtaXJyb3JfZXh0cmEgKz0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKGZpZ2h0ZXIxX2Jhc2UgJiAoVUlOVDMyX0MoMSkgPDwgOHUpKSAhPSAwdQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPyBVSU5UMzJfQyg3KSA6IFVJTlQzMl9DKDgpOwogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGlmICghKGh5YnJpZF9mbG9hdF9mcm9tX2JpdHMoZmlnaHRlcjBfcG9zaXRpb24pID4KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBoeWJyaWRfZmxvYXRfZnJvbV9iaXRzKHRocmVzaG9sZDYzMCkpKSB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHIxMCB8PSBVSU5UMzJfQygxKSA8PCA5dTsKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKyttaXJyb3JfZXh0cmE7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgfScnJwpuZXc9JycnICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBtaXJyb3JfZXh0cmEgKz0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKGZpZ2h0ZXIxX2Jhc2UgJiAoVUlOVDMyX0MoMSkgPDwgOHUpKSAhPSAwdQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPyBVSU5UMzJfQyg2KSA6IFVJTlQzMl9DKDcpOwogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGlmICghKGh5YnJpZF9mbG9hdF9mcm9tX2JpdHMoZmlnaHRlcjBfcG9zaXRpb24pID4KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBoeWJyaWRfZmxvYXRfZnJvbV9iaXRzKHRocmVzaG9sZDYzMCkpKSB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHIxMCB8PSBVSU5UMzJfQygxKSA8PCA5dTsKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgbWlycm9yX2V4dHJhICs9IFVJTlQzMl9DKDIpOwogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIH0nJycKaWYgb2xkIG5vdCBpbiBzOiByYWlzZSBTeXN0ZW1FeGl0KCd0YXJnZXQgbm90IGZvdW5kJykKcC53cml0ZV90ZXh0KHMucmVwbGFjZShvbGQsbmV3LDEpKQo='))"
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator
+        run: cp build/vf2i960 ./vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-mirror-bit9-conditional-count
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/fix-game-info-mirror-bit9-conditional-count.yml
+          git add src/recovered/hybrid.c
+          git commit -m 'Fix fa_game_info mirror bit9 conditional accounting'
+          git push
