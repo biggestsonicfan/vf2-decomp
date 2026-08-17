@@ -1,0 +1,30 @@
+name: Update game-info matrix changelog
+on: [push]
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update changelog
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+
+          old = base64.b64decode('LSByZWNvdmVyZWQgdGhlIGlzb2xhdGVkIGBmYV9nYW1lX2luZm9gIG1vZGUtYml0LTYgKyBmaWdodGVyMSBzdGF0ZS1iaXQtOAogIGNvcnJpZG9yIGF0IGAweDAwMDE4NjQ0YDogY29udHJvbGxlZCBST00tYmFja2VkIHJlcGxheSBmcm9tIHRoZSBmaWZ0aC1kaXNwYXRjaAogIHNuYXBzaG90IG1hdGNoZXMgdGhlIG9yaWdpbmFsIGk5NjAgZXhhY3RseSBhdCA2ODkgaW5zdHJ1Y3Rpb25zICg2ODQgd2l0aCBtb2RlCiAgYml0IDYgY2xlYXIpLCB3aGlsZSBtaXhlZCBiaXQtOCBzdGF0ZSBjb21iaW5hdGlvbnMgcmVtYWluIGZhaWwtY2xvc2VkOwo=').decode()
+          new = base64.b64decode('LSBleHBhbmRlZCBgZmFfZ2FtZV9pbmZvYCBtb2RlLWJpdC02ICsgZmlnaHRlcjEgc3RhdGUtYml0LTggcmVjb3ZlcnkgYXQKICBgMHgwMDAxODY0NGAgYWNyb3NzIGEgY29udHJvbGxlZCBST00tYmFja2VkIHN0YXRlIG1hdHJpeDogaXNvbGF0ZWQgYml0IDggYW5kCiAgYml0IDggY29tYmluZWQgd2l0aCBiaXRzIDYsIDE0LCAxNSwgMTYsIDIxLCAyNiwgMjkgb3IgMzAsIHBsdXMgcHJpb3JpdHkgcGFpcnMKICAxNCsxNSBhbmQgMTUrMTYsIGFsbCBtYXRjaCB0aGUgb3JpZ2luYWwgaTk2MCBleGFjdGx5OyBpc29sYXRlZCBtb2RlLWJpdC02IGlzCiAgNjg5IGluc3RydWN0aW9ucyB2ZXJzdXMgNjg0IHdpdGggbW9kZSBiaXQgNiBjbGVhciwgd2hpbGUgYml0IDggKyBiaXQgNCwKICBiaXQgOCArIGJpdCAxIGFuZCB0d28tc2lkZWQgYml0IDggcmVtYWluIGV4cGxpY2l0bHkgZmFpbC1jbG9zZWQ7Cg==').decode()
+          path = Path('CHANGELOG.md')
+          text = path.read_text()
+          if old not in text:
+              raise SystemExit('changelog anchor not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit changelog
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md
+          git commit -m 'docs: expand game-info mode bit6 bit8 changelog'
+          git push
