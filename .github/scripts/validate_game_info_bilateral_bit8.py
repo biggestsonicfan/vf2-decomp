@@ -7,7 +7,11 @@ old = '''                mode_bit6_supported_bit8 =
                     r7 == 0u &&
                     (extra_state == 0u ||
 '''
-new = '''                mode_bit6_supported_bit8 =
+new = '''                const bool bilateral_state8 =
+                    r7 == (UINT32_C(1) << 8u) && extra_state == 0u;
+                const bool bilateral_second_order =
+                    bilateral_state8 && return_address == UINT32_C(0x000164c4);
+                mode_bit6_supported_bit8 =
                     (r7 == 0u &&
                      (extra_state == 0u ||
 '''
@@ -18,11 +22,14 @@ text = text.replace(old, new, 1)
 old = '''                     extra_state ==
                          ((UINT32_C(1) << 15u) |
                           (UINT32_C(1) << 16u)));
+                if (!mode_bit6_supported_bit8) {
 '''
 new = '''                     extra_state ==
                          ((UINT32_C(1) << 15u) |
                           (UINT32_C(1) << 16u)))) ||
-                    (r7 == (UINT32_C(1) << 8u) && extra_state == 0u);
+                    (bilateral_state8 &&
+                     return_address == UINT32_C(0x000164b0));
+                if (!mode_bit6_supported_bit8 && !bilateral_second_order) {
 '''
 if old not in text:
     raise SystemExit("mode-bit6 end anchor not found")
@@ -34,10 +41,12 @@ old = '''            body_instructions += signed_distance_instruction_delta;
 '''
 new = '''            body_instructions += signed_distance_instruction_delta;
             body_instructions += state8_bit1_instruction_delta;
-            if (r7 == (UINT32_C(1) << 8u) &&
+            if (return_address == UINT32_C(0x000164b0) &&
+                r7 == (UINT32_C(1) << 8u) &&
                 r8 == (UINT32_C(1) << 8u)) {
-                /* Controlled bilateral state-bit-8 probes execute one
-                 * instruction more than the generic exact-state formula. */
+                /* Bilateral state bit 8 adds one instruction only in the
+                 * first fighter order; the swapped call matches the neutral
+                 * second-order accounting. */
                 ++body_instructions;
             }
         }
