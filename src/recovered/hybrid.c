@@ -3984,7 +3984,9 @@ static vf2_status hybrid_execute_game_info_18d44(
             if (status == VF2_OK) {
                 status = vf2_model2a_read_u32(machine, port, &r8);
             }
-            body_instructions += 10u;
+            body_instructions +=
+                (int32_t)cpu->registers[VF2_I960_G0_REGISTER] < 0
+                    ? 9u : 10u;
         }
         /* 0x18db8 reloads fighter+0x1fc after the first branch.  r4 is
          * scratch inside 0x18d8c..0x18db4, so carrying that transformed
@@ -4019,7 +4021,9 @@ static vf2_status hybrid_execute_game_info_18d44(
             if (status == VF2_OK) {
                 status = vf2_model2a_read_u32(machine, port, &r9);
             }
-            body_instructions += 10u;
+            body_instructions +=
+                (int32_t)cpu->registers[VF2_I960_G0_REGISTER] < 0
+                    ? 9u : 10u;
         }
         if (status != VF2_OK) {
             return status;
