@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: the
-  controlled mode-bit-6 matrix remains exact, isolated bit8+bit1 and
-  zero-countdown bit8+bit4 are recovered, and isolated bilateral bit8 now
-  matches both zero-countdown (690/695 instructions with mode bit 6 clear/set)
-  and nonzero-countdown (666/671); bilateral mixed states and other unmeasured
-  combinations remain explicitly fail-closed;
+- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: isolated
+  bit8+bit1 and bit8+bit4 are recovered, bilateral bit8 matches zero-countdown
+  (690/695 instructions with mode bit 6 clear/set) and nonzero-countdown
+  (666/671), and zero-countdown bilateral bit8+bit4 on exactly one fighter
+  matches 677/682 in either physical orientation; countdown/both-fighter bit4
+  mixtures and other unmeasured combinations remain explicitly fail-closed;
 - completed selector 3's phase table: phases 16 (`0x0000c414`) and 17
   (`0x0000c448`) are recovered, closing the last two entries of the
   eighteen-entry table at `0x0000aac4`. Phase 16 decrements the task
