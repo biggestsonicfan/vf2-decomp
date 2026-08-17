@@ -1,0 +1,9 @@
+name: Inspect game-info native gates
+on: [push]
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show native gates
+        run: grep -n -A80 -B20 'native_bit15_fighter_path' src/recovered/hybrid.c
