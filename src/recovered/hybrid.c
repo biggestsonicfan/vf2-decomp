@@ -4500,6 +4500,7 @@ static vf2_status hybrid_execute_game_info_18644(
     bool high_result = false;
     bool countdown_path = false;
     bool mode_bit6 = false;
+    bool shared_bit1_path = false;
     uint16_t short_value = 0u;
     uint8_t byte_value = 0u;
     vf2_status status = VF2_OK;
@@ -4755,7 +4756,8 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, fighter1 + UINT32_C(0x000005b8), &r14
         );
         r3 = r13 | r14;
-        if ((r3 & (UINT32_C(1) << 1u)) != 0u) {
+        shared_bit1_path = (r3 & (UINT32_C(1) << 1u)) != 0u;
+        if (shared_bit1_path) {
             r10 |= UINT32_C(4);
             body_instructions = 96u;
         }
@@ -4791,28 +4793,20 @@ static vf2_status hybrid_execute_game_info_18644(
                 (r3 & (UINT32_C(1) << 1u)) != 0u ? 2u : 3u;
         }
     }
-    if (status == VF2_OK) {
+    if (status == VF2_OK && !shared_bit1_path) {
+        /* 0x189d0 BBS 1 skips this entire threshold block.  Otherwise
+         * 0x189ec BBC 6 selects the normal 0x1b7ec threshold; bit 6 set
+         * loads the alternate 0x1b7f0 threshold before rejoining. */
         status = vf2_model2a_read_u32(
-            machine, UINT32_C(0x0001b7ec), &r3
+            machine,
+            mode_bit6 ? UINT32_C(0x0001b7f0) : UINT32_C(0x0001b7ec),
+            &r3
         );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(
-            machine, UINT32_C(0x0050016c), &r15
-        );
-    }
-    if (status == VF2_OK) {
-        status = hybrid_read_u8(
-            machine, r15 + UINT32_C(0x00003351), &byte_value
-        );
-        if (status == VF2_OK && byte_value != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine, fighter0 + UINT32_C(0x000005f4), &r13
+            );
         }
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(
-            machine, fighter0 + UINT32_C(0x000005f4), &r13
-        );
         if (status == VF2_OK && (int32_t)r13 >= (int32_t)r3) {
             status = VF2_ERROR_UNSUPPORTED;
         }
