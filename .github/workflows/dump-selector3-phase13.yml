@@ -1,37 +1,21 @@
-name: Update bilateral bit1 countdown docs
+name: Dump selector3 phase13
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
-permissions:
-  contents: write
 jobs:
-  update:
+  dump:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Update docs
-        shell: bash
+      - shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
-          note=Path('decomp/i960/notes/game_info_18644_mode_bit6.md')
-          s=note.read_text()
-          old='''The mixed bilateral recoveries remain deliberately narrow. Exactly one fighter may carry bit 4 or bit 1 and the countdown must be zero. Countdown plus bilateral bit1, bit1 on both fighters, countdown plus bilateral bit4 and bit4 on both fighters remain fail-closed, as do other unmeasured extra-bit combinations.\n'''
-          new='''The bilateral bit1 composition is also recovered with a nonzero countdown. The same directional +11 applies only while `0x00000102` is in `r8`: with bit 1 on fighter1 the calls measure 100/84 in mode-clear and 103/86 with mode bit 6 set, while bit 1 on fighter0 yields 89/95 and 92/97. Both physical orientations therefore match the ROM exactly at 677 instructions with mode bit 6 clear and 682 with it set. Complete native-resume snapshots match all four countdown references.\n\nThe mixed bilateral recoveries remain deliberately narrow. Exactly one fighter may carry bit 4 or bit 1; bit1 is ROM-backed with zero or nonzero countdown, while bit4 remains zero-countdown only. Bit1 on both fighters, countdown plus bilateral bit4 and bit4 on both fighters remain fail-closed, as do other unmeasured extra-bit combinations.\n'''
-          if old not in s: raise SystemExit('note boundary anchor missing')
-          note.write_text(s.replace(old,new,1))
-
-          ch=Path('CHANGELOG.md')
-          s=ch.read_text()
-          old='''- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: isolated\n  bit8+bit1 and bit8+bit4 are recovered, bilateral bit8 matches zero-countdown\n  (690/695 instructions with mode bit 6 clear/set) and nonzero-countdown\n  (666/671), zero-countdown bilateral bit8+bit4 on exactly one fighter matches\n  677/682, and the corresponding bilateral bit8+bit1 corridor matches 701/706\n  in either physical orientation; countdown/both-fighter mixed states and other\n  unmeasured combinations remain explicitly fail-closed;\n'''
-          new='''- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: isolated\n  bit8+bit1 and bit8+bit4 are recovered, bilateral bit8 matches zero-countdown\n  (690/695 instructions with mode bit 6 clear/set) and nonzero-countdown\n  (666/671), zero-countdown bilateral bit8+bit4 on exactly one fighter matches\n  677/682, and bilateral bit8+bit1 on exactly one fighter matches 701/706 with\n  zero countdown and 677/682 with nonzero countdown in either orientation;\n  both-fighter bit1, bit4 countdown/mirrors and other unmeasured combinations\n  remain explicitly fail-closed;\n'''
-          if old not in s: raise SystemExit('changelog anchor missing')
-          ch.write_text(s.replace(old,new,1))
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
+              if n in s:
+                  i=s.index(n)
+                  print(s[max(0,i-7000):min(len(s),i+12000)])
+                  break
           PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add decomp/i960/notes/game_info_18644_mode_bit6.md CHANGELOG.md
-          git commit -m "docs: record bilateral state8 bit1 countdown corridor"
-          git push
