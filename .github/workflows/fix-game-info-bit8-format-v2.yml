@@ -1,0 +1,66 @@
+name: Fix game-info bit8 formatting v2
+on: [push]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Normalize recovered block indentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+          start_marker = '                    if (mode_bit6_supported_bit8) {\n'
+          tail_marker = '                }\n            } else {\n'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('formatting start marker not found')
+          tail = text.find(tail_marker, start)
+          if tail < 0:
+              raise SystemExit('formatting tail marker not found')
+
+          block = textwrap.dedent('''\
+          if (mode_bit6_supported_bit8) {
+              const uint32_t priority_state =
+                  r8 & ((UINT32_C(1) << 14u) |
+                        (UINT32_C(1) << 15u) |
+                        (UINT32_C(1) << 16u));
+              const bool compound_priority =
+                  priority_state ==
+                      ((UINT32_C(1) << 14u) |
+                       (UINT32_C(1) << 15u)) ||
+                  priority_state ==
+                      ((UINT32_C(1) << 15u) |
+                       (UINT32_C(1) << 16u));
+              if (!compound_priority) {
+                  /* Controlled ROM-backed mode-bit-6 probes with
+                   * bit 8 plus one supported state flag rejoin two
+                   * instructions earlier. The measured 14+15 and
+                   * 15+16 priority pairs already match the generic
+                   * exact-state formula. */
+                  body_instructions -= UINT32_C(2);
+              }
+          }
+          ''')
+          block = textwrap.indent(block, '                    ')
+          text = text[:start] + block + text[tail:]
+          path.write_text(text)
+          PY
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit normalized formatting
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/recovered/hybrid.c
+          git commit -m 'style: normalize game-info bit8 accounting indentation'
+          git push
