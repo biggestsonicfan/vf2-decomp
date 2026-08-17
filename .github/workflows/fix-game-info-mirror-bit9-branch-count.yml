@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fix mirror bit9 branch accounting
-        run: python -c "from pathlib import Path; p=Path('src/recovered/hybrid.c'); s=p.read_text(); old='''                                mirror_extra +=\n                                    (fighter1_base & (UINT32_C(1) << 8u)) != 0u\n                                        ? UINT32_C(6) : UINT32_C(7);'''; new='''                                mirror_extra +=\n                                    (fighter1_base & (UINT32_C(1) << 8u)) != 0u\n                                        ? UINT32_C(7) : UINT32_C(8);'''; assert old in s; p.write_text(s.replace(old,new,1))"
+        run: python -c "import base64; exec(base64.b64decode('ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgnc3JjL3JlY292ZXJlZC9oeWJyaWQuYycpCnM9cC5yZWFkX3RleHQoKQpvbGQ9JycnICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBtaXJyb3JfZXh0cmEgKz0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKGZpZ2h0ZXIxX2Jhc2UgJiAoVUlOVDMyX0MoMSkgPDwgOHUpKSAhPSAwdQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPyBVSU5UMzJfQyg2KSA6IFVJTlQzMl9DKDcpOycnJwpuZXc9JycnICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBtaXJyb3JfZXh0cmEgKz0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKGZpZ2h0ZXIxX2Jhc2UgJiAoVUlOVDMyX0MoMSkgPDwgOHUpKSAhPSAwdQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPyBVSU5UMzJfQyg3KSA6IFVJTlQzMl9DKDgpOycnJwppZiBvbGQgbm90IGluIHM6IHJhaXNlIFN5c3RlbUV4aXQoJ3RhcmdldCBub3QgZm91bmQnKQpwLndyaXRlX3RleHQocy5yZXBsYWNlKG9sZCxuZXcsMSkpCg=='))"
       - name: Configure strict build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
