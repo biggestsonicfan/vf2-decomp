@@ -1,0 +1,40 @@
+name: Debug game-info 18644 accounting
+on: [push]
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instrument accounting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c')
+          s=p.read_text()
+          s=s.replace('#include <math.h>\n', '#include <math.h>\n#include <stdio.h>\n', 1)
+          needle='''        cpu->executed_instructions += body_instructions + tail_instruction_delta;\n        status = vf2_i960_cpu_return_procedure(cpu, machine);'''
+          repl='''        fprintf(stderr, "DBG18644 r7=%08x r8=%08x body=%u tail=%u shared=%u\\n", (unsigned)r7, (unsigned)r8, (unsigned)body_instructions, (unsigned)tail_instruction_delta, shared_bit1_path ? 1u : 0u);\n        cpu->executed_instructions += body_instructions + tail_instruction_delta;\n        status = vf2_i960_cpu_return_procedure(cpu, machine);'''
+          if needle not in s: raise SystemExit('needle missing')
+          p.write_text(s.replace(needle,repl,1))
+          PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage
+        run: cp build/vf2i960 vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-18644-debug
+          path: vf2i960
+      - name: Cleanup workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/debug-game-info-18644-accounting.yml
+          git commit -m 'ci: remove game-info accounting instrumentation'
+          git push
