@@ -4952,9 +4952,10 @@ static vf2_status hybrid_execute_game_info_18644(
                 } else if (status == VF2_OK) {
                     signed_distance_instruction_delta += mirror_extra;
                 }
-            } else if ((r8 & (branch_mask | (UINT32_C(1) << 1u))) != 0u) {
-                status = VF2_ERROR_UNSUPPORTED;
             } else {
+                /* 0x187e8 branches directly to 0x18890 for every
+                 * non-exact, non-mirrored second distance. State bits are
+                 * consumed only by the shared tail after that join. */
                 signed_distance_instruction_delta = UINT32_C(15);
             }
         }
