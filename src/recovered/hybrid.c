@@ -4911,11 +4911,11 @@ static vf2_status hybrid_execute_game_info_18644(
                             if (status == VF2_OK) {
                                 mirror_extra +=
                                     (fighter1_base & (UINT32_C(1) << 8u)) != 0u
-                                        ? UINT32_C(7) : UINT32_C(8);
+                                        ? UINT32_C(6) : UINT32_C(7);
                                 if (!(hybrid_float_from_bits(fighter0_position) >
                                   hybrid_float_from_bits(threshold630))) {
                                     r10 |= UINT32_C(1) << 9u;
-                                        ++mirror_extra;
+                                        mirror_extra += UINT32_C(2);
                                 }
                             }
                         } else if (status == VF2_OK) {
