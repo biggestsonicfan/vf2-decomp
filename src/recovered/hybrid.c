@@ -4812,7 +4812,13 @@ static vf2_status hybrid_execute_game_info_18644(
         if (((r7 | r8) & (UINT32_C(1) << 4u)) != 0u) {
             body_instructions = 92u;
         }
-        if (((r7 | r8) & (UINT32_C(1) << 8u)) != 0u) {
+        if (((r7 | r8) & (UINT32_C(1) << 8u)) != 0u &&
+            ((r7 | r8) & (UINT32_C(1) << 4u)) == 0u &&
+            (r8 & ((UINT32_C(1) << 14u) |
+                   (UINT32_C(1) << 15u) |
+                   (UINT32_C(1) << 16u))) == 0u) {
+            /* Bit 8 selects the ordinary 101-instruction body only when
+             * no earlier fast-path has already selected 0x18890. */
             body_instructions = 101u;
         }
         if (countdown_path && (r8 & (UINT32_C(1) << 15u)) == 0u) {
