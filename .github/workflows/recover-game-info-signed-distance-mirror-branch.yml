@@ -1,0 +1,150 @@
+name: Recover game-info signed-distance mirror branch
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover mirror branch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c')
+          s=p.read_text()
+          old='''            } else if ((r8 & (branch_mask | (UINT32_C(1) << 1u))) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                signed_distance_instruction_delta = second_mirrored_exact
+                    ? UINT32_C(20) : UINT32_C(15);
+            }
+'''
+          new='''            } else if (second_mirrored_exact) {
+                uint32_t mirror_extra = 0u;
+                bool mirror_finished = false;
+
+                signed_distance_instruction_delta = UINT32_C(20);
+                if ((r8 & (UINT32_C(1) << 1u)) != 0u) {
+                    uint32_t state844 = 0u;
+                    status = vf2_model2a_read_u32(
+                        machine, fighter1 + UINT32_C(0x00000844), &state844
+                    );
+                    if (status == VF2_OK &&
+                        (state844 & (UINT32_C(1) << 27u)) != 0u) {
+                        uint32_t threshold668 = 0u;
+                        r10 |= UINT32_C(1) << 8u;
+                        status = vf2_model2a_read_u32(
+                            machine, fighter0 + UINT32_C(0x00000668),
+                            &threshold668
+                        );
+                        mirror_extra = UINT32_C(3);
+                        if (status == VF2_OK &&
+                            !(hybrid_float_from_bits(0u) >
+                              hybrid_float_from_bits(threshold668))) {
+                            r10 |= UINT32_C(1) << 12u;
+                            mirror_extra += UINT32_C(2);
+                        }
+                        mirror_finished = status == VF2_OK;
+                    } else if (status == VF2_OK) {
+                        mirror_extra = UINT32_C(2);
+                    }
+                }
+
+                if (status == VF2_OK && !mirror_finished) {
+                    if ((r8 & branch_mask) == 0u) {
+                        signed_distance_instruction_delta += mirror_extra;
+                    } else {
+                        uint32_t fighter1_base = 0u;
+                        uint32_t fighter0_position = 0u;
+                        status = vf2_model2a_read_u32(
+                            machine, fighter1, &fighter1_base
+                        );
+                        if (status == VF2_OK) {
+                            status = vf2_model2a_read_u32(
+                                machine, fighter0 + UINT32_C(0x000005f4),
+                                &fighter0_position
+                            );
+                        }
+                        if (status == VF2_OK &&
+                            (((fighter1_base & (UINT32_C(1) << 8u)) != 0u) ||
+                             ((r8 & (UINT32_C(1) << 25u)) != 0u))) {
+                            uint32_t threshold630 = 0u;
+                            status = vf2_model2a_read_u32(
+                                machine, fighter0 + UINT32_C(0x00000630),
+                                &threshold630
+                            );
+                            if (status == VF2_OK) {
+                                mirror_extra +=
+                                    (fighter1_base & (UINT32_C(1) << 8u)) != 0u
+                                        ? UINT32_C(6) : UINT32_C(7);
+                                if (!(hybrid_float_from_bits(fighter0_position) >
+                                      hybrid_float_from_bits(threshold630))) {
+                                    r10 |= UINT32_C(1) << 9u;
+                                    ++mirror_extra;
+                                }
+                            }
+                        } else if (status == VF2_OK) {
+                            uint32_t threshold62c = 0u;
+                            uint32_t threshold668 = 0u;
+                            status = vf2_model2a_read_u32(
+                                machine, fighter0 + UINT32_C(0x0000062c),
+                                &threshold62c
+                            );
+                            if (status == VF2_OK) {
+                                status = vf2_model2a_read_u32(
+                                    machine, fighter0 + UINT32_C(0x00000668),
+                                    &threshold668
+                                );
+                            }
+                            if (status == VF2_OK) {
+                                mirror_extra += UINT32_C(10);
+                                if (!(hybrid_float_from_bits(fighter0_position) >
+                                      hybrid_float_from_bits(threshold62c))) {
+                                    r10 |= UINT32_C(1) << 8u;
+                                    ++mirror_extra;
+                                }
+                                if (!(hybrid_float_from_bits(fighter0_position) >
+                                      hybrid_float_from_bits(threshold668))) {
+                                    r10 |= UINT32_C(1) << 12u;
+                                    mirror_extra += UINT32_C(2);
+                                }
+                            }
+                        }
+                        if (status == VF2_OK) {
+                            signed_distance_instruction_delta += mirror_extra;
+                        }
+                    }
+                } else if (status == VF2_OK) {
+                    signed_distance_instruction_delta += mirror_extra;
+                }
+            } else if ((r8 & (branch_mask | (UINT32_C(1) << 1u))) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                signed_distance_instruction_delta = UINT32_C(15);
+            }
+'''
+          if old not in s:
+              raise SystemExit('target not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator
+        run: cp build/vf2i960 ./vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-signed-distance-mirror-branch
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/recover-game-info-signed-distance-mirror-branch.yml
+          git add src/recovered/hybrid.c
+          git commit -m 'Recover fa_game_info signed-distance mirror branch'
+          git push
