@@ -4728,14 +4728,6 @@ static vf2_status hybrid_execute_game_info_18644(
                 (r15 & (UINT32_C(1) << 29u)) != 0u) {
                 status = VF2_ERROR_UNSUPPORTED;
             }
-            if (status == VF2_OK &&
-                (countdown_path ||
-                 (r8 & ((UINT32_C(1) << 8u) |
-                        (UINT32_C(1) << 14u) |
-                        (UINT32_C(1) << 15u) |
-                        (UINT32_C(1) << 16u))) != 0u)) {
-                status = VF2_ERROR_UNSUPPORTED;
-            }
         }
     }
     if (status == VF2_OK &&
