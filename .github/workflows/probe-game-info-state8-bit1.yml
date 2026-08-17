@@ -1,25 +1,26 @@
-name: Probe game-info state8 bit1
+name: Apply game-info state8 bit1
 on: [push]
 jobs:
-  probe:
+  apply:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Apply state8 bit1 candidate
-        run: python .github/scripts/probe_game_info_state8_bit1.py
-      - name: Apply fighter-order hardening
-        run: python .github/scripts/probe_game_info_state8_bit1_orientation.py
-      - name: Add direct 18644 differential command
-        run: python .github/scripts/probe_game_info_18644_direct.py
+      - name: Apply state8 bit1 recovery
+        run: |
+          python .github/scripts/probe_game_info_state8_bit1.py
+          python .github/scripts/probe_game_info_state8_bit1_orientation.py
       - name: Configure strict build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
-      - name: Stage validator
-        run: cp build/vf2i960 ./vf2i960
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vf2i960-game-info-18644-direct-probe
-          path: vf2i960
+      - name: Commit recovered corridor
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/recovered/hybrid.c
+          git commit -m 'Recover fa_game_info state8 bit1 subtree'
+          git push
