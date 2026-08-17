@@ -1,0 +1,41 @@
+name: Fix game-info distance operand order
+on:
+  push:
+    paths:
+      - .github/workflows/fix-game-info-distance-order.yml
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore i960 SUBI operand order
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c'); s=p.read_text()
+          old='r4 = (r4 - r11) + UINT32_C(0x00004000);'
+          if s.count(old) != 2: raise SystemExit(f'expected 2 distance expressions, got {s.count(old)}')
+          s=s.replace(old,'r4 = (r11 - r4) + UINT32_C(0x00004000);',2)
+          p.write_text(s)
+          PY
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: |
+          exe=$(find build -type f -name vf2i960 | head -n1)
+          cp "$exe" vf2i960 && chmod +x vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-distance-order
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/recovered/hybrid.c
+          git rm -f .github/workflows/fix-game-info-distance-order.yml
+          git commit -m 'Fix fa_game_info distance operand order'
+          git push origin HEAD:master
