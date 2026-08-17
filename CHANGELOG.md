@@ -6,9 +6,10 @@
   bit8+bit1 and bit8+bit4 are recovered, bilateral bit8 matches zero-countdown
   (690/695 instructions with mode bit 6 clear/set) and nonzero-countdown
   (666/671), zero-countdown bilateral bit8+bit4 on exactly one fighter matches
-  677/682, and the corresponding bilateral bit8+bit1 corridor matches 701/706
-  in either physical orientation; countdown/both-fighter mixed states and other
-  unmeasured combinations remain explicitly fail-closed;
+  677/682, and bilateral bit8+bit1 on exactly one fighter matches 701/706 with
+  zero countdown and 677/682 with nonzero countdown in either orientation;
+  both-fighter bit1, bit4 countdown/mirrors and other unmeasured combinations
+  remain explicitly fail-closed;
 - completed selector 3's phase table: phases 16 (`0x0000c414`) and 17
   (`0x0000c448`) are recovered, closing the last two entries of the
   eighteen-entry table at `0x0000aac4`. Phase 16 decrements the task
