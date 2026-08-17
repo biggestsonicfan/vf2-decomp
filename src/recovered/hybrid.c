@@ -6047,6 +6047,15 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     if (native_state4_bit15_fighter_path) {
         native_instructions += UINT64_C(1);
     }
+    if (!native_bit15_fighter_path &&
+        !native_state4_bit15_fighter_path &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         (UINT32_C(1) << 15u)) != 0u) {
+        /* When bit 15 is combined with bit 6, 14 or 16, the isolated native
+         * bit-15 corridor is not selected and the ROM-backed dispatcher path
+         * executes one additional branch before the common RET. */
+        native_instructions += UINT64_C(1);
+    }
     if (((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 8u)) != 0u) {
         native_instructions += UINT64_C(1);
