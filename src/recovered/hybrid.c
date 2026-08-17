@@ -4720,16 +4720,27 @@ static vf2_status hybrid_execute_game_info_18644(
             }
         }
     }
-    if (status == VF2_OK && (r8 & (UINT32_C(1) << 14u)) != 0u) {
-        /* Observed bit-14 path: the 0x188b4..0x188c8 predicate sets
-         * r10.bit11 before the shared flag accumulation store. */
-        r10 &= ~(UINT32_C(1) << 2u);
-        r10 |= UINT32_C(1) << 11u;
-    }
-    if (status == VF2_OK && (r8 & (UINT32_C(1) << 16u)) != 0u) {
-        /* Observed bit-16 path: the ROM's 0x188b4 branch selects the same
-         * bit-11 accumulation before the shared store. */
-        r10 |= UINT32_C(1) << 11u;
+    if (status == VF2_OK &&
+        (r8 & ((UINT32_C(1) << 15u) | (UINT32_C(1) << 8u))) == 0u) {
+        /* 0x188ac..0x188c8 is ordered control flow, not independent flag
+         * tests: bit 15 and then bit 8 skip the SETBIT 11 path before bit 16
+         * and bit 14 are considered. For bit 14 + bit 4 the ROM consults
+         * fighter0+0x5bc and sets bit 11 only when that halfword is zero. */
+        bool set_bit11 = (r8 & (UINT32_C(1) << 16u)) != 0u;
+        if (!set_bit11 && (r8 & (UINT32_C(1) << 14u)) != 0u) {
+            if ((r8 & (UINT32_C(1) << 4u)) == 0u) {
+                set_bit11 = true;
+            } else {
+                uint16_t guard = 0u;
+                status = hybrid_read_u16(
+                    machine, fighter0 + UINT32_C(0x000005bc), &guard
+                );
+                set_bit11 = status == VF2_OK && guard == 0u;
+            }
+        }
+        if (status == VF2_OK && set_bit11) {
+            r10 |= UINT32_C(1) << 11u;
+        }
     }
     if (status == VF2_OK) {
         uint16_t progress = 0u;
