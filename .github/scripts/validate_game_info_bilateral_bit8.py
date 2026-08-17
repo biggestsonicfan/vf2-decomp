@@ -44,10 +44,12 @@ new = '''            body_instructions += signed_distance_instruction_delta;
             if (return_address == UINT32_C(0x000164b0) &&
                 r7 == (UINT32_C(1) << 8u) &&
                 r8 == (UINT32_C(1) << 8u)) {
-                /* Bilateral state bit 8 adds one instruction only in the
-                 * first fighter order; the swapped call matches the neutral
-                 * second-order accounting. */
                 ++body_instructions;
+            }
+            if (mode_bit6 && return_address == UINT32_C(0x000164c4) &&
+                r7 == (UINT32_C(1) << 8u) &&
+                r8 == (UINT32_C(1) << 8u)) {
+                --body_instructions;
             }
         }
 '''
