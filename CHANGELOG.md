@@ -4,9 +4,9 @@
 
 - expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: the
   controlled mode-bit-6 matrix remains exact, isolated bit8+bit1 and
-  zero-countdown bit8+bit4 are recovered, and the isolated bilateral bit8
-  corridor now matches exactly at 690 instructions with mode bit 6 clear and
-  695 with it set; bilateral countdown/mixed states and other unmeasured
+  zero-countdown bit8+bit4 are recovered, and isolated bilateral bit8 now
+  matches both zero-countdown (690/695 instructions with mode bit 6 clear/set)
+  and nonzero-countdown (666/671); bilateral mixed states and other unmeasured
   combinations remain explicitly fail-closed;
 - completed selector 3's phase table: phases 16 (`0x0000c414`) and 17
   (`0x0000c448`) are recovered, closing the last two entries of the
