@@ -4212,6 +4212,16 @@ static vf2_status hybrid_execute_game_info_18144_suffix(
             machine, fighter + UINT32_C(0x000001a4), &r7
         );
     }
+    if (status == VF2_OK &&
+        (r7 & (UINT32_C(1) << 8u)) != 0u) {
+        /* 0x185d8..0x185f0 takes the state-bit-8 side path in the common
+         * 0x18144 suffix. The dispatcher already accounts for its final
+         * state-bit-8 branch, so this helper contributes the six remaining
+         * instructions. Controlled first/second fighter probes measure +7
+         * instructions end-to-end relative to the corresponding non-bit-8
+         * 0x18144 path. */
+        suffix_instruction_delta += UINT32_C(6);
+    }
     if (status == VF2_OK) {
         status = hybrid_read_u8(
             machine, fighter + UINT32_C(0x00000821), &byte_value
