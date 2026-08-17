@@ -1,35 +1,21 @@
-name: Apply bilateral countdown code
+name: Dump selector3 phase13
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
-permissions:
-  contents: write
 jobs:
-  apply:
+  dump:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply, test, commit code
-        shell: bash
+      - shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('src/recovered/hybrid.c'); s=p.read_text()
-          s=s.replace('(countdown_path ||\n         r7 != (UINT32_C(1) << 8u) ||','(r7 != (UINT32_C(1) << 8u) ||',1)
-          s=s.replace('Only the isolated zero-countdown bilateral state-bit-8 corridor\n         * is ROM-backed. Keep mixed/countdown bilateral states fail-closed.','Only the isolated bilateral state-bit-8 corridor is ROM-backed.\n         * Mixed bilateral states remain fail-closed.',1)
-          s=s.replace('''            if (return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n''','''            if (!countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n''',1)
-          s=s.replace('''            if (mode_bit6 && return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n''','''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n''',1)
-          a='''            body_instructions += state8_bit1_instruction_delta;\n            if (!countdown_path &&\n'''
-          b='''            body_instructions += state8_bit1_instruction_delta;\n            if (countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {\n                --body_instructions;\n            }\n            if (!countdown_path &&\n'''
-          if a not in s: raise SystemExit('accounting anchor missing')
-          p.write_text(s.replace(a,b,1))
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
+              if n in s:
+                  i=s.index(n)
+                  print(s[max(0,i-7000):min(len(s),i+12000)])
+                  break
           PY
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
-          cmake --build build --parallel
-          ctest --test-dir build --output-on-failure
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/recovered/hybrid.c
-          git commit -m "Recover fa_game_info bilateral state8 countdown corridor"
-          git push
