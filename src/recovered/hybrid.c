@@ -4109,6 +4109,7 @@ static vf2_status hybrid_execute_game_info_18144_suffix(
     uint32_t r15 = 0u;
     uint16_t short_value = 0u;
     uint8_t byte_value = 0u;
+    uint32_t suffix_instruction_delta = 0u;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00018550)) {
@@ -4245,21 +4246,38 @@ static vf2_status hybrid_execute_game_info_18144_suffix(
             machine, fighter + UINT32_C(0x000001a4), &r4
         );
     }
-    if (status == VF2_OK && (r4 & (UINT32_C(1) << 29u)) != 0u) {
-        status = VF2_ERROR_UNSUPPORTED;
-    }
     if (status == VF2_OK) {
-        status = hybrid_read_u16(
-            machine, fighter + UINT32_C(0x000006da), &short_value
-        );
-        r5 = (uint32_t)(int32_t)(int16_t)short_value;
-        if (r5 != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
+        const bool state29 = (r4 & (UINT32_C(1) << 29u)) != 0u;
+        const bool state11 = (r4 & (UINT32_C(1) << 11u)) != 0u;
+
+        /* 0x18628..0x1863c: bit 29 only inserts the BBS 11 test.  With
+         * bit 11 clear it falls through to the ordinary +0x6da countdown;
+         * with bit 11 set the preloaded value 30 is stored directly. */
+        if (state29 && !state11) {
+            ++suffix_instruction_delta;
+        }
+        if (state29 && state11) {
+            status = hybrid_write_u16(
+                machine, fighter + UINT32_C(0x000006da), (uint16_t)r5
+            );
+        } else {
+            status = hybrid_read_u16(
+                machine, fighter + UINT32_C(0x000006da), &short_value
+            );
+            r5 = (uint32_t)(int32_t)(int16_t)short_value;
+            if (status == VF2_OK && r5 != 0u) {
+                --r5;
+                status = hybrid_write_u16(
+                    machine, fighter + UINT32_C(0x000006da), (uint16_t)r5
+                );
+                suffix_instruction_delta += UINT32_C(2);
+            }
         }
     }
     if (status == VF2_OK) {
         cpu->ip = UINT32_C(0x00018640);
-        cpu->executed_instructions += UINT64_C(33);
+        cpu->executed_instructions += UINT64_C(33) +
+            (uint64_t)suffix_instruction_delta;
         status = vf2_i960_cpu_return_procedure(cpu, machine);
         if (status == VF2_OK) {
             ++cpu->executed_instructions;
