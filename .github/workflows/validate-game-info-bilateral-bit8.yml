@@ -1,0 +1,21 @@
+name: Validate game-info bilateral bit8
+on: [push]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply candidate
+        run: python .github/scripts/validate_game_info_bilateral_bit8.py
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator
+        run: cp build/vf2i960 ./vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-bilateral-bit8
+          path: vf2i960
