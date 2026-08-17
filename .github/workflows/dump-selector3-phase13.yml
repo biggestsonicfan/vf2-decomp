@@ -1,4 +1,4 @@
-name: Validate bilateral bit8 bit4
+name: Validate bilateral bit8 bit4 symmetry
 on:
   push:
     branches: [master]
@@ -18,14 +18,23 @@ jobs:
           if a not in s: raise SystemExit('guard')
           s=s.replace(a,b,1)
           a='''                const bool bilateral_state8 =\n                    r7 == (UINT32_C(1) << 8u) && extra_state == 0u;\n                const bool bilateral_second_order =\n                    bilateral_state8 && return_address == UINT32_C(0x000164c4);'''
-          b='''                const bool bilateral_first_order =\n                    return_address == UINT32_C(0x000164b0) &&\n                    r7 == (UINT32_C(1) << 8u) &&\n                    (extra_state == 0u ||\n                     (!countdown_path && extra_state == (UINT32_C(1) << 4u)));\n                const bool bilateral_second_order =\n                    return_address == UINT32_C(0x000164c4) &&\n                    r8 == (UINT32_C(1) << 8u) &&\n                    (r7 == (UINT32_C(1) << 8u) ||\n                     (!countdown_path && r7 == ((UINT32_C(1) << 8u) |\n                                                (UINT32_C(1) << 4u))));'''
+          b='''                const bool bilateral_first_order =\n                    return_address == UINT32_C(0x000164b0) &&\n                    (r7 & (UINT32_C(1) << 8u)) != 0u;\n                const bool bilateral_second_order =\n                    return_address == UINT32_C(0x000164c4) &&\n                    (r7 & (UINT32_C(1) << 8u)) != 0u;'''
           if a not in s: raise SystemExit('orders')
           s=s.replace(a,b,1)
           s=s.replace('''                    (bilateral_state8 &&\n                     return_address == UINT32_C(0x000164b0));''','''                    bilateral_first_order;''',1)
-          s=s.replace('''                r8 == 0u) {\n                /* In the swapped fighter order, mode bit 6 plus isolated''','''                (r8 == 0u || r8 == (UINT32_C(1) << 8u))) {\n                /* In the swapped fighter order, mode bit 6 plus isolated''',1)
-          s=s.replace('''                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {\n                /* Bilateral state bit 8 adds one instruction only''','''                r7 == (UINT32_C(1) << 8u) &&\n                (r8 == (UINT32_C(1) << 8u) ||\n                 r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))) {\n                /* Bilateral state bit 8 adds one instruction only''',1)
-          s=s.replace('''                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {\n                /* The swapped bilateral mode-bit-6 call''','''                r8 == (UINT32_C(1) << 8u) &&\n                (r7 == (UINT32_C(1) << 8u) ||\n                 r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))) {\n                /* The swapped bilateral mode-bit-6 call''',1)
-          p.write_text(s)
+          s=s.replace('''                r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&\n                r8 == 0u) {''','''                r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&\n                (r8 == 0u ||\n                 (return_address == UINT32_C(0x000164c4) &&\n                  r8 == (UINT32_C(1) << 8u)))) {''',1)
+          a='''            if (relative_position_setbits == 0u) {'''
+          b='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) {\n                body_instructions -= UINT32_C(5);\n            }\n            if (relative_position_setbits == 0u) {'''
+          if a not in s: raise SystemExit('directional')
+          s=s.replace(a,b,1)
+          a='''            if (!countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {'''
+          b='''            if (!countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                (r7 & (UINT32_C(1) << 8u)) != 0u &&\n                (r8 & (UINT32_C(1) << 8u)) != 0u) {'''
+          if a not in s: raise SystemExit('first adjustment')
+          s=s.replace(a,b,1)
+          a='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {'''
+          b='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                (r7 & (UINT32_C(1) << 8u)) != 0u &&\n                (r8 & (UINT32_C(1) << 8u)) != 0u) {'''
+          if a not in s: raise SystemExit('second adjustment')
+          p.write_text(s.replace(a,b,1))
           PY
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - run: cmake --build build --parallel
