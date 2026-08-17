@@ -4821,9 +4821,11 @@ static vf2_status hybrid_execute_game_info_18644(
 
         {
             const uint32_t observed_state_mask =
-                (UINT32_C(1) << 4u) | (UINT32_C(1) << 8u) |
-                (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
-                (UINT32_C(1) << 16u) | (UINT32_C(1) << 26u);
+                (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u) |
+                (UINT32_C(1) << 8u) | (UINT32_C(1) << 14u) |
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+                (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+                (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u);
             const uint32_t fast_mask =
                 (UINT32_C(1) << 4u) | (UINT32_C(1) << 14u) |
                 (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
