@@ -3986,6 +3986,17 @@ static vf2_status hybrid_execute_game_info_18d44(
             }
             body_instructions += 10u;
         }
+        /* 0x18db8 reloads fighter+0x1fc after the first branch.  r4 is
+         * scratch inside 0x18d8c..0x18db4, so carrying that transformed
+         * value into the second branch changes the ROM's min(r8,r9). */
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine,
+                cpu->registers[VF2_I960_G0_REGISTER + 7u] +
+                    UINT32_C(0x000001fc),
+                &r4
+            );
+        }
         if (status == VF2_OK && r6 != 0u) {
             r4 = hybrid_float_to_bits(
                 hybrid_float_from_bits(r7) -
