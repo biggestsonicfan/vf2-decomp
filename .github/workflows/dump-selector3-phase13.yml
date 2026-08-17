@@ -1,21 +1,51 @@
-name: Dump selector3 phase13
+name: Validate bilateral state8 bit1
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
 jobs:
-  dump:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - shell: bash
+      - name: Patch candidate
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          s=Path('src/recovered/texture_bridge_match.c').read_text()
-          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
-              if n in s:
-                  i=s.index(n)
-                  print(s[max(0,i-7000):min(len(s),i+12000)])
-                  break
+          p=Path('src/recovered/hybrid.c')
+          s=p.read_text()
+
+          old='''        (countdown_path ||\n         !((r7 == (UINT32_C(1) << 8u) &&\n            r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) ||\n           (r8 == (UINT32_C(1) << 8u) &&\n            r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))))) {\n'''
+          new='''        (countdown_path ||\n         !((r7 == (UINT32_C(1) << 8u) &&\n            (r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) ||\n             r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u)))) ||\n           (r8 == (UINT32_C(1) << 8u) &&\n            (r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) ||\n             r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))))))) {\n'''
+          if old not in s: raise SystemExit('bilateral guard anchor missing')
+          s=s.replace(old,new,1)
+
+          old='''        const bool reverse_isolated =\n            r7 == isolated_state8_bit1 && r8 == 0u;\n        if (!forward_isolated && !reverse_isolated) {\n'''
+          new='''        const bool reverse_isolated =\n            r7 == isolated_state8_bit1 && r8 == 0u;\n        const bool forward_bilateral =\n            r7 == (UINT32_C(1) << 8u) && r8 == isolated_state8_bit1;\n        const bool reverse_bilateral =\n            r7 == isolated_state8_bit1 && r8 == (UINT32_C(1) << 8u);\n        if (!forward_isolated && !reverse_isolated &&\n            !forward_bilateral && !reverse_bilateral) {\n'''
+          if old not in s: raise SystemExit('bit1 guard anchor missing')
+          s=s.replace(old,new,1)
+
+          old='''    if (status == VF2_OK && r7 == 0u &&\n        r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) {\n'''
+          new='''    if (status == VF2_OK &&\n        (r7 == 0u || r7 == (UINT32_C(1) << 8u)) &&\n        r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) {\n'''
+          if old not in s: raise SystemExit('bit1 subtree anchor missing')
+          s=s.replace(old,new,1)
+
+          old='''            const bool isolated_state8_bit1_reverse =\n                r7 == state8_bit1 && r8 == 0u;\n            const bool exact_state_accounting =\n'''
+          new='''            const bool isolated_state8_bit1_reverse =\n                r7 == state8_bit1 && r8 == 0u;\n            const bool bilateral_state8_bit1_forward =\n                r7 == (UINT32_C(1) << 8u) && r8 == state8_bit1;\n            const bool bilateral_state8_bit1_reverse =\n                r7 == state8_bit1 && r8 == (UINT32_C(1) << 8u);\n            const bool exact_state_accounting =\n'''
+          if old not in s: raise SystemExit('exact bool anchor missing')
+          s=s.replace(old,new,1)
+
+          old='''                (isolated_state8_bit1_forward ||\n                 isolated_state8_bit1_reverse ||\n                 ((r7 | r8) & ~observed_state_mask) == 0u);\n'''
+          new='''                (isolated_state8_bit1_forward ||\n                 isolated_state8_bit1_reverse ||\n                 bilateral_state8_bit1_forward ||\n                 bilateral_state8_bit1_reverse ||\n                 ((r7 | r8) & ~observed_state_mask) == 0u);\n'''
+          if old not in s: raise SystemExit('exact accounting anchor missing')
+          s=s.replace(old,new,1)
+          p.write_text(s)
           PY
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-bilateral-bit1-candidate
+          path: build/vf2i960
