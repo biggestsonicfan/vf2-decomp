@@ -4804,56 +4804,125 @@ static vf2_status hybrid_execute_game_info_18644(
         shared_bit1_path = (r3 & (UINT32_C(1) << 1u)) != 0u;
         if (shared_bit1_path) {
             r10 |= UINT32_C(4);
-            body_instructions = 96u;
         }
         if ((r8 & (UINT32_C(1) << 14u)) != 0u) {
             r10 &= ~(UINT32_C(1) << 2u);
-            body_instructions = 90u;
         }
-        if ((r8 & (UINT32_C(1) << 16u)) != 0u) {
-            /* 0x18784 removes nine instructions for bit16.  The ordinary
-             * invocation starts from 101, while the shared +0x5b8.bit1
-             * invocation starts from 96. */
-            body_instructions = shared_bit1_path ? 87u : 92u;
-        }
-        if ((r8 & (UINT32_C(1) << 15u)) != 0u) {
-            /* Bit15 removes twelve instructions from the same two baselines. */
-            body_instructions = shared_bit1_path ? 84u : 89u;
-        }
-        if (((r7 | r8) & (UINT32_C(1) << 4u)) != 0u) {
-            body_instructions = 92u;
-        }
-        if (((r7 | r8) & (UINT32_C(1) << 8u)) != 0u) {
-            body_instructions = 101u;
-        }
-        if (countdown_path && (r8 & (UINT32_C(1) << 15u)) == 0u) {
-            /* Controlled ROM probes show the countdown corridor removes
-             * exactly 13 instructions from either observed baseline: the
-             * ordinary 101-instruction body becomes 88, while the prior
-             * +0x5b8 bit-1 corridor's 96-instruction body becomes 83. */
-            body_instructions =
-                (r3 & (UINT32_C(1) << 1u)) != 0u ? 83u : 88u;
-        }
-        if (mode_bit6) {
-            /* Raw ROM measurements at the 0x18644 entry/return boundaries
-             * give 102->105 instructions for the ordinary first invocation
-             * and 97->99 for the prior +0x5b8 bit-1 invocation. */
-            body_instructions +=
-                (r3 & (UINT32_C(1) << 1u)) != 0u ? 2u : 3u;
-        }
-        if ((r8 & (UINT32_C(1) << 26u)) != 0u &&
-            !countdown_path &&
-            (r7 & (UINT32_C(1) << 4u)) == 0u &&
-            (r8 & ((UINT32_C(1) << 4u) |
-                   (UINT32_C(1) << 14u) |
-                   (UINT32_C(1) << 15u) |
-                   (UINT32_C(1) << 16u))) == 0u) {
-            /* 0x18778..0x18784 masks state bits 4/14/15/16/26.  Bit26
-             * removes nine instructions only when it is the first reason
-             * to take the shared 0x18890 fast path.  Countdown, r7.bit4 and
-             * r8 bits 4/14/15/16 already enter that path, so bit26 adds no
-             * further delta in those combinations. */
-            body_instructions -= UINT32_C(9);
+
+        {
+            const uint32_t observed_state_mask =
+                (UINT32_C(1) << 4u) | (UINT32_C(1) << 8u) |
+                (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+                (UINT32_C(1) << 16u) | (UINT32_C(1) << 26u);
+            const uint32_t fast_mask =
+                (UINT32_C(1) << 4u) | (UINT32_C(1) << 14u) |
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+                (UINT32_C(1) << 26u);
+            const uint32_t active_state = (r7 | r8) & observed_state_mask;
+            const bool exact_state_accounting =
+                !countdown_path && !mode_bit6 &&
+                active_state != 0u &&
+                ((r7 | r8) & ~observed_state_mask) == 0u;
+
+            if (exact_state_accounting) {
+                uint32_t prefix_count = UINT32_C(43);
+                uint32_t early_count = 0u;
+                uint32_t tail_count = 0u;
+                uint32_t shared_tail_count = UINT32_C(3);
+
+                if (((r7 | r8) & (UINT32_C(1) << 4u)) != 0u) {
+                    prefix_count += UINT32_C(4);
+                }
+
+                if ((r8 & (UINT32_C(1) << 15u)) != 0u) {
+                    shared_tail_count += UINT32_C(1);
+                } else if ((r8 & (UINT32_C(1) << 8u)) != 0u) {
+                    shared_tail_count += UINT32_C(2);
+                } else if ((r8 & (UINT32_C(1) << 16u)) != 0u) {
+                    shared_tail_count += UINT32_C(4);
+                } else if ((r8 & (UINT32_C(1) << 14u)) != 0u) {
+                    shared_tail_count += UINT32_C(4);
+                    if ((r8 & (UINT32_C(1) << 4u)) == 0u) {
+                        shared_tail_count += UINT32_C(2);
+                    } else {
+                        uint16_t guard = 0u;
+                        status = hybrid_read_u16(
+                            machine,
+                            fighter0 + UINT32_C(0x000005bc),
+                            &guard
+                        );
+                        if (status == VF2_OK) {
+                            shared_tail_count += UINT32_C(3);
+                            if (guard == 0u) {
+                                ++shared_tail_count;
+                            }
+                        }
+                    }
+                } else {
+                    shared_tail_count += UINT32_C(4);
+                }
+                ++shared_tail_count;
+                if ((r8 & (UINT32_C(1) << 8u)) != 0u) {
+                    ++shared_tail_count;
+                }
+
+                if (status == VF2_OK) {
+                    if ((r7 & (UINT32_C(1) << 4u)) != 0u) {
+                        early_count = UINT32_C(3) + shared_tail_count;
+                    } else if ((r8 & fast_mask) != 0u) {
+                        early_count = UINT32_C(6) + shared_tail_count;
+                    } else {
+                        early_count = UINT32_C(23) -
+                            (((r8 & (UINT32_C(1) << 8u)) != 0u)
+                                ? UINT32_C(1) : UINT32_C(0));
+                    }
+
+                    tail_count = (r8 & (UINT32_C(1) << 14u)) != 0u
+                        ? UINT32_C(31)
+                        : (shared_bit1_path ? UINT32_C(30)
+                                            : UINT32_C(35));
+
+                    body_instructions =
+                        prefix_count + early_count + tail_count;
+                }
+            } else {
+                if (shared_bit1_path) {
+                    body_instructions = 96u;
+                }
+                if ((r8 & (UINT32_C(1) << 14u)) != 0u) {
+                    body_instructions = 90u;
+                }
+                if ((r8 & (UINT32_C(1) << 16u)) != 0u) {
+                    body_instructions = shared_bit1_path ? 87u : 92u;
+                }
+                if ((r8 & (UINT32_C(1) << 15u)) != 0u) {
+                    body_instructions = shared_bit1_path ? 84u : 89u;
+                }
+                if (((r7 | r8) & (UINT32_C(1) << 4u)) != 0u) {
+                    body_instructions = 92u;
+                }
+                if (((r7 | r8) & (UINT32_C(1) << 8u)) != 0u) {
+                    body_instructions = 101u;
+                }
+                if (countdown_path &&
+                    (r8 & (UINT32_C(1) << 15u)) == 0u) {
+                    body_instructions =
+                        shared_bit1_path ? 83u : 88u;
+                }
+                if (mode_bit6) {
+                    body_instructions +=
+                        shared_bit1_path ? 2u : 3u;
+                }
+                if ((r8 & (UINT32_C(1) << 26u)) != 0u &&
+                    !countdown_path &&
+                    (r7 & (UINT32_C(1) << 4u)) == 0u &&
+                    (r8 & ((UINT32_C(1) << 4u) |
+                           (UINT32_C(1) << 14u) |
+                           (UINT32_C(1) << 15u) |
+                           (UINT32_C(1) << 16u))) == 0u) {
+                    body_instructions -= UINT32_C(9);
+                }
+            }
         }
     }
     if (status == VF2_OK && !shared_bit1_path) {
