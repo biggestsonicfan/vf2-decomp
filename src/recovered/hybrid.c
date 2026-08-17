@@ -4499,6 +4499,7 @@ static vf2_status hybrid_execute_game_info_18644(
     uint32_t tail_instruction_delta = 0u;
     bool high_result = false;
     bool countdown_path = false;
+    bool mode_bit6 = false;
     uint16_t short_value = 0u;
     uint8_t byte_value = 0u;
     vf2_status status = VF2_OK;
@@ -4662,8 +4663,27 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, r13 + UINT32_C(0x00003351), &byte_value
         );
     }
-    if (status == VF2_OK && byte_value != 0u) {
-        status = VF2_ERROR_UNSUPPORTED;
+    if (status == VF2_OK) {
+        /* 0x18898..0x188a8 tests bit 6, not byte != 0.  Values such as
+         * 0x01 therefore remain on the ordinary path.  With bit 6 set,
+         * the observed neutral corridor performs the extra fighter-flag
+         * load/BBS 29 pair and rejoins at 0x188ac. */
+        mode_bit6 = (byte_value & (UINT8_C(1) << 6u)) != 0u;
+        if (mode_bit6) {
+            status = vf2_model2a_read_u32(machine, fighter1, &r15);
+            if (status == VF2_OK &&
+                (r15 & (UINT32_C(1) << 29u)) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK &&
+                (countdown_path ||
+                 (r8 & ((UINT32_C(1) << 8u) |
+                        (UINT32_C(1) << 14u) |
+                        (UINT32_C(1) << 15u) |
+                        (UINT32_C(1) << 16u))) != 0u)) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+        }
     }
     if (status == VF2_OK && (r8 & (UINT32_C(1) << 14u)) != 0u) {
         /* Observed bit-14 path: the 0x188b4..0x188c8 predicate sets
@@ -4762,6 +4782,13 @@ static vf2_status hybrid_execute_game_info_18644(
              * +0x5b8 bit-1 corridor's 96-instruction body becomes 83. */
             body_instructions =
                 (r3 & (UINT32_C(1) << 1u)) != 0u ? 83u : 88u;
+        }
+        if (mode_bit6) {
+            /* Raw ROM measurements at the 0x18644 entry/return boundaries
+             * give 102->105 instructions for the ordinary first invocation
+             * and 97->99 for the prior +0x5b8 bit-1 invocation. */
+            body_instructions +=
+                (r3 & (UINT32_C(1) << 1u)) != 0u ? 2u : 3u;
         }
     }
     if (status == VF2_OK) {
