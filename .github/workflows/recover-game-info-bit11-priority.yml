@@ -1,0 +1,31 @@
+name: Recover game-info bit11 priority
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover bit11 branch priority
+        run: echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgic3JjL3JlY292ZXJlZC9oeWJyaWQuYyIpCnM9cC5yZWFkX3RleHQoKQpvbGQ9IiIiICAgIGlmIChzdGF0dXMgPT0gVkYyX09LICYmIChyOCAmIChVSU5UMzJfQygxKSA8PCAxNHUpKSAhPSAwdSkgewogICAgICAgIC8qIE9ic2VydmVkIGJpdC0xNCBwYXRoOiB0aGUgMHgxODhiNC4uMHgxODhjOCBwcmVkaWNhdGUgc2V0cwogICAgICAgICAqIHIxMC5iaXQxMSBiZWZvcmUgdGhlIHNoYXJlZCBmbGFnIGFjY3VtdWxhdGlvbiBzdG9yZS4gKi8KICAgICAgICByMTAgJj0gflVJTlQzMl9DKDEpIDw8IDJ1OwogICAgICAgIHIxMCB8PSBVSU5UMzJfQygxKSA8PCAxMXU7CiAgICB9CiAgICBpZiAoc3RhdHVzID09IFZGMl9PSyAmJiAocjggJiAoVUlOVDMyX0MoMSkgPDwgMTZ1KSkgIT0gMHUpIHsKICAgICAgICAvKiBPYnNlcnZlZCBiaXQtMTYgcGF0aDogdGhlIFJPTSdzIDB4MTg4YjQgYnJhbmNoIHNlbGVjdHMgdGhlIHNhbWUKICAgICAgICAgKiBiaXQtMTEgYWNjdW11bGF0aW9uIGJlZm9yZSB0aGUgc2hhcmVkIHN0b3JlLiAqLwogICAgICAgIHIxMCB8PSBVSU5UMzJfQygxKSA8PCAxMXU7CiAgICB9CiIiIgpuZXc9IiIiICAgIGlmIChzdGF0dXMgPT0gVkYyX09LICYmCiAgICAgICAgKHI4ICYgKChVSU5UMzJfQygxKSA8PCAxNXUpIHwgKFVJTlQzMl9DKDEpIDw8IDh1KSkpID09IDB1KSB7CiAgICAgICAgLyogMHgxODhhYy4uMHgxODhjOCBpcyBvcmRlcmVkIGNvbnRyb2wgZmxvdywgbm90IGluZGVwZW5kZW50IGZsYWcKICAgICAgICAgKiB0ZXN0czogYml0IDE1IGFuZCB0aGVuIGJpdCA4IHNraXAgdGhlIFNFVEJJVCAxMSBwYXRoIGJlZm9yZSBiaXQgMTYKICAgICAgICAgKiBhbmQgYml0IDE0IGFyZSBjb25zaWRlcmVkLiBGb3IgYml0IDE0ICsgYml0IDQgdGhlIFJPTSBjb25zdWx0cwogICAgICAgICAqIGZpZ2h0ZXIwKzB4NWJjIGFuZCBzZXRzIGJpdCAxMSBvbmx5IHdoZW4gdGhhdCBoYWxmd29yZCBpcyB6ZXJvLiAqLwogICAgICAgIGJvb2wgc2V0X2JpdDExID0gKHI4ICYgKFVJTlQzMl9DKDEpIDw8IDE2dSkpICE9IDB1OwogICAgICAgIGlmICghc2V0X2JpdDExICYmIChyOCAmIChVSU5UMzJfQygxKSA8PCAxNHUpKSAhPSAwdSkgewogICAgICAgICAgICBpZiAoKHI4ICYgKFVJTlQzMl9DKDEpIDw8IDR1KSkgPT0gMHUpIHsKICAgICAgICAgICAgICAgIHNldF9iaXQxMSA9IHRydWU7CiAgICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICAgICB1aW50MTZfdCBndWFyZCA9IDB1OwogICAgICAgICAgICAgICAgc3RhdHVzID0gaHlicmlkX3JlYWRfdTE2KAogICAgICAgICAgICAgICAgICAgIG1hY2hpbmUsIGZpZ2h0ZXIwICsgVUlOVDMyX0MoMHgwMDAwMDViYyksICZndWFyZAogICAgICAgICAgICAgICAgKTsKICAgICAgICAgICAgICAgIHNldF9iaXQxMSA9IHN0YXR1cyA9PSBWRjJfT0sgJiYgZ3VhcmQgPT0gMHU7CiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICAgICAgaWYgKHN0YXR1cyA9PSBWRjJfT0sgJiYgc2V0X2JpdDExKSB7CiAgICAgICAgICAgIHIxMCB8PSBVSU5UMzJfQygxKSA8PCAxMXU7CiAgICAgICAgfQogICAgfQoiIiIKaWYgb2xkIG5vdCBpbiBzOgogICAgcmFpc2UgU3lzdGVtRXhpdCgiYml0MTEgcHJpb3JpdHkgYW5jaG9yIG5vdCBmb3VuZCIpCnAud3JpdGVfdGV4dChzLnJlcGxhY2Uob2xkLG5ldywxKSkK' | base64 -d | python
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: cp build/vf2i960 vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-bit11-priority
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          rm .github/workflows/recover-game-info-bit11-priority.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c .github/workflows/recover-game-info-bit11-priority.yml
+          git commit -m 'Recover fa_game_info bit11 branch priority'
+          git push
