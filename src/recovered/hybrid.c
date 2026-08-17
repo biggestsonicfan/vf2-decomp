@@ -4728,6 +4728,13 @@ static vf2_status hybrid_execute_game_info_18644(
                 (r15 & (UINT32_C(1) << 29u)) != 0u) {
                 status = VF2_ERROR_UNSUPPORTED;
             }
+            if (status == VF2_OK &&
+                (r8 & (UINT32_C(1) << 8u)) != 0u) {
+                /* The mode-bit-6 + state-bit-8 interaction changes the
+                 * 0x188ac+ accounting priority. Keep that combination bounded
+                 * until its pairwise costs are recovered. */
+                status = VF2_ERROR_UNSUPPORTED;
+            }
         }
     }
     if (status == VF2_OK &&
