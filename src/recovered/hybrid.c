@@ -4854,11 +4854,108 @@ static vf2_status hybrid_execute_game_info_18644(
                         }
                     }
                 }
+            } else if (second_mirrored_exact) {
+                uint32_t mirror_extra = 0u;
+                bool mirror_finished = false;
+
+                signed_distance_instruction_delta = UINT32_C(20);
+                if ((r8 & (UINT32_C(1) << 1u)) != 0u) {
+                    uint32_t state844 = 0u;
+                    status = vf2_model2a_read_u32(
+                        machine, fighter1 + UINT32_C(0x00000844), &state844
+                    );
+                    if (status == VF2_OK &&
+                        (state844 & (UINT32_C(1) << 27u)) != 0u) {
+                        uint32_t threshold668 = 0u;
+                        r10 |= UINT32_C(1) << 8u;
+                        status = vf2_model2a_read_u32(
+                            machine, fighter0 + UINT32_C(0x00000668),
+                            &threshold668
+                        );
+                        mirror_extra = UINT32_C(3);
+                        if (status == VF2_OK &&
+                            !(hybrid_float_from_bits(0u) >
+                              hybrid_float_from_bits(threshold668))) {
+                            r10 |= UINT32_C(1) << 12u;
+                            mirror_extra += UINT32_C(2);
+                        }
+                        mirror_finished = status == VF2_OK;
+                    } else if (status == VF2_OK) {
+                        mirror_extra = UINT32_C(2);
+                    }
+                }
+
+                if (status == VF2_OK && !mirror_finished) {
+                    if ((r8 & branch_mask) == 0u) {
+                        signed_distance_instruction_delta += mirror_extra;
+                    } else {
+                        uint32_t fighter1_base = 0u;
+                        uint32_t fighter0_position = 0u;
+                        status = vf2_model2a_read_u32(
+                            machine, fighter1, &fighter1_base
+                        );
+                        if (status == VF2_OK) {
+                            status = vf2_model2a_read_u32(
+                                machine, fighter0 + UINT32_C(0x000005f4),
+                                &fighter0_position
+                            );
+                        }
+                        if (status == VF2_OK &&
+                            (((fighter1_base & (UINT32_C(1) << 8u)) != 0u) ||
+                             ((r8 & (UINT32_C(1) << 25u)) != 0u))) {
+                            uint32_t threshold630 = 0u;
+                            status = vf2_model2a_read_u32(
+                                machine, fighter0 + UINT32_C(0x00000630),
+                                &threshold630
+                            );
+                            if (status == VF2_OK) {
+                                mirror_extra +=
+                                    (fighter1_base & (UINT32_C(1) << 8u)) != 0u
+                                        ? UINT32_C(6) : UINT32_C(7);
+                                if (!(hybrid_float_from_bits(fighter0_position) >
+                                  hybrid_float_from_bits(threshold630))) {
+                                    r10 |= UINT32_C(1) << 9u;
+                                        ++mirror_extra;
+                                }
+                            }
+                        } else if (status == VF2_OK) {
+                            uint32_t threshold62c = 0u;
+                            uint32_t threshold668 = 0u;
+                          status = vf2_model2a_read_u32(
+                              machine, fighter0 + UINT32_C(0x0000062c),
+                              &threshold62c
+                            );
+                            if (status == VF2_OK) {
+                                status = vf2_model2a_read_u32(
+                                    machine, fighter0 + UINT32_C(0x00000668),
+                                    &threshold668
+                              );
+                          }
+                            if (status == VF2_OK) {
+                                mirror_extra += UINT32_C(10);
+                                if (!(hybrid_float_from_bits(fighter0_position) >
+                                  hybrid_float_from_bits(threshold62c))) {
+                                    r10 |= UINT32_C(1) << 8u;
+                                        ++mirror_extra;
+                                }
+                                if (!(hybrid_float_from_bits(fighter0_position) >
+                                  hybrid_float_from_bits(threshold668))) {
+                                    r10 |= UINT32_C(1) << 12u;
+                                    mirror_extra += UINT32_C(2);
+                                }
+                            }
+                        }
+                        if (status == VF2_OK) {
+                            signed_distance_instruction_delta += mirror_extra;
+                        }
+                    }
+                } else if (status == VF2_OK) {
+                    signed_distance_instruction_delta += mirror_extra;
+                }
             } else if ((r8 & (branch_mask | (UINT32_C(1) << 1u))) != 0u) {
                 status = VF2_ERROR_UNSUPPORTED;
             } else {
-                signed_distance_instruction_delta = second_mirrored_exact
-                    ? UINT32_C(20) : UINT32_C(15);
+                signed_distance_instruction_delta = UINT32_C(15);
             }
         }
     }
