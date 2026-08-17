@@ -37,18 +37,34 @@ if old not in text:
     raise SystemExit("guard comment anchor not found")
 text = text.replace(old, new, 1)
 
+ordered_anchor = '''    if (status == VF2_OK &&
+        (r8 & ((UINT32_C(1) << 15u) | (UINT32_C(1) << 8u))) == 0u) {
+'''
+isolated_guard = '''    if (status == VF2_OK &&
+        (r8 & ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) ==
+            ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u)) &&
+        (r7 != 0u ||
+         r8 != ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u)))) {
+        /* Only the isolated state8+bit1 corridor is ROM-backed here.
+         * Mixed state8+bit1 combinations remain fail-closed. */
+        status = VF2_ERROR_UNSUPPORTED;
+    }
+'''
+if ordered_anchor not in text:
+    raise SystemExit("ordered-control anchor not found")
+text = text.replace(ordered_anchor, isolated_guard + ordered_anchor, 1)
+
 anchor = '''    if (status == VF2_OK) {
         uint16_t progress = 0u;
         uint16_t limit = 0u;
         status = vf2_model2a_read_u32(machine, fighter1 + UINT32_C(0x00000844), &r14);
 '''
-block = '''    /* 0x188cc..0x18978: when state bit 8 and bit 1 are both set, the ROM
-     * enters a distance/type sub-tree before the shared tail.  Account this
-     * relative to the ordinary bit-8 path, whose two BBC instructions are
-     * already included by the exact-state formula. */
-    if (status == VF2_OK &&
-        (r8 & ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) ==
-            ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) {
+block = '''    /* 0x188cc..0x18978: the isolated state8+bit1 corridor enters a
+     * distance/type sub-tree before the shared tail. Account this relative
+     * to the ordinary bit-8 path, whose two BBC instructions are already
+     * included by the exact-state formula. */
+    if (status == VF2_OK && r7 == 0u &&
+        r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) {
         uint8_t fighter1_type = 0u;
         status = hybrid_read_u8(
             machine, fighter1 + UINT32_C(0x0000019f), &fighter1_type
@@ -110,15 +126,26 @@ if anchor not in text:
     raise SystemExit("state8-bit1 insertion anchor not found")
 text = text.replace(anchor, block + anchor, 1)
 
-old = '''            const uint32_t observed_state_mask =
-                (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u) |
+old = '''            const uint32_t active_state = (r7 | r8) & observed_state_mask;
+            const bool exact_state_accounting =
+                !countdown_path &&
+                (!mode_bit6 || mode_bit6_supported_bit8) &&
+                active_state != 0u &&
+                ((r7 | r8) & ~observed_state_mask) == 0u;
 '''
-new = '''            const uint32_t observed_state_mask =
-                (UINT32_C(1) << 1u) | (UINT32_C(1) << 4u) |
-                (UINT32_C(1) << 6u) |
+new = '''            const uint32_t active_state = (r7 | r8) & observed_state_mask;
+            const bool isolated_state8_bit1 =
+                r7 == 0u &&
+                r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u));
+            const bool exact_state_accounting =
+                !countdown_path &&
+                (!mode_bit6 || mode_bit6_supported_bit8) &&
+                active_state != 0u &&
+                (isolated_state8_bit1 ||
+                 ((r7 | r8) & ~observed_state_mask) == 0u);
 '''
 if old not in text:
-    raise SystemExit("observed-state anchor not found")
+    raise SystemExit("exact-state anchor not found")
 text = text.replace(old, new, 1)
 
 old = '''            body_instructions += signed_distance_instruction_delta;
