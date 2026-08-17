@@ -1,21 +1,28 @@
-name: Dump selector3 phase13
+name: Update bilateral countdown changelog
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
+permissions:
+  contents: write
 jobs:
-  dump:
+  update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - shell: bash
+      - name: Update changelog and push
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          s=Path('src/recovered/texture_bridge_match.c').read_text()
-          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
-              if n in s:
-                  i=s.index(n)
-                  print(s[max(0,i-7000):min(len(s),i+12000)])
-                  break
+          p=Path('CHANGELOG.md'); s=p.read_text()
+          old='''- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: the\n  controlled mode-bit-6 matrix remains exact, isolated bit8+bit1 and\n  zero-countdown bit8+bit4 are recovered, and the isolated bilateral bit8\n  corridor now matches exactly at 690 instructions with mode bit 6 clear and\n  695 with it set; bilateral countdown/mixed states and other unmeasured\n  combinations remain explicitly fail-closed;\n'''
+          new='''- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: the\n  controlled mode-bit-6 matrix remains exact, isolated bit8+bit1 and\n  zero-countdown bit8+bit4 are recovered, and isolated bilateral bit8 now\n  matches both zero-countdown (690/695 instructions with mode bit 6 clear/set)\n  and nonzero-countdown (666/671); bilateral mixed states and other unmeasured\n  combinations remain explicitly fail-closed;\n'''
+          if old not in s: raise SystemExit('changelog anchor missing')
+          p.write_text(s.replace(old,new,1))
           PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs: record bilateral state8 countdown totals"
+          git push
