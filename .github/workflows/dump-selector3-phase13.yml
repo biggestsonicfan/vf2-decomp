@@ -1,21 +1,36 @@
-name: Dump selector3 phase13
+name: Validate bilateral bit8 bit4
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
 jobs:
-  dump:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - shell: bash
+      - name: Patch candidate
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          s=Path('src/recovered/texture_bridge_match.c').read_text()
-          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
-              if n in s:
-                  i=s.index(n)
-                  print(s[max(0,i-7000):min(len(s),i+12000)])
-                  break
+          p=Path('src/recovered/hybrid.c'); s=p.read_text()
+          a='''        (r7 != (UINT32_C(1) << 8u) ||\n         r8 != (UINT32_C(1) << 8u))) {'''
+          b='''        (r7 != (UINT32_C(1) << 8u) ||\n         r8 != (UINT32_C(1) << 8u)) &&\n        (countdown_path ||\n         !((r7 == (UINT32_C(1) << 8u) &&\n            r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) ||\n           (r8 == (UINT32_C(1) << 8u) &&\n            r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))))) {'''
+          if a not in s: raise SystemExit('guard')
+          s=s.replace(a,b,1)
+          a='''                const bool bilateral_state8 =\n                    r7 == (UINT32_C(1) << 8u) && extra_state == 0u;\n                const bool bilateral_second_order =\n                    bilateral_state8 && return_address == UINT32_C(0x000164c4);'''
+          b='''                const bool bilateral_first_order =\n                    return_address == UINT32_C(0x000164b0) &&\n                    r7 == (UINT32_C(1) << 8u) &&\n                    (extra_state == 0u ||\n                     (!countdown_path && extra_state == (UINT32_C(1) << 4u)));\n                const bool bilateral_second_order =\n                    return_address == UINT32_C(0x000164c4) &&\n                    r8 == (UINT32_C(1) << 8u) &&\n                    (r7 == (UINT32_C(1) << 8u) ||\n                     (!countdown_path && r7 == ((UINT32_C(1) << 8u) |\n                                                (UINT32_C(1) << 4u))));'''
+          if a not in s: raise SystemExit('orders')
+          s=s.replace(a,b,1)
+          s=s.replace('''                    (bilateral_state8 &&\n                     return_address == UINT32_C(0x000164b0));''','''                    bilateral_first_order;''',1)
+          s=s.replace('''                r8 == 0u) {\n                /* In the swapped fighter order, mode bit 6 plus isolated''','''                (r8 == 0u || r8 == (UINT32_C(1) << 8u))) {\n                /* In the swapped fighter order, mode bit 6 plus isolated''',1)
+          s=s.replace('''                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {\n                /* Bilateral state bit 8 adds one instruction only''','''                r7 == (UINT32_C(1) << 8u) &&\n                (r8 == (UINT32_C(1) << 8u) ||\n                 r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))) {\n                /* Bilateral state bit 8 adds one instruction only''',1)
+          s=s.replace('''                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {\n                /* The swapped bilateral mode-bit-6 call''','''                r8 == (UINT32_C(1) << 8u) &&\n                (r7 == (UINT32_C(1) << 8u) ||\n                 r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))) {\n                /* The swapped bilateral mode-bit-6 call''',1)
+          p.write_text(s)
           PY
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-bilateral-bit4-candidate
+          path: build/vf2i960
