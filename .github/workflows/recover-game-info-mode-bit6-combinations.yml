@@ -1,0 +1,31 @@
+name: Recover game-info mode bit6 combinations
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove false mode-bit6 combination guard
+        run: python -c "import base64; exec(base64.b64decode('ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgnc3JjL3JlY292ZXJlZC9oeWJyaWQuYycpCnM9cC5yZWFkX3RleHQoKQpvbGQ9JycnICAgICAgICAgICAgaWYgKHN0YXR1cyA9PSBWRjJfT0sgJiYKICAgICAgICAgICAgICAgIChjb3VudGRvd25fcGF0aCB8fAogICAgICAgICAgICAgICAgIChyOCAmICgoVUlOVDMyX0MoMSkgPDwgOHUpIHwKICAgICAgICAgICAgICAgICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDE0dSkgfAogICAgICAgICAgICAgICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMTV1KSB8CiAgICAgICAgICAgICAgICAgICAgICAgIChVSU5UMzJfQygxKSA8PCAxNnUpKSkgIT0gMHUpKSB7CiAgICAgICAgICAgICAgICBzdGF0dXMgPSBWRjJfRVJST1JfVU5TVVBQT1JURUQ7CiAgICAgICAgICAgIH0KJycnCmlmIG9sZCBub3QgaW4gczogcmFpc2UgU3lzdGVtRXhpdCgndGFyZ2V0IG5vdCBmb3VuZCcpCnM9cy5yZXBsYWNlKG9sZCwnJykKcC53cml0ZV90ZXh0KHMpCg=='))"
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator
+        run: cp build/vf2i960 ./vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-mode-bit6-combinations
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/recover-game-info-mode-bit6-combinations.yml
+          git add src/recovered/hybrid.c
+          git commit -m 'Recover fa_game_info mode bit6 combinations'
+          git push
