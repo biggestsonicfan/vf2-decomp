@@ -1,21 +1,41 @@
-name: Dump selector3 phase13
+name: Validate bilateral countdown
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
 jobs:
-  dump:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - shell: bash
+      - name: Apply candidate
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          s=Path('src/recovered/texture_bridge_match.c').read_text()
-          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
-              if n in s:
-                  i=s.index(n)
-                  print(s[max(0,i-7000):min(len(s),i+12000)])
-                  break
+          p=Path('src/recovered/hybrid.c')
+          s=p.read_text()
+          old='''    if (status == VF2_OK &&\n        (r7 & (UINT32_C(1) << 8u)) != 0u &&\n        (r8 & (UINT32_C(1) << 8u)) != 0u &&\n        (countdown_path ||\n         r7 != (UINT32_C(1) << 8u) ||\n         r8 != (UINT32_C(1) << 8u))) {\n        /* Only the isolated zero-countdown bilateral state-bit-8 corridor\n         * is ROM-backed. Keep mixed/countdown bilateral states fail-closed. */\n        status = VF2_ERROR_UNSUPPORTED;\n    }\n'''
+          new='''    if (status == VF2_OK &&\n        (r7 & (UINT32_C(1) << 8u)) != 0u &&\n        (r8 & (UINT32_C(1) << 8u)) != 0u &&\n        (r7 != (UINT32_C(1) << 8u) ||\n         r8 != (UINT32_C(1) << 8u))) {\n        /* Only the isolated bilateral state-bit-8 corridor is ROM-backed.\n         * Mixed bilateral states remain fail-closed. */\n        status = VF2_ERROR_UNSUPPORTED;\n    }\n'''
+          if old not in s: raise SystemExit('guard anchor missing')
+          s=s.replace(old,new,1)
+          old='''            if (return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n'''
+          new='''            if (!countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n'''
+          if old not in s: raise SystemExit('first-order anchor missing')
+          s=s.replace(old,new,1)
+          old='''            if (mode_bit6 && return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n'''
+          new='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n'''
+          if old not in s: raise SystemExit('second-order anchor missing')
+          s=s.replace(old,new,1)
+          p.write_text(s)
           PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-bilateral-countdown-candidate
+          path: build/vf2i960
