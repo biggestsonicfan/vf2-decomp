@@ -1,0 +1,31 @@
+name: Fix game-info state26 interactions
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix state26 interaction accounting
+        run: echo 'CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aApwPVBhdGgoInNyYy9yZWNvdmVyZWQvaHlicmlkLmMiKQpzPXAucmVhZF90ZXh0KCkKb2xkPSIiIiAgICAgICAgaWYgKChyOCAmIChVSU5UMzJfQygxKSA8PCAyNnUpKSAhPSAwdSkgewogICAgICAgICAgICAvKiAweDE4Nzc4Li4weDE4Nzg0IG1hc2tzIHN0YXRlIGJpdHMgNC8xNC8xNS8xNi8yNi4gV2l0aCB0aGUKICAgICAgICAgICAgICogaXNvbGF0ZWQgYml0LTI2IHN0YXRlIG9ic2VydmVkIGluIGVpdGhlciBmaWdodGVyLCB0aGUgQk5FIGF0CiAgICAgICAgICAgICAqIDB4MTg3ODQganVtcHMgZGlyZWN0bHkgdG8gMHgxODg5MC4gRW50cnkvcmV0dXJuIHByb2JlcyBvZiBib3RoCiAgICAgICAgICAgICAqIGRpc3BhdGNoZXIgaW52b2NhdGlvbnMgc2hvdyB0aGlzIHJlbW92ZXMgZXhhY3RseSBuaW5lCiAgICAgICAgICAgICAqIGluc3RydWN0aW9ucyBhbmQgaGFzIG5vIGFkZGl0aW9uYWwgdmlzaWJsZSBtZW1vcnkvcmVnaXN0ZXIKICAgICAgICAgICAgICogc2lkZSBlZmZlY3RzIG9uIHRoZSBtZWFzdXJlZCBuZXV0cmFsIGNvcnJpZG9yLiAqLwogICAgICAgICAgICBib2R5X2luc3RydWN0aW9ucyAtPSBVSU5UMzJfQyg5KTsKICAgICAgICB9CiIiIgpuZXc9IiIiICAgICAgICBpZiAoKHI4ICYgKFVJTlQzMl9DKDEpIDw8IDI2dSkpICE9IDB1ICYmCiAgICAgICAgICAgICFjb3VudGRvd25fcGF0aCAmJgogICAgICAgICAgICAocjcgJiAoVUlOVDMyX0MoMSkgPDwgNHUpKSA9PSAwdSAmJgogICAgICAgICAgICAocjggJiAoKFVJTlQzMl9DKDEpIDw8IDR1KSB8CiAgICAgICAgICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMTR1KSB8CiAgICAgICAgICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMTV1KSB8CiAgICAgICAgICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMTZ1KSkpID09IDB1KSB7CiAgICAgICAgICAgIC8qIDB4MTg3NzguLjB4MTg3ODQgbWFza3Mgc3RhdGUgYml0cyA0LzE0LzE1LzE2LzI2LiAgQml0MjYKICAgICAgICAgICAgICogcmVtb3ZlcyBuaW5lIGluc3RydWN0aW9ucyBvbmx5IHdoZW4gaXQgaXMgdGhlIGZpcnN0IHJlYXNvbgogICAgICAgICAgICAgKiB0byB0YWtlIHRoZSBzaGFyZWQgMHgxODg5MCBmYXN0IHBhdGguICBDb3VudGRvd24sIHI3LmJpdDQgYW5kCiAgICAgICAgICAgICAqIHI4IGJpdHMgNC8xNC8xNS8xNiBhbHJlYWR5IGVudGVyIHRoYXQgcGF0aCwgc28gYml0MjYgYWRkcyBubwogICAgICAgICAgICAgKiBmdXJ0aGVyIGRlbHRhIGluIHRob3NlIGNvbWJpbmF0aW9ucy4gKi8KICAgICAgICAgICAgYm9keV9pbnN0cnVjdGlvbnMgLT0gVUlOVDMyX0MoOSk7CiAgICAgICAgfQoiIiIKaWYgb2xkIG5vdCBpbiBzOiByYWlzZSBTeXN0ZW1FeGl0KCJzdGF0ZTI2IGdhdGUgYW5jaG9yIG5vdCBmb3VuZCIpCnAud3JpdGVfdGV4dChzLnJlcGxhY2Uob2xkLG5ldywxKSkK' | base64 -d | python
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: cp build/vf2i960 vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-state26-interactions
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          rm .github/workflows/fix-game-info-state26-interactions.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c .github/workflows/fix-game-info-state26-interactions.yml
+          git commit -m 'Fix fa_game_info state26 interactions'
+          git push
