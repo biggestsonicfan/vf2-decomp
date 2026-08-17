@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-- expanded `fa_game_info` mode-bit-6 + fighter1 state-bit-8 recovery at
-  `0x00018644` across a controlled ROM-backed state matrix: isolated bit 8 and
-  bit 8 combined with bits 6, 14, 15, 16, 21, 26, 29 or 30, plus priority pairs
-  14+15 and 15+16, all match the original i960 exactly; isolated mode-bit-6 is
-  689 instructions versus 684 with mode bit 6 clear, while bit 8 + bit 4,
-  bit 8 + bit 1 and two-sided bit 8 remain explicitly fail-closed;
+- expanded `fa_game_info` mode-bit-6 + fighter state-bit-8 recovery at
+  `0x00018644`: the controlled state matrix remains exact, the isolated
+  bit8+bit1 `0x188cc..0x18978` subtree is recovered, and the isolated
+  zero-countdown bit8+bit4 fast path now matches at 676 instructions with
+  mode bit 6 set versus 671 with it clear; bit8+bit4 countdown/mixed states
+  and other two-sided bit-8 combinations remain explicitly fail-closed;
 - completed selector 3's phase table: phases 16 (`0x0000c414`) and 17
   (`0x0000c448`) are recovered, closing the last two entries of the
   eighteen-entry table at `0x0000aac4`. Phase 16 decrements the task
