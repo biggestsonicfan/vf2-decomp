@@ -1,45 +1,30 @@
-name: Validate bilateral bit8 bit4 symmetry
+name: Apply validated bilateral bit4 candidate
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
+permissions:
+  contents: write
 jobs:
-  validate:
+  apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch candidate
+        with:
+          fetch-depth: 2
+      - name: Apply validated parent candidate
         run: |
           python3 - <<'PY'
-          from pathlib import Path
-          p=Path('src/recovered/hybrid.c'); s=p.read_text()
-          a='''        (r7 != (UINT32_C(1) << 8u) ||\n         r8 != (UINT32_C(1) << 8u))) {'''
-          b='''        (r7 != (UINT32_C(1) << 8u) ||\n         r8 != (UINT32_C(1) << 8u)) &&\n        (countdown_path ||\n         !((r7 == (UINT32_C(1) << 8u) &&\n            r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) ||\n           (r8 == (UINT32_C(1) << 8u) &&\n            r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))))) {'''
-          if a not in s: raise SystemExit('guard')
-          s=s.replace(a,b,1)
-          a='''                const bool bilateral_state8 =\n                    r7 == (UINT32_C(1) << 8u) && extra_state == 0u;\n                const bool bilateral_second_order =\n                    bilateral_state8 && return_address == UINT32_C(0x000164c4);'''
-          b='''                const bool bilateral_first_order =\n                    return_address == UINT32_C(0x000164b0) &&\n                    (r7 & (UINT32_C(1) << 8u)) != 0u;\n                const bool bilateral_second_order =\n                    return_address == UINT32_C(0x000164c4) &&\n                    (r7 & (UINT32_C(1) << 8u)) != 0u;'''
-          if a not in s: raise SystemExit('orders')
-          s=s.replace(a,b,1)
-          s=s.replace('''                    (bilateral_state8 &&\n                     return_address == UINT32_C(0x000164b0));''','''                    bilateral_first_order;''',1)
-          s=s.replace('''                r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&\n                r8 == 0u) {''','''                r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&\n                (r8 == 0u ||\n                 (return_address == UINT32_C(0x000164c4) &&\n                  r8 == (UINT32_C(1) << 8u)))) {''',1)
-          a='''            if (relative_position_setbits == 0u) {'''
-          b='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) {\n                body_instructions -= UINT32_C(5);\n            }\n            if (relative_position_setbits == 0u) {'''
-          if a not in s: raise SystemExit('directional')
-          s=s.replace(a,b,1)
-          a='''            if (!countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {'''
-          b='''            if (!countdown_path &&\n                return_address == UINT32_C(0x000164b0) &&\n                (r7 & (UINT32_C(1) << 8u)) != 0u &&\n                (r8 & (UINT32_C(1) << 8u)) != 0u) {'''
-          if a not in s: raise SystemExit('first adjustment')
-          s=s.replace(a,b,1)
-          a='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                r7 == (UINT32_C(1) << 8u) &&\n                r8 == (UINT32_C(1) << 8u)) {'''
-          b='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                (r7 & (UINT32_C(1) << 8u)) != 0u &&\n                (r8 & (UINT32_C(1) << 8u)) != 0u) {'''
-          if a not in s: raise SystemExit('second adjustment')
-          p.write_text(s.replace(a,b,1))
+          import subprocess, textwrap
+          y=subprocess.check_output(['git','show','HEAD^:.github/workflows/dump-selector3-phase13.yml'],text=True)
+          block=y.split("python3 - <<'PY'\n",1)[1].split("\n          PY",1)[0]
+          exec(textwrap.dedent(block),{'__name__':'__main__'})
           PY
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
-      - run: cmake --build build --parallel
-      - run: ctest --test-dir build --output-on-failure
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vf2i960-bilateral-bit4-candidate
-          path: build/vf2i960
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recovered/hybrid.c
+          git commit -m "Recover fa_game_info bilateral state8 bit4 corridor"
+          git push
