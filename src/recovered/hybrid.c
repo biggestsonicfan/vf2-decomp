@@ -4710,11 +4710,10 @@ static vf2_status hybrid_execute_game_info_18644(
     if (status == VF2_OK &&
         (r7 & (UINT32_C(1) << 8u)) != 0u &&
         (r8 & (UINT32_C(1) << 8u)) != 0u &&
-        (countdown_path ||
-         r7 != (UINT32_C(1) << 8u) ||
+        (r7 != (UINT32_C(1) << 8u) ||
          r8 != (UINT32_C(1) << 8u))) {
-        /* Only the isolated zero-countdown bilateral state-bit-8 corridor
-         * is ROM-backed. Keep mixed/countdown bilateral states fail-closed. */
+        /* Only the isolated bilateral state-bit-8 corridor is ROM-backed.
+         * Mixed bilateral states remain fail-closed. */
         status = VF2_ERROR_UNSUPPORTED;
     }
     /* The nonzero countdown corridor enters the shared 0x18890 tail. */
@@ -5266,14 +5265,22 @@ static vf2_status hybrid_execute_game_info_18644(
             }
             body_instructions += signed_distance_instruction_delta;
             body_instructions += state8_bit1_instruction_delta;
-            if (return_address == UINT32_C(0x000164b0) &&
+            if (countdown_path &&
+                return_address == UINT32_C(0x000164b0) &&
+                r7 == (UINT32_C(1) << 8u) &&
+                r8 == (UINT32_C(1) << 8u)) {
+                --body_instructions;
+            }
+            if (!countdown_path &&
+                return_address == UINT32_C(0x000164b0) &&
                 r7 == (UINT32_C(1) << 8u) &&
                 r8 == (UINT32_C(1) << 8u)) {
                 /* Bilateral state bit 8 adds one instruction only in the
                  * first fighter order. */
                 ++body_instructions;
             }
-            if (mode_bit6 && return_address == UINT32_C(0x000164c4) &&
+            if (!countdown_path && mode_bit6 &&
+                return_address == UINT32_C(0x000164c4) &&
                 r7 == (UINT32_C(1) << 8u) &&
                 r8 == (UINT32_C(1) << 8u)) {
                 /* The swapped bilateral mode-bit-6 call rejoins one
