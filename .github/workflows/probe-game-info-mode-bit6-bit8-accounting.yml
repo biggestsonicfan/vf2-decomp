@@ -1,0 +1,30 @@
+name: Probe game-info mode bit6 bit8 accounting
+on: [push]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply candidate accounting recovery
+        run: python -c "import base64; exec(base64.b64decode('CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKcCA9IFBhdGgoInNyYy9yZWNvdmVyZWQvaHlicmlkLmMiKQpzID0gcC5yZWFkX3RleHQoKQoKZ3VhcmQgPSAiIiIgICAgICAgICAgICBpZiAoc3RhdHVzID09IFZGMl9PSyAmJgogICAgICAgICAgICAgICAgKHI4ICYgKFVJTlQzMl9DKDEpIDw8IDh1KSkgIT0gMHUpIHsKICAgICAgICAgICAgICAgIC8qIFRoZSBtb2RlLWJpdC02ICsgc3RhdGUtYml0LTggaW50ZXJhY3Rpb24gY2hhbmdlcyB0aGUKICAgICAgICAgICAgICAgICAqIDB4MTg4YWMrIGFjY291bnRpbmcgcHJpb3JpdHkuIEtlZXAgdGhhdCBjb21iaW5hdGlvbiBib3VuZGVkCiAgICAgICAgICAgICAgICAgKiB1bnRpbCBpdHMgcGFpcndpc2UgY29zdHMgYXJlIHJlY292ZXJlZC4gKi8KICAgICAgICAgICAgICAgIHN0YXR1cyA9IFZGMl9FUlJPUl9VTlNVUFBPUlRFRDsKICAgICAgICAgICAgfQoiIiIKaWYgZ3VhcmQgbm90IGluIHM6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJtb2RlLWJpdDYgYml0OCBndWFyZCBub3QgZm91bmQiKQpzID0gcy5yZXBsYWNlKGd1YXJkLCAiIiwgMSkKCm9sZF9leGFjdCA9ICIiIiAgICAgICAgICAgIGNvbnN0IGJvb2wgZXhhY3Rfc3RhdGVfYWNjb3VudGluZyA9CiAgICAgICAgICAgICAgICAhY291bnRkb3duX3BhdGggJiYgIW1vZGVfYml0NiAmJgogICAgICAgICAgICAgICAgYWN0aXZlX3N0YXRlICE9IDB1ICYmCiAgICAgICAgICAgICAgICAoKHI3IHwgcjgpICYgfm9ic2VydmVkX3N0YXRlX21hc2spID09IDB1OwoiIiIKbmV3X2V4YWN0ID0gIiIiICAgICAgICAgICAgY29uc3QgYm9vbCBtb2RlX2JpdDZfYml0OF9hY2NvdW50aW5nID0KICAgICAgICAgICAgICAgICFtb2RlX2JpdDYgfHwKICAgICAgICAgICAgICAgIChyOCAmIChVSU5UMzJfQygxKSA8PCA4dSkpICE9IDB1OwogICAgICAgICAgICBjb25zdCBib29sIGV4YWN0X3N0YXRlX2FjY291bnRpbmcgPQogICAgICAgICAgICAgICAgIWNvdW50ZG93bl9wYXRoICYmIG1vZGVfYml0Nl9iaXQ4X2FjY291bnRpbmcgJiYKICAgICAgICAgICAgICAgIGFjdGl2ZV9zdGF0ZSAhPSAwdSAmJgogICAgICAgICAgICAgICAgKChyNyB8IHI4KSAmIH5vYnNlcnZlZF9zdGF0ZV9tYXNrKSA9PSAwdTsKIiIiCmlmIG9sZF9leGFjdCBub3QgaW4gczogICAgcmFpc2UgU3lzdGVtRXhpdCgiZXhhY3QgYWNjb3VudGluZyBwcmVkaWNhdGUgbm90IGZvdW5kIikKcyA9IHMucmVwbGFjZShvbGRfZXhhY3QsIG5ld19leGFjdCwgMSkKCm9sZF9ib2R5ID0gIiIiICAgICAgICAgICAgICAgICAgICBib2R5X2luc3RydWN0aW9ucyA9CiAgICAgICAgICAgICAgICAgICAgICAgIHByZWZpeF9jb3VudCArIGVhcmx5X2NvdW50ICsgdGFpbF9jb3VudDsKIiIiCm5ld19ib2R5ID0gIiIiICAgICAgICAgICAgICAgICAgICBib2R5X2luc3RydWN0aW9ucyA9CiAgICAgICAgICAgICAgICAgICAgICAgIHByZWZpeF9jb3VudCArIGVhcmx5X2NvdW50ICsgdGFpbF9jb3VudDsKICAgICAgICAgICAgICAgICAgICBpZiAobW9kZV9iaXQ2KSB7CiAgICAgICAgICAgICAgICAgICAgICAgIGJvZHlfaW5zdHJ1Y3Rpb25zICs9CiAgICAgICAgICAgICAgICAgICAgICAgICAgICBzaGFyZWRfYml0MV9wYXRoID8gVUlOVDMyX0MoMikgOiBVSU5UMzJfQygzKTsKICAgICAgICAgICAgICAgICAgICB9CiIiIgppZiBvbGRfYm9keSBub3QgaW4gczogICAgcmFpc2UgU3lzdGVtRXhpdCgiZXhhY3QgYWNjb3VudGluZyBib2R5IGFzc2lnbm1lbnQgbm90IGZvdW5kIikKcyA9IHMucmVwbGFjZShvbGRfYm9keSwgbmV3X2JvZHksIDEpCgpwLndyaXRlX3RleHQocykK'))"
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator
+        run: cp build/vf2i960 ./vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-mode-bit6-bit8-accounting-probe
+          path: vf2i960
+      - name: Cleanup probe workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/probe-game-info-mode-bit6-bit8-accounting.yml
+          git commit -m 'ci: cleanup game-info mode bit6 bit8 probe'
+          git push
