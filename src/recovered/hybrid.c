@@ -4800,10 +4800,14 @@ static vf2_status hybrid_execute_game_info_18644(
             body_instructions = 90u;
         }
         if ((r8 & (UINT32_C(1) << 16u)) != 0u) {
-            body_instructions = 87u;
+            /* 0x18784 removes nine instructions for bit16.  The ordinary
+             * invocation starts from 101, while the shared +0x5b8.bit1
+             * invocation starts from 96. */
+            body_instructions = shared_bit1_path ? 87u : 92u;
         }
         if ((r8 & (UINT32_C(1) << 15u)) != 0u) {
-            body_instructions = 84u;
+            /* Bit15 removes twelve instructions from the same two baselines. */
+            body_instructions = shared_bit1_path ? 84u : 89u;
         }
         if (((r7 | r8) & (UINT32_C(1) << 4u)) != 0u) {
             body_instructions = 92u;
