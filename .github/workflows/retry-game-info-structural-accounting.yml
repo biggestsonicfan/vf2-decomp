@@ -1,0 +1,35 @@
+name: Retry structural game-info accounting
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply structural accounting patch
+        run: |
+          cmd=$(awk '/- name: Recover structural accounting/{getline; sub(/^[[:space:]]*run: /, ""); print; exit}' .github/workflows/recover-game-info-structural-accounting.yml)
+          eval "$cmd"
+          python -c "from pathlib import Path; p=Path('src/recovered/hybrid.c'); s=p.read_text(); needle='    if (status == VF2_OK && !shared_bit1_path) {'; p.write_text(s.replace(needle, '    }\n'+needle, 1))"
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: cp build/vf2i960 vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-structural-accounting
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          rm .github/workflows/recover-game-info-structural-accounting.yml
+          rm .github/workflows/retry-game-info-structural-accounting.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c .github/workflows/recover-game-info-structural-accounting.yml .github/workflows/retry-game-info-structural-accounting.yml
+          git commit -m 'Recover structural fa_game_info accounting'
+          git push
