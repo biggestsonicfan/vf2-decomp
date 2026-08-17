@@ -4826,6 +4826,15 @@ static vf2_status hybrid_execute_game_info_18644(
             body_instructions +=
                 (r3 & (UINT32_C(1) << 1u)) != 0u ? 2u : 3u;
         }
+        if ((r8 & (UINT32_C(1) << 26u)) != 0u) {
+            /* 0x18778..0x18784 masks state bits 4/14/15/16/26. With the
+             * isolated bit-26 state observed in either fighter, the BNE at
+             * 0x18784 jumps directly to 0x18890. Entry/return probes of both
+             * dispatcher invocations show this removes exactly nine
+             * instructions and has no additional visible memory/register
+             * side effects on the measured neutral corridor. */
+            body_instructions -= UINT32_C(9);
+        }
     }
     if (status == VF2_OK && !shared_bit1_path) {
         /* 0x189d0 BBS 1 skips this entire threshold block.  Otherwise
