@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- recovered the isolated `fa_game_info` mode-bit-6 + fighter1 state-bit-8
+  corridor at `0x00018644`: controlled ROM-backed replay from the fifth-dispatch
+  snapshot matches the original i960 exactly at 689 instructions (684 with mode
+  bit 6 clear), while mixed bit-8 state combinations remain fail-closed;
 - completed selector 3's phase table: phases 16 (`0x0000c414`) and 17
   (`0x0000c448`) are recovered, closing the last two entries of the
   eighteen-entry table at `0x0000aac4`. Phase 16 decrements the task

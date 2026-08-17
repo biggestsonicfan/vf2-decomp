@@ -4729,10 +4729,11 @@ static vf2_status hybrid_execute_game_info_18644(
                 status = VF2_ERROR_UNSUPPORTED;
             }
             if (status == VF2_OK &&
-                (r8 & (UINT32_C(1) << 8u)) != 0u) {
-                /* The mode-bit-6 + state-bit-8 interaction changes the
-                 * 0x188ac+ accounting priority. Keep that combination bounded
-                 * until its pairwise costs are recovered. */
+                (r8 & (UINT32_C(1) << 8u)) != 0u &&
+                (r7 != 0u || r8 != (UINT32_C(1) << 8u))) {
+                /* The isolated fighter1 state-bit-8 corridor has exact
+                 * mode-bit-6 accounting. Mixed state combinations remain
+                 * bounded until their pairwise costs are recovered. */
                 status = VF2_ERROR_UNSUPPORTED;
             }
         }
@@ -4989,8 +4990,12 @@ static vf2_status hybrid_execute_game_info_18644(
                 (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
                 (UINT32_C(1) << 26u);
             const uint32_t active_state = (r7 | r8) & observed_state_mask;
+            const bool mode_bit6_isolated_bit8 =
+                mode_bit6 && r7 == 0u &&
+                r8 == (UINT32_C(1) << 8u);
             const bool exact_state_accounting =
-                !countdown_path && !mode_bit6 &&
+                !countdown_path &&
+                (!mode_bit6 || mode_bit6_isolated_bit8) &&
                 active_state != 0u &&
                 ((r7 | r8) & ~observed_state_mask) == 0u;
 
@@ -5054,6 +5059,12 @@ static vf2_status hybrid_execute_game_info_18644(
 
                     body_instructions =
                         prefix_count + early_count + tail_count;
+                    if (mode_bit6_isolated_bit8) {
+                        /* The mode-bit-6 + isolated-bit-8 priority path
+                         * rejoins two instructions earlier than the generic
+                         * exact-state formula. */
+                        body_instructions -= UINT32_C(2);
+                    }
                 }
             } else {
                 if (shared_bit1_path) {
