@@ -1,35 +1,21 @@
-name: Apply validated bilateral bit1 countdown candidate
+name: Dump selector3 phase13
 on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
-permissions:
-  contents: write
 jobs:
-  apply:
+  dump:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - name: Apply validated parent candidate
-        shell: bash
+      - shell: bash
         run: |
           python3 - <<'PY'
-          import subprocess
-          path='.github/workflows/dump-selector3-phase13.yml'
-          text=subprocess.check_output(['git','show',f'HEAD^:{path}'],text=True)
-          marker="          python3 - <<'PY'\n"
-          start=text.index(marker)+len(marker)
-          end=text.index('          PY\n',start)
-          code='\n'.join(line[10:] if line.startswith('          ') else line for line in text[start:end].splitlines())
-          exec(compile(code,'validated-parent-candidate','exec'))
+          from pathlib import Path
+          s=Path('src/recovered/texture_bridge_match.c').read_text()
+          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
+              if n in s:
+                  i=s.index(n)
+                  print(s[max(0,i-7000):min(len(s),i+12000)])
+                  break
           PY
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
-          cmake --build build --parallel
-          ctest --test-dir build --output-on-failure
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/recovered/hybrid.c
-          git commit -m "Recover fa_game_info bilateral state8 bit1 countdown corridor"
-          git push
