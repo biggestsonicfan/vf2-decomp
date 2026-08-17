@@ -4711,7 +4711,12 @@ static vf2_status hybrid_execute_game_info_18644(
         (r7 & (UINT32_C(1) << 8u)) != 0u &&
         (r8 & (UINT32_C(1) << 8u)) != 0u &&
         (r7 != (UINT32_C(1) << 8u) ||
-         r8 != (UINT32_C(1) << 8u))) {
+         r8 != (UINT32_C(1) << 8u)) &&
+        (countdown_path ||
+         !((r7 == (UINT32_C(1) << 8u) &&
+            r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) ||
+           (r8 == (UINT32_C(1) << 8u) &&
+            r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))))) {
         /* Only the isolated bilateral state-bit-8 corridor is ROM-backed.
          * Mixed bilateral states remain fail-closed. */
         status = VF2_ERROR_UNSUPPORTED;
@@ -4743,10 +4748,12 @@ static vf2_status hybrid_execute_game_info_18644(
                 (r8 & (UINT32_C(1) << 8u)) != 0u) {
                 const uint32_t extra_state =
                     r8 & ~(UINT32_C(1) << 8u);
-                const bool bilateral_state8 =
-                    r7 == (UINT32_C(1) << 8u) && extra_state == 0u;
+                const bool bilateral_first_order =
+                    return_address == UINT32_C(0x000164b0) &&
+                    (r7 & (UINT32_C(1) << 8u)) != 0u;
                 const bool bilateral_second_order =
-                    bilateral_state8 && return_address == UINT32_C(0x000164c4);
+                    return_address == UINT32_C(0x000164c4) &&
+                    (r7 & (UINT32_C(1) << 8u)) != 0u;
                 mode_bit6_supported_bit8 =
                     (r7 == 0u &&
                      (extra_state == 0u ||
@@ -4767,8 +4774,7 @@ static vf2_status hybrid_execute_game_info_18644(
                      extra_state ==
                          ((UINT32_C(1) << 15u) |
                           (UINT32_C(1) << 16u)))) ||
-                    (bilateral_state8 &&
-                     return_address == UINT32_C(0x000164b0));
+                    bilateral_first_order;
                 if (!mode_bit6_supported_bit8 && !bilateral_second_order) {
                     /* The isolated bit-4 fast path is ROM-backed only
                      * with a zero countdown. Two-sided bit 8 and mixed
@@ -5252,11 +5258,19 @@ static vf2_status hybrid_execute_game_info_18644(
         if (status == VF2_OK) {
             if (!countdown_path && mode_bit6 &&
                 r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&
-                r8 == 0u) {
+                (r8 == 0u ||
+                 (return_address == UINT32_C(0x000164c4) &&
+                  r8 == (UINT32_C(1) << 8u)))) {
                 /* In the swapped fighter order, mode bit 6 plus isolated
                  * state bits 8+4 rejoins eight instructions earlier than
                  * the generic mode-bit-6 fallback accounting. */
                 body_instructions -= UINT32_C(8);
+            }
+            if (!countdown_path && mode_bit6 &&
+                return_address == UINT32_C(0x000164c4) &&
+                r7 == (UINT32_C(1) << 8u) &&
+                r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) {
+                body_instructions -= UINT32_C(5);
             }
             if (relative_position_setbits == 0u) {
                 --body_instructions;
@@ -5273,16 +5287,16 @@ static vf2_status hybrid_execute_game_info_18644(
             }
             if (!countdown_path &&
                 return_address == UINT32_C(0x000164b0) &&
-                r7 == (UINT32_C(1) << 8u) &&
-                r8 == (UINT32_C(1) << 8u)) {
+                (r7 & (UINT32_C(1) << 8u)) != 0u &&
+                (r8 & (UINT32_C(1) << 8u)) != 0u) {
                 /* Bilateral state bit 8 adds one instruction only in the
                  * first fighter order. */
                 ++body_instructions;
             }
             if (!countdown_path && mode_bit6 &&
                 return_address == UINT32_C(0x000164c4) &&
-                r7 == (UINT32_C(1) << 8u) &&
-                r8 == (UINT32_C(1) << 8u)) {
+                (r7 & (UINT32_C(1) << 8u)) != 0u &&
+                (r8 & (UINT32_C(1) << 8u)) != 0u) {
                 /* The swapped bilateral mode-bit-6 call rejoins one
                  * instruction earlier than the generic fallback. */
                 --body_instructions;
