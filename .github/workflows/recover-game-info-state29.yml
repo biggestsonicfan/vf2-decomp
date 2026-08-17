@@ -1,0 +1,42 @@
+name: Recover game-info state29 tail
+on:
+  push:
+    paths:
+      - .github/workflows/recover-game-info-state29.yml
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover 0x18620..0x1863c state29 tail
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c'); s=p.read_text()
+          s=s.replace('''    uint8_t byte_value = 0u;\n    vf2_status status = VF2_OK;\n\n    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00018550)) {''','''    uint8_t byte_value = 0u;\n    uint32_t suffix_instruction_delta = 0u;\n    vf2_status status = VF2_OK;\n\n    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00018550)) {''',1)
+          old='''    if (status == VF2_OK) {\n        r5 = 30u;\n        status = vf2_model2a_read_u32(\n            machine, fighter + UINT32_C(0x000001a4), &r4\n        );\n    }\n    if (status == VF2_OK && (r4 & (UINT32_C(1) << 29u)) != 0u) {\n        status = VF2_ERROR_UNSUPPORTED;\n    }\n    if (status == VF2_OK) {\n        status = hybrid_read_u16(\n            machine, fighter + UINT32_C(0x000006da), &short_value\n        );\n        r5 = (uint32_t)(int32_t)(int16_t)short_value;\n        if (r5 != 0u) {\n            status = VF2_ERROR_UNSUPPORTED;\n        }\n    }\n    if (status == VF2_OK) {\n        cpu->ip = UINT32_C(0x00018640);\n        cpu->executed_instructions += UINT64_C(33);\n'''
+          new='''    if (status == VF2_OK) {\n        r5 = 30u;\n        status = vf2_model2a_read_u32(\n            machine, fighter + UINT32_C(0x000001a4), &r4\n        );\n    }\n    if (status == VF2_OK) {\n        const bool state29 = (r4 & (UINT32_C(1) << 29u)) != 0u;\n        const bool state11 = (r4 & (UINT32_C(1) << 11u)) != 0u;\n\n        /* 0x18628..0x1863c: bit 29 only inserts the BBS 11 test.  With\n         * bit 11 clear it falls through to the ordinary +0x6da countdown;\n         * with bit 11 set the preloaded value 30 is stored directly. */\n        if (state29 && !state11) {\n            ++suffix_instruction_delta;\n        }\n        if (state29 && state11) {\n            status = hybrid_write_u16(\n                machine, fighter + UINT32_C(0x000006da), (uint16_t)r5\n            );\n        } else {\n            status = hybrid_read_u16(\n                machine, fighter + UINT32_C(0x000006da), &short_value\n            );\n            r5 = (uint32_t)(int32_t)(int16_t)short_value;\n            if (status == VF2_OK && r5 != 0u) {\n                --r5;\n                status = hybrid_write_u16(\n                    machine, fighter + UINT32_C(0x000006da), (uint16_t)r5\n                );\n                suffix_instruction_delta += UINT32_C(2);\n            }\n        }\n    }\n    if (status == VF2_OK) {\n        cpu->ip = UINT32_C(0x00018640);\n        cpu->executed_instructions += UINT64_C(33) +\n            (uint64_t)suffix_instruction_delta;\n'''
+          if old not in s: raise SystemExit('state29 anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: |
+          exe=$(find build -type f -name vf2i960 | head -n1)
+          cp "$exe" vf2i960 && chmod +x vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-state29
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/recovered/hybrid.c
+          git rm -f .github/workflows/recover-game-info-state29.yml
+          git commit -m 'Recover fa_game_info state29 countdown tail'
+          git push origin HEAD:master
