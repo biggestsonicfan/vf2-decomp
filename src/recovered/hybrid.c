@@ -4648,7 +4648,7 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, fighter0 + UINT32_C(0x000005b4), &short_value
         );
         r4 = (uint32_t)(int32_t)(int16_t)short_value;
-        r4 = (r4 - r11) + UINT32_C(0x00004000);
+        r4 = (r11 - r4) + UINT32_C(0x00004000);
         if ((r4 & UINT32_C(0x00008000)) != 0u) {
             r10 |= UINT32_C(1);
         }
@@ -4658,7 +4658,7 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, fighter1 + UINT32_C(0x000005b4), &short_value
         );
         r4 = (uint32_t)(int32_t)(int16_t)short_value;
-        r4 = (r4 - r11) + UINT32_C(0x00004000);
+        r4 = (r11 - r4) + UINT32_C(0x00004000);
         if ((r4 & UINT32_C(0x00008000)) == 0u) {
             r10 |= UINT32_C(2);
         }
