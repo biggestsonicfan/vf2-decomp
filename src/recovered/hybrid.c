@@ -4547,6 +4547,7 @@ static vf2_status hybrid_execute_game_info_18644(
     bool high_result = false;
     bool countdown_path = false;
     bool mode_bit6 = false;
+    bool mode_bit6_supported_bit8 = false;
     bool shared_bit1_path = false;
     uint16_t short_value = 0u;
     uint8_t byte_value = 0u;
@@ -4729,12 +4730,32 @@ static vf2_status hybrid_execute_game_info_18644(
                 status = VF2_ERROR_UNSUPPORTED;
             }
             if (status == VF2_OK &&
-                (r8 & (UINT32_C(1) << 8u)) != 0u &&
-                (r7 != 0u || r8 != (UINT32_C(1) << 8u))) {
-                /* The isolated fighter1 state-bit-8 corridor has exact
-                 * mode-bit-6 accounting. Mixed state combinations remain
-                 * bounded until their pairwise costs are recovered. */
-                status = VF2_ERROR_UNSUPPORTED;
+                (r8 & (UINT32_C(1) << 8u)) != 0u) {
+                const uint32_t extra_state =
+                    r8 & ~(UINT32_C(1) << 8u);
+                mode_bit6_supported_bit8 =
+                    r7 == 0u &&
+                    (extra_state == 0u ||
+                     extra_state == (UINT32_C(1) << 6u) ||
+                     extra_state == (UINT32_C(1) << 14u) ||
+                     extra_state == (UINT32_C(1) << 15u) ||
+                     extra_state == (UINT32_C(1) << 16u) ||
+                     extra_state == (UINT32_C(1) << 21u) ||
+                     extra_state == (UINT32_C(1) << 26u) ||
+                     extra_state == (UINT32_C(1) << 29u) ||
+                     extra_state == (UINT32_C(1) << 30u) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 15u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 16u)));
+                if (!mode_bit6_supported_bit8) {
+                    /* Bit 1 enters the 0x188cc state tree, bit 4 uses a
+                     * distinct fast path, and two-sided bit 8 changes the
+                     * fighter-order accounting. Keep those fail-closed. */
+                    status = VF2_ERROR_UNSUPPORTED;
+                }
             }
         }
     }
@@ -4990,12 +5011,9 @@ static vf2_status hybrid_execute_game_info_18644(
                 (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
                 (UINT32_C(1) << 26u);
             const uint32_t active_state = (r7 | r8) & observed_state_mask;
-            const bool mode_bit6_isolated_bit8 =
-                mode_bit6 && r7 == 0u &&
-                r8 == (UINT32_C(1) << 8u);
             const bool exact_state_accounting =
                 !countdown_path &&
-                (!mode_bit6 || mode_bit6_isolated_bit8) &&
+                (!mode_bit6 || mode_bit6_supported_bit8) &&
                 active_state != 0u &&
                 ((r7 | r8) & ~observed_state_mask) == 0u;
 
@@ -5059,12 +5077,27 @@ static vf2_status hybrid_execute_game_info_18644(
 
                     body_instructions =
                         prefix_count + early_count + tail_count;
-                    if (mode_bit6_isolated_bit8) {
-                        /* The mode-bit-6 + isolated-bit-8 priority path
-                         * rejoins two instructions earlier than the generic
+                    if (mode_bit6_supported_bit8) {
+                    const uint32_t priority_state =
+                        r8 & ((UINT32_C(1) << 14u) |
+                              (UINT32_C(1) << 15u) |
+                              (UINT32_C(1) << 16u));
+                    const bool compound_priority =
+                        priority_state ==
+                            ((UINT32_C(1) << 14u) |
+                             (UINT32_C(1) << 15u)) ||
+                        priority_state ==
+                            ((UINT32_C(1) << 15u) |
+                             (UINT32_C(1) << 16u));
+                    if (!compound_priority) {
+                        /* Controlled ROM-backed mode-bit-6 probes with
+                         * bit 8 plus one supported state flag rejoin two
+                         * instructions earlier. The measured 14+15 and
+                         * 15+16 priority pairs already match the generic
                          * exact-state formula. */
                         body_instructions -= UINT32_C(2);
                     }
+                }
                 }
             } else {
                 if (shared_bit1_path) {
