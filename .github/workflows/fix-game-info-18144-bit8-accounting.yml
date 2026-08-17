@@ -1,0 +1,63 @@
+name: Fix game-info 18144 bit8 accounting
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix bit8 suffix accounting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/recovered/hybrid.c')
+          s = p.read_text()
+          needle = '''    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, fighter + UINT32_C(0x00000821), &byte_value
+        );
+        r9 = byte_value;
+    }
+'''
+          repl = '''    if (status == VF2_OK &&
+        (r7 & (UINT32_C(1) << 8u)) != 0u) {
+        /* 0x185d8..0x185f0 takes the state-bit-8 side path in the common
+         * 0x18144 suffix. The dispatcher already accounts for its final
+         * state-bit-8 branch, so this helper contributes the six remaining
+         * instructions. Controlled first/second fighter probes measure +7
+         * instructions end-to-end relative to the corresponding non-bit-8
+         * 0x18144 path. */
+        suffix_instruction_delta += UINT32_C(6);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_read_u8(
+            machine, fighter + UINT32_C(0x00000821), &byte_value
+        );
+        r9 = byte_value;
+    }
+'''
+          if needle not in s:
+              raise SystemExit('18144 bit8 suffix anchor not found')
+          p.write_text(s.replace(needle, repl, 1))
+          PY
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: cp build/vf2i960 vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-18144-bit8
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          rm .github/workflows/fix-game-info-18144-bit8-accounting.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c .github/workflows/fix-game-info-18144-bit8-accounting.yml
+          git commit -m 'Fix fa_game_info 18144 bit8 accounting'
+          git push
