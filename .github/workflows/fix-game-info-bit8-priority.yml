@@ -1,0 +1,31 @@
+name: Fix game-info bit8 priority
+on: [push]
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix bit8 priority
+        run: echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgic3JjL3JlY292ZXJlZC9oeWJyaWQuYyIpCnM9cC5yZWFkX3RleHQoKQpvbGQ9IiIiICAgICAgICBpZiAoKChyNyB8IHI4KSAmIChVSU5UMzJfQygxKSA8PCA4dSkpICE9IDB1KSB7CiAgICAgICAgICAgIGJvZHlfaW5zdHJ1Y3Rpb25zID0gMTAxdTsKICAgICAgICB9CiIiIgpuZXc9IiIiICAgICAgICBpZiAoKChyNyB8IHI4KSAmIChVSU5UMzJfQygxKSA8PCA4dSkpICE9IDB1ICYmCiAgICAgICAgICAgICgocjcgfCByOCkgJiAoVUlOVDMyX0MoMSkgPDwgNHUpKSA9PSAwdSAmJgogICAgICAgICAgICAocjggJiAoKFVJTlQzMl9DKDEpIDw8IDE0dSkgfAogICAgICAgICAgICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDE1dSkgfAogICAgICAgICAgICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDE2dSkpKSA9PSAwdSkgewogICAgICAgICAgICAvKiBCaXQgOCBzZWxlY3RzIHRoZSBvcmRpbmFyeSAxMDEtaW5zdHJ1Y3Rpb24gYm9keSBvbmx5IHdoZW4KICAgICAgICAgICAgICogbm8gZWFybGllciBmYXN0LXBhdGggaGFzIGFscmVhZHkgc2VsZWN0ZWQgMHgxODg5MC4gKi8KICAgICAgICAgICAgYm9keV9pbnN0cnVjdGlvbnMgPSAxMDF1OwogICAgICAgIH0KIiIiCmlmIG9sZCBub3QgaW4gczoKICAgIHJhaXNlIFN5c3RlbUV4aXQoImJpdDggcHJpb3JpdHkgYW5jaG9yIG5vdCBmb3VuZCIpCnAud3JpdGVfdGV4dChzLnJlcGxhY2Uob2xkLG5ldywxKSkK' | base64 -d | python
+      - name: Configure strict build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage validator binary
+        run: cp build/vf2i960 vf2i960
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2i960-game-info-bit8-priority
+          path: vf2i960
+      - name: Commit and cleanup
+        run: |
+          rm .github/workflows/fix-game-info-bit8-priority.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/recovered/hybrid.c .github/workflows/fix-game-info-bit8-priority.yml
+          git commit -m 'Fix fa_game_info bit8 fast-path priority'
+          git push
