@@ -4714,9 +4714,11 @@ static vf2_status hybrid_execute_game_info_18644(
          r8 != (UINT32_C(1) << 8u)) &&
         (countdown_path ||
          !((r7 == (UINT32_C(1) << 8u) &&
-            r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u))) ||
+            (r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) ||
+             r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u)))) ||
            (r8 == (UINT32_C(1) << 8u) &&
-            r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))))) {
+            (r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) ||
+             r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))))))) {
         /* Only the isolated bilateral state-bit-8 corridor is ROM-backed.
          * Mixed bilateral states remain fail-closed. */
         status = VF2_ERROR_UNSUPPORTED;
@@ -4800,7 +4802,12 @@ static vf2_status hybrid_execute_game_info_18644(
             r7 == 0u && r8 == isolated_state8_bit1;
         const bool reverse_isolated =
             r7 == isolated_state8_bit1 && r8 == 0u;
-        if (!forward_isolated && !reverse_isolated) {
+        const bool forward_bilateral =
+            r7 == (UINT32_C(1) << 8u) && r8 == isolated_state8_bit1;
+        const bool reverse_bilateral =
+            r7 == isolated_state8_bit1 && r8 == (UINT32_C(1) << 8u);
+        if (!forward_isolated && !reverse_isolated &&
+            !forward_bilateral && !reverse_bilateral) {
             /* Only the two fighter-order orientations of isolated
              * state8+bit1 are ROM-backed here. */
             status = VF2_ERROR_UNSUPPORTED;
@@ -4832,7 +4839,8 @@ static vf2_status hybrid_execute_game_info_18644(
      * distance/type sub-tree before the shared tail. Account this relative
      * to the ordinary bit-8 path, whose two BBC instructions are already
      * included by the exact-state formula. */
-    if (status == VF2_OK && r7 == 0u &&
+    if (status == VF2_OK &&
+        (r7 == 0u || r7 == (UINT32_C(1) << 8u)) &&
         r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) {
         uint8_t fighter1_type = 0u;
         status = hybrid_read_u8(
@@ -5126,12 +5134,18 @@ static vf2_status hybrid_execute_game_info_18644(
                 r7 == 0u && r8 == state8_bit1;
             const bool isolated_state8_bit1_reverse =
                 r7 == state8_bit1 && r8 == 0u;
+            const bool bilateral_state8_bit1_forward =
+                r7 == (UINT32_C(1) << 8u) && r8 == state8_bit1;
+            const bool bilateral_state8_bit1_reverse =
+                r7 == state8_bit1 && r8 == (UINT32_C(1) << 8u);
             const bool exact_state_accounting =
                 !countdown_path &&
                 (!mode_bit6 || mode_bit6_supported_bit8) &&
                 active_state != 0u &&
                 (isolated_state8_bit1_forward ||
                  isolated_state8_bit1_reverse ||
+                 bilateral_state8_bit1_forward ||
+                 bilateral_state8_bit1_reverse ||
                  ((r7 | r8) & ~observed_state_mask) == 0u);
 
             if (exact_state_accounting) {
