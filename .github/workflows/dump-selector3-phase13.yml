@@ -3,6 +3,8 @@ on:
   push:
     branches: [master]
     paths: [.github/workflows/dump-selector3-phase13.yml]
+permissions:
+  contents: write
 jobs:
   dump:
     runs-on: ubuntu-latest
@@ -16,7 +18,15 @@ jobs:
           for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
               if n in s:
                   i=s.index(n)
-                  print('OFFSET', i)
-                  print(s[max(0,i-9000):min(len(s),i+16000)])
+                  Path('decomp/i960/notes/selector3_phase13_dump.tmp').write_text(
+                      f'OFFSET {i}\n' + s[max(0,i-12000):min(len(s),i+22000)]
+                  )
                   break
+          else:
+              raise SystemExit('phase13 anchor not found')
           PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add decomp/i960/notes/selector3_phase13_dump.tmp
+          git commit -m "ci: capture selector3 phase13 recovery boundary"
+          git push
