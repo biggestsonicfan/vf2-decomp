@@ -14932,23 +14932,35 @@ static vf2_status execute_selector3_phase13(
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     status = execute_selector3_random16(machine, &first);
-    while (status == VF2_OK && first % UINT32_C(11) == UINT32_C(9)) {
+    if (status == VF2_OK) {
+        first %= UINT32_C(11);
+    }
+    while (status == VF2_OK && first == UINT32_C(9)) {
         status = execute_selector3_random16(machine, &first);
+        if (status == VF2_OK) {
+            first %= UINT32_C(11);
+        }
     }
     if (status == VF2_OK) {
         status = execute_selector3_random16(machine, &second);
     }
-    while (status == VF2_OK && second % UINT32_C(11) == UINT32_C(9)) {
+    if (status == VF2_OK) {
+        second %= UINT32_C(11);
+    }
+    while (status == VF2_OK && second == UINT32_C(9)) {
         status = execute_selector3_random16(machine, &second);
+        if (status == VF2_OK) {
+            second %= UINT32_C(11);
+        }
     }
     if (status != VF2_OK) {
         return status;
     }
-    if (first != second) {
+    if (first == second) {
         second += UINT32_C(13);
     }
-    first_mode = (uint8_t)(first & UINT32_C(0xff));
-    second_mode = (uint8_t)(second & UINT32_C(0xff));
+    first_mode = (uint8_t)first;
+    second_mode = (uint8_t)second;
     status = execute_selector3_phase7(machine, previous_phase, next_phase);
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &task0);
