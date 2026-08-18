@@ -1,4 +1,4 @@
-name: Dump selector3 phase13
+name: Fix selector3 phase13
 on:
   push:
     branches: [master]
@@ -6,7 +6,7 @@ on:
 permissions:
   contents: write
 jobs:
-  dump:
+  fix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,19 +14,30 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          s=Path('src/recovered/texture_bridge_match.c').read_text()
-          a=s.index('static vf2_status execute_selector3_random16(')
-          b=s.find('\nstatic vf2_status ', a+20)
-          random16=s[a:b]
-          c=s.index('if (status == VF2_OK && entry_phase == UINT8_C(11))')
-          d=s.index('if (status == VF2_OK && entry_phase == UINT8_C(14))', c)
-          compose=s[c:d]
-          Path('decomp/i960/notes/selector3_phase13_dump.tmp').write_text(
-              random16 + '\n\n/* PHASE 11-13 COMPOSITION */\n' + compose
-          )
+          p=Path('src/recovered/texture_bridge_match.c')
+          s=p.read_text()
+          old='''    status = execute_selector3_random16(machine, &first);\n    while (status == VF2_OK && first % UINT32_C(11) == UINT32_C(9)) {\n        status = execute_selector3_random16(machine, &first);\n    }\n    if (status == VF2_OK) {\n        status = execute_selector3_random16(machine, &second);\n    }\n    while (status == VF2_OK && second % UINT32_C(11) == UINT32_C(9)) {\n        status = execute_selector3_random16(machine, &second);\n    }\n    if (status != VF2_OK) {\n        return status;\n    }\n    if (first != second) {\n        second += UINT32_C(13);\n    }\n    first_mode = (uint8_t)(first & UINT32_C(0xff));\n    second_mode = (uint8_t)(second & UINT32_C(0xff));\n'''
+          new='''    status = execute_selector3_random16(machine, &first);\n    if (status == VF2_OK) {\n        first %= UINT32_C(11);\n    }\n    while (status == VF2_OK && first == UINT32_C(9)) {\n        status = execute_selector3_random16(machine, &first);\n        if (status == VF2_OK) {\n            first %= UINT32_C(11);\n        }\n    }\n    if (status == VF2_OK) {\n        status = execute_selector3_random16(machine, &second);\n    }\n    if (status == VF2_OK) {\n        second %= UINT32_C(11);\n    }\n    while (status == VF2_OK && second == UINT32_C(9)) {\n        status = execute_selector3_random16(machine, &second);\n        if (status == VF2_OK) {\n            second %= UINT32_C(11);\n        }\n    }\n    if (status != VF2_OK) {\n        return status;\n    }\n    if (first == second) {\n        second += UINT32_C(13);\n    }\n    first_mode = (uint8_t)first;\n    second_mode = (uint8_t)second;\n'''
+          if s.count(old) != 1:
+              raise SystemExit(f'phase13 source anchor count={s.count(old)}')
+          p.write_text(s.replace(old,new))
+
+          note=Path('decomp/i960/notes/selector3_phase13_measurement_v0026.md')
+          note.write_text('''# Selector-3 phase-13 instruction-level recovery correction (v0.0.26)\n\nDirect disassembly of the supported Virtua Fighter 2 Version 2.1 i960 program at `0x0000bdc8` closes a semantic error in the native phase-13 handler.\n\nThe ROM sequence is:\n\n```text\n0x0000bdc8  call      0x000094d0\n0x0000bdcc  remo      11,g0,r14\n0x0000bdd0  cmpobe    9,r14,0x0000bdc8\n0x0000bdd4  call      0x000094d0\n0x0000bdd8  remo      11,g0,r15\n0x0000bddc  cmpobe    9,r15,0x0000bdd4\n0x0000bde0  cmpobne   r14,r15,0x0000bde8\n0x0000bde4  addo      13,r15,r15\n0x0000bde8  ld        0x00500804,r4\n0x0000bdf0  stob      r14,0x1b0(r4)\n0x0000bdf4  ld        0x00500808,r4\n0x0000bdfc  stob      r15,0x1b0(r4)\n```\n\nTherefore both random values are reduced modulo 11 before being consumed; remainder 9 is rejected and regenerated. The `+13` adjustment is applied only when the two accepted remainders are equal, because `cmpobne` skips the `addo` when they differ. The previous C implementation incorrectly retained the raw 16-bit random values, stored their low bytes, and applied `+13` when the raw values differed.\n\nThe native handler now mirrors the ROM semantics: reduce after every RNG call, retry remainder 9, compare the accepted remainders, offset the second value only on equality, and store those resulting mode bytes.\n\nA full live-state differential snapshot for phase 13 remains useful as a separate acceptance checkpoint for downstream phase-7 composition, but the random-selection prefix itself is now recovered instruction-for-instruction.\n''')
+
+          Path('decomp/i960/notes/selector3_phase13_dump.tmp').unlink(missing_ok=True)
+
+          wf=Path('.github/workflows/dump-selector3-phase13.yml')
+          wf.write_text('''name: Dump selector3 phase13\non:\n  push:\n    branches: [master]\n    paths: [.github/workflows/dump-selector3-phase13.yml]\njobs:\n  dump:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - shell: bash\n        run: |\n          python3 - <<'PY2'\n          from pathlib import Path\n          s=Path('src/recovered/texture_bridge_match.c').read_text()\n          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:\n              if n in s:\n                  i=s.index(n)\n                  print(s[max(0,i-7000):min(len(s),i+12000)])\n                  break\n          PY2\n''')
           PY
+
+          cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add decomp/i960/notes/selector3_phase13_dump.tmp
-          git commit -m "ci: capture selector3 phase13 composition"
+          git add src/recovered/texture_bridge_match.c decomp/i960/notes/selector3_phase13_measurement_v0026.md .github/workflows/dump-selector3-phase13.yml
+          git add -u decomp/i960/notes/selector3_phase13_dump.tmp || true
+          git commit -m "Recover selector3 phase13 random fighter selection"
           git push
