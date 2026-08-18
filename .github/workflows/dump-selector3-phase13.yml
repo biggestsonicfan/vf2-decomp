@@ -15,16 +15,18 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s=Path('src/recovered/texture_bridge_match.c').read_text()
-          anchor='vf2_status execute_selector3_phase13('
-          i=s.index(anchor)
-          j=s.find('\nvf2_status ', i+len(anchor))
-          if j < 0: j=min(len(s), i+30000)
-          out=s[i:j]
-          Path('decomp/i960/notes/selector3_phase13_dump.tmp').write_text(out)
-          print(out)
+          a=s.index('static vf2_status execute_selector3_random16(')
+          b=s.find('\nstatic vf2_status ', a+20)
+          random16=s[a:b]
+          c=s.index('if (status == VF2_OK && entry_phase == UINT8_C(11))')
+          d=s.index('if (status == VF2_OK && entry_phase == UINT8_C(14))', c)
+          compose=s[c:d]
+          Path('decomp/i960/notes/selector3_phase13_dump.tmp').write_text(
+              random16 + '\n\n/* PHASE 11-13 COMPOSITION */\n' + compose
+          )
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add decomp/i960/notes/selector3_phase13_dump.tmp
-          git commit -m "ci: isolate selector3 phase13 handler"
+          git commit -m "ci: capture selector3 phase13 composition"
           git push
