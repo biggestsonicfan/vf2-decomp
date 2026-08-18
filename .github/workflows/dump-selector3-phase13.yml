@@ -15,18 +15,16 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s=Path('src/recovered/texture_bridge_match.c').read_text()
-          for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
-              if n in s:
-                  i=s.index(n)
-                  Path('decomp/i960/notes/selector3_phase13_dump.tmp').write_text(
-                      f'OFFSET {i}\n' + s[max(0,i-12000):min(len(s),i+22000)]
-                  )
-                  break
-          else:
-              raise SystemExit('phase13 anchor not found')
+          anchor='vf2_status execute_selector3_phase13('
+          i=s.index(anchor)
+          j=s.find('\nvf2_status ', i+len(anchor))
+          if j < 0: j=min(len(s), i+30000)
+          out=s[i:j]
+          Path('decomp/i960/notes/selector3_phase13_dump.tmp').write_text(out)
+          print(out)
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add decomp/i960/notes/selector3_phase13_dump.tmp
-          git commit -m "ci: capture selector3 phase13 recovery boundary"
+          git commit -m "ci: isolate selector3 phase13 handler"
           git push
