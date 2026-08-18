@@ -16,6 +16,7 @@ jobs:
           for n in ['phase == UINT8_C(13)', 'entry_phase == UINT8_C(13)', 'UINT8_C(13)']:
               if n in s:
                   i=s.index(n)
-                  print(s[max(0,i-7000):min(len(s),i+12000)])
+                  print('OFFSET', i)
+                  print(s[max(0,i-9000):min(len(s),i+16000)])
                   break
           PY
