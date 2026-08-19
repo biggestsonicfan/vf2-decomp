@@ -44,3 +44,4 @@ jobs:
           git add src/recovered/hybrid.c
           git commit -m "candidate: admit class6 0x102-0x112 state"
           git push --force origin probe-class6-102-112
+# trigger
