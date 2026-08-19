@@ -41,3 +41,4 @@ jobs:
           git add src/recovered/hybrid.c
           git commit -m "candidate: admit bilateral state8 bit2 bit4 state"
           git push --force origin probe-both114
+# trigger after workflow exists on default branch
