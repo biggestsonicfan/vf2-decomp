@@ -1,0 +1,27 @@
+name: Stage game-info 0x100-0x114
+on:
+  pull_request:
+    branches: [master]
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply exact semantic patch
+        run: git apply decomp/i960/patches/game_info_18644_100_114_semantic.patch
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Publish candidate branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C probe-game-info-100-114-built
+          git add src/recovered/hybrid.c
+          git commit -m "candidate: admit exact 0x100-0x114 corridor"
+          git push --force origin probe-game-info-100-114-built
