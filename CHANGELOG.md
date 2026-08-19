@@ -3,14 +3,16 @@
 ## Unreleased
 
 - expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: isolated
-  bit8+bit1 and bit8+bit4 are recovered, bilateral bit8 matches zero-countdown
-  (690/695 instructions with mode bit 6 clear/set) and nonzero-countdown
-  (666/671), bilateral bit8+bit4 on exactly one fighter is ROM-backed with
-  zero and nonzero countdown in either orientation (the latter matches the
-  calibrated caller-to-task boundary at 188/193 instructions with mode bit 6
-  clear/set), and bilateral bit8+bit1 matches 701/706 with zero countdown and
-  677/682 with nonzero countdown; both-fighter bit1/bit4 and other unmeasured
-  combinations remain explicitly fail-closed;
+  bit8+bit1 and bit8+bit4 remain recovered; bilateral bit8 matches the existing
+  zero/nonzero-countdown matrices; the asymmetric bilateral bit8+bit4 state
+  (`0x100/0x110` in either physical orientation) was revalidated from the real
+  `fighter+0x1a4` state source at both `0x18644` call sites, with exact CPU,
+  mutable-memory, instruction, call and return equality; bilateral both-bit4
+  (`0x110/0x110`) matches 202/207 caller-to-task instructions with mode bit 6
+  clear/set for either countdown state, while bilateral both-bit1
+  (`0x102/0x102`) matches 232/237 with zero countdown and 208/213 with nonzero
+  countdown; unrelated unmeasured mixed-extra-state combinations remain
+  explicitly fail-closed;
 - completed selector 3's phase table: phases 16 (`0x0000c414`) and 17
   (`0x0000c448`) are recovered, closing the last two entries of the
   eighteen-entry table at `0x0000aac4`. Phase 16 decrements the task
