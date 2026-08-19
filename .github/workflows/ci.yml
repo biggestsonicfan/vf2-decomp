@@ -10,6 +10,17 @@ permissions:
   contents: read
 
 jobs:
+  python-tools:
+    name: Python tooling syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile differential tools
+        run: >-
+          python3 -m py_compile
+          decomp/i960/enumerate_game_info_18644.py
+          decomp/i960/tools/*.py
+
   build:
     name: ${{ matrix.compiler }} release
     runs-on: ubuntu-latest
