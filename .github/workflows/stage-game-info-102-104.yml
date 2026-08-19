@@ -11,6 +11,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply exact semantic patch
         run: git apply decomp/i960/patches/game_info_18644_102_104_semantic.patch
+      - name: Apply measured accounting patch
+        run: git apply decomp/i960/patches/game_info_18644_102_104_accounting.patch
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
@@ -23,5 +25,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -C probe-game-info-102-104-built
           git add src/recovered/hybrid.c
-          git commit -m "candidate: admit exact 0x102-0x104 corridor"
+          git commit -m "candidate: recover exact 0x102-0x104 corridor"
           git push --force origin probe-game-info-102-104-built
