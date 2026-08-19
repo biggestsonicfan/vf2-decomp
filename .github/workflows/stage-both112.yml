@@ -1,4 +1,4 @@
-name: Stage bilateral 0x112 candidate
+name: Stage bilateral 0x112 accounted candidate
 on:
   push:
     branches: [master]
@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch exact 0x112/0x112 candidate
+      - name: Patch exact 0x112/0x112 candidate and accounting
         shell: bash
         run: |
           python3 - <<'PY'
@@ -30,7 +30,11 @@ jobs:
           old3='''            const bool cross_bit1_bit4 =\n                (r7 == state8_bit1 && r8 == state8_bit4) ||\n                (r7 == state8_bit4 && r8 == state8_bit1);\n            if (!both_bit4 && !cross_bit1_bit4) {\n                status = VF2_ERROR_UNSUPPORTED;\n            }\n'''
           new3='''            const bool cross_bit1_bit4 =\n                (r7 == state8_bit1 && r8 == state8_bit4) ||\n                (r7 == state8_bit4 && r8 == state8_bit1);\n            const uint32_t state8_bit1_bit4 =\n                state8_bit1 | (UINT32_C(1) << 4u);\n            const bool both_bit1_bit4 =\n                r7 == state8_bit1_bit4 && r8 == state8_bit1_bit4;\n            if (!both_bit4 && !cross_bit1_bit4 && !both_bit1_bit4) {\n                status = VF2_ERROR_UNSUPPORTED;\n            }\n'''
           if old3 not in s: raise SystemExit('threshold anchor missing')
-          p.write_text(s.replace(old3,new3,1))
+          s=s.replace(old3,new3,1)
+          marker='''            }\n        }\n    }\n    if (status == VF2_OK && !shared_bit1_path) {\n'''
+          insert='''            }\n            {\n                const uint32_t state8_bit1_bit4 =\n                    (UINT32_C(1) << 8u) |\n                    (UINT32_C(1) << 1u) |\n                    (UINT32_C(1) << 4u);\n                if (r7 == state8_bit1_bit4 &&\n                    r8 == state8_bit1_bit4) {\n                    if (return_address == UINT32_C(0x000164b0)) {\n                        body_instructions += countdown_path\n                            ? UINT32_C(19) : UINT32_C(5);\n                    } else if (return_address == UINT32_C(0x000164c4)) {\n                        if (countdown_path) {\n                            body_instructions += UINT32_C(18);\n                        } else {\n                            body_instructions += mode_bit6\n                                ? UINT32_C(2) : UINT32_C(1);\n                        }\n                    }\n                }\n            }\n        }\n    }\n    if (status == VF2_OK && !shared_bit1_path) {\n'''
+          if marker not in s: raise SystemExit('accounting insertion anchor missing')
+          p.write_text(s.replace(marker,insert,1))
           PY
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
@@ -43,7 +47,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C probe-both112
+          git switch -C probe-both112-accounting
           git add src/recovered/hybrid.c
-          git commit -m "candidate: admit bilateral state8 bit1 bit4 state"
-          git push --force origin probe-both112
+          git commit -m "candidate: account bilateral state8 bit1 bit4 state"
+          git push --force origin probe-both112-accounting
