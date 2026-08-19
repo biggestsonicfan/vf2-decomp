@@ -1,0 +1,46 @@
+name: Stage class6 0x102-0x112 candidate
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/stage-class6-102-112.yml]
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch exact class6 representative
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c'); s=p.read_text()
+          old='''        const bool bilateral_class5_110_112 =\n            (r7 == state8_bit4 && r8 == state8_bit1_bit4) ||\n            (r8 == state8_bit4 && r7 == state8_bit1_bit4);\n        if (!bilateral_bit1 && !bilateral_bit4 && !bilateral_both_bit4 &&\n            !bilateral_both_bit1 && !bilateral_cross_bit1_bit4 &&\n            !bilateral_both_bit1_bit4 && !bilateral_both_bit2_bit4 &&\n            !bilateral_both_bit2 && !bilateral_asym_bit2 &&\n            !bilateral_class5_110_112) {\n'''
+          new='''        const bool bilateral_class5_110_112 =\n            (r7 == state8_bit4 && r8 == state8_bit1_bit4) ||\n            (r8 == state8_bit4 && r7 == state8_bit1_bit4);\n        const bool bilateral_class6_102_112 =\n            (r7 == state8_bit1 && r8 == state8_bit1_bit4) ||\n            (r8 == state8_bit1 && r7 == state8_bit1_bit4);\n        if (!bilateral_bit1 && !bilateral_bit4 && !bilateral_both_bit4 &&\n            !bilateral_both_bit1 && !bilateral_cross_bit1_bit4 &&\n            !bilateral_both_bit1_bit4 && !bilateral_both_bit2_bit4 &&\n            !bilateral_both_bit2 && !bilateral_asym_bit2 &&\n            !bilateral_class5_110_112 && !bilateral_class6_102_112) {\n'''
+          if old not in s: raise SystemExit('class6 initial anchor missing')
+          s=s.replace(old,new,1)
+          old2='''        const bool class5_110_112 =\n            (r7 == state8_bit4 && r8 == state8_bit1_bit4) ||\n            (r8 == state8_bit4 && r7 == state8_bit1_bit4);\n        if (!forward_isolated && !reverse_isolated &&\n            !forward_bilateral && !reverse_bilateral && !both_bilateral &&\n            !cross_bilateral && !both_bit1_bit4 && !class5_110_112) {\n'''
+          new2='''        const bool class5_110_112 =\n            (r7 == state8_bit4 && r8 == state8_bit1_bit4) ||\n            (r8 == state8_bit4 && r7 == state8_bit1_bit4);\n        const bool class6_102_112 =\n            (r7 == isolated_state8_bit1 && r8 == state8_bit1_bit4) ||\n            (r8 == isolated_state8_bit1 && r7 == state8_bit1_bit4);\n        if (!forward_isolated && !reverse_isolated &&\n            !forward_bilateral && !reverse_bilateral && !both_bilateral &&\n            !cross_bilateral && !both_bit1_bit4 && !class5_110_112 &&\n            !class6_102_112) {\n'''
+          if old2 not in s: raise SystemExit('class6 bit1 anchor missing')
+          s=s.replace(old2,new2,1)
+          old3='''            const bool class5_110_112 =\n                (r7 == state8_bit4 && r8 == state8_bit1_bit4) ||\n                (r8 == state8_bit4 && r7 == state8_bit1_bit4);\n            if (!both_bit4 && !cross_bit1_bit4 && !both_bit1_bit4 &&\n                !both_bit2_bit4 && !both_bit2 && !asym_bit2 &&\n                !class5_110_112) {\n'''
+          new3='''            const bool class5_110_112 =\n                (r7 == state8_bit4 && r8 == state8_bit1_bit4) ||\n                (r8 == state8_bit4 && r7 == state8_bit1_bit4);\n            const bool class6_102_112 =\n                (r7 == state8_bit1 && r8 == state8_bit1_bit4) ||\n                (r8 == state8_bit1 && r7 == state8_bit1_bit4);\n            if (!both_bit4 && !cross_bit1_bit4 && !both_bit1_bit4 &&\n                !both_bit2_bit4 && !both_bit2 && !asym_bit2 &&\n                !class5_110_112 && !class6_102_112) {\n'''
+          if old3 not in s: raise SystemExit('class6 threshold anchor missing')
+          p.write_text(s.replace(old3,new3,1))
+          PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Publish candidate branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C probe-class6-102-112
+          git add src/recovered/hybrid.c
+          git commit -m "candidate: admit class6 0x102-0x112 state"
+          git push --force origin probe-class6-102-112
