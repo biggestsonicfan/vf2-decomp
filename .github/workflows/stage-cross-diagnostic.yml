@@ -1,0 +1,47 @@
+name: Stage cross-state diagnostic candidate
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/stage-cross-diagnostic.yml]
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply candidate2 and instrument unsupported exits
+        shell: bash
+        run: |
+          git cherry-pick 2050945f15545163a305d4406d1fe4a38d4fddd2
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c')
+          s=p.read_text()
+          start=s.index('static vf2_status hybrid_execute_game_info_18644(')
+          end=s.index('\n/* Translate the observed 0x181c0', start)
+          sub=s[start:end]
+          needle='status = VF2_ERROR_UNSUPPORTED;'
+          count=sub.count(needle)
+          for i in range(count):
+              sub=sub.replace(needle, f'status = (vf2_status){201+i};', 1)
+          p.write_text(s[:start]+sub+s[end:])
+          print('instrumented', count, 'unsupported exits')
+          PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Publish diagnostic branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C probe-cross-diagnostic
+          git add src/recovered/hybrid.c
+          git commit -m "diagnostic: number cross-state unsupported exits"
+          git push --force origin probe-cross-diagnostic
