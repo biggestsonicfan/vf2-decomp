@@ -12,11 +12,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply candidate2 and instrument unsupported exits
+      - name: Copy candidate2 and instrument unsupported exits
         shell: bash
         run: |
           git fetch origin probe-cross-bit1-bit4-candidate2
-          git cherry-pick 2050945f15545163a305d4406d1fe4a38d4fddd2
+          git show 2050945f15545163a305d4406d1fe4a38d4fddd2:src/recovered/hybrid.c > src/recovered/hybrid.c
           python3 - <<'PY'
           from pathlib import Path
           p=Path('src/recovered/hybrid.c')
