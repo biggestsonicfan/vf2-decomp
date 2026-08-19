@@ -4721,11 +4721,10 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_bit4 =
             (r7 == state8 && r8 == state8_bit4) ||
             (r8 == state8 && r7 == state8_bit4);
-        if ((!bilateral_bit1 && !bilateral_bit4) ||
-            (countdown_path && !bilateral_bit1)) {
-            /* Countdown composes only with the measured bilateral bit1
-             * pair. Bilateral bit4 countdown and other mixtures remain
-             * explicit ROM boundaries. */
+        if (!bilateral_bit1 && !bilateral_bit4) {
+            /* The one-extra-bit bilateral bit1 and bit4 compositions are
+             * ROM-backed for both zero and nonzero countdown. Other mixed
+             * states remain explicit unsupported boundaries. */
             status = VF2_ERROR_UNSUPPORTED;
         }
     }
