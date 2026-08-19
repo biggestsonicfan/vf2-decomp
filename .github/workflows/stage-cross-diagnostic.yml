@@ -15,6 +15,7 @@ jobs:
       - name: Apply candidate2 and instrument unsupported exits
         shell: bash
         run: |
+          git fetch origin probe-cross-bit1-bit4-candidate2
           git cherry-pick 2050945f15545163a305d4406d1fe4a38d4fddd2
           python3 - <<'PY'
           from pathlib import Path
