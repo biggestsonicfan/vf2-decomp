@@ -1,10 +1,7 @@
 name: Stage game-info accounting regression
 on:
-  push:
+  pull_request:
     branches: [master]
-    paths:
-      - decomp/i960/patches/game_info_18644_accounting_regression.patch
-      - .github/workflows/stage-game-info-accounting-regression.yml
 permissions:
   contents: write
 jobs:
@@ -28,8 +25,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C probe-game-info-accounting-regression
+          git switch -C probe-game-info-accounting-regression-built
           git add src/recovered/hybrid.c
           git commit -m "fix: restore exact game-info legacy accounting"
-          git push --force origin probe-game-info-accounting-regression
-# trigger
+          git push --force origin probe-game-info-accounting-regression-built
