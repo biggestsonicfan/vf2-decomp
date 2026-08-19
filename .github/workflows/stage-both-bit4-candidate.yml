@@ -1,0 +1,40 @@
+name: Stage bilateral both-bit4 candidate
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/stage-both-bit4-candidate.yml]
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch narrow both-bit4 candidate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c'); s=p.read_text()
+          old='''        const bool bilateral_bit4 =\n            (r7 == state8 && r8 == state8_bit4) ||\n            (r8 == state8 && r7 == state8_bit4);\n        if (!bilateral_bit1 && !bilateral_bit4) {\n            /* The one-extra-bit bilateral bit1 and bit4 compositions are\n             * ROM-backed for both zero and nonzero countdown. Other mixed\n             * states remain explicit unsupported boundaries. */\n            status = VF2_ERROR_UNSUPPORTED;\n        }\n'''
+          new='''        const bool bilateral_bit4 =\n            (r7 == state8 && r8 == state8_bit4) ||\n            (r8 == state8 && r7 == state8_bit4);\n        const bool bilateral_both_bit4 =\n            r7 == state8_bit4 && r8 == state8_bit4;\n        if (!bilateral_bit1 && !bilateral_bit4 && !bilateral_both_bit4) {\n            /* The measured bilateral bit1/bit4 compositions are admitted;\n             * other mixed states remain explicit unsupported boundaries. */\n            status = VF2_ERROR_UNSUPPORTED;\n        }\n'''
+          if old not in s: raise SystemExit('both-bit4 guard anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Publish candidate branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C probe-both-bit4-candidate
+          git add src/recovered/hybrid.c
+          git commit -m "candidate: admit bilateral both-bit4 state"
+          git push --force origin probe-both-bit4-candidate
