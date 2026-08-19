@@ -1,0 +1,34 @@
+name: Stage game-info accounting regression
+on:
+  push:
+    branches: [master]
+    paths:
+      - decomp/i960/patches/game_info_18644_accounting_regression.patch
+      - .github/workflows/stage-game-info-accounting-regression.yml
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply exact accounting patch
+        run: git apply decomp/i960/patches/game_info_18644_accounting_regression.patch
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DVF2_BUILD_TESTS=ON
+          -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Publish candidate branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C probe-game-info-accounting-regression
+          git add src/recovered/hybrid.c
+          git commit -m "fix: restore exact game-info legacy accounting"
+          git push --force origin probe-game-info-accounting-regression
