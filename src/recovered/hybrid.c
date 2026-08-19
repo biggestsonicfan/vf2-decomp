@@ -4732,9 +4732,13 @@ static vf2_status hybrid_execute_game_info_18644(
             state8 | (UINT32_C(1) << 1u) | (UINT32_C(1) << 4u);
         const bool bilateral_both_bit1_bit4 =
             r7 == state8_bit1_bit4 && r8 == state8_bit1_bit4;
+        const uint32_t state8_bit2_bit4 =
+            state8 | (UINT32_C(1) << 2u) | (UINT32_C(1) << 4u);
+        const bool bilateral_both_bit2_bit4 =
+            r7 == state8_bit2_bit4 && r8 == state8_bit2_bit4;
         if (!bilateral_bit1 && !bilateral_bit4 && !bilateral_both_bit4 &&
             !bilateral_both_bit1 && !bilateral_cross_bit1_bit4 &&
-            !bilateral_both_bit1_bit4) {
+            !bilateral_both_bit1_bit4 && !bilateral_both_bit2_bit4) {
             /* The measured bilateral bit1/bit4 compositions are admitted;
              * other mixed states remain explicit unsupported boundaries. */
             status = VF2_ERROR_UNSUPPORTED;
@@ -5438,6 +5442,25 @@ static vf2_status hybrid_execute_game_info_18644(
             }
         }
     }
+    if (status == VF2_OK) {
+        const uint32_t state8_bit2_bit4 =
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 2u) |
+            (UINT32_C(1) << 4u);
+        if (r7 == state8_bit2_bit4 && r8 == state8_bit2_bit4) {
+            if (return_address == UINT32_C(0x000164b0)) {
+                body_instructions = countdown_path
+                    ? body_instructions + UINT32_C(8)
+                    : body_instructions - UINT32_C(6);
+            } else if (return_address == UINT32_C(0x000164c4)) {
+                if (countdown_path) {
+                    body_instructions += UINT32_C(7);
+                } else {
+                    body_instructions -= mode_bit6
+                        ? UINT32_C(9) : UINT32_C(10);
+                }
+            }
+        }
+    }
     if (status == VF2_OK && !shared_bit1_path) {
         /* 0x189d0 BBS 1 skips this entire threshold block.  Otherwise
          * 0x189ec BBC 6 selects the normal 0x1b7ec threshold; bit 6 set
@@ -5465,7 +5488,13 @@ static vf2_status hybrid_execute_game_info_18644(
                 state8_bit1 | (UINT32_C(1) << 4u);
             const bool both_bit1_bit4 =
                 r7 == state8_bit1_bit4 && r8 == state8_bit1_bit4;
-            if (!both_bit4 && !cross_bit1_bit4 && !both_bit1_bit4) {
+            const uint32_t state8_bit2_bit4 =
+                (UINT32_C(1) << 8u) | (UINT32_C(1) << 2u) |
+                (UINT32_C(1) << 4u);
+            const bool both_bit2_bit4 =
+                r7 == state8_bit2_bit4 && r8 == state8_bit2_bit4;
+            if (!both_bit4 && !cross_bit1_bit4 && !both_bit1_bit4 &&
+                !both_bit2_bit4) {
                 status = VF2_ERROR_UNSUPPORTED;
             }
         }
