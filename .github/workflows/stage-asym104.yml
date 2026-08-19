@@ -40,3 +40,4 @@ jobs:
           git add src/recovered/hybrid.c
           git commit -m "candidate: admit asymmetric state8 bit2 state"
           git push --force origin probe-asym104
+# trigger
