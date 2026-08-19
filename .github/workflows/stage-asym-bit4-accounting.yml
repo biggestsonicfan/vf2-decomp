@@ -1,0 +1,41 @@
+name: Stage asymmetric bit4 accounting fix
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/stage-asym-bit4-accounting.yml]
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch narrow asymmetric bit4 accounting
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/recovered/hybrid.c')
+          s=p.read_text()
+          anchor='''            if (!countdown_path && mode_bit6 &&\n                return_address == UINT32_C(0x000164c4) &&\n                (r7 & (UINT32_C(1) << 8u)) != 0u &&\n                (r8 & (UINT32_C(1) << 8u)) != 0u) {\n                /* The swapped bilateral mode-bit-6 call rejoins one\n                 * instruction earlier than the generic fallback. */\n                --body_instructions;\n            }\n'''
+          addition='''            {\n                const uint32_t state8 = UINT32_C(1) << 8u;\n                const uint32_t state8_bit4 =\n                    state8 | (UINT32_C(1) << 4u);\n                const bool asymmetric_bilateral_bit4 =\n                    (r7 == state8 && r8 == state8_bit4) ||\n                    (r7 == state8_bit4 && r8 == state8);\n\n                if (asymmetric_bilateral_bit4) {\n                    if (return_address == UINT32_C(0x000164b0)) {\n                        if (!countdown_path && !mode_bit6) {\n                            --body_instructions;\n                        } else {\n                            body_instructions += UINT32_C(4);\n                        }\n                    } else if (return_address == UINT32_C(0x000164c4)) {\n                        if (!countdown_path && mode_bit6) {\n                            body_instructions -= UINT32_C(5);\n                        } else if (countdown_path) {\n                            body_instructions += UINT32_C(3);\n                        }\n                    }\n                }\n            }\n'''
+          if anchor not in s: raise SystemExit('accounting tail anchor missing')
+          p.write_text(s.replace(anchor, anchor+addition, 1))
+          PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Publish candidate branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C probe-asym-bit4-accounting
+          git add src/recovered/hybrid.c
+          git commit -m "candidate: correct asymmetric bit4 accounting"
+          git push --force origin probe-asym-bit4-accounting
