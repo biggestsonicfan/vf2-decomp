@@ -1,0 +1,61 @@
+name: Correct unproven bilateral bit4 countdown recovery
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/correct-bilateral-bit4-countdown.yml]
+permissions:
+  contents: write
+jobs:
+  correct:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore fail-closed boundary and evidence text
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/recovered/hybrid.c')
+          s = p.read_text()
+          new = '''        if (!bilateral_bit1 && !bilateral_bit4) {\n            /* Only the measured one-extra-bit bilateral compositions are\n             * admitted. With a nonzero countdown, bit 4 rejoins through\n             * the same earlier 0x18890 tail as pure bilateral state bit 8;\n             * both-fighter bit 4 and other mixtures remain fail-closed. */\n            status = VF2_ERROR_UNSUPPORTED;\n        }\n'''
+          old = '''        if ((!bilateral_bit1 && !bilateral_bit4) ||\n            (countdown_path && !bilateral_bit1)) {\n            /* Countdown composes only with the measured bilateral bit1\n             * pair. Bilateral bit4 countdown and other mixtures remain\n             * explicit ROM boundaries. */\n            status = VF2_ERROR_UNSUPPORTED;\n        }\n'''
+          if new not in s:
+              raise SystemExit('recovery guard anchor missing')
+          p.write_text(s.replace(new, old, 1))
+
+          p = Path('decomp/i960/notes/game_info_18644_mode_bit6.md')
+          s = p.read_text()
+          false_para = '''\nThe bilateral bit4 composition is now also ROM-backed with a nonzero countdown. A fresh checkpoint captured exactly at `0x0001645c` was used with active fighter flags `0x84000100`/`0x84000110` and countdown byte `0x0050a0b6 = 1`. Both physical orientations match the reference i960 across the complete `fa_game_info` task: 654 instructions with `base+0x3351` bit 6 clear and 659 with bit 6 set. All four probes end at `0x00010dcc` with complete CPU and mutable-memory equality. The countdown therefore takes the already-recovered shared `0x18890` rejoin before the directional zero-countdown bit4 accounting matters.\n'''
+          if false_para not in s:
+              raise SystemExit('false evidence paragraph missing')
+          s = s.replace(false_para, '\n', 1)
+          s = s.replace(
+              'The mixed bilateral recoveries remain deliberately narrow. Exactly one fighter may carry bit 4 or bit 1; both bit1 and bit4 are ROM-backed with zero or nonzero countdown in either physical orientation. Bit1 on both fighters, bit4 on both fighters and other unmeasured extra-bit combinations remain fail-closed.',
+              'The mixed bilateral recoveries remain deliberately narrow. Exactly one fighter may carry bit 4 or bit 1; bit1 is ROM-backed with zero or nonzero countdown, while bit4 remains zero-countdown only. Bit1 on both fighters, countdown plus bilateral bit4 and bit4 on both fighters remain fail-closed, as do other unmeasured extra-bit combinations.',
+              1,
+          )
+          p.write_text(s)
+
+          p = Path('CHANGELOG.md')
+          s = p.read_text()
+          wrong = '''- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: isolated\n  bit8+bit1 and bit8+bit4 are recovered, bilateral bit8 matches zero-countdown\n  (690/695 instructions with mode bit 6 clear/set) and nonzero-countdown\n  (666/671), bilateral bit8+bit4 on exactly one fighter matches 677/682 with\n  zero countdown and 654/659 with nonzero countdown, and bilateral bit8+bit1\n  on exactly one fighter matches 701/706 with zero countdown and 677/682 with\n  nonzero countdown in either orientation; both-fighter bit1/bit4 and other\n  unmeasured combinations remain explicitly fail-closed;\n'''
+          right = '''- expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: isolated\n  bit8+bit1 and bit8+bit4 are recovered, bilateral bit8 matches zero-countdown\n  (690/695 instructions with mode bit 6 clear/set) and nonzero-countdown\n  (666/671), zero-countdown bilateral bit8+bit4 on exactly one fighter matches\n  677/682, and bilateral bit8+bit1 on exactly one fighter matches 701/706 with\n  zero countdown and 677/682 with nonzero countdown in either orientation;\n  both-fighter bit1, bit4 countdown/mirrors and other unmeasured combinations\n  remain explicitly fail-closed;\n'''
+          if wrong not in s:
+              raise SystemExit('changelog anchor missing')
+          p.write_text(s.replace(wrong, right, 1))
+          PY
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit correction
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_18644_mode_bit6.md CHANGELOG.md
+          git commit -m "Correct unproven bilateral bit4 countdown recovery"
+          git push
