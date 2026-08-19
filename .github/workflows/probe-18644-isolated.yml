@@ -1,12 +1,14 @@
 name: Isolated 0x18644 probe
 on:
-  pull_request:
+  pull_request_target:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Add temporary isolated probe command
         shell: bash
         run: |
