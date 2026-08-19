@@ -44,3 +44,4 @@ jobs:
           git add src/recovered/hybrid.c
           git commit -m "candidate: admit class5 0x110-0x112 state"
           git push --force origin probe-class5-110-112
+# trigger after workflow exists on default branch
