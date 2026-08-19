@@ -32,3 +32,4 @@ jobs:
           git add src/recovered/hybrid.c
           git commit -m "fix: restore exact game-info legacy accounting"
           git push --force origin probe-game-info-accounting-regression
+# trigger
