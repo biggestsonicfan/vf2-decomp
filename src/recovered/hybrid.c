@@ -5335,6 +5335,30 @@ static vf2_status hybrid_execute_game_info_18644(
                  * instruction earlier than the generic fallback. */
                 --body_instructions;
             }
+            {
+                const uint32_t state8 = UINT32_C(1) << 8u;
+                const uint32_t state8_bit4 =
+                    state8 | (UINT32_C(1) << 4u);
+                const bool asymmetric_bilateral_bit4 =
+                    (r7 == state8 && r8 == state8_bit4) ||
+                    (r7 == state8_bit4 && r8 == state8);
+
+                if (asymmetric_bilateral_bit4) {
+                    if (return_address == UINT32_C(0x000164b0)) {
+                        if (!countdown_path && !mode_bit6) {
+                            --body_instructions;
+                        } else {
+                            body_instructions += UINT32_C(4);
+                        }
+                    } else if (return_address == UINT32_C(0x000164c4)) {
+                        if (!countdown_path && mode_bit6) {
+                            body_instructions -= UINT32_C(5);
+                        } else if (countdown_path) {
+                            body_instructions += UINT32_C(3);
+                        }
+                    }
+                }
+            }
         }
     }
     if (status == VF2_OK && !shared_bit1_path) {
