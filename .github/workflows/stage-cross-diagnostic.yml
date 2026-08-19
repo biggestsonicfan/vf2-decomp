@@ -24,12 +24,16 @@ jobs:
           start=s.index('static vf2_status hybrid_execute_game_info_18644(')
           end=s.index('\n/* Translate the observed 0x181c0', start)
           sub=s[start:end]
-          needle='status = VF2_ERROR_UNSUPPORTED;'
-          count=sub.count(needle)
-          for i in range(count):
-              sub=sub.replace(needle, f'status = (vf2_status){201+i};', 1)
+          assign='status = VF2_ERROR_UNSUPPORTED;'
+          direct='return VF2_ERROR_UNSUPPORTED;'
+          ac=sub.count(assign)
+          dc=sub.count(direct)
+          for i in range(ac):
+              sub=sub.replace(assign, f'status = (vf2_status){201+i};', 1)
+          for i in range(dc):
+              sub=sub.replace(direct, f'return (vf2_status){241+i};', 1)
           p.write_text(s[:start]+sub+s[end:])
-          print('instrumented', count, 'unsupported exits')
+          print('instrumented assignments', ac, 'direct returns', dc)
           PY
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
@@ -42,7 +46,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C probe-cross-diagnostic
+          git switch -C probe-cross-diagnostic2
           git add src/recovered/hybrid.c
-          git commit -m "diagnostic: number cross-state unsupported exits"
-          git push --force origin probe-cross-diagnostic
+          git commit -m "diagnostic: number direct cross-state unsupported returns"
+          git push --force origin probe-cross-diagnostic2
