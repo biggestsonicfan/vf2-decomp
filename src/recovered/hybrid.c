@@ -4721,10 +4721,11 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_bit4 =
             (r7 == state8 && r8 == state8_bit4) ||
             (r8 == state8 && r7 == state8_bit4);
-        if (!bilateral_bit1 && !bilateral_bit4) {
-            /* The one-extra-bit bilateral bit1 and bit4 compositions are
-             * ROM-backed for both zero and nonzero countdown. Other mixed
-             * states remain explicit unsupported boundaries. */
+        const bool bilateral_both_bit4 =
+            r7 == state8_bit4 && r8 == state8_bit4;
+        if (!bilateral_bit1 && !bilateral_bit4 && !bilateral_both_bit4) {
+            /* The measured bilateral bit1/bit4 compositions are admitted;
+             * other mixed states remain explicit unsupported boundaries. */
             status = VF2_ERROR_UNSUPPORTED;
         }
     }
@@ -5338,7 +5339,9 @@ static vf2_status hybrid_execute_game_info_18644(
                 machine, fighter0 + UINT32_C(0x000005f4), &r13
             );
         }
-        if (status == VF2_OK && (int32_t)r13 >= (int32_t)r3) {
+        if (status == VF2_OK && (int32_t)r13 >= (int32_t)r3 &&
+            !(r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)) &&
+              r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 4u)))) {
             status = VF2_ERROR_UNSUPPORTED;
         }
     }
