@@ -1,0 +1,35 @@
+diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -4741,6 +4741,10 @@
+         const bool bilateral_class6_102_112 =
+             (r7 == state8_bit1 && r8 == state8_bit1_bit4) ||
+             (r8 == state8_bit1 && r7 == state8_bit1_bit4);
++        const bool bilateral_cross_bit2_bit4 =
++            (r7 == state8_bit2 && r8 == state8_bit4) ||
++            (r8 == state8_bit2 && r7 == state8_bit4);
+         if (!bilateral_bit1 && !bilateral_bit4 && !bilateral_both_bit4 &&
+             !bilateral_both_bit1 && !bilateral_cross_bit1_bit4 &&
+             !bilateral_both_bit1_bit4 && !bilateral_both_bit2_bit4 &&
+             !bilateral_both_bit2 && !bilateral_asym_bit2 &&
+-            !bilateral_class5_110_112 && !bilateral_class6_102_112) {
++            !bilateral_class5_110_112 && !bilateral_class6_102_112 &&
++            !bilateral_cross_bit2_bit4) {
+             /* The measured bilateral bit1/bit4 compositions are admitted;
+              * other mixed states remain explicit unsupported boundaries. */
+             status = VF2_ERROR_UNSUPPORTED;
+@@ -5653,6 +5657,10 @@
+             const bool class6_102_112 =
+                 (r7 == state8_bit1 && r8 == state8_bit1_bit4) ||
+                 (r8 == state8_bit1 && r7 == state8_bit1_bit4);
++            const bool cross_bit2_bit4 =
++                (r7 == state8_bit2 && r8 == state8_bit4) ||
++                (r8 == state8_bit2 && r7 == state8_bit4);
+             if (!both_bit4 && !cross_bit1_bit4 && !both_bit1_bit4 &&
+                 !both_bit2_bit4 && !both_bit2 && !asym_bit2 &&
+-                !class5_110_112 && !class6_102_112) {
++                !class5_110_112 && !class6_102_112 &&
++                !cross_bit2_bit4) {
+                 status = VF2_ERROR_UNSUPPORTED;
+             }
+         }
