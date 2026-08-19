@@ -18,7 +18,7 @@ diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
 +            !bilateral_asym_bit2_bit4 && !bilateral_cross_bit4_bit2_bit4) {
              /* The measured bilateral bit1/bit4 compositions are admitted;
               * other mixed states remain explicit unsupported boundaries. */
-@@ -5793,10 +5796,14 @@
+@@ -5793,9 +5796,13 @@
              const bool asym_bit2_bit4 =
                  (r7 == (UINT32_C(1) << 8u) && r8 == state8_bit2_bit4) ||
                  (r8 == (UINT32_C(1) << 8u) && r7 == state8_bit2_bit4);
