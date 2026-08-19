@@ -1,7 +1,7 @@
 diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
 --- a/src/recovered/hybrid.c
 +++ b/src/recovered/hybrid.c
-@@ -4750,10 +4750,14 @@
+@@ -4750,12 +4750,15 @@
          const bool bilateral_cross_bit2_bit4 =
              (r7 == state8_bit2 && r8 == state8_bit4) ||
              (r8 == state8_bit2 && r7 == state8_bit4);
@@ -18,7 +18,7 @@ diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
              /* The measured bilateral bit1/bit4 compositions are admitted;
               * other mixed states remain explicit unsupported boundaries. */
              status = VF2_ERROR_UNSUPPORTED;
-@@ -4844,9 +4848,14 @@
+@@ -4844,10 +4847,15 @@
          const bool class6_102_112 =
              (r7 == isolated_state8_bit1 && r8 == state8_bit1_bit4) ||
              (r8 == isolated_state8_bit1 && r7 == state8_bit1_bit4);
