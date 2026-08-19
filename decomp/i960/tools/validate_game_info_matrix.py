@@ -8,6 +8,7 @@ import csv
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from game_info_18644_common import build_boundary
@@ -24,6 +25,7 @@ def main() -> None:
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
     parser.add_argument("--all", action="store_true", help="validate all 64 ordered pairs, not only recovered_exact=yes")
     parser.add_argument("--base", type=Path, help="reuse a calibrated 0x164ac snapshot")
+    parser.add_argument("--workers", type=int, default=2, help="parallel ordered-pair validators")
     args = parser.parse_args()
 
     with args.matrix.open(newline="", encoding="utf-8") as source:
@@ -37,9 +39,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         base = args.base or build_boundary(args.binary, args.rom_directory, root)
-        matched = 0
-        for index, (state0, state1) in enumerate(pairs, start=1):
-            print(f"[{index}/{len(pairs)}] 0x{state0:03x}->0x{state1:03x}")
+
+        def validate_pair(pair: tuple[int, int]) -> tuple[int, int, int, str]:
+            state0, state1 = pair
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -50,9 +52,26 @@ def main() -> None:
                     hex(state1),
                     "--base",
                     str(base),
-                ]
+                ],
+                capture_output=True,
+                text=True,
             )
-            if completed.returncode == 0:
+            output = (completed.stdout + completed.stderr).strip()
+            return state0, state1, completed.returncode, output
+
+        results = []
+        with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+            futures = {pool.submit(validate_pair, pair): pair for pair in pairs}
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        results.sort(key=lambda item: (item[0], item[1]))
+        matched = 0
+        for index, (state0, state1, returncode, output) in enumerate(results, start=1):
+            print(f"[{index}/{len(results)}] 0x{state0:03x}->0x{state1:03x}")
+            if output:
+                print(output)
+            if returncode == 0:
                 matched += 1
             else:
                 print(f"FAILED pair 0x{state0:03x}->0x{state1:03x}", file=sys.stderr)
