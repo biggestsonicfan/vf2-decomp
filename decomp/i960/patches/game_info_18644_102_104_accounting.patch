@@ -1,0 +1,45 @@
+diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -5625,4 +5625,41 @@
+         }
+     }
++    if (status == VF2_OK) {
++        const uint32_t state8_bit1 =
++            (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u);
++        const uint32_t state8_bit2 =
++            (UINT32_C(1) << 8u) | (UINT32_C(1) << 2u);
++        const bool cross_bit1_bit2_forward =
++            r7 == state8_bit1 && r8 == state8_bit2;
++        const bool cross_bit1_bit2_reverse =
++            r7 == state8_bit2 && r8 == state8_bit1;
++
++        if (cross_bit1_bit2_forward) {
++            if (return_address == UINT32_C(0x000164b0)) {
++                if (!countdown_path) {
++                    body_instructions -= UINT32_C(2);
++                }
++            } else if (return_address == UINT32_C(0x000164c4)) {
++                if (countdown_path) {
++                    --body_instructions;
++                } else {
++                    body_instructions -= mode_bit6
++                        ? UINT32_C(5) : UINT32_C(6);
++                }
++            }
++        } else if (cross_bit1_bit2_reverse) {
++            if (return_address == UINT32_C(0x000164b0)) {
++                body_instructions += countdown_path
++                    ? UINT32_C(11) : UINT32_C(9);
++            } else if (return_address == UINT32_C(0x000164c4)) {
++                if (countdown_path) {
++                    body_instructions += UINT32_C(10);
++                } else {
++                    body_instructions += mode_bit6
++                        ? UINT32_C(6) : UINT32_C(5);
++                }
++            }
++        }
++    }
+     if (status == VF2_OK) {
+         const uint32_t state8 = UINT32_C(1) << 8u;
