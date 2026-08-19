@@ -1,0 +1,19 @@
+name: Build local ROM probe
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/build-local-probe.yml]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2-local-probe
+          path: |
+            build/vf2i960
+            build/vf2rom
