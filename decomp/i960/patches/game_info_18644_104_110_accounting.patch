@@ -31,7 +31,7 @@ diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
 +                    body_instructions += UINT32_C(3);
 +                } else {
 +                    body_instructions -= mode_bit6
-+                        ? UINT32_C(13) : UINT32_C(14);
++                        ? UINT32_C(10) : UINT32_C(11);
 +                }
 +            }
 +        } else if (cross_bit2_bit4_reverse) {
@@ -46,7 +46,7 @@ diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
 +                    body_instructions += UINT32_C(3);
 +                } else {
 +                    body_instructions -= mode_bit6
-+                        ? UINT32_C(10) : UINT32_C(11);
++                        ? UINT32_C(13) : UINT32_C(14);
 +                }
 +            }
 +        }
