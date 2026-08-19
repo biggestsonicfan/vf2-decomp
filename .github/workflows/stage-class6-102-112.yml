@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch exact accounted class6 representative
+      - name: Patch final class6 representative
         shell: bash
         run: |
           python3 - <<'PY'
@@ -29,7 +29,7 @@ jobs:
           if old3 not in s: raise SystemExit('class6 threshold anchor missing')
           s=s.replace(old3,new3,1)
           old4='''    if (status == VF2_OK && !shared_bit1_path) {\n'''
-          new4='''    if (status == VF2_OK) {\n        const uint32_t state8_bit1 =\n            (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u);\n        const uint32_t state8_bit1_bit4 =\n            state8_bit1 | (UINT32_C(1) << 4u);\n        const bool class6_forward =\n            r7 == state8_bit1 && r8 == state8_bit1_bit4;\n        const bool class6_reverse =\n            r8 == state8_bit1 && r7 == state8_bit1_bit4;\n        if (class6_forward) {\n            if (return_address == UINT32_C(0x000164b0)) {\n                body_instructions += countdown_path\n                    ? UINT32_C(15) : UINT32_C(4);\n            } else if (return_address == UINT32_C(0x000164c4)) {\n                if (countdown_path) {\n                    body_instructions += UINT32_C(14);\n                } else {\n                    body_instructions -= mode_bit6\n                        ? UINT32_C(2) : UINT32_C(3);\n                }\n            }\n        } else if (class6_reverse) {\n            if (return_address == UINT32_C(0x000164b0)) {\n                body_instructions += countdown_path\n                    ? UINT32_C(15) : UINT32_C(1);\n            } else if (return_address == UINT32_C(0x000164c4)) {\n                if (countdown_path) {\n                    body_instructions += UINT32_C(14);\n                } else if (mode_bit6) {\n                    ++body_instructions;\n                }\n            }\n        }\n    }\n    if (status == VF2_OK && !shared_bit1_path) {\n'''
+          new4='''    if (status == VF2_OK) {\n        const uint32_t state8_bit1 =\n            (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u);\n        const uint32_t state8_bit1_bit4 =\n            state8_bit1 | (UINT32_C(1) << 4u);\n        const bool class6_forward =\n            r7 == state8_bit1 && r8 == state8_bit1_bit4;\n        const bool class6_reverse =\n            r8 == state8_bit1 && r7 == state8_bit1_bit4;\n        if (class6_forward) {\n            if (return_address == UINT32_C(0x000164b0)) {\n                body_instructions += countdown_path\n                    ? UINT32_C(15) : UINT32_C(4);\n            } else if (return_address == UINT32_C(0x000164c4)) {\n                if (countdown_path) {\n                    body_instructions += UINT32_C(14);\n                } else if (mode_bit6) {\n                    ++body_instructions;\n                }\n            }\n        } else if (class6_reverse) {\n            if (return_address == UINT32_C(0x000164b0)) {\n                body_instructions += countdown_path\n                    ? UINT32_C(15) : UINT32_C(1);\n            } else if (return_address == UINT32_C(0x000164c4)) {\n                if (countdown_path) {\n                    body_instructions += UINT32_C(14);\n                } else {\n                    body_instructions -= mode_bit6\n                        ? UINT32_C(2) : UINT32_C(3);\n                }\n            }\n        }\n    }\n    if (status == VF2_OK && !shared_bit1_path) {\n'''
           if old4 not in s: raise SystemExit('class6 accounting anchor missing')
           p.write_text(s.replace(old4,new4,1))
           PY
@@ -44,7 +44,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C probe-class6-102-112-accounting
+          git switch -C probe-class6-102-112-accounting3
           git add src/recovered/hybrid.c
-          git commit -m "candidate: account class6 0x102-0x112 state"
-          git push --force origin probe-class6-102-112-accounting
+          git commit -m "candidate: fix class6 second-call accounting"
+          git push --force origin probe-class6-102-112-accounting3
