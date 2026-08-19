@@ -15,14 +15,23 @@ The validator executes the strong chain for every countdown/mode-bit-6 case:
 
 It requires both `vf2i960 compare-snapshots` equality and explicit equality of serialized instruction/call/return/interrupt counters.
 
+## Per-call accounting diagnosis
+
+```bash
+python3 decomp/i960/tools/diagnose_game_info_pair.py \
+  ./build/vf2i960 /path/to/vf2-roms 0x100 0x102 --reverse
+```
+
+This runs the first and second `0x18644` calls independently against the same pure-ROM reference and prints architectural equality plus counter deltas for each call site. Use it before changing instruction accounting so a full-chain delta is not incorrectly treated as one global correction.
+
 ## Full tracked matrix
 
 ```bash
 python3 decomp/i960/tools/validate_game_info_matrix.py \
-  ./build/vf2i960 /path/to/vf2-roms
+  ./build/vf2i960 /path/to/vf2-roms --workers 2
 ```
 
-By default this checks rows marked `recovered_exact=yes` in `decomp/i960/game_info_18644_state_vectors.csv`. Add `--all` to attempt all 64 ordered pairs.
+By default this checks rows marked `recovered_exact=yes` in `decomp/i960/game_info_18644_state_vectors.csv`. Add `--all` to attempt all 64 ordered pairs. `--workers` controls ordered-pair parallelism; keep it conservative because each validator launches ptrace and ROM-backed subprocesses.
 
 ## Fixture generation
 
