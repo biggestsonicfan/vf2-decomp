@@ -9,8 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply exact semantic patch
-        run: git apply --recount decomp/i960/patches/game_info_18644_102_106_semantic.patch
+      - name: Apply exact semantic edits
+        run: python3 decomp/i960/tools/apply_exact_edits.py decomp/i960/patches/game_info_18644_102_106_semantic_edits.json
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
