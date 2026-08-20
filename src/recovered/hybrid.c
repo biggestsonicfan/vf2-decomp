@@ -6531,6 +6531,11 @@ static vf2_status hybrid_execute_game_info_18644(
             }
         }
     }
+    if (status == VF2_OK && r7 == 0u && r8 == 0u) {
+        /* The neutral zero/zero state leaves the final signed compare in
+         * GREATER. This is observable at both fa_game_info return sites. */
+        hybrid_set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+    }
     if (status == VF2_OK) {
         cpu->ip = UINT32_C(0x00018a50);
         cpu->executed_instructions += body_instructions + tail_instruction_delta;
@@ -7012,7 +7017,9 @@ static vf2_status hybrid_execute_game_info_18144_prefix(
                 machine, fighter + UINT32_C(0x00000a00),
                 &zero_state, sizeof(zero_state)
             );
-            state4_prefix_instructions = UINT32_C(3);
+            /* State 4 takes four instructions beyond the ordinary
+             * two-instruction ldob/cmpobne entry before rejoining 0x18188. */
+            state4_prefix_instructions = UINT32_C(4);
         } else if (state4_bit15_path) {
             /* 0x1814c..0x18184: state 4 with bit 15 set clears the state,
              * clears bit 15 in the state flags and refreshes the countdown
@@ -7163,11 +7170,9 @@ hybrid_game_info_18144_post_184ec:
         status = vf2_model2a_write_u32(machine, fighter, r4);
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_read_u32(
-            machine, fighter + UINT32_C(0x000001f8), &table
-        );
-    }
-    if (status == VF2_OK) {
+        /* 0x1850c is LDA, not LD: r5 receives the address of the
+         * inline 16-entry float table at fighter+0x1f8. */
+        table = fighter + UINT32_C(0x000001f8);
         status = vf2_model2a_read_u32(machine, table, &r4);
     }
     r6 = 15u;
@@ -7225,14 +7230,112 @@ hybrid_game_info_18144_post_184ec:
     status = vf2_model2a_read_u32(machine, fighter, &r15_value);
     if (status == VF2_OK) {
         cpu->registers[15] = r15_value;
-        if ((r15_value & (UINT32_C(1) << 7u)) != 0u) {
-            status = VF2_ERROR_UNSUPPORTED;
+        if ((r15_value & (UINT32_C(1) << 7u)) == 0u) {
+            /* 0x17b68: ld, bbc, ret. */
+            cpu->ip = UINT32_C(0x000180b8);
+            cpu->executed_instructions += UINT64_C(2);
+        } else {
+            uint32_t runtime = 0u;
+            uint32_t position0 = 0u;
+            uint32_t position1 = 0u;
+            uint32_t threshold = 0u;
+            uint32_t state_flags = 0u;
+            uint32_t fighter_flags = r15_value;
+            uint32_t control804 = 0u;
+            uint16_t half = 0u;
+
+            /* Recover the observed bit-7-set early-return corridor at
+             * 0x17b70..0x17c1c. Other 0x17b68 directions stay fail-closed. */
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00508000), &runtime
+            );
+            if (status == VF2_OK &&
+                (runtime & (UINT32_C(1) << 5u)) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK) {
+                fighter_flags &= ~(UINT32_C(1) << 13u);
+                status = vf2_model2a_write_u32(
+                    machine, fighter, fighter_flags
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, fighter + UINT32_C(0x000001f4), &position0
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, fighter + UINT32_C(0x000001fc), &position1
+                );
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x0050a00c), &threshold
+                );
+            }
+            if (status == VF2_OK &&
+                ((int32_t)(position0 & ~UINT32_C(0x80000000)) >=
+                 (int32_t)threshold ||
+                 (int32_t)(position1 & ~UINT32_C(0x80000000)) >=
+                 (int32_t)threshold)) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK) {
+                cpu->registers[VF2_I960_G0_REGISTER + 4u] = 0u;
+                status = hybrid_read_u16(
+                    machine, fighter + UINT32_C(0x00000624), &half
+                );
+            }
+            if (status == VF2_OK && half != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, fighter + UINT32_C(0x000001a4), &state_flags
+                );
+            }
+            if (status == VF2_OK &&
+                (state_flags & (UINT32_C(1) << 23u)) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK &&
+                (fighter_flags & (UINT32_C(1) << 2u)) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK) {
+                status = hybrid_read_u16(
+                    machine, fighter + UINT32_C(0x0000061c), &half
+                );
+            }
+            if (status == VF2_OK && half != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, fighter + UINT32_C(0x00000804), &control804
+                );
+            }
+            if (status == VF2_OK &&
+                (control804 & (UINT32_C(1) << 4u)) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK) {
+                status = hybrid_read_u16(
+                    machine, fighter + UINT32_C(0x00000618), &half
+                );
+            }
+            if (status == VF2_OK && half != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+            if (status == VF2_OK) {
+                /* 31 instructions precede RET on this measured path. */
+                cpu->ip = UINT32_C(0x00017c1c);
+                cpu->executed_instructions += UINT64_C(31);
+            }
         }
     }
     if (status == VF2_OK) {
-        /* 0x17b68: ld, bbc, ret. */
-        cpu->ip = UINT32_C(0x000180b8);
-        cpu->executed_instructions += UINT64_C(2);
         status = vf2_i960_cpu_return_procedure(cpu, machine);
         if (status == VF2_OK) {
             ++cpu->executed_instructions;
@@ -7416,9 +7519,14 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         (fighter0_state == 4u || fighter1_state == 4u) &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 15u)) != 0u;
+    const bool native_state4_neutral_fighter_path =
+        (fighter0_state == 4u || fighter1_state == 4u) &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         conditional_state_mask) == 0u;
     native_18644_fighter_path =
         native_bit14_fighter_path || native_bit16_fighter_path ||
-        native_bit15_fighter_path || native_bit6_fighter_path;
+        native_bit15_fighter_path || native_bit6_fighter_path ||
+        native_state4_neutral_fighter_path;
     /* 0x1645c..0x16470: four loads; the register values are observable at
      * each child boundary, so preserve the ROM aliases explicitly. */
     cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
@@ -7558,8 +7666,11 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     if (conditional_fighter_path) {
         /* The conditional ROM prefix reaches the dispatcher RET at 0x16500;
-         * the observed native corridor returns directly from 0x164c4. */
-        native_instructions += UINT64_C(1);
+         * the observed native corridor returns directly from 0x164c4.
+         * Neutral state 4 contributes one additional measured dispatcher
+         * instruction beyond the older conditional corridors. */
+        native_instructions += native_state4_neutral_fighter_path
+            ? UINT64_C(2) : UINT64_C(1);
     }
     if (native_state4_bit15_fighter_path) {
         native_instructions += UINT64_C(1);
