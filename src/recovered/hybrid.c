@@ -4755,6 +4755,9 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_class3_102_114 =
             (r7 == state8_bit1 && r8 == state8_bit2_bit4) ||
             (r8 == state8_bit1 && r7 == state8_bit2_bit4);
+        const bool bilateral_class3_104_112 =
+            (r7 == state8_bit2 && r8 == state8_bit1_bit4) ||
+            (r8 == state8_bit2 && r7 == state8_bit1_bit4);
         const uint32_t state8_bit1_bit2_bit4_for_102_116 =
             state8_bit1_bit4 | (UINT32_C(1) << 2u);
         const bool bilateral_class6_102_116 =
@@ -4812,7 +4815,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit2 && !bilateral_asym_bit2 &&
             !bilateral_class5_110_112 && !bilateral_class6_102_112 &&
             !bilateral_class3_100_112 && !bilateral_class3_102_114 &&
-            !bilateral_class6_102_116 &&
+            !bilateral_class3_104_112 && !bilateral_class6_102_116 &&
             !bilateral_cross_bit2_bit4 && !bilateral_cross_bit1_bit2 &&
             !bilateral_asym_bit2_bit4 && !bilateral_cross_bit4_bit2_bit4 &&
             !bilateral_cross_bit2_bit2_bit4 &&
@@ -4968,6 +4971,9 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool class3_102_114 =
             (r7 == isolated_state8_bit1 && r8 == state8_bit2_bit4) ||
             (r8 == isolated_state8_bit1 && r7 == state8_bit2_bit4);
+        const bool class3_104_112 =
+            (r7 == state8_bit2 && r8 == state8_bit1_bit4) ||
+            (r8 == state8_bit2 && r7 == state8_bit1_bit4);
         const bool cross_bit1_bit4_bit2_bit4 =
             (r7 == state8_bit1_bit4 && r8 == state8_bit2_bit4) ||
             (r8 == state8_bit1_bit4 && r7 == state8_bit2_bit4);
@@ -4988,7 +4994,8 @@ static vf2_status hybrid_execute_game_info_18644(
             !cross_bit1_bit1_bit2 && !both_bit1_bit2_bit4 &&
             !cross_bit1_bit4_bit1_bit2_bit4 &&
             !cross_bit1_bit2_bit1_bit2_bit4 &&
-            !class3_102_114 && !cross_bit1_bit4_bit2_bit4 &&
+            !class3_102_114 && !class3_104_112 &&
+            !cross_bit1_bit4_bit2_bit4 &&
             !cross_bit1_bit4_bit1_bit2 &&
             !cross_bit2_bit4_bit1_bit2_bit4 &&
             !class5_110_116) {
@@ -5818,6 +5825,45 @@ static vf2_status hybrid_execute_game_info_18644(
                 }
             }
         } else if (class3_100_112_reverse) {
+            if (return_address == UINT32_C(0x000164b0)) {
+                if (countdown_path) {
+                    body_instructions += UINT32_C(4);
+                } else {
+                    body_instructions -= UINT32_C(10);
+                }
+            } else if (return_address == UINT32_C(0x000164c4)) {
+                if (countdown_path) {
+                    body_instructions += UINT32_C(3);
+                } else {
+                    body_instructions -= mode_bit6
+                        ? UINT32_C(13) : UINT32_C(14);
+                }
+            }
+        }
+    }
+    if (status == VF2_OK) {
+        const uint32_t state8_bit2 =
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 2u);
+        const uint32_t state8_bit1_bit4 =
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u) |
+            (UINT32_C(1) << 4u);
+        const bool class3_104_112_forward =
+            r7 == state8_bit2 && r8 == state8_bit1_bit4;
+        const bool class3_104_112_reverse =
+            r7 == state8_bit1_bit4 && r8 == state8_bit2;
+
+        if (class3_104_112_forward) {
+            if (return_address == UINT32_C(0x000164b0)) {
+                body_instructions += countdown_path
+                    ? UINT32_C(15) : UINT32_C(4);
+            } else if (return_address == UINT32_C(0x000164c4)) {
+                if (countdown_path) {
+                    body_instructions += UINT32_C(14);
+                } else if (mode_bit6) {
+                    ++body_instructions;
+                }
+            }
+        } else if (class3_104_112_reverse) {
             if (return_address == UINT32_C(0x000164b0)) {
                 if (countdown_path) {
                     body_instructions += UINT32_C(4);
