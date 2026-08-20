@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Apply exact semantic patch
-        run: git apply decomp/i960/patches/game_info_18644_102_106_semantic.patch
+        run: git apply --recount decomp/i960/patches/game_info_18644_102_106_semantic.patch
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
