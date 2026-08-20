@@ -7018,8 +7018,12 @@ static vf2_status hybrid_execute_game_info_18144_prefix(
                 &zero_state, sizeof(zero_state)
             );
             /* State 4 takes four instructions beyond the ordinary
-             * two-instruction ldob/cmpobne entry before rejoining 0x18188. */
-            state4_prefix_instructions = UINT32_C(4);
+             * two-instruction ldob/cmpobne entry before rejoining 0x18188.
+             * When bit 14 is also active, the measured conditional rejoin
+             * contributes one additional instruction. */
+            state4_prefix_instructions =
+                (flags & (UINT32_C(1) << 14u)) != 0u
+                    ? UINT32_C(5) : UINT32_C(4);
         } else if (state4_bit15_path) {
             /* 0x1814c..0x18184: state 4 with bit 15 set clears the state,
              * clears bit 15 in the state flags and refreshes the countdown
@@ -7523,10 +7527,19 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         (fighter0_state == 4u || fighter1_state == 4u) &&
         ((fighter0_state_flags | fighter1_state_flags) &
          conditional_state_mask) == 0u;
+    const bool native_state4_bit14_fighter_path =
+        (fighter0_state == 4u || fighter1_state == 4u) &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         (UINT32_C(1) << 14u)) != 0u &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+          (UINT32_C(1) << 6u))) == 0u &&
+        (int32_t)shared_fighter_threshold >= 0;
     native_18644_fighter_path =
         native_bit14_fighter_path || native_bit16_fighter_path ||
         native_bit15_fighter_path || native_bit6_fighter_path ||
-        native_state4_neutral_fighter_path;
+        native_state4_neutral_fighter_path ||
+        native_state4_bit14_fighter_path;
     /* 0x1645c..0x16470: four loads; the register values are observable at
      * each child boundary, so preserve the ROM aliases explicitly. */
     cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
@@ -7669,8 +7682,10 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          * the observed native corridor returns directly from 0x164c4.
          * Neutral state 4 contributes one additional measured dispatcher
          * instruction beyond the older conditional corridors. */
-        native_instructions += native_state4_neutral_fighter_path
-            ? UINT64_C(2) : UINT64_C(1);
+        native_instructions +=
+            (native_state4_neutral_fighter_path ||
+             native_state4_bit14_fighter_path)
+                ? UINT64_C(2) : UINT64_C(1);
     }
     if (native_state4_bit15_fighter_path) {
         native_instructions += UINT64_C(1);
