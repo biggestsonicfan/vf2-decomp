@@ -29,7 +29,7 @@ state0,state1,cd0_m0,cd0_m1,cd1_m0,cd1_m1,vector_class,recovered_exact,class_has
 0x106,0x106,232,237,208,213,9,yes,yes
 0x106,0x110,208,213,205,210,3,yes,yes
 0x106,0x112,219,224,216,221,6,yes,yes
-0x106,0x114,208,213,205,210,3,no,yes
+0x106,0x114,208,213,205,210,3,yes,yes
 0x106,0x116,219,224,216,221,6,yes,yes
 0x110,0x100,197,202,194,199,1,yes,yes
 0x110,0x102,208,213,205,210,3,yes,yes
@@ -50,7 +50,7 @@ state0,state1,cd0_m0,cd0_m1,cd1_m0,cd1_m1,vector_class,recovered_exact,class_has
 0x114,0x100,197,202,194,199,1,yes,yes
 0x114,0x102,208,213,205,210,3,yes,yes
 0x114,0x104,197,202,194,199,1,yes,yes
-0x114,0x106,208,213,205,210,3,no,yes
+0x114,0x106,208,213,205,210,3,yes,yes
 0x114,0x110,202,207,202,207,2,yes,yes
 0x114,0x112,213,218,213,218,5,yes,yes
 0x114,0x114,202,207,202,207,2,yes,yes
