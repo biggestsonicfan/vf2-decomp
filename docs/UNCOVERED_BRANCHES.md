@@ -33,8 +33,35 @@ shared-fighter corridors returning at `0x164b0` and `0x164c4`; unobserved
 branches remain explicit ROM-backed boundaries and remain unrecovered as
 native C. The observed state-4/bit-15 and non-state-4 bit-15 prefixes are now native. Controlled bit-14/15/16/6 probes now cover the `0x181c0` through
 `0x184ec` conditional body; the observed bit-4/6/8/14/15/16 dependent `0x18644`
-flag-accumulation paths are native. This includes the high-result `+0x5b6`
-update. The controlled probes
+flag-accumulation paths are native. The ROM-backed state-4 fixture matrix now
+matches all 192 cases for flag bits 6, 14, 15 and 16 at both non-negative and
+negative thresholds; the complete negative matrix is native, removing the
+dispatcher fallback for this four-bit state-4 corridor. The ROM-backed state-8
+fixture matrix now
+matches all 96 cases for flag bits 1, 2 and 4, and all 192 cases when flag bit
+8 is included as the fourth dimension, covering isolated, asymmetric and
+bilateral distributions with both countdown and mode-bit-6 settings. With
+high bits 21, 26, 29, 30 and 31 appended, both threshold endpoints (`-1` and
+`0`) match the complete 3,072-case matrix (256 masks × 12 distributions).
+The
+low-result branch now applies the same `+0x5b6` update rule as the
+high-result branch when `r9 > threshold`. The state-8 negative matrix is also
+native and exact for all 192 combinations of bits 1, 2, 4 and 8. State-8
+negative cases composed of bits 1, 2, 4, 8, 21, 26, 29, 30 and 31 are now
+admitted to the native path and match the complete 3,072-case matrix
+(256 masks × 12 distributions) exactly. This includes every isolated,
+asymmetric and bilateral distribution, both countdown values, both mode-bit-6
+values and all high-bit/low-bit combinations. At non-negative thresholds, the
+same high-bit fixture family is exact across the complete matrix as well,
+including masks 248..255.
+State-8 bit 6 is now admitted for the negative threshold: with the same
+nine-bit set, its full ten-bit matrix matches 12,288 fixtures (1,024 masks ×
+12 distributions) exactly. On the positive threshold, the recovered child
+also matches the three tested masks containing bit 6, bit 8 and all five high
+bits, with optional bit 1 or bit 2 (36 fixtures total). Other positive bit-6
+compositions, including the bit-4/high bilateral family, remain explicit
+unsupported boundaries.
+The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
 `0x18644` threshold outcome are also covered. The `0x18978..0x189a4` high-state flag tail is native as well: bits 26..29 use the measured progress/limit gate and bits 30..31 are accumulated unconditionally. The following shared `0x189a8..0x189bc` CHKBIT/ALTERBIT tail is native too, including its observable condition-code result and bit-3 accumulation. The type-22 tail now covers both the progress mismatch and the coherent equal-progress `0x18bd4` call path, including the generic `0x1ab34` type-record resolver and the measured bit-2-clear `0x18b58` branch. Unobserved downstream comparisons and other conditional branches remain ROM-backed or unsupported.

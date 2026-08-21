@@ -55,8 +55,49 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
 
 The mask bits map to state flags 6, 14, 15 and 16. Each mask is tested with
 fighter 0 only, fighter 1 only and both fighters, for both countdown values
-and both mode-bit-6 values. Negative-threshold coverage can be run separately,
-for example with `--threshold -1`.
+and both mode-bit-6 values. The current ROM-backed result is 192/192 exact.
+Negative-threshold coverage can be run separately, for example with
+`--threshold -1`.
+
+The same harness accepts the fighter state byte explicitly. The complete
+state-8 matrix for flag bits 1, 2 and 4 is:
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --state 8 --all --threshold 0
+```
+
+Use `--state 8 --include-bit8 --all` to include flag bit 8 as the fourth
+dimension. That runs 192 ROM-backed cases across the three fighter
+distributions, both countdown values and both mode-bit-6 values.
+Use `--extra-bit 21` (repeatable) to add other `+0x1a4` flag bits as measured
+dimensions; for example, `--state 8 --extra-bit 21 --mask 8` probes the
+isolated bit-21 case in all 12 countdown/mode/distribution combinations.
+The aggregate high-bit fixture can be selected with four repeated dimensions;
+masks `248..255` cover bit 8 plus all four high bits with every subset of
+flag bits 1/2/4, and each mask is exact across all 12 combinations.
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
+  --extra-bit 21 --extra-bit 26 --extra-bit 29 --extra-bit 30 \
+  --extra-bit 31 --mask 511 --threshold 0
+```
+With `--threshold -1`, the complete state-4 matrix (`--state 4 --all`) is
+native and exact across all 192 fixtures for flag bits 6, 14, 15 and 16.
+The state-8 matrix with `--include-bit8` and repeated `--extra-bit` options
+for bits 21, 26, 29, 30 and 31 is native and exact across all 3,072 fixtures
+(256 masks × 12 distributions) at threshold `-1`, and the same 3,072
+fixtures are exact at threshold `0`. This covers every
+isolated, asymmetric and bilateral distribution, both countdown values, both
+mode-bit-6 values and every combination of the nine admitted flags. Any
+other state-8 flag bit (apart from bit 6 on the negative threshold) retains
+the complete ROM interpreter fallback at the dispatcher boundary. State-8 bit 6 is additionally admitted on the negative
+threshold path: its full ten-bit matrix is exact across 12,288 fixtures
+(1,024 masks × 12 distributions). On the positive threshold, the child is
+also exact for the three tested masks containing bit 6, bit 8 and all five
+high bits, with optional bit 1 or bit 2 (36 fixtures total). Other positive
+bit-6 compositions remain explicit unsupported boundaries.
 
 ## Native child runner
 

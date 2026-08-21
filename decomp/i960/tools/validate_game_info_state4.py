@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate state-4 flag combinations through the full game-info chain."""
+"""Validate state-4/state-8 flag combinations through the full game-info chain."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from game_info_18644_common import (
     SCHEDULER_RETURN,
     architectural_signature,
     build_boundary,
-    make_state4_fixture,
+    make_state_fixture,
     read_work_u32,
     resume_rom,
     snapshot_counters,
@@ -26,7 +26,10 @@ from game_info_18644_common import (
 HERE = Path(__file__).resolve().parent
 CHILD_RUNNER = HERE / "run_game_info_child.py"
 
-BIT_FLAGS = (1 << 6, 1 << 14, 1 << 15, 1 << 16)
+STATE_FLAGS = {
+    4: (1 << 6, 1 << 14, 1 << 15, 1 << 16),
+    8: (1 << 1, 1 << 2, 1 << 4),
+}
 
 
 def run_child(binary: Path, roms: Path, source: Path, output: Path, return_address: int) -> None:
@@ -61,8 +64,9 @@ def run_native_task(binary: Path, roms: Path, source: Path, output: Path) -> Non
         raise RuntimeError(completed.stderr or completed.stdout)
 
 
-def make_bit31_state4_fixture(
+def make_bit31_fixture(
     base: bytes,
+    state: int,
     flags0: int,
     flags1: int,
     countdown: int,
@@ -70,7 +74,9 @@ def make_bit31_state4_fixture(
     threshold: int,
 ) -> bytes:
     data = bytearray(
-        make_state4_fixture(base, flags0, flags1, countdown, mode_bit6, threshold)
+        make_state_fixture(
+            base, state, flags0, flags1, countdown, mode_bit6, threshold
+        )
     )
     fighter0 = read_work_u32(base, 0x00500804)
     fighter1 = read_work_u32(base, 0x00500808)
@@ -108,11 +114,12 @@ def validate_case(
     flags1: int,
     countdown: int,
     mode_bit6: int,
+    state: int,
     threshold: int,
     directory: Path,
     fifth_base: bytes | None = None,
 ) -> bool:
-    stem = f"f{flags0:05x}_{flags1:05x}_cd{countdown}_m{mode_bit6}_t{threshold & 0xffffffff:08x}"
+    stem = f"s{state}_f{flags0:05x}_{flags1:05x}_cd{countdown}_m{mode_bit6}_t{threshold & 0xffffffff:08x}"
     start = directory / f"{stem}_start.vf2snap"
     reference = directory / f"{stem}_reference.vf2snap"
     child1 = directory / f"{stem}_child1.vf2snap"
@@ -124,8 +131,8 @@ def validate_case(
         if fifth_base is None:
             raise RuntimeError("negative-threshold validation requires the 0x1645c base")
         start.write_bytes(
-            make_bit31_state4_fixture(
-                fifth_base, flags0, flags1, countdown, mode_bit6, threshold
+            make_bit31_fixture(
+                fifth_base, state, flags0, flags1, countdown, mode_bit6, threshold
             )
         )
         resume_rom(binary, roms, start, reference, SCHEDULER_RETURN)
@@ -138,7 +145,11 @@ def validate_case(
         )
         return equal
 
-    start.write_bytes(make_state4_fixture(base, flags0, flags1, countdown, mode_bit6, threshold))
+    start.write_bytes(
+        make_state_fixture(
+            base, state, flags0, flags1, countdown, mode_bit6, threshold
+        )
+    )
     resume_rom(binary, roms, start, reference, SCHEDULER_RETURN)
     run_child(binary, roms, start, child1, GAME_INFO_FIRST_RETURN)
     resume_rom(binary, roms, child1, second_call, GAME_INFO_SECOND_CALL)
@@ -157,16 +168,41 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("binary", type=Path)
     parser.add_argument("rom_directory", type=Path)
-    parser.add_argument("--mask", type=lambda value: int(value, 0), help="one 4-bit state4 mask")
-    parser.add_argument("--all", action="store_true", help="run all 16 masks")
+    parser.add_argument("--mask", type=lambda value: int(value, 0), help="one state flag mask")
+    parser.add_argument("--all", action="store_true", help="run all masks for the selected state")
+    parser.add_argument("--state", type=int, choices=(4, 8), default=4)
+    parser.add_argument(
+        "--include-bit8",
+        action="store_true",
+        help="for state 8, include flag bit 8 in the mask matrix",
+    )
+    parser.add_argument(
+        "--extra-bit",
+        action="append",
+        type=lambda value: int(value, 0),
+        default=[],
+        help="append an arbitrary fighter flag bit (0..31) to the mask matrix",
+    )
     parser.add_argument("--threshold", type=lambda value: int(value, 0), default=0)
     parser.add_argument("--base", type=Path, help="reuse a calibrated 0x164ac snapshot")
     parser.add_argument("--keep", type=Path, help="keep generated snapshots")
     args = parser.parse_args()
     if not args.all and args.mask is None:
         parser.error("provide --mask or --all")
-    if args.mask is not None and not 0 <= args.mask < 16:
-        parser.error("--mask must be in 0..15, with bits 0..3 mapping to 6,14,15,16")
+    bit_flags = STATE_FLAGS[args.state]
+    if args.include_bit8:
+        if args.state != 8:
+            parser.error("--include-bit8 is only valid with --state 8")
+        bit_flags = bit_flags + (1 << 8,)
+    if any(bit < 0 or bit > 31 for bit in args.extra_bit):
+        parser.error("--extra-bit values must be in 0..31")
+    extra_flags = tuple(1 << bit for bit in args.extra_bit)
+    if len(set(bit_flags + extra_flags)) != len(bit_flags) + len(extra_flags):
+        parser.error("--extra-bit values must not duplicate an existing matrix bit")
+    bit_flags = bit_flags + extra_flags
+    mask_count = 1 << len(bit_flags)
+    if args.mask is not None and not 0 <= args.mask < mask_count:
+        parser.error(f"--mask must be in 0..{mask_count - 1} for state {args.state}")
 
     if args.keep is not None:
         args.keep.mkdir(parents=True, exist_ok=True)
@@ -183,10 +219,10 @@ def main() -> None:
             boundary = build_boundary(args.binary, args.rom_directory, root)
             base = boundary.read_bytes()
             fifth_base = (root / "fifth.vf2snap").read_bytes()
-        masks = range(16) if args.all else (args.mask,)
+        masks = range(mask_count) if args.all else (args.mask,)
         total = matched = 0
         for mask in masks:
-            flags = sum(bit for index, bit in enumerate(BIT_FLAGS) if mask & (1 << index))
+            flags = sum(bit for index, bit in enumerate(bit_flags) if mask & (1 << index))
             for flags0, flags1 in ((flags, 0), (0, flags), (flags, flags)):
                 for countdown in (0, 1):
                     for mode_bit6 in (0, 1):
@@ -200,6 +236,7 @@ def main() -> None:
                                 flags1,
                                 countdown,
                                 mode_bit6,
+                                args.state,
                                 args.threshold,
                                 root,
                                 fifth_base,

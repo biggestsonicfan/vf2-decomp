@@ -131,23 +131,26 @@ def make_fixture(base: bytes, state0: int, state1: int, countdown: int, mode_bit
     return bytes(data)
 
 
-def make_state4_fixture(
+def make_state_fixture(
     base: bytes,
+    state: int,
     flags0: int,
     flags1: int,
     countdown: int,
     mode_bit6: int,
     threshold: int,
 ) -> bytes:
-    """Patch a calibrated 0x164ac boundary for one state-4 flag case."""
+    """Patch a calibrated 0x164ac boundary for one state-4/state-8 case."""
     if countdown not in (0, 1) or mode_bit6 not in (0, 1):
         raise ValueError("countdown and mode_bit6 must be 0 or 1")
+    if state not in (4, 8):
+        raise ValueError("state must be 4 or 8")
     data = bytearray(base)
     fighter0 = read_work_u32(base, FIGHTER0_PTR_ADDRESS)
     fighter1 = read_work_u32(base, FIGHTER1_PTR_ADDRESS)
     mode_address = read_work_u32(base, MODE_BASE_PTR_ADDRESS) + MODE_OFFSET
-    write_work_u8(data, fighter0 + STATE4_BYTE_OFFSET, 4)
-    write_work_u8(data, fighter1 + STATE4_BYTE_OFFSET, 4)
+    write_work_u8(data, fighter0 + STATE4_BYTE_OFFSET, state)
+    write_work_u8(data, fighter1 + STATE4_BYTE_OFFSET, state)
     write_work_u32(data, fighter0 + STATE_OFFSET, flags0)
     write_work_u32(data, fighter1 + STATE_OFFSET, flags1)
     write_work_u8(data, COUNTDOWN_ADDRESS, countdown)
@@ -156,6 +159,19 @@ def make_state4_fixture(
     current_mode = current_mode | MODE_BIT6 if mode_bit6 else current_mode & ~MODE_BIT6
     write_work_u8(data, mode_address, current_mode)
     return bytes(data)
+
+
+def make_state4_fixture(
+    base: bytes,
+    flags0: int,
+    flags1: int,
+    countdown: int,
+    mode_bit6: int,
+    threshold: int,
+) -> bytes:
+    return make_state_fixture(
+        base, 4, flags0, flags1, countdown, mode_bit6, threshold
+    )
 
 
 def build_boundary(binary: Path, roms: Path, directory: Path) -> Path:
