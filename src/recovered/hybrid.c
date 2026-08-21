@@ -7617,7 +7617,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             machine, UINT32_C(0x0050a0b6), &countdown, sizeof(countdown)
         );
         if (status == VF2_OK) {
-            native_state4_bit15_fighter_path = countdown != 0u;
+            /* Probe the remaining state-4/bit-15 corridor even when the
+             * global countdown byte is zero. The child already models the
+             * state-4/bit-15 prefix; keep other mixed-bit cases fail-closed. */
             native_18644_fighter_path =
                 native_18644_fighter_path ||
                 native_state4_bit15_fighter_path;
@@ -7729,6 +7731,14 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     if (native_state4_bit15_fighter_path) {
         native_instructions += UINT64_C(1);
+        if (fighter0_state == 4u &&
+            (fighter0_state_flags & (UINT32_C(1) << 15u)) != 0u) {
+            ++native_instructions;
+        }
+        if (fighter1_state == 4u &&
+            (fighter1_state_flags & (UINT32_C(1) << 15u)) != 0u) {
+            ++native_instructions;
+        }
     }
     if (!native_bit15_fighter_path &&
         !native_state4_bit15_fighter_path &&
