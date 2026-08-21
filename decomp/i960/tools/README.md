@@ -73,6 +73,8 @@ distributions, both countdown values and both mode-bit-6 values.
 Use `--extra-bit 21` (repeatable) to add other `+0x1a4` flag bits as measured
 dimensions; for example, `--state 8 --extra-bit 21 --mask 8` probes the
 isolated bit-21 case in all 12 countdown/mode/distribution combinations.
+For the positive no-bit-8 bit-6 submatrix, use `--state 8 --extra-bit 6
+--all --threshold 0`; all 192 fixtures (bits 1/2/4/6) are exact.
 The aggregate high-bit fixture can be selected with four repeated dimensions;
 masks `248..255` cover bit 8 plus all four high bits with every subset of
 flag bits 1/2/4, and each mask is exact across all 12 combinations.
@@ -95,8 +97,9 @@ other state-8 flag bit (apart from bit 6 on the negative threshold) retains
 the complete ROM interpreter fallback at the dispatcher boundary. State-8 bit 6 is additionally admitted on the negative
 threshold path: its full ten-bit matrix is exact across 12,288 fixtures
 (1,024 masks × 12 distributions). On the positive threshold, the child is
-also exact for the three tested masks containing bit 6, bit 8 and all five
-high bits, with optional bit 1 or bit 2 (36 fixtures total). Other positive
+also exact for the complete no-bit-8 bits-1/2/4/6 submatrix (192 fixtures),
+plus the eight tested masks containing bit 6, bit 8 and all five high bits,
+covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
 bit-6 compositions remain explicit unsupported boundaries.
 
 ## Native child runner

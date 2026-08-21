@@ -57,10 +57,10 @@ including masks 248..255.
 State-8 bit 6 is now admitted for the negative threshold: with the same
 nine-bit set, its full ten-bit matrix matches 12,288 fixtures (1,024 masks ×
 12 distributions) exactly. On the positive threshold, the recovered child
-also matches the three tested masks containing bit 6, bit 8 and all five high
-bits, with optional bit 1 or bit 2 (36 fixtures total). Other positive bit-6
-compositions, including the bit-4/high bilateral family, remain explicit
-unsupported boundaries.
+matches the complete no-bit-8 submatrix for bits 1/2/4/6 (192 fixtures), plus
+the eight tested masks containing bit 6, bit 8 and all five high bits,
+covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
+bit-6 compositions remain explicit unsupported boundaries.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
