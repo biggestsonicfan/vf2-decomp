@@ -7774,14 +7774,26 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         ++native_instructions;
     }
     if (native_state4_bit15_fighter_path) {
+        const uint32_t bit14_bit15_mask =
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u);
+        const uint32_t other_conditional_mask =
+            (UINT32_C(1) << 6u) | (UINT32_C(1) << 16u);
         native_instructions += UINT64_C(1);
         if (fighter0_state == 4u &&
             (fighter0_state_flags & (UINT32_C(1) << 15u)) != 0u) {
             ++native_instructions;
+            if ((fighter0_state_flags & bit14_bit15_mask) == bit14_bit15_mask &&
+                (fighter0_state_flags & other_conditional_mask) == 0u) {
+                native_instructions += UINT64_C(4);
+            }
         }
         if (fighter1_state == 4u &&
             (fighter1_state_flags & (UINT32_C(1) << 15u)) != 0u) {
             ++native_instructions;
+            if ((fighter1_state_flags & bit14_bit15_mask) == bit14_bit15_mask &&
+                (fighter1_state_flags & other_conditional_mask) == 0u) {
+                native_instructions += UINT64_C(4);
+            }
         }
     }
     if (!native_bit15_fighter_path &&
