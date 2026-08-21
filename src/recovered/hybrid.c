@@ -7575,6 +7575,15 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         ((fighter0_state_flags | fighter1_state_flags) &
          ((UINT32_C(1) << 15u) | (UINT32_C(1) << 6u))) == 0u &&
         (int32_t)shared_fighter_threshold >= 0;
+    const bool native_state4_bit6_bit14_fighter_path =
+        (fighter0_state == 4u || fighter1_state == 4u) &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         (UINT32_C(1) << 6u)) != 0u &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         (UINT32_C(1) << 14u)) != 0u &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) == 0u &&
+        (int32_t)shared_fighter_threshold >= 0;
     native_18644_fighter_path =
         native_bit14_fighter_path || native_bit16_fighter_path ||
         native_bit15_fighter_path || native_bit6_fighter_path ||
@@ -7582,7 +7591,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_state4_bit14_fighter_path ||
         native_state4_bit16_fighter_path ||
         native_state4_bit6_fighter_path ||
-        native_state4_bit14_bit16_fighter_path;
+        native_state4_bit14_bit16_fighter_path ||
+        native_state4_bit6_bit14_fighter_path;
     /* 0x1645c..0x16470: four loads; the register values are observable at
      * each child boundary, so preserve the ROM aliases explicitly. */
     cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
@@ -7746,6 +7756,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         (fighter0_state_flags & (UINT32_C(1) << 16u)) != 0u &&
         (fighter1_state_flags & (UINT32_C(1) << 16u)) != 0u) {
         --native_instructions;
+    }
+    if (native_state4_bit6_bit14_fighter_path) {
+        ++native_instructions;
     }
     if (native_state4_bit15_fighter_path) {
         native_instructions += UINT64_C(1);
