@@ -9,8 +9,10 @@ import subprocess
 from pathlib import Path
 
 SNAPSHOT_VERSION = 6
-REGION_SIZES_OFFSET = 8432
-REGION_DATA_OFFSET = 8504
+REGION_SIZES_OFFSET_V5 = 8416
+REGION_DATA_OFFSET_V5 = 8488
+REGION_SIZES_OFFSET_V6 = 8432
+REGION_DATA_OFFSET_V6 = 8504
 WORK_RAM_REGION = 2
 WORK_RAM_BASE = 0x00500000
 
@@ -22,6 +24,7 @@ META_INTERRUPT_ENTRIES = 68
 META_INTERRUPT_RETURNS = 76
 
 STATE_OFFSET = 0x1A4
+STATE4_BYTE_OFFSET = 0xA00
 FIGHTER0_PTR_ADDRESS = 0x00500804
 FIGHTER1_PTR_ADDRESS = 0x00500808
 COUNTDOWN_ADDRESS = 0x0050A0B6
@@ -65,12 +68,12 @@ def write_u32(data: bytearray, offset: int, value: int) -> None:
 
 def snapshot_layout(data: bytes) -> tuple[int, list[int]]:
     version = u32(data, 8)
-    if version != SNAPSHOT_VERSION:
-        raise RuntimeError(
-            f"unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"
-        )
-    sizes = list(struct.unpack_from("<18I", data, REGION_SIZES_OFFSET))
-    work = REGION_DATA_OFFSET + sum(sizes[:WORK_RAM_REGION])
+    if version not in (5, SNAPSHOT_VERSION):
+        raise RuntimeError(f"unsupported snapshot version {version}; expected 5 or {SNAPSHOT_VERSION}")
+    sizes_offset = REGION_SIZES_OFFSET_V5 if version == 5 else REGION_SIZES_OFFSET_V6
+    data_offset = REGION_DATA_OFFSET_V5 if version == 5 else REGION_DATA_OFFSET_V6
+    sizes = list(struct.unpack_from("<18I", data, sizes_offset))
+    work = data_offset + sum(sizes[:WORK_RAM_REGION])
     return work, sizes
 
 
@@ -122,6 +125,33 @@ def make_fixture(base: bytes, state0: int, state1: int, countdown: int, mode_bit
     write_work_u32(data, fighter0 + STATE_OFFSET, state0)
     write_work_u32(data, fighter1 + STATE_OFFSET, state1)
     write_work_u8(data, COUNTDOWN_ADDRESS, countdown)
+    current_mode = data[work_offset(data, mode_address)]
+    current_mode = current_mode | MODE_BIT6 if mode_bit6 else current_mode & ~MODE_BIT6
+    write_work_u8(data, mode_address, current_mode)
+    return bytes(data)
+
+
+def make_state4_fixture(
+    base: bytes,
+    flags0: int,
+    flags1: int,
+    countdown: int,
+    mode_bit6: int,
+    threshold: int,
+) -> bytes:
+    """Patch a calibrated 0x164ac boundary for one state-4 flag case."""
+    if countdown not in (0, 1) or mode_bit6 not in (0, 1):
+        raise ValueError("countdown and mode_bit6 must be 0 or 1")
+    data = bytearray(base)
+    fighter0 = read_work_u32(base, FIGHTER0_PTR_ADDRESS)
+    fighter1 = read_work_u32(base, FIGHTER1_PTR_ADDRESS)
+    mode_address = read_work_u32(base, MODE_BASE_PTR_ADDRESS) + MODE_OFFSET
+    write_work_u8(data, fighter0 + STATE4_BYTE_OFFSET, 4)
+    write_work_u8(data, fighter1 + STATE4_BYTE_OFFSET, 4)
+    write_work_u32(data, fighter0 + STATE_OFFSET, flags0)
+    write_work_u32(data, fighter1 + STATE_OFFSET, flags1)
+    write_work_u8(data, COUNTDOWN_ADDRESS, countdown)
+    write_work_u32(data, 0x0050A028, threshold & 0xFFFFFFFF)
     current_mode = data[work_offset(data, mode_address)]
     current_mode = current_mode | MODE_BIT6 if mode_bit6 else current_mode & ~MODE_BIT6
     write_work_u8(data, mode_address, current_mode)

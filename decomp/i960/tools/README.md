@@ -43,6 +43,21 @@ python3 decomp/i960/tools/make_game_info_fixture.py \
 
 Use `--base existing-164ac.vf2snap` to avoid rebuilding the calibrated caller boundary.
 
+## State-4 flag matrix
+
+Once a ROM directory is available, validate the full four-bit state-4 matrix
+with the chained native/ROM harness:
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --all --threshold 0
+```
+
+The mask bits map to state flags 6, 14, 15 and 16. Each mask is tested with
+fighter 0 only, fighter 1 only and both fighters, for both countdown values
+and both mode-bit-6 values. Negative-threshold coverage can be run separately,
+for example with `--threshold -1`.
+
 ## Native child runner
 
 ```bash

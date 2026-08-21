@@ -3016,6 +3016,13 @@ static int command_native_resume(
             );
         }
     }
+    if (status == VF2_OK &&
+        (cpu.ip == UINT32_C(0x000164b0) ||
+         cpu.ip == UINT32_C(0x000164c4))) {
+        /* Native runtime entry is the task dispatcher; the suspended
+         * snapshot still exposes the original CALL return IP to ptrace. */
+        cpu.ip = UINT32_C(0x0001645c);
+    }
     if (status == VF2_OK) {
         status = vf2_native_runtime_initialize(&runtime, 4u);
     }

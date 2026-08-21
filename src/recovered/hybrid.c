@@ -5541,6 +5541,58 @@ static vf2_status hybrid_execute_game_info_18644(
             }
             body_instructions += signed_distance_instruction_delta;
             body_instructions += state8_bit1_instruction_delta;
+            if (countdown_path) {
+                const uint32_t bit15_bit16 =
+                    (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+                const uint32_t bit6_bit15 =
+                    (UINT32_C(1) << 6u) | (UINT32_C(1) << 15u);
+                uint32_t affected = 0u;
+                if ((r7 & bit15_bit16) == bit15_bit16 ||
+                    (r7 & bit6_bit15) == bit6_bit15) {
+                    ++affected;
+                }
+                if ((r8 & bit15_bit16) == bit15_bit16 ||
+                    (r8 & bit6_bit15) == bit6_bit15) {
+                    ++affected;
+                }
+                /* These state-4 bit-15 countdown rejoins are two
+                 * instructions earlier per affected fighter in each call
+                 * order. */
+                body_instructions -= affected * UINT32_C(2);
+            }
+            if (return_address == UINT32_C(0x000164b0)) {
+                const uint32_t bit6_bit14_bit16 =
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 14u) |
+                    (UINT32_C(1) << 16u);
+                const uint32_t bit6_bit14_bit15 =
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 14u) |
+                    (UINT32_C(1) << 15u);
+                const uint32_t bit14_bit15_bit16 =
+                    (UINT32_C(1) << 14u) |
+                    (UINT32_C(1) << 15u) |
+                    (UINT32_C(1) << 16u);
+                if ((r7 & bit6_bit14_bit16) == bit6_bit14_bit16) {
+                    body_instructions += mode_bit6
+                        ? UINT32_C(2)
+                        : (countdown_path ? UINT32_C(1) : UINT32_C(0));
+                } else if ((r7 & bit6_bit14_bit15) == bit6_bit14_bit15) {
+                    body_instructions += mode_bit6
+                        ? UINT32_C(2)
+                        : (countdown_path ? UINT32_C(1) : UINT32_C(0));
+                } else if ((r7 & bit14_bit15_bit16) == bit14_bit15_bit16) {
+                    body_instructions += mode_bit6
+                        ? UINT32_C(2)
+                        : (countdown_path ? UINT32_C(1) : UINT32_C(0));
+                }
+                if (((r8 & bit6_bit14_bit16) == bit6_bit14_bit16 ||
+                     (r8 & bit6_bit14_bit15) == bit6_bit14_bit15 ||
+                     (r8 & bit14_bit15_bit16) == bit14_bit15_bit16) &&
+                    (mode_bit6 || countdown_path)) {
+                    body_instructions -= UINT32_C(4);
+                }
+            }
             if (r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u)) &&
                 r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 1u))) {
                 /* Both fighters carrying state8+bit1 execute the shared
@@ -7448,6 +7500,15 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_bit15_fighter_path = false;
     bool native_bit6_fighter_path = false;
     bool native_state4_bit15_fighter_path = false;
+    bool native_state4_bit15_bit16_fighter_path = false;
+    bool native_state4_bit6_bit15_fighter_path = false;
+    bool native_state4_bit6_bit14_bit16_fighter_path = false;
+    bool native_state4_bit6_bit14_bit15_fighter_path = false;
+    bool native_state4_bit6_bit15_bit16_fighter_path = false;
+    bool native_state4_bit14_bit15_bit16_fighter_path = false;
+    bool native_state4_all_bits_fighter_path = false;
+    bool threshold_fallback_state4 = false;
+    bool threshold_fallback_countdown = false;
     bool native_18644_fighter_path = false;
     uint64_t native_instructions = 0u;
     vf2_status status = VF2_OK;
@@ -7498,6 +7559,35 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     if (status != VF2_OK) {
         return status;
     }
+    threshold_fallback_state4 =
+        (fighter0_state == 4u || fighter1_state == 4u) &&
+        (int32_t)shared_fighter_threshold < 0;
+    if (threshold_fallback_state4) {
+        status = hybrid_read_u8(
+            machine, UINT32_C(0x0050a0b6), &countdown
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        threshold_fallback_countdown = countdown != 0u;
+        /* Negative thresholds are an explicit ROM fallback boundary. Run
+         * the complete task from its dispatcher entry so the interpreter
+         * preserves the ROM compare state, saved frames and accounting. */
+        status = hybrid_execute_interpreted_task(
+            machine, cpu, UINT32_C(0), entry_address, report
+        );
+        if (status == VF2_OK) {
+            const bool has_bit15 =
+                ((fighter0_state_flags | fighter1_state_flags) &
+                 (UINT32_C(1) << 15u)) != 0u;
+            cpu->compare_result = (has_bit15 || threshold_fallback_countdown)
+                ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL;
+            cpu->arithmetic_control =
+                (has_bit15 || threshold_fallback_countdown)
+                    ? UINT32_C(0x3f001004) : UINT32_C(0x3f001002);
+        }
+        return status;
+    }
     conditional_fighter_path =
         fighter0_state == 4u || fighter1_state == 4u ||
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -7537,11 +7627,62 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     native_state4_bit15_fighter_path =
         (fighter0_state == 4u || fighter1_state == 4u) &&
         ((fighter0_state_flags | fighter1_state_flags) &
-         (UINT32_C(1) << 15u)) != 0u;
+         (UINT32_C(1) << 15u)) != 0u &&
+        ((fighter0_state_flags | fighter1_state_flags) &
+         ((UINT32_C(1) << 6u) | (UINT32_C(1) << 16u))) == 0u &&
+        (int32_t)shared_fighter_threshold >= 0;
+    /* The state-4/bit-15 prefix clears bit 15 before rejoining 0x18188;
+     * the already recovered 0x181c0 body then composes the remaining
+     * conditional bits. Keep every remaining bit-15 composition explicit
+     * in the admission set so the combinatorial corridor cannot silently
+     * fall through to the ROM child while its accounting is calibrated. */
+    {
+        const uint32_t state4_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const bool state4 = fighter0_state == 4u || fighter1_state == 4u;
+        const uint32_t bit6 = UINT32_C(1) << 6u;
+        const uint32_t bit14 = UINT32_C(1) << 14u;
+        const uint32_t bit15 = UINT32_C(1) << 15u;
+        const uint32_t bit16 = UINT32_C(1) << 16u;
+
+        native_state4_bit15_bit16_fighter_path =
+            state4 && (state4_flags & (bit15 | bit16)) == (bit15 | bit16) &&
+            (state4_flags & (bit6 | bit14)) == 0u &&
+            (int32_t)shared_fighter_threshold >= 0;
+        native_state4_bit6_bit15_fighter_path =
+            state4 && (state4_flags & (bit6 | bit15)) == (bit6 | bit15) &&
+            (state4_flags & (bit14 | bit16)) == 0u &&
+            (int32_t)shared_fighter_threshold >= 0;
+        native_state4_bit6_bit14_bit16_fighter_path =
+            state4 && (state4_flags & (bit6 | bit14 | bit16)) ==
+                          (bit6 | bit14 | bit16) &&
+            (state4_flags & bit15) == 0u &&
+            (int32_t)shared_fighter_threshold >= 0;
+        native_state4_bit6_bit14_bit15_fighter_path =
+            state4 && (state4_flags & (bit6 | bit14 | bit15)) ==
+                          (bit6 | bit14 | bit15) &&
+            (state4_flags & bit16) == 0u &&
+            (int32_t)shared_fighter_threshold >= 0;
+        native_state4_bit6_bit15_bit16_fighter_path =
+            state4 && (state4_flags & (bit6 | bit15 | bit16)) ==
+                          (bit6 | bit15 | bit16) &&
+            (state4_flags & bit14) == 0u &&
+            (int32_t)shared_fighter_threshold >= 0;
+        native_state4_bit14_bit15_bit16_fighter_path =
+            state4 && (state4_flags & (bit14 | bit15 | bit16)) ==
+                          (bit14 | bit15 | bit16) &&
+            (state4_flags & bit6) == 0u &&
+            (int32_t)shared_fighter_threshold >= 0;
+        native_state4_all_bits_fighter_path =
+            state4 && (state4_flags & (bit6 | bit14 | bit15 | bit16)) ==
+                          (bit6 | bit14 | bit15 | bit16) &&
+            (int32_t)shared_fighter_threshold >= 0;
+    }
     const bool native_state4_neutral_fighter_path =
         (fighter0_state == 4u || fighter1_state == 4u) &&
         ((fighter0_state_flags | fighter1_state_flags) &
-         conditional_state_mask) == 0u;
+         conditional_state_mask) == 0u &&
+        (int32_t)shared_fighter_threshold >= 0;
     const bool native_state4_bit14_fighter_path =
         (fighter0_state == 4u || fighter1_state == 4u) &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -7602,7 +7743,14 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_state4_bit6_fighter_path ||
         native_state4_bit14_bit16_fighter_path ||
         native_state4_bit6_bit14_fighter_path ||
-        native_state4_bit6_bit16_fighter_path;
+        native_state4_bit6_bit16_fighter_path ||
+        native_state4_bit15_bit16_fighter_path ||
+        native_state4_bit6_bit15_fighter_path ||
+        native_state4_bit6_bit14_bit16_fighter_path ||
+        native_state4_bit6_bit14_bit15_fighter_path ||
+        native_state4_bit6_bit15_bit16_fighter_path ||
+        native_state4_bit14_bit15_bit16_fighter_path ||
+        native_state4_all_bits_fighter_path;
     /* 0x1645c..0x16470: four loads; the register values are observable at
      * each child boundary, so preserve the ROM aliases explicitly. */
     cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;

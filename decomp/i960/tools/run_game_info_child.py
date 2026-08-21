@@ -85,13 +85,16 @@ def poke(pid: int, address: int, value: int) -> None:
 
 
 def set_breakpoint(pid: int, address: int) -> int:
-    original = peek(pid, address)
-    poke(pid, address, (original & ~0xFF) | 0xCC)
+    aligned = address & ~0x7
+    shift = (address - aligned) * 8
+    original = peek(pid, aligned)
+    patched = (original & ~(0xFF << shift)) | (0xCC << shift)
+    poke(pid, aligned, patched)
     return original
 
 
 def restore_breakpoint(pid: int, address: int, original: int) -> None:
-    poke(pid, address, original)
+    poke(pid, address & ~0x7, original)
 
 
 def wait_stop(pid: int) -> int:
@@ -129,6 +132,11 @@ def symbol_offsets(binary: Path) -> dict[str, int]:
 
 
 def load_bias(pid: int, binary: Path) -> int:
+    elf_header = subprocess.run(
+        ["readelf", "-h", str(binary)], capture_output=True, text=True, check=True
+    ).stdout
+    if "Type:" in elf_header and "EXEC" in elf_header.split("Type:", 1)[1].splitlines()[0]:
+        return 0
     target = os.path.realpath(binary)
     candidates: list[int] = []
     for line in Path(f"/proc/{pid}/maps").read_text().splitlines():
