@@ -184,6 +184,12 @@ both countdown/mode-bit-6 settings at threshold `0`; the bilateral controls
 also match thresholds `1` and `2`. The bilateral cases use the measured
 two-instruction accounting correction.
 Other positive dispatcher compositions remain explicit boundaries.
+The complete dispatcher also now admits state 8 with bits 6+14+21, field mask
+`0x00204000`. Its three fighter-record distributions match both countdown/mode
+settings at threshold `0`, and all three distributions match both mode values
+at thresholds `1` and `2`. The measured accounting relation includes a fixed
+bilateral join plus distribution-specific countdown/mode terms; other positive
+bit-6 compositions remain explicit boundaries.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still

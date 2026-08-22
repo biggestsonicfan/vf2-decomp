@@ -11932,6 +11932,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state8_bit14_accounting_case = false;
     bool native_state8_bit14_bit15_bit16_high21_accounting_case = false;
     bool native_state8_bit14_bit15_bit16_high21_fighter_path = false;
+    bool native_state8_bit6_bit14_high21_accounting_case = false;
+    bool native_state8_bit6_bit14_high21_fighter_path = false;
     uint64_t native_instructions = 0u;
     vf2_status status = VF2_OK;
 
@@ -12195,6 +12197,39 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     native_18644_fighter_path =
         native_18644_fighter_path ||
         native_state8_bit14_bit15_bit16_high21_fighter_path;
+    /* The state-8 bit-6/bit-14/high-21 field mask is admitted only after
+     * its three-distribution countdown/mode matrix was measured. */
+    {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        native_state8_bit6_bit14_high21_fighter_path =
+            fighter0_state == 8u && fighter1_state == 8u &&
+            combined_state8_flags == UINT32_C(0x00204000) &&
+            (fighter0_state_flags == 0u ||
+             fighter0_state_flags == combined_state8_flags) &&
+            (fighter1_state_flags == 0u ||
+             fighter1_state_flags == combined_state8_flags) &&
+            shared_fighter_threshold <= UINT32_C(2);
+        native_state8_bit6_bit14_high21_accounting_case =
+            native_state8_bit6_bit14_high21_fighter_path;
+    }
+    native_18644_fighter_path =
+        native_18644_fighter_path ||
+        native_state8_bit6_bit14_high21_fighter_path;
+    if (status == VF2_OK &&
+        native_state8_bit6_bit14_high21_fighter_path) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &mode_base
+        );
+        if (status == VF2_OK) {
+            status = hybrid_read_u8(
+                machine, mode_base + UINT32_C(0x00003351), &mode_value
+            );
+        }
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
     /* The full 0x1645c dispatcher has one additional instruction only when
      * both state-8 fighter records carry the isolated bit-14 field. The
      * three distributions and countdown/mode matrix were strict-matched;
@@ -12665,6 +12700,36 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     if (native_state8_bit14_bit15_bit16_high21_accounting_case) {
         native_instructions += UINT64_C(2);
+    }
+    if (native_state8_bit6_bit14_high21_accounting_case) {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const bool mode_bit6 =
+            (mode_value & (UINT8_C(1) << 6u)) != 0u;
+        /* The three measured record distributions have distinct prefix
+         * joins. Their strict matrix reduces to countdown plus mode terms. */
+        if (fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == 0u) {
+            native_instructions +=
+                countdown_was_nonzero ? UINT64_C(3) : UINT64_C(0);
+            if (mode_bit6) {
+                ++native_instructions;
+            }
+        } else if (fighter0_state_flags == 0u &&
+                   fighter1_state_flags == combined_state8_flags) {
+            if (countdown_was_nonzero) {
+                native_instructions -= UINT64_C(2);
+            }
+        } else if (fighter0_state_flags == combined_state8_flags &&
+                   fighter1_state_flags == combined_state8_flags) {
+            ++native_instructions;
+            if (countdown_was_nonzero) {
+                ++native_instructions;
+            }
+            if (mode_bit6) {
+                ++native_instructions;
+            }
+        }
     }
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
