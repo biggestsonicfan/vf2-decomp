@@ -236,6 +236,12 @@ matches the full reference snapshot and instruction/call/return counters;
 the native child uses the shared bit-14/bit-16 accounting joins and the same
 condition-state postcondition. Other high-bit compositions remain explicit
 boundaries.
+The corresponding state-8 bit-14+bit-16+high-bit-31 field mask `0x80214000`
+is now admitted under the same measured threshold range. Its 36-case matrix
+also matches the full reference snapshot and instruction/call/return counters;
+the native child uses the shared bit-14/bit-16 accounting joins and the same
+condition-state postcondition. Other high-bit compositions remain explicit
+boundaries.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
