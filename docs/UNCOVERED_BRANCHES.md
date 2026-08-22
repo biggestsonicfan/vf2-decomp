@@ -73,8 +73,9 @@ across its 12 distributions/countdown/mode cases. The measured positive
 12-case matrix, and the neighboring `0x152`, `0x154` and `0x156` compositions
 are exact as well. The measured positive high-bit composition `0x4140` (state
 bit 8 + bits 6 + 14) is also exact across its 12-case matrix, including its
-bilateral order-dependent joins. Other positive high-bit compositions remain
-unproven or explicit boundaries.
+bilateral order-dependent joins. The adjacent positive `0x8140` composition
+(state bit 8 + bits 6 + 15) is now exact across its 12-case matrix as well.
+Other positive high-bit compositions remain unproven or explicit boundaries.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result

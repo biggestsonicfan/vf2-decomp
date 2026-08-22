@@ -4730,6 +4730,11 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_both_bit6_bit14_bit8 =
             r7 == state8_bit6_bit14_bit8 &&
             r8 == state8_bit6_bit14_bit8;
+        const uint32_t state8_bit6_bit15_bit8 =
+            state8 | (UINT32_C(1) << 6u) | (UINT32_C(1) << 15u);
+        const bool bilateral_both_bit6_bit15_bit8 =
+            r7 == state8_bit6_bit15_bit8 &&
+            r8 == state8_bit6_bit15_bit8;
         const uint32_t state8_bit4_bit6_bit8 =
             state8 | (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u);
         const bool bilateral_both_bit4_bit6_bit8 =
@@ -4992,6 +4997,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit1_bit2_bit4_high_any &&
             !bilateral_both_bit6_bit8 &&
             !bilateral_both_bit6_bit14_bit8 &&
+            !bilateral_both_bit6_bit15_bit8 &&
             !bilateral_both_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit6_bit8 &&
@@ -5220,6 +5226,9 @@ static vf2_status hybrid_execute_game_info_18644(
                      extra_state ==
                          ((UINT32_C(1) << 6u) |
                           (UINT32_C(1) << 14u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 15u)) ||
                      extra_state == (UINT32_C(1) << 21u) ||
                      extra_state == (UINT32_C(1) << 26u) ||
                      extra_state == (UINT32_C(1) << 29u) ||
@@ -6139,6 +6148,25 @@ static vf2_status hybrid_execute_game_info_18644(
                     }
                 }
                 {
+                    const uint32_t bit15 = UINT32_C(1) << 15u;
+                    const uint32_t state8_bit6_bit15 =
+                        (UINT32_C(1) << 8u) |
+                        (UINT32_C(1) << 6u) |
+                        (UINT32_C(1) << 15u);
+                    if (state_flags == state8_bit6_bit15 &&
+                        countdown_path &&
+                        return_address == UINT32_C(0x000164c4)) {
+                        if ((r8 & bit15) != 0u) {
+                            /* The second-order state-15 join skips the
+                             * measured 15-instruction countdown corridor. */
+                            body_instructions -= UINT32_C(15);
+                        } else if ((r7 & bit15) != 0u) {
+                            /* The swapped first-order order skips ten. */
+                            body_instructions -= UINT32_C(10);
+                        }
+                    }
+                }
+                {
                     const uint32_t bit14_bit15 =
                         (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u);
                     if (state_flags == bit14_bit15 &&
@@ -6283,6 +6311,21 @@ static vf2_status hybrid_execute_game_info_18644(
                     body_instructions -= UINT32_C(4);
                 } else if (mode_bit6) {
                     body_instructions -= UINT32_C(8);
+                }
+            }
+            if (r7 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 15u)) &&
+                r8 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 15u)) &&
+                return_address == UINT32_C(0x000164b0)) {
+                /* The bilateral bit-15 extension takes the first-order
+                 * rejoin one instruction earlier, with a ten-instruction
+                 * extension for mode/countdown branches. */
+                --body_instructions;
+                if (mode_bit6 || countdown_path) {
+                    body_instructions -= UINT32_C(10);
                 }
             }
             if (!countdown_path) {
