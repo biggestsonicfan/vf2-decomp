@@ -125,6 +125,11 @@ high bits 26, 29, 30 and 31 (`26+29`, `26+30`, `26+31`, `29+30`, `29+31` and
 pair admission is limited to those six measured masks and reuses the measured
 bit-14 + bit-15 accounting rule; pairs involving high bit 21 and larger
 multi-high combinations remain unsupported.
+The four measured bit-14 + bit-15 pairs combining high bit 21 with one of
+high bits 26, 29, 30 or 31 are now native and exact across their 12-case
+matrices as well. Their admission is limited to those four masks and uses the
+same measured accounting rule; larger multi-high combinations remain
+unsupported.
 The measured positive isolated bit-6/high-bit masks `0x200140` (bit 21),
 `0x4000140` (bit 26), `0x20000140` (bit 29), `0x40000140` (bit 30) and
 `0x80000140` (bit 31) are each exact across their 12-case matrices. The
