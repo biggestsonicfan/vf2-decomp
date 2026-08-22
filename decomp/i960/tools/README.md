@@ -129,7 +129,8 @@ across all 12 cases. The `0x154` and `0x156` compositions are exact as well.
 The positive `0x4140` (bit 8 + bits 6 + 14) high-bit composition is exact
 across all 12 cases. The adjacent positive `0x8140` (bit 8 + bits 6 + 15)
 composition is exact across all 12 cases; other positive high-bit compositions
-remain measured frontier work.
+remain measured frontier work. The adjacent positive `0x10140` (bit 8 + bits
+6 + 16) composition is also exact across all 12 cases.
 
 The `0x150` slice can be reproduced with:
 
@@ -158,6 +159,15 @@ The `0x4140` focused matrix uses `--extra-bit 14 --mask 56`:
 python3 decomp/i960/tools/validate_game_info_state4.py \
   ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
   --extra-bit 6 --extra-bit 14 --mask 56 --threshold 0 \
+  --base out/state8-positive.boundary.vf2snap
+```
+
+The `0x10140` focused matrix uses `--extra-bit 16 --mask 56`:
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
+  --extra-bit 6 --extra-bit 16 --mask 56 --threshold 0 \
   --base out/state8-positive.boundary.vf2snap
 ```
 

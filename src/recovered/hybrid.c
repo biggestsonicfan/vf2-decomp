@@ -4735,6 +4735,11 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_both_bit6_bit15_bit8 =
             r7 == state8_bit6_bit15_bit8 &&
             r8 == state8_bit6_bit15_bit8;
+        const uint32_t state8_bit6_bit16_bit8 =
+            state8 | (UINT32_C(1) << 6u) | (UINT32_C(1) << 16u);
+        const bool bilateral_both_bit6_bit16_bit8 =
+            r7 == state8_bit6_bit16_bit8 &&
+            r8 == state8_bit6_bit16_bit8;
         const uint32_t state8_bit4_bit6_bit8 =
             state8 | (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u);
         const bool bilateral_both_bit4_bit6_bit8 =
@@ -4998,6 +5003,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit6_bit8 &&
             !bilateral_both_bit6_bit14_bit8 &&
             !bilateral_both_bit6_bit15_bit8 &&
+            !bilateral_both_bit6_bit16_bit8 &&
             !bilateral_both_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit6_bit8 &&
@@ -5229,6 +5235,9 @@ static vf2_status hybrid_execute_game_info_18644(
                      extra_state ==
                          ((UINT32_C(1) << 6u) |
                           (UINT32_C(1) << 15u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 16u)) ||
                      extra_state == (UINT32_C(1) << 21u) ||
                      extra_state == (UINT32_C(1) << 26u) ||
                      extra_state == (UINT32_C(1) << 29u) ||
@@ -6326,6 +6335,20 @@ static vf2_status hybrid_execute_game_info_18644(
                 --body_instructions;
                 if (mode_bit6 || countdown_path) {
                     body_instructions -= UINT32_C(10);
+                }
+            }
+            if (r7 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 16u)) &&
+                r8 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 16u)) &&
+                return_address == UINT32_C(0x000164b0)) {
+                /* The bilateral bit-16 path has the common one-instruction
+                 * rejoin; mode 6 adds the measured nine-instruction delta. */
+                --body_instructions;
+                if (mode_bit6 && !countdown_path) {
+                    body_instructions -= UINT32_C(9);
                 }
             }
             if (!countdown_path) {
