@@ -58,6 +58,21 @@ Start with these, in this order:
 Do not trust a status sentence in this file over newer measured evidence. If the
 repository has advanced, update this handoff as part of the same work.
 
+## Windows environment
+
+If the agent is running on **Windows, use WSL2** for development work on this
+repository.
+
+Run the build, CMake/Ninja/CTest commands, Python recovery tooling, shell scripts
+and ROM-backed differential workflows from inside WSL2. Prefer keeping the
+working tree inside the Linux filesystem (for example under `~/src/`) instead of
+building from `/mnt/c/...`, especially for large builds and trace-heavy analysis.
+
+Do not create a separate native-Windows PowerShell/MSVC workflow unless the user
+explicitly asks for Windows-native support. The canonical agent workflow on
+Windows is WSL2 so behavior stays aligned with Linux CI and the documented shell
+commands.
+
 ## Build and test gate
 
 Normal strict build:
