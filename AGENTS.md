@@ -378,26 +378,27 @@ large.
 Unless newer evidence changes priorities, the following order gives the best
 leverage.
 
-### 1. Add `frontier.py`
+### 1. Extend `frontier.py`
 
-Build a queryable frontier from guest coverage and native/unsupported
-boundaries. The useful unit is a guest address/edge, not host C coverage.
+`tools/python/frontier.py` now provides the initial queryable frontier from
+guest coverage and native/unsupported boundaries. The useful unit is a guest
+address/edge, not host C coverage. It ingests corpus manifests, sweep JSONL
+and trace JSONL, ranks candidates by measured witnesses, reproducible
+snapshot availability, unsupported-final counts and recovered-range
+attribution from `decomp/i960/functions.csv`, and supports
+`--exclude-recovered` to show only the working frontier.
 
-A first version should ingest corpus manifests/traces and rank candidates using
-features such as:
+Remaining extensions, in rough value order:
 
-- guest address / edge;
-- observed execution count;
-- distance from an accepted native boundary;
-- whether a reproducible snapshot exists;
-- whether the edge is already native;
-- whether it currently terminates in unsupported behavior;
-- call target / containing function when known; and
-- read/write activity around the boundary.
+- read/write activity around the boundary (correlate `--memory-trace`
+  access clusters with candidate edges);
+- call target attribution when the edge source is a `call` instruction;
+- DuckDB-backed persistence when corpus volume outgrows the streaming
+  aggregator; and
+- Parquet export for very large trace corpora.
 
-DuckDB is already an optional analysis dependency and is suitable for the
-queryable corpus. PyArrow/Parquet can be used when trace volume justifies it.
-Do not force these dependencies into the C runtime.
+Do not force these dependencies into the C runtime, and keep ranking
+features strictly measured: no invented semantics enters the report.
 
 ### 2. Turn repeated memory patterns into candidate layouts
 

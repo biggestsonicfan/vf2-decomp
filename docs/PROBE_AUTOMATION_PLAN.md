@@ -121,6 +121,34 @@ python tools/python/minimize_case.py \
 
 This turns a noisy coverage discovery into a compact, reproducible state-transition hypothesis before manual semantic recovery begins.
 
+## `frontier.py`
+
+`tools/python/frontier.py` turns the accumulated evidence into a queryable recovery frontier. The useful unit is a guest address/edge, never host C coverage. It ingests any mix of:
+
+- `explore_state.py` corpus manifests (`manifest.jsonl`);
+- `sweep_state.py` JSONL sweeps; and
+- `trace_case.py` / `vf2probe --trace` JSONL streams.
+
+and ranks guest edges using only measured features: witness count, whether a reproducible `.vf2snap` exists for the witness, unsupported-final counts, recovered-range attribution from `decomp/i960/functions.csv`, and approximate distance from a recovered boundary.
+
+```sh
+python tools/python/frontier.py \
+  out/state8-corpus/manifest.jsonl \
+  out/state8-sweep.jsonl \
+  out/state8-case.jsonl \
+  --limit 25 --exclude-recovered
+```
+
+`--exclude-recovered` hides edges whose endpoints both sit inside recovered ranges, leaving the actual working frontier. `--json` emits stable JSONL records with the full attribution for downstream tooling. Aggregation is streaming: memory use scales with distinct guest edges, not trace length.
+
+The report is a navigation aid. A high-ranking edge is a candidate, not a recovery claim; the standard differential proof still applies before anything becomes native.
+
+Run the frontier unit tests after modifying it:
+
+```sh
+python tools/python/test_frontier.py
+```
+
 ## Optional analysis dependencies
 
 The C build remains dependency-light. Python analysis dependencies live under `tools/python/requirements.txt`:
@@ -135,7 +163,7 @@ The C build remains dependency-light. Python analysis dependencies live under `t
 
 1. Model 2A memory-access observers;
 2. repeated base+offset analysis to infer candidate fighter/object layouts;
-3. frontier ranking from corpus coverage and native/unsupported boundaries; and
+3. frontier ranking from corpus coverage and native/unsupported boundaries (initial version shipped as `frontier.py`; extend it rather than duplicating it);
 4. targeted dynamic taint / Z3 constraints only where measured behavior justifies them.
 
 The ROM-backed executor remains the oracle throughout this process.

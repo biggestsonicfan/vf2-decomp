@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- added `tools/python/frontier.py`, the initial queryable guest-i960 recovery
+  frontier: it ingests `explore_state.py` corpus manifests, `sweep_state.py`
+  JSONL sweeps and `vf2probe --trace` JSONL streams, ranks candidate edges by
+  measured witnesses, reproducible `.vf2snap` availability, unsupported-final
+  counts and recovered-range attribution from `decomp/i960/functions.csv`,
+  and supports `--exclude-recovered` plus stable `--json` output;
+  aggregation is streaming so memory use scales with distinct edges rather
+  than trace length; standalone unit tests live in
+  `tools/python/test_frontier.py`;
 - expanded `fa_game_info` state-bit-8 recovery at `0x00018644`: isolated
   bit8+bit1 and bit8+bit4 remain recovered; bilateral bit8 matches the existing
   zero/nonzero-countdown matrices; the asymmetric bilateral bit8+bit4 state

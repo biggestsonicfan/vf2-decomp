@@ -110,6 +110,29 @@ python tools/python/infer_structs.py trace.jsonl \
   --base object1=0x00513000
 ```
 
+## `frontier.py`
+
+Rank the recovery frontier from any mix of corpus manifests, sweeps and traces. The unit is a guest address/edge; ranking uses measured witnesses, snapshot reproducibility, unsupported finals and recovered-range attribution from `decomp/i960/functions.csv`.
+
+```sh
+python tools/python/frontier.py \
+  out/state8-corpus/manifest.jsonl \
+  out/state8-sweep.jsonl \
+  out/state8-case.jsonl \
+  --limit 25 --exclude-recovered
+
+# machine-readable variant
+python tools/python/frontier.py out/state8-corpus/manifest.jsonl --json
+```
+
+`--exclude-recovered` leaves the actual working frontier by hiding edges whose endpoints are both inside recovered ranges. The report ranks candidates; it never turns them into recoveries without differential proof.
+
+Unit tests:
+
+```sh
+python tools/python/test_frontier.py
+```
+
 ## Next layer
 
-The next high-value steps are frontier ranking from coverage/native boundaries, then targeted dynamic taint and Z3 bit-vector constraints for branches whose measured inputs still resist a compact semantic rule.
+The next high-value steps beyond the shipped frontier ranker are targeted dynamic taint and Z3 bit-vector constraints for branches whose measured inputs still resist a compact semantic rule.
