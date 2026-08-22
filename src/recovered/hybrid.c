@@ -4992,6 +4992,30 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_both_bit6_bit14_bit15_high26_29_30_bit8 =
             r7 == state8_bit6_bit14_bit15_high26_29_30_bit8 &&
             r8 == state8_bit6_bit14_bit15_high26_29_30_bit8;
+        const uint32_t state8_bit6_bit14_bit15_high26_29_31_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+            (UINT32_C(1) << 26u) | (UINT32_C(1) << 29u) |
+            (UINT32_C(1) << 31u);
+        const bool bilateral_both_bit6_bit14_bit15_high26_29_31_bit8 =
+            r7 == state8_bit6_bit14_bit15_high26_29_31_bit8 &&
+            r8 == state8_bit6_bit14_bit15_high26_29_31_bit8;
+        const uint32_t state8_bit6_bit14_bit15_high26_30_31_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+            (UINT32_C(1) << 26u) | (UINT32_C(1) << 30u) |
+            (UINT32_C(1) << 31u);
+        const bool bilateral_both_bit6_bit14_bit15_high26_30_31_bit8 =
+            r7 == state8_bit6_bit14_bit15_high26_30_31_bit8 &&
+            r8 == state8_bit6_bit14_bit15_high26_30_31_bit8;
+        const uint32_t state8_bit6_bit14_bit15_high29_30_31_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+            (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+            (UINT32_C(1) << 31u);
+        const bool bilateral_both_bit6_bit14_bit15_high29_30_31_bit8 =
+            r7 == state8_bit6_bit14_bit15_high29_30_31_bit8 &&
+            r8 == state8_bit6_bit14_bit15_high29_30_31_bit8;
         const uint32_t state8_bit6_bit15_bit8 =
             state8 | (UINT32_C(1) << 6u) | (UINT32_C(1) << 15u);
         const bool bilateral_both_bit6_bit15_bit8 =
@@ -5374,6 +5398,9 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit6_bit14_bit15_high21_30_bit8 &&
             !bilateral_both_bit6_bit14_bit15_high21_31_bit8 &&
             !bilateral_both_bit6_bit14_bit15_high26_29_30_bit8 &&
+            !bilateral_both_bit6_bit14_bit15_high26_29_31_bit8 &&
+            !bilateral_both_bit6_bit14_bit15_high26_30_31_bit8 &&
+            !bilateral_both_bit6_bit14_bit15_high29_30_31_bit8 &&
             !bilateral_both_bit6_bit15_bit8 &&
             !bilateral_both_bit6_bit16_bit8 &&
             !bilateral_both_bit6_bit14_bit15_bit8 &&
@@ -5817,6 +5844,27 @@ static vf2_status hybrid_execute_game_info_18644(
                           (UINT32_C(1) << 26u) |
                           (UINT32_C(1) << 29u) |
                           (UINT32_C(1) << 30u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 26u) |
+                          (UINT32_C(1) << 29u) |
+                          (UINT32_C(1) << 31u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 26u) |
+                          (UINT32_C(1) << 30u) |
+                          (UINT32_C(1) << 31u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 29u) |
+                          (UINT32_C(1) << 30u) |
+                          (UINT32_C(1) << 31u)) ||
                      extra_state ==
                          ((UINT32_C(1) << 6u) |
                           (UINT32_C(1) << 14u) |
@@ -7268,6 +7316,15 @@ static vf2_status hybrid_execute_game_info_18644(
                 const uint32_t triple_26_29_30 =
                     (UINT32_C(1) << 26u) | (UINT32_C(1) << 29u) |
                     (UINT32_C(1) << 30u);
+                const uint32_t triple_26_29_31 =
+                    (UINT32_C(1) << 26u) | (UINT32_C(1) << 29u) |
+                    (UINT32_C(1) << 31u);
+                const uint32_t triple_26_30_31 =
+                    (UINT32_C(1) << 26u) | (UINT32_C(1) << 30u) |
+                    (UINT32_C(1) << 31u);
+                const uint32_t triple_29_30_31 =
+                    (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+                    (UINT32_C(1) << 31u);
                 const uint32_t state_flags = r7 | r8;
                 const uint32_t selected_high_bits =
                     state_flags & other_high_bits;
@@ -7278,7 +7335,10 @@ static vf2_status hybrid_execute_game_info_18644(
                     selected_high_bits == pair_29_30 ||
                     selected_high_bits == pair_29_31 ||
                     selected_high_bits == pair_30_31 ||
-                    selected_high_bits == triple_26_29_30;
+                    selected_high_bits == triple_26_29_30 ||
+                    selected_high_bits == triple_26_29_31 ||
+                    selected_high_bits == triple_26_30_31 ||
+                    selected_high_bits == triple_29_30_31;
                 const bool high_pair =
                     (state_flags & ~(state8_bit6_bit14_bit15 |
                                      other_high_bits)) == 0u &&
