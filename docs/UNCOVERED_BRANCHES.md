@@ -135,6 +135,12 @@ and `0xe4018140` (bit-15 + bit-16) are also native and exact across their
 12-case matrices. Admission is limited to these two masks and reuses the
 corresponding triple accounting rules; other larger or high-bit-21
 combinations remain unsupported.
+The measured bit-14 + bit-16 high-bit-21 pair extensions `0x04214140`,
+`0x20214140`, `0x40214140` and `0x80214140`, and the corresponding bit-15
++ bit-16 extensions `0x04218140`, `0x20218140`, `0x40218140` and
+`0x80218140`, are now native and exact across their 12-case matrices. Their
+admission is limited to one measured pair of bit 21 with 26, 29, 30 or 31;
+larger high-bit-21 combinations remain unsupported.
 For the bit-14 + bit-15 composition specifically, all six pairwise masks from
 high bits 26, 29, 30 and 31 (`26+29`, `26+30`, `26+31`, `29+30`, `29+31` and
 `30+31`) are now native and exact across their 12-case matrices as well. The

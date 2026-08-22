@@ -5254,6 +5254,62 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_both_bit6_bit15_bit16_bit21_bit8 =
             r7 == state8_bit6_bit15_bit16_bit21_bit8 &&
             r8 == state8_bit6_bit15_bit16_bit21_bit8;
+        const uint32_t state8_bit6_bit14_bit16_high21_26_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u);
+        const bool bilateral_both_bit6_bit14_bit16_high21_26_bit8 =
+            r7 == state8_bit6_bit14_bit16_high21_26_bit8 &&
+            r8 == state8_bit6_bit14_bit16_high21_26_bit8;
+        const uint32_t state8_bit6_bit15_bit16_high21_26_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u);
+        const bool bilateral_both_bit6_bit15_bit16_high21_26_bit8 =
+            r7 == state8_bit6_bit15_bit16_high21_26_bit8 &&
+            r8 == state8_bit6_bit15_bit16_high21_26_bit8;
+        const uint32_t state8_bit6_bit14_bit16_high21_29_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 29u);
+        const bool bilateral_both_bit6_bit14_bit16_high21_29_bit8 =
+            r7 == state8_bit6_bit14_bit16_high21_29_bit8 &&
+            r8 == state8_bit6_bit14_bit16_high21_29_bit8;
+        const uint32_t state8_bit6_bit14_bit16_high21_30_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 30u);
+        const bool bilateral_both_bit6_bit14_bit16_high21_30_bit8 =
+            r7 == state8_bit6_bit14_bit16_high21_30_bit8 &&
+            r8 == state8_bit6_bit14_bit16_high21_30_bit8;
+        const uint32_t state8_bit6_bit14_bit16_high21_31_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 31u);
+        const bool bilateral_both_bit6_bit14_bit16_high21_31_bit8 =
+            r7 == state8_bit6_bit14_bit16_high21_31_bit8 &&
+            r8 == state8_bit6_bit14_bit16_high21_31_bit8;
+        const uint32_t state8_bit6_bit15_bit16_high21_29_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 29u);
+        const bool bilateral_both_bit6_bit15_bit16_high21_29_bit8 =
+            r7 == state8_bit6_bit15_bit16_high21_29_bit8 &&
+            r8 == state8_bit6_bit15_bit16_high21_29_bit8;
+        const uint32_t state8_bit6_bit15_bit16_high21_30_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 30u);
+        const bool bilateral_both_bit6_bit15_bit16_high21_30_bit8 =
+            r7 == state8_bit6_bit15_bit16_high21_30_bit8 &&
+            r8 == state8_bit6_bit15_bit16_high21_30_bit8;
+        const uint32_t state8_bit6_bit15_bit16_high21_31_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u) |
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 31u);
+        const bool bilateral_both_bit6_bit15_bit16_high21_31_bit8 =
+            r7 == state8_bit6_bit15_bit16_high21_31_bit8 &&
+            r8 == state8_bit6_bit15_bit16_high21_31_bit8;
         const uint32_t state8_bit6_bit14_bit15_bit16_bit21_bit8 =
             state8 | (UINT32_C(1) << 6u) |
             (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
@@ -5599,6 +5655,14 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit6_bit14_bit15_bit21_bit8 &&
             !bilateral_both_bit6_bit14_bit16_bit21_bit8 &&
             !bilateral_both_bit6_bit15_bit16_bit21_bit8 &&
+            !bilateral_both_bit6_bit14_bit16_high21_26_bit8 &&
+            !bilateral_both_bit6_bit14_bit16_high21_29_bit8 &&
+            !bilateral_both_bit6_bit14_bit16_high21_30_bit8 &&
+            !bilateral_both_bit6_bit14_bit16_high21_31_bit8 &&
+            !bilateral_both_bit6_bit15_bit16_high21_26_bit8 &&
+            !bilateral_both_bit6_bit15_bit16_high21_29_bit8 &&
+            !bilateral_both_bit6_bit15_bit16_high21_30_bit8 &&
+            !bilateral_both_bit6_bit15_bit16_high21_31_bit8 &&
             !bilateral_both_bit6_bit14_bit15_bit16_bit21_bit8 &&
             !bilateral_both_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit4_bit6_bit8 &&
@@ -6242,6 +6306,54 @@ static vf2_status hybrid_execute_game_info_18644(
                           (UINT32_C(1) << 15u) |
                           (UINT32_C(1) << 16u) |
                           (UINT32_C(1) << 21u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 26u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 26u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 29u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 30u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 31u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 29u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 30u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 15u) |
+                          (UINT32_C(1) << 16u) |
+                          (UINT32_C(1) << 21u) |
+                          (UINT32_C(1) << 31u)) ||
                      extra_state ==
                          ((UINT32_C(1) << 6u) |
                           (UINT32_C(1) << 14u) |
@@ -7966,6 +8078,194 @@ static vf2_status hybrid_execute_game_info_18644(
                             body_instructions -= UINT32_C(2);
                         }
                     } else if (r7 == state8_bit6_bit15_bit16_bit21) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(10);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit14_bit16_high21_26 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 14u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 26u);
+                if (((r7 == state8_bit6_bit14_bit16_high21_26 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit14_bit16_high21_26)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit14_bit16_high21_26) {
+                        if (!countdown_path && mode_bit6) {
+                            body_instructions -= UINT32_C(1);
+                        }
+                    } else if (r7 == state8_bit6_bit14_bit16_high21_26 &&
+                               !countdown_path && mode_bit6) {
+                        body_instructions += UINT32_C(4);
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit15_bit16_high21_26 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 15u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 26u);
+                if (((r7 == state8_bit6_bit15_bit16_high21_26 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit15_bit16_high21_26)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit15_bit16_high21_26) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(15);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    } else if (r7 == state8_bit6_bit15_bit16_high21_26) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(10);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit14_bit16_high21_29 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 14u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 29u);
+                if (((r7 == state8_bit6_bit14_bit16_high21_29 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit14_bit16_high21_29)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit14_bit16_high21_29) {
+                        if (!countdown_path && mode_bit6) {
+                            body_instructions -= UINT32_C(1);
+                        }
+                    } else if (r7 == state8_bit6_bit14_bit16_high21_29 &&
+                               !countdown_path && mode_bit6) {
+                        body_instructions += UINT32_C(4);
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit14_bit16_high21_30 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 14u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 30u);
+                if (((r7 == state8_bit6_bit14_bit16_high21_30 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit14_bit16_high21_30)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit14_bit16_high21_30) {
+                        if (!countdown_path && mode_bit6) {
+                            body_instructions -= UINT32_C(1);
+                        }
+                    } else if (r7 == state8_bit6_bit14_bit16_high21_30 &&
+                               !countdown_path && mode_bit6) {
+                        body_instructions += UINT32_C(4);
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit14_bit16_high21_31 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 14u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 31u);
+                if (((r7 == state8_bit6_bit14_bit16_high21_31 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit14_bit16_high21_31)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit14_bit16_high21_31) {
+                        if (!countdown_path && mode_bit6) {
+                            body_instructions -= UINT32_C(1);
+                        }
+                    } else if (r7 == state8_bit6_bit14_bit16_high21_31 &&
+                               !countdown_path && mode_bit6) {
+                        body_instructions += UINT32_C(4);
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit15_bit16_high21_29 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 15u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 29u);
+                if (((r7 == state8_bit6_bit15_bit16_high21_29 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit15_bit16_high21_29)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit15_bit16_high21_29) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(15);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    } else if (r7 == state8_bit6_bit15_bit16_high21_29) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(10);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit15_bit16_high21_30 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 15u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 30u);
+                if (((r7 == state8_bit6_bit15_bit16_high21_30 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit15_bit16_high21_30)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit15_bit16_high21_30) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(15);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    } else if (r7 == state8_bit6_bit15_bit16_high21_30) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(10);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    }
+                }
+            }
+            {
+                const uint32_t state8_bit6_bit15_bit16_high21_31 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 6u) |
+                    (UINT32_C(1) << 15u) |
+                    (UINT32_C(1) << 16u) |
+                    (UINT32_C(1) << 21u) |
+                    (UINT32_C(1) << 31u);
+                if (((r7 == state8_bit6_bit15_bit16_high21_31 && r8 == 0u) ||
+                     (r7 == 0u && r8 == state8_bit6_bit15_bit16_high21_31)) &&
+                    return_address == UINT32_C(0x000164c4)) {
+                    if (r8 == state8_bit6_bit15_bit16_high21_31) {
+                        if (countdown_path) {
+                            body_instructions -= UINT32_C(15);
+                        } else if (mode_bit6) {
+                            body_instructions -= UINT32_C(2);
+                        }
+                    } else if (r7 == state8_bit6_bit15_bit16_high21_31) {
                         if (countdown_path) {
                             body_instructions -= UINT32_C(10);
                         } else if (mode_bit6) {
