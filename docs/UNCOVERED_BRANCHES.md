@@ -168,14 +168,16 @@ native and exact across its 12-case matrix as well, with the same isolated
 return-corridor accounting. The neighboring 21+29+30 composition remains a
 3/12 control and is still unsupported.
 The third measured extension `0x84214140` (21+26+31) is now native and exact
-across its 12-case matrix. The neighboring 21+29+31 composition remains a
-3/12 control; the other high-bit triples remain unsupported.
+across its 12-case matrix; the other high-bit triples were still unmeasured at
+that point.
 The measured extension `0x60214140` (21+29+30) is now native and exact across
 its 12-case matrix. Its neighboring 21+29+31 control remains 3/12, preserving
 the explicit boundary for the unmeasured triple.
-The final bit-14 + bit-16 high-bit-21 triple `0xc0214140` (21+30+31) is now
-native and exact across its 12-case matrix. The 21+29+31 neighbor remains a
-3/12 control and is not admitted.
+The final bit-14 + bit-16 high-bit-21 triples `0xc0214140` (21+30+31) and
+`0xa0214140` (21+29+31) are now native and exact across their 12-case
+matrices. This completes all six combinations of bit21 with two of high bits
+26, 29, 30 and 31 for this family; other positive compositions remain
+unsupported.
 The measured bit-14 + bit-15 triple-high extensions `0x6400c140`,
 `0xa400c140`, `0xc400c140` and `0xe000c140` (high-bit triples 26+29+30,
 26+29+31, 26+30+31 and 29+30+31) are now native and exact across their
