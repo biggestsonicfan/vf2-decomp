@@ -141,6 +141,11 @@ The measured bit-14 + bit-16 high-bit-21 pair extensions `0x04214140`,
 `0x80218140`, are now native and exact across their 12-case matrices. Their
 admission is limited to one measured pair of bit 21 with 26, 29, 30 or 31;
 larger high-bit-21 combinations remain unsupported.
+All six bit-15 + bit-16 high-bit-21 triples are also measured exact across
+their 12-case matrices: `21+26+29`, `21+26+30`, `21+26+31`, `21+29+30`,
+`21+29+31` and `21+30+31` (masks `0x24218140`, `0x44218140`, `0x84218140`,
+`0x60218140`, `0xa0218140` and `0xc0218140`). This is evidence for the
+existing corridor only; other positive compositions remain unsupported.
 For the bit-14 + bit-15 composition specifically, all six pairwise masks from
 high bits 26, 29, 30 and 31 (`26+29`, `26+30`, `26+31`, `29+30`, `29+31` and
 `30+31`) are now native and exact across their 12-case matrices as well. The
