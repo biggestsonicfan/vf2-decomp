@@ -4725,6 +4725,11 @@ static vf2_status hybrid_execute_game_info_18644(
             state8 | (UINT32_C(1) << 6u);
         const bool bilateral_both_bit6_bit8 =
             r7 == state8_bit6_bit8 && r8 == state8_bit6_bit8;
+        const uint32_t state8_bit6_bit14_bit8 =
+            state8 | (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u);
+        const bool bilateral_both_bit6_bit14_bit8 =
+            r7 == state8_bit6_bit14_bit8 &&
+            r8 == state8_bit6_bit14_bit8;
         const uint32_t state8_bit4_bit6_bit8 =
             state8 | (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u);
         const bool bilateral_both_bit4_bit6_bit8 =
@@ -4986,6 +4991,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit2_bit4_high_any &&
             !bilateral_both_bit1_bit2_bit4_high_any &&
             !bilateral_both_bit6_bit8 &&
+            !bilateral_both_bit6_bit14_bit8 &&
             !bilateral_both_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit6_bit8 &&
@@ -5211,6 +5217,9 @@ static vf2_status hybrid_execute_game_info_18644(
                      extra_state == (UINT32_C(1) << 14u) ||
                      extra_state == (UINT32_C(1) << 15u) ||
                      extra_state == (UINT32_C(1) << 16u) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u)) ||
                      extra_state == (UINT32_C(1) << 21u) ||
                      extra_state == (UINT32_C(1) << 26u) ||
                      extra_state == (UINT32_C(1) << 29u) ||
@@ -6097,6 +6106,27 @@ static vf2_status hybrid_execute_game_info_18644(
                     }
                 }
                 {
+                    const uint32_t state8_bit6_bit14 =
+                        (UINT32_C(1) << 8u) | bit6 | bit14;
+                    if (state_flags == state8_bit6_bit14 &&
+                        return_address == UINT32_C(0x000164c4)) {
+                        if ((r8 & bit14) != 0u) {
+                            /* In the second-order call, bit 14 with mode
+                             * bit 6 reaches the shared join one instruction
+                             * later, plus one more for the mode branch. */
+                            body_instructions += UINT32_C(1) +
+                                (mode_bit6 ? UINT32_C(1) : UINT32_C(0));
+                            if (!countdown_path) {
+                                --body_instructions;
+                            }
+                        } else if ((r7 & bit14) != 0u && countdown_path) {
+                            /* The swapped first-order countdown path
+                             * rejoins four instructions earlier. */
+                            body_instructions -= UINT32_C(4);
+                        }
+                    }
+                }
+                {
                     const uint32_t bit15 = UINT32_C(1) << 15u;
                     const bool simple_bit15 =
                         state_flags == bit15;
@@ -6237,6 +6267,22 @@ static vf2_status hybrid_execute_game_info_18644(
                     body_instructions -= UINT32_C(5);
                 } else if (countdown_path) {
                     body_instructions -= UINT32_C(1);
+                }
+            }
+            if (r7 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 14u)) &&
+                r8 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 14u)) &&
+                return_address == UINT32_C(0x000164b0)) {
+                /* The bilateral bit-14 extension takes the first-order
+                 * rejoin one instruction earlier. */
+                --body_instructions;
+                if (countdown_path) {
+                    body_instructions -= UINT32_C(4);
+                } else if (mode_bit6) {
+                    body_instructions -= UINT32_C(8);
                 }
             }
             if (!countdown_path) {

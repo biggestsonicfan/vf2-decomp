@@ -125,8 +125,10 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
 ```
 
 The measured positive `0x150` (bit 8 + bits 4 + 6) composition is also exact
-across all 12 cases. The `0x154` and `0x156` compositions are exact as well;
-the next frontier must be selected from a measured high-bit combination.
+across all 12 cases. The `0x154` and `0x156` compositions are exact as well.
+The positive `0x4140` (bit 8 + bits 6 + 14) high-bit composition is exact
+across all 12 cases; other positive high-bit compositions remain measured
+frontier work.
 
 The `0x150` slice can be reproduced with:
 
@@ -139,6 +141,15 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
 
 The `0x154` focused matrix uses `--mask 30`; the `0x156` matrix uses
 `--mask 31`.
+
+The `0x4140` focused matrix uses `--extra-bit 14 --mask 56`:
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
+  --extra-bit 6 --extra-bit 14 --mask 56 --threshold 0 \
+  --base out/state8-positive.boundary.vf2snap
+```
 
 ## Native child runner
 
