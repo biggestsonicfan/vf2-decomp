@@ -113,6 +113,12 @@ and the corresponding bit-16 extensions `0x4010140`, `0x20010140`,
 single high bits; bit-15 uses the validated first-order, second-order and
 bilateral accounting rule, while bit-16's measured correction is limited to
 the bilateral countdown/mode joins. Multi-high extensions remain unsupported.
+The corresponding bit-14 + bit-15, bit-14 + bit-16, bit-15 + bit-16 and
+bit-14 + bit-15 + bit-16 cross-family extensions with each of high bits 26,
+29, 30 and 31 are now native and exact across their 12-case matrices as
+well. Each admission is limited to one measured single high bit; the
+countdown/mode corrections are separately measured for each of the four
+fighter-bit compositions. Multi-high extensions remain unsupported.
 The measured positive isolated bit-6/high-bit masks `0x200140` (bit 21),
 `0x4000140` (bit 26), `0x20000140` (bit 29), `0x40000140` (bit 30) and
 `0x80000140` (bit 31) are each exact across their 12-case matrices. The
