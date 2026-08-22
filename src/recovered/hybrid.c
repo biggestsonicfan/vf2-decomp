@@ -4740,6 +4740,12 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_both_bit6_bit16_bit8 =
             r7 == state8_bit6_bit16_bit8 &&
             r8 == state8_bit6_bit16_bit8;
+        const uint32_t state8_bit6_bit14_bit15_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u);
+        const bool bilateral_both_bit6_bit14_bit15_bit8 =
+            r7 == state8_bit6_bit14_bit15_bit8 &&
+            r8 == state8_bit6_bit14_bit15_bit8;
         const uint32_t state8_bit4_bit6_bit8 =
             state8 | (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u);
         const bool bilateral_both_bit4_bit6_bit8 =
@@ -5004,6 +5010,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit6_bit14_bit8 &&
             !bilateral_both_bit6_bit15_bit8 &&
             !bilateral_both_bit6_bit16_bit8 &&
+            !bilateral_both_bit6_bit14_bit15_bit8 &&
             !bilateral_both_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit6_bit8 &&
@@ -5238,6 +5245,10 @@ static vf2_status hybrid_execute_game_info_18644(
                      extra_state ==
                          ((UINT32_C(1) << 6u) |
                           (UINT32_C(1) << 16u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 15u)) ||
                      extra_state == (UINT32_C(1) << 21u) ||
                      extra_state == (UINT32_C(1) << 26u) ||
                      extra_state == (UINT32_C(1) << 29u) ||
@@ -6176,6 +6187,30 @@ static vf2_status hybrid_execute_game_info_18644(
                     }
                 }
                 {
+                    const uint32_t triple_bit14 = UINT32_C(1) << 14u;
+                    const uint32_t triple_bit15 = UINT32_C(1) << 15u;
+                    const uint32_t state8_bit6_bit14_bit15 =
+                        (UINT32_C(1) << 8u) |
+                        (UINT32_C(1) << 6u) |
+                        triple_bit14 | triple_bit15;
+                    if (state_flags == state8_bit6_bit14_bit15 &&
+                        return_address == UINT32_C(0x000164c4)) {
+                        if ((r8 & triple_bit15) != 0u) {
+                            if (countdown_path) {
+                                body_instructions -= UINT32_C(15);
+                            } else if (mode_bit6) {
+                                body_instructions -= UINT32_C(3);
+                            }
+                        } else if ((r7 & triple_bit15) != 0u) {
+                            if (countdown_path) {
+                                body_instructions -= UINT32_C(10);
+                            } else if (mode_bit6) {
+                                body_instructions += UINT32_C(2);
+                            }
+                        }
+                    }
+                }
+                {
                     const uint32_t bit14_bit15 =
                         (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u);
                     if (state_flags == bit14_bit15 &&
@@ -6349,6 +6384,24 @@ static vf2_status hybrid_execute_game_info_18644(
                 --body_instructions;
                 if (mode_bit6 && !countdown_path) {
                     body_instructions -= UINT32_C(9);
+                }
+            }
+            if (r7 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 14u) |
+                       (UINT32_C(1) << 15u)) &&
+                r8 == ((UINT32_C(1) << 8u) |
+                       (UINT32_C(1) << 6u) |
+                       (UINT32_C(1) << 14u) |
+                       (UINT32_C(1) << 15u)) &&
+                return_address == UINT32_C(0x000164b0)) {
+                /* The bilateral 14+15 path has a common one-instruction
+                 * rejoin, with measured mode/countdown extensions. */
+                --body_instructions;
+                if (countdown_path) {
+                    body_instructions -= UINT32_C(10);
+                } else if (mode_bit6) {
+                    body_instructions -= UINT32_C(5);
                 }
             }
             if (!countdown_path) {
