@@ -159,6 +159,10 @@ The existing shared corridor has also been measured for the bit-14 + bit-15
  its 12-case positive-threshold matrix exactly, including both countdown and
  mode-bit-6 variants. This records measured coverage of the common corridor;
  other unmeasured high-bit compositions remain explicit boundaries.
+The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
+native and exact across its 12-case matrix. Its correction is isolated to the
+measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
+measures only 3/12 exact and remains unsupported.
 The measured bit-14 + bit-15 triple-high extensions `0x6400c140`,
 `0xa400c140`, `0xc400c140` and `0xe000c140` (high-bit triples 26+29+30,
 26+29+31, 26+30+31 and 29+30+31) are now native and exact across their
