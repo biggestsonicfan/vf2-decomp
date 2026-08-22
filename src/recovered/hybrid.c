@@ -11942,6 +11942,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state8_bit6_bit14_bit16_high21_fighter_path = false;
     bool native_state8_bit6_bit15_bit16_high21_accounting_case = false;
     bool native_state8_bit6_bit15_bit16_high21_fighter_path = false;
+    bool native_state8_bit6_bit14_bit15_bit16_high21_accounting_case = false;
+    bool native_state8_bit6_bit14_bit15_bit16_high21_fighter_path = false;
     bool native_state8_bit6_bit14_bit15_high21_accounting_case = false;
     bool native_state8_bit6_bit14_bit15_high21_fighter_path = false;
     uint64_t native_instructions = 0u;
@@ -12305,6 +12307,25 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     native_18644_fighter_path =
         native_18644_fighter_path ||
         native_state8_bit6_bit15_bit16_high21_fighter_path;
+    /* The measured all-three conditional-bit/high-21 compound has its own
+     * dispatcher accounting and remains independently threshold-gated. */
+    {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        native_state8_bit6_bit14_bit15_bit16_high21_fighter_path =
+            fighter0_state == 8u && fighter1_state == 8u &&
+            combined_state8_flags == UINT32_C(0x0021c000) &&
+            (fighter0_state_flags == 0u ||
+             fighter0_state_flags == combined_state8_flags) &&
+            (fighter1_state_flags == 0u ||
+             fighter1_state_flags == combined_state8_flags) &&
+            shared_fighter_threshold <= UINT32_C(2);
+        native_state8_bit6_bit14_bit15_bit16_high21_accounting_case =
+            native_state8_bit6_bit14_bit15_bit16_high21_fighter_path;
+    }
+    native_18644_fighter_path =
+        native_18644_fighter_path ||
+        native_state8_bit6_bit14_bit15_bit16_high21_fighter_path;
     /* The bit-6/bit-14/bit-15/high-21 compound has a fixed measured
      * bilateral join; the unilateral distributions need no correction. */
     {
@@ -12328,6 +12349,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         (native_state8_bit6_bit14_high21_fighter_path ||
          native_state8_bit6_bit14_bit16_high21_fighter_path ||
          native_state8_bit6_bit15_bit16_high21_fighter_path ||
+         native_state8_bit6_bit14_bit15_bit16_high21_fighter_path ||
          native_state8_bit6_bit14_bit15_high21_fighter_path)) {
         status = vf2_model2a_read_u32(
             machine, UINT32_C(0x0050016c), &mode_base
@@ -12915,6 +12937,14 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         }
     }
     if (native_state8_bit6_bit15_bit16_high21_accounting_case) {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        if (fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == combined_state8_flags) {
+            native_instructions += UINT64_C(2);
+        }
+    }
+    if (native_state8_bit6_bit14_bit15_bit16_high21_accounting_case) {
         const uint32_t combined_state8_flags =
             fighter0_state_flags | fighter1_state_flags;
         if (fighter0_state_flags == combined_state8_flags &&
