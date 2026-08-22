@@ -87,6 +87,8 @@ The measured all-high composition `0x1c140` (state bit 8 + bits 6 + 14 + 15 +
 16) is now exact across its 12-case matrix as well.
 The measured cross-family composition `0x204140` (state bit 8 + bits 6, 14
 and 21) is now exact across its 12-case matrix as well.
+The measured cross-family composition `0x208140` (state bit 8 + bits 6, 15
+and 21) is now exact across its 12-case matrix as well.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
