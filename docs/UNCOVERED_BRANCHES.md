@@ -163,6 +163,10 @@ The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
 measures only 3/12 exact and remains unsupported.
+The corresponding bit-14 + bit-16 extension `0x44214140` (21+26+30) is now
+native and exact across its 12-case matrix as well, with the same isolated
+return-corridor accounting. The neighboring 21+29+30 composition remains a
+3/12 control and is still unsupported.
 The measured bit-14 + bit-15 triple-high extensions `0x6400c140`,
 `0xa400c140`, `0xc400c140` and `0xe000c140` (high-bit triples 26+29+30,
 26+29+31, 26+30+31 and 29+30+31) are now native and exact across their
