@@ -11929,6 +11929,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool threshold_fallback_state = false;
     bool threshold_fallback_countdown = false;
     bool native_18644_fighter_path = false;
+    bool native_state8_bit14_accounting_case = false;
     uint64_t native_instructions = 0u;
     vf2_status status = VF2_OK;
 
@@ -12162,6 +12163,15 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_state4_bit6_bit15_bit16_fighter_path ||
         native_state4_bit14_bit15_bit16_fighter_path ||
         native_state4_all_bits_fighter_path;
+    /* The full 0x1645c dispatcher has one additional instruction only when
+     * both state-8 fighter records carry the isolated bit-14 field. The
+     * three distributions and countdown/mode matrix were strict-matched;
+     * unilateral bit-14 records use the ordinary task accounting. */
+    native_state8_bit14_accounting_case =
+        fighter0_state == 8u && fighter1_state == 8u &&
+        fighter0_state_flags == (UINT32_C(1) << 14u) &&
+        fighter1_state_flags == (UINT32_C(1) << 14u) &&
+        (int32_t)shared_fighter_threshold >= 0;
     /* 0x1645c..0x16470: four loads; the register values are observable at
      * each child boundary, so preserve the ROM aliases explicitly. */
     cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
@@ -12617,6 +12627,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             ((fighter0_state_flags & bit15_bit16) == bit15_bit16 ? 1u : 0u) +
             ((fighter1_state_flags & bit15_bit16) == bit15_bit16 ? 1u : 0u);
         native_instructions += UINT64_C(2) * pair_count;
+    }
+    if (native_state8_bit14_accounting_case) {
+        ++native_instructions;
     }
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
