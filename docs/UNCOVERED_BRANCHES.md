@@ -199,6 +199,11 @@ The corresponding state-8 bit-6+bit-16+bit-21 field mask `0x00210000` is
 also admitted. It matches the same three distributions, countdown/mode
 settings and thresholds `0..2`; only the bilateral distribution requires the
 measured one-instruction join correction.
+The compound state-8 bit-6+bit-14+bit-15+bit-21 field mask `0x0020c000`
+is also admitted. All three distributions match both countdown/mode settings
+at threshold `0`, and both mode values at thresholds `1` and `2`; its native
+child requires the measured distribution-specific accounting terms and the
+bilateral base join.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
