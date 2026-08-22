@@ -99,6 +99,11 @@ The measured cross-family composition `0x218140` (state bit 8 + bits 6, 15,
 16 and 21) is now exact across its 12-case matrix as well.
 The measured cross-family composition `0x21c140` (state bit 8 + bits 6, 14,
 15, 16 and 21) is now exact across its 12-case matrix as well.
+The measured positive isolated bit-6/high-bit masks `0x200140` (bit 21),
+`0x4000140` (bit 26), `0x20000140` (bit 29), `0x40000140` (bit 30) and
+`0x80000140` (bit 31) are each exact across their 12-case matrices. The
+aggregate masks `0x24000140` (bits 26+29) and `0xe4200140` (bits
+21+26+29+30+31) are exact across their 12-case matrices as well.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result

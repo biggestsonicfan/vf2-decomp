@@ -286,6 +286,23 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
   --base out/state8-positive.boundary.vf2snap
 ```
 
+The measured positive bit-6/high-bit masks `0x200140`, `0x4000140`,
+`0x20000140`, `0x40000140` and `0x80000140` are each exact across 12 cases.
+Run the isolated family with:
+
+```bash
+for bit in 21 26 29 30 31; do
+  python3 decomp/i960/tools/validate_game_info_state4.py \
+    ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
+    --extra-bit 6 --extra-bit "$bit" --mask 56 --threshold 0 \
+    --base out/state8-positive.boundary.vf2snap
+done
+```
+
+The measured aggregate masks `0x24000140` and `0xe4200140` are exact as
+well. Their focused matrices use `--mask 120` with extra bits 6, 26 and 29,
+and `--mask 1016` with extra bits 6, 21, 26, 29, 30 and 31, respectively.
+
 ## Native child runner
 
 ```bash
