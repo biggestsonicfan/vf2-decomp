@@ -204,6 +204,11 @@ is also admitted. All three distributions match both countdown/mode settings
 at threshold `0`, and both mode values at thresholds `1` and `2`; its native
 child requires the measured distribution-specific accounting terms and the
 bilateral base join.
+The sibling state-8 bit-6+bit-14+bit-16+bit-21 field mask `0x00214000` is now
+admitted as well. All three distributions match both countdown/mode settings
+at thresholds `0`, `1` and `2`; its native child uses the measured
+distribution-specific mode/countdown joins, while thresholds outside the
+measured nonnegative range remain explicit boundaries.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
