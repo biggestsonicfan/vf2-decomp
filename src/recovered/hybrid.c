@@ -4725,6 +4725,10 @@ static vf2_status hybrid_execute_game_info_18644(
             state8 | (UINT32_C(1) << 6u);
         const bool bilateral_both_bit6_bit8 =
             r7 == state8_bit6_bit8 && r8 == state8_bit6_bit8;
+        const uint32_t state8_bit4_bit6_bit8 =
+            state8 | (UINT32_C(1) << 4u) | (UINT32_C(1) << 6u);
+        const bool bilateral_both_bit4_bit6_bit8 =
+            r7 == state8_bit4_bit6_bit8 && r8 == state8_bit4_bit6_bit8;
         const uint32_t state8_bit2_bit6_bit8 =
             state8 | (UINT32_C(1) << 2u) | (UINT32_C(1) << 6u);
         const bool bilateral_both_bit2_bit6_bit8 =
@@ -4976,6 +4980,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit2_bit4_high_any &&
             !bilateral_both_bit1_bit2_bit4_high_any &&
             !bilateral_both_bit6_bit8 &&
+            !bilateral_both_bit4_bit6_bit8 &&
             !bilateral_both_bit2_bit6_bit8 &&
             !bilateral_both_bit1_bit4 && !bilateral_both_bit2_bit4 &&
             !bilateral_both_bit4_bit6_high_any &&
@@ -5188,6 +5193,9 @@ static vf2_status hybrid_execute_game_info_18644(
                      extra_state == (UINT32_C(1) << 6u) ||
                      extra_state ==
                          ((UINT32_C(1) << 2u) |
+                          (UINT32_C(1) << 6u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 4u) |
                           (UINT32_C(1) << 6u)) ||
                      extra_state == (UINT32_C(1) << 14u) ||
                      extra_state == (UINT32_C(1) << 15u) ||
@@ -8033,6 +8041,50 @@ static vf2_status hybrid_execute_game_info_18644(
         /* The second bilateral return site carries one extra generic-body
          * instruction for the state-8 bit-6/high corridor. */
         --body_instructions;
+    }
+    if (status == VF2_OK) {
+        const uint32_t state8_bit4_bit6 =
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 4u) |
+            (UINT32_C(1) << 6u);
+        const bool isolated_state8_bit4_bit6 =
+            (r7 == state8_bit4_bit6 && r8 == 0u) ||
+            (r8 == state8_bit4_bit6 && r7 == 0u);
+        const bool bilateral_state8_bit4_bit6 =
+            r7 == state8_bit4_bit6 && r8 == state8_bit4_bit6;
+
+        /* These are the measured no-countdown rejoin deltas for the
+         * no-high state-8 bit-4/bit-6 composition. The dispatcher swaps the
+         * fighter order before the second child call, so the exact register
+         * order is part of the correction. */
+        if (!countdown_path && mode_bit6 && isolated_state8_bit4_bit6) {
+            if (return_address == UINT32_C(0x000164b0)) {
+                if (r7 == state8_bit4_bit6) {
+                    body_instructions -= UINT32_C(12);
+                } else {
+                    body_instructions += UINT32_C(5);
+                }
+            } else if (return_address == UINT32_C(0x000164c4)) {
+                if (r7 == state8_bit4_bit6) {
+                    body_instructions -= UINT32_C(13);
+                } else {
+                    body_instructions += UINT32_C(4);
+                }
+            }
+        }
+        if (bilateral_state8_bit4_bit6) {
+            if (return_address == UINT32_C(0x000164b0) &&
+                !countdown_path) {
+                if (mode_bit6) {
+                    body_instructions += UINT32_C(7);
+                } else {
+                    --body_instructions;
+                }
+            } else if (return_address == UINT32_C(0x000164c4)) {
+                body_instructions -= countdown_path
+                    ? UINT32_C(1)
+                    : (mode_bit6 ? UINT32_C(13) : UINT32_C(0));
+            }
+        }
     }
     if (status == VF2_OK) {
         cpu->ip = UINT32_C(0x00018a50);

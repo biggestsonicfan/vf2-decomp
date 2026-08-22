@@ -15,8 +15,10 @@ isolated paths require distinct first-order corrections for the two fighter
 orders and distinct second-order corrections after the dispatcher swaps the
 arguments. The bilateral path has separate first-order and second-order
 rejoin corrections for mode bit 6 and countdown. These corrections are
-restricted to the exact `0x144` compositions; neighboring state-8 bit-4/bit-6
-compositions remain unsupported.
+restricted to the exact `0x144` compositions. The neighboring `0x150`
+composition is documented separately in
+`game_info_18644_positive_bit6_bit8_v0073.md`; the next `0x146` composition
+remains independently unproven.
 
 Reproduction:
 

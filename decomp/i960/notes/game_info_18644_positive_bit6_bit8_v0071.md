@@ -24,6 +24,6 @@ first-order, isolated second-order and bilateral rejoin deltas separately;
 those exact corrections are now applied only to the measured `0x142`
 compositions. All 12 cases match the ROM at the final scheduler boundary.
 
-The neighboring positive state-8 + bit-4/bit-6 family remains unsupported or
-unproven. The measured state-8 + bit-2/bit-6 composition is documented
-separately in `game_info_18644_positive_bit6_bit8_v0072.md`.
+The measured state-8 + bit-2/bit-6 composition is documented separately in
+`game_info_18644_positive_bit6_bit8_v0072.md`. Later positive bit-6
+compositions remain independently unproven.

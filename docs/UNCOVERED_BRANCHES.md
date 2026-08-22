@@ -60,13 +60,15 @@ nine-bit set, its full ten-bit matrix matches 12,288 fixtures (1,024 masks ×
 matches the complete no-bit-8 submatrix for bits 1/2/4/6 (192 fixtures), plus
 the eight tested masks containing bit 6, bit 8 and all five high bits,
 covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
-bit-6 compositions remain explicit unsupported boundaries. The measured
+bit-6 compositions remain unproven or explicit boundaries. The measured
 positive `0x140` (state bit 8 + bit 6) and `0x142` (state bit 8 + bits 1 + 6)
 fighter-state compositions are additionally exact across all three physical
 distributions, both countdown values and both mode-bit-6 settings (24 more
 fixtures total). The measured positive `0x144` composition (state bit 8 + bits
 2 + 6) is also exact across its 12 distributions/countdown/mode cases. The
-state-8 bit-4/bit-6 family remains unsupported or unproven.
+measured positive `0x150` composition (state bit 8 + bits 4 + 6) is also exact
+across its 12 distributions/countdown/mode cases. The adjacent `0x146`
+composition remains unproven; its no-countdown cases are not yet exact.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
