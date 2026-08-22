@@ -157,6 +157,10 @@ high bits 26, 29, 30 or 31 are now native and exact across their 12-case
 matrices as well. Their admission is limited to those four masks and uses the
 same measured accounting rule; larger multi-high combinations remain
 unsupported.
+The bit-14 + bit-15 high-bit-21 triple `0x2420c140` (21+26+29) is now native
+and exact across its 12-case matrix, with a separately measured asymmetric
+`0x164c4` accounting rule. The neighboring 21+26+30 mask remains a 3/12
+control and is still unsupported.
 The existing shared corridor has also been measured for the bit-14 + bit-15
  + bit-16 composition with high-bit combinations `21+26`, `21+29`, `21+30`,
  `21+31`, `21+26+29` and `21+26+29+30+31` (masks `0x421c140`, `0x2021c140`,
