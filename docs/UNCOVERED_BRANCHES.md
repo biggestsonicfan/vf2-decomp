@@ -67,8 +67,10 @@ distributions, both countdown values and both mode-bit-6 settings (24 more
 fixtures total). The measured positive `0x144` composition (state bit 8 + bits
 2 + 6) is also exact across its 12 distributions/countdown/mode cases. The
 measured positive `0x150` composition (state bit 8 + bits 4 + 6) is also exact
-across its 12 distributions/countdown/mode cases. The adjacent `0x146`
-composition remains unproven; its no-countdown cases are not yet exact.
+across its 12 distributions/countdown/mode cases. The measured positive
+`0x146` composition (state bit 8 + bits 1 + 2 + 6) is now exact across its
+12-case matrix, and the neighboring `0x152` composition is exact as well. The
+next incomplete composition is `0x154`.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result

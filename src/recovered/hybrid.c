@@ -8086,6 +8086,39 @@ static vf2_status hybrid_execute_game_info_18644(
             }
         }
     }
+    if (status == VF2_OK && !countdown_path) {
+        const uint32_t state8_bit1_bit2_bit6 =
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u) |
+            (UINT32_C(1) << 2u) | (UINT32_C(1) << 6u);
+        const bool isolated_state8_bit1_bit2_bit6 =
+            (r7 == state8_bit1_bit2_bit6 && r8 == 0u) ||
+            (r8 == state8_bit1_bit2_bit6 && r7 == 0u);
+        const bool bilateral_state8_bit1_bit2_bit6 =
+            r7 == state8_bit1_bit2_bit6 && r8 == state8_bit1_bit2_bit6;
+
+        /* The no-countdown 0x146 corridor has measured order-dependent
+         * rejoin deltas. Keep these corrections at the final accounting
+         * point so they cannot be mixed with neighboring bit-1/bit-2 paths. */
+        if (isolated_state8_bit1_bit2_bit6) {
+            if (return_address == UINT32_C(0x000164b0)) {
+                if (r7 == state8_bit1_bit2_bit6 && mode_bit6) {
+                    body_instructions -= UINT32_C(4);
+                } else if (r7 == 0u) {
+                    body_instructions += UINT32_C(10);
+                }
+            } else if (return_address == UINT32_C(0x000164c4)) {
+                if (r7 == 0u) {
+                    body_instructions += mode_bit6
+                        ? UINT32_C(17) : UINT32_C(13);
+                } else {
+                    body_instructions += UINT32_C(3);
+                }
+            }
+        } else if (bilateral_state8_bit1_bit2_bit6) {
+            body_instructions += return_address == UINT32_C(0x000164b0)
+                ? UINT32_C(9) : UINT32_C(4);
+        }
+    }
     if (status == VF2_OK) {
         cpu->ip = UINT32_C(0x00018a50);
         cpu->executed_instructions += body_instructions + tail_instruction_delta;

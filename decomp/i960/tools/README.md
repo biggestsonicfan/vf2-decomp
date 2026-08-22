@@ -100,11 +100,21 @@ threshold path: its full ten-bit matrix is exact across 12,288 fixtures
 also exact for the complete no-bit-8 bits-1/2/4/6 submatrix (192 fixtures),
 plus the eight tested masks containing bit 6, bit 8 and all five high bits,
 covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
-bit-6 compositions remain unproven or explicit boundaries. Three additional
+bit-6 compositions remain unproven or explicit boundaries. The measured
 positive slices are exact across all 12 distributions/countdown/mode cases:
-the measured `0x140` (bit 8 + bit 6) and `0x142` (bit 8 + bits 1 + 6)
-fighter-state compositions. The measured `0x144` (bit 8 + bits 2 + 6)
-composition is also exact across all 12 cases:
+the measured `0x140` (bit 8 + bit 6), `0x142` (bit 8 + bits 1 + 6), `0x144`
+(bit 8 + bits 2 + 6), `0x146` (bit 8 + bits 1 + 2 + 6), `0x150` (bit 8 +
+bits 4 + 6), and `0x152` (bit 8 + bits 1 + 4 + 6) fighter-state
+compositions. The `0x146` focused matrix can be reproduced with:
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
+  --extra-bit 6 --mask 27 --threshold 0 \
+  --base out/state8-positive.boundary.vf2snap
+```
+
+The `0x144` focused matrix is:
 
 ```bash
 python3 decomp/i960/tools/validate_game_info_state4.py \
@@ -114,7 +124,8 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
 ```
 
 The measured positive `0x150` (bit 8 + bits 4 + 6) composition is also exact
-across all 12 cases. The adjacent `0x146` composition remains unproven.
+across all 12 cases. The next incomplete `0x154` composition remains
+unproven.
 
 The `0x150` slice can be reproduced with:
 

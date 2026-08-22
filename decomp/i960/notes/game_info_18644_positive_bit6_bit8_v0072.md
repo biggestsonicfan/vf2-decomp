@@ -17,8 +17,8 @@ arguments. The bilateral path has separate first-order and second-order
 rejoin corrections for mode bit 6 and countdown. These corrections are
 restricted to the exact `0x144` compositions. The neighboring `0x150`
 composition is documented separately in
-`game_info_18644_positive_bit6_bit8_v0073.md`; the next `0x146` composition
-remains independently unproven.
+`game_info_18644_positive_bit6_bit8_v0073.md`; the next `0x146` composition is
+documented in `game_info_18644_positive_bit6_bit8_v0074.md`.
 
 Reproduction:
 
