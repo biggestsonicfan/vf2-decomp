@@ -242,6 +242,17 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
   --threshold 0 --base out/state8-positive.boundary.vf2snap
 ```
 
+The `0x20c140` focused matrix uses `--extra-bit 14 --extra-bit 15
+--extra-bit 21 --mask 248`:
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
+  --extra-bit 6 --extra-bit 14 --extra-bit 15 --extra-bit 21 \
+  --mask 248 --threshold 0 \
+  --base out/state8-positive.boundary.vf2snap
+```
+
 ## Native child runner
 
 ```bash
