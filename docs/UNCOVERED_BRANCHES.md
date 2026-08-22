@@ -79,6 +79,8 @@ The adjacent positive `0x10140` composition (state bit 8 + bits 6 + 16) is
 also exact across its 12-case matrix. Other positive high-bit compositions
 remain unproven or explicit boundaries. The measured triple `0x0c140` (state
 bit 8 + bits 6 + 14 + 15) is now exact across its 12-case matrix as well.
+The measured triple `0x14140` (state bit 8 + bits 6 + 14 + 16) is now exact
+across its 12-case matrix as well.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
