@@ -130,6 +130,11 @@ matrices as well: `0x64014140`, `0xa4014140`, `0xc4014140`, `0xe0014140`,
 `0x64018140`, `0xa4018140`, `0xc4018140` and `0xe0018140`. Admission is
 limited to these eight measured triples and reuses the corresponding pair
 accounting rules; larger high-bit combinations remain unsupported.
+The two measured all-four-high extensions `0xe4014140` (bit-14 + bit-16)
+and `0xe4018140` (bit-15 + bit-16) are also native and exact across their
+12-case matrices. Admission is limited to these two masks and reuses the
+corresponding triple accounting rules; other larger or high-bit-21
+combinations remain unsupported.
 For the bit-14 + bit-15 composition specifically, all six pairwise masks from
 high bits 26, 29, 30 and 31 (`26+29`, `26+30`, `26+31`, `29+30`, `29+31` and
 `30+31`) are now native and exact across their 12-case matrices as well. The
