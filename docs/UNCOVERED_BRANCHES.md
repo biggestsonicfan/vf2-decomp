@@ -218,6 +218,11 @@ The all-three state-8 bit-6+bit-14+bit-15+bit-16+bit-21 field mask
 countdown/mode settings at thresholds `0`, `1` and `2`; like its adjacent
 bit-14/bit-16 and bit-15/bit-16 siblings, it uses a measured bilateral
 two-instruction join.
+The measured state-8 bit-14+bit-16+high-bit-26 field mask `0x04214000` is
+also admitted. All three distributions match both countdown/mode settings at
+thresholds `0`, `1` and `2`; its native child and dispatcher use the measured
+bit-14/bit-16 high-bit accounting joins, while other high-bit compositions
+remain explicit boundaries.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
