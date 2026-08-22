@@ -100,7 +100,10 @@ threshold path: its full ten-bit matrix is exact across 12,288 fixtures
 also exact for the complete no-bit-8 bits-1/2/4/6 submatrix (192 fixtures),
 plus the eight tested masks containing bit 6, bit 8 and all five high bits,
 covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
-bit-6 compositions remain explicit unsupported boundaries.
+bit-6 compositions remain explicit unsupported boundaries. Two additional
+positive slices are exact across all 12 distributions/countdown/mode cases:
+the measured `0x140` (bit 8 + bit 6) and `0x142` (bit 8 + bits 1 + 6)
+fighter-state compositions.
 
 ## Native child runner
 

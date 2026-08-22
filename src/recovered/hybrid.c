@@ -4721,6 +4721,10 @@ static vf2_status hybrid_execute_game_info_18644(
             (r8 == state8 && r7 == state8_bit4);
         const bool bilateral_both_bit4 =
             r7 == state8_bit4 && r8 == state8_bit4;
+        const uint32_t state8_bit6_bit8 =
+            state8 | (UINT32_C(1) << 6u);
+        const bool bilateral_both_bit6_bit8 =
+            r7 == state8_bit6_bit8 && r8 == state8_bit6_bit8;
         const bool bilateral_both_bit4_bit6_high_any =
             r7 == r8 &&
             (r7 & (state8 | (UINT32_C(1) << 4u) |
@@ -4967,6 +4971,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_high_bit1 && !bilateral_both_high_bit1_any &&
             !bilateral_both_bit2_bit4_high_any &&
             !bilateral_both_bit1_bit2_bit4_high_any &&
+            !bilateral_both_bit6_bit8 &&
             !bilateral_both_bit1_bit4 && !bilateral_both_bit2_bit4 &&
             !bilateral_both_bit4_bit6_high_any &&
             !bilateral_both_bit1_bit2_bit6_high_any &&
@@ -6188,6 +6193,49 @@ static vf2_status hybrid_execute_game_info_18644(
                 /* The swapped bilateral mode-bit-6 call rejoins one
                  * instruction earlier than the generic fallback. */
                 --body_instructions;
+            }
+            if (r7 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 6u)) &&
+                r8 == ((UINT32_C(1) << 8u) | (UINT32_C(1) << 6u))) {
+                if (return_address == UINT32_C(0x000164b0)) {
+                    if (!countdown_path && !mode_bit6) {
+                        /* The bit-6 + bit-8 bilateral path does not take
+                         * the ordinary first-order bilateral rejoin. */
+                        --body_instructions;
+                    } else if (!countdown_path && mode_bit6) {
+                        /* Mode bit 6 selects the longer measured rejoin for
+                         * this exact state pair. */
+                        body_instructions += UINT32_C(4);
+                    }
+                } else if (!countdown_path && mode_bit6) {
+                    body_instructions -= UINT32_C(5);
+                } else if (countdown_path) {
+                    body_instructions -= UINT32_C(1);
+                }
+            }
+            if (!countdown_path) {
+                const uint32_t state8_bit1_bit6 =
+                    (UINT32_C(1) << 8u) |
+                    (UINT32_C(1) << 1u) |
+                    (UINT32_C(1) << 6u);
+                const bool isolated_state8_bit1_bit6 =
+                    (r7 == state8_bit1_bit6 && r8 == 0u) ||
+                    (r8 == state8_bit1_bit6 && r7 == 0u);
+                const bool bilateral_state8_bit1_bit6 =
+                    r7 == state8_bit1_bit6 && r8 == state8_bit1_bit6;
+                if (isolated_state8_bit1_bit6) {
+                    if (return_address == UINT32_C(0x000164b0)) {
+                        if (mode_bit6) {
+                            body_instructions -= UINT32_C(4);
+                        }
+                    } else {
+                        body_instructions +=
+                            mode_bit6 ? UINT32_C(17) : UINT32_C(13);
+                    }
+                } else if (bilateral_state8_bit1_bit6) {
+                    body_instructions +=
+                        return_address == UINT32_C(0x000164b0)
+                            ? UINT32_C(9) : UINT32_C(4);
+                }
             }
             {
                 const uint32_t state8 = UINT32_C(1) << 8u;

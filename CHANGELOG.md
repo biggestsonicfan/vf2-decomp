@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- extended the positive-threshold `fa_game_info` `0x18644` state-8 bit-6
+  recovery with the measured `0x140` (bit 8 + bit 6) and `0x142` (bit 8 +
+  bits 1 + 6) fighter-state compositions; all three physical distributions,
+  both countdown values and both mode-bit-6 settings match the ROM with exact
+  CPU, mutable-memory and instruction/call/return state;
 - added `tools/python/frontier.py`, the initial queryable guest-i960 recovery
   frontier: it ingests `explore_state.py` corpus manifests, `sweep_state.py`
   JSONL sweeps and `vf2probe --trace` JSONL streams, ranks candidate edges by
