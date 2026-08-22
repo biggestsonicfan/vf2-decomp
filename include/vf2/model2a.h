@@ -19,6 +19,23 @@ typedef vf2_status (*vf2_model2a_copro_write_callback)(
     size_t size
 );
 
+typedef enum vf2_model2a_memory_access_kind {
+    VF2_MODEL2A_MEMORY_READ = 0,
+    VF2_MODEL2A_MEMORY_WRITE
+} vf2_model2a_memory_access_kind;
+
+typedef struct vf2_model2a_memory_access {
+    vf2_model2a_memory_access_kind kind;
+    uint32_t address;
+    const void *data;
+    size_t size;
+} vf2_model2a_memory_access;
+
+typedef void (*vf2_model2a_memory_observer)(
+    const vf2_model2a_memory_access *access,
+    void *context
+);
+
 enum {
     VF2_MAIN_ROM_BASE = 0x00000000u,
     VF2_MAIN_ROM_SIZE = 0x00200000u,
@@ -116,6 +133,8 @@ typedef struct vf2_model2a {
     vf2_model2a_copro_read_callback copro_read_callback;
     vf2_model2a_copro_write_callback copro_write_callback;
     void *copro_callback_context;
+    vf2_model2a_memory_observer memory_observer;
+    void *memory_observer_context;
     uint32_t input;
 } vf2_model2a;
 
@@ -148,6 +167,14 @@ vf2_status vf2_model2a_set_copro_callbacks(
     vf2_model2a *machine,
     vf2_model2a_copro_read_callback read_callback,
     vf2_model2a_copro_write_callback write_callback,
+    void *context
+);
+
+/* Observe successful public bus reads/writes without affecting their result.
+ * access->data is valid only for the duration of the callback. */
+vf2_status vf2_model2a_set_memory_observer(
+    vf2_model2a *machine,
+    vf2_model2a_memory_observer observer,
     void *context
 );
 
