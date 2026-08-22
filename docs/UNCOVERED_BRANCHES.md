@@ -223,6 +223,13 @@ also admitted. All three distributions match both countdown/mode settings at
 thresholds `0`, `1` and `2`; its native child and dispatcher use the measured
 bit-14/bit-16 high-bit accounting joins, while other high-bit compositions
 remain explicit boundaries.
+The adjacent state-8 bit-14+bit-16+high-bit-29 field mask `0x20214000` is
+also admitted. All 36 combinations across the three fighter-record
+distributions, countdown `0/1`, mode bit 6 clear/set and thresholds `0..2`
+match the reference at `0x10dcc`, including the full CPU/memory snapshot and
+instruction/call/return counters. Its dispatcher uses the measured
+bit-14/bit-16 accounting joins and the measured condition-state postcondition;
+other high-bit compositions remain explicit boundaries.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
