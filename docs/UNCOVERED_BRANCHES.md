@@ -119,6 +119,11 @@ bit-14 + bit-15 + bit-16 cross-family extensions with each of high bits 26,
 well. Each admission is limited to one measured single high bit; the
 countdown/mode corrections are separately measured for each of the four
 fighter-bit compositions. Multi-high extensions remain unsupported.
+For the bit-14 + bit-16 and bit-15 + bit-16 compositions, all six pairwise
+masks from high bits 26, 29, 30 and 31 are now native and exact across their
+12-case matrices as well. These twelve pair admissions are limited to the
+measured pairs and reuse the corresponding single-high accounting rules;
+larger multi-high combinations remain unsupported.
 For the bit-14 + bit-15 composition specifically, all six pairwise masks from
 high bits 26, 29, 30 and 31 (`26+29`, `26+30`, `26+31`, `29+30`, `29+31` and
 `30+31`) are now native and exact across their 12-case matrices as well. The
