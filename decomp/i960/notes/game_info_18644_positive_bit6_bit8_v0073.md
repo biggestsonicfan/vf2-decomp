@@ -14,8 +14,9 @@ The no-countdown isolated and bilateral paths required distinct measured
 rejoin corrections at the two child return sites. Those corrections are
 restricted to the exact no-high `0x150` composition. The adjacent `0x146`
 composition is documented in
-`game_info_18644_positive_bit6_bit8_v0074.md`; the next incomplete composition
-is `0x154`.
+`game_info_18644_positive_bit6_bit8_v0074.md`, and the next `0x154`
+composition is documented in
+`game_info_18644_positive_bit6_bit8_v0075.md`.
 
 Reproduction:
 

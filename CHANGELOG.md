@@ -3,6 +3,11 @@
 ## Unreleased
 
 - extended the positive-threshold `fa_game_info` `0x18644` state-8 bit-6
+  recovery with the measured `0x154` (bit 8 + bits 2 + 4 + 6) composition;
+  all three physical distributions, both countdown values and both mode-bit-6
+  settings match the ROM with exact CPU, mutable-memory and
+  instruction/call/return state;
+- extended the positive-threshold `fa_game_info` `0x18644` state-8 bit-6
   recovery with the measured `0x146` (bit 8 + bits 1 + 2 + 6) composition;
   all three physical distributions, both countdown values and both mode-bit-6
   settings match the ROM with exact CPU, mutable-memory and

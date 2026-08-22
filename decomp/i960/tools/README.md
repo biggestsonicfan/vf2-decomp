@@ -99,8 +99,9 @@ threshold path: its full ten-bit matrix is exact across 12,288 fixtures
 (1,024 masks × 12 distributions). On the positive threshold, the child is
 also exact for the complete no-bit-8 bits-1/2/4/6 submatrix (192 fixtures),
 plus the eight tested masks containing bit 6, bit 8 and all five high bits,
-covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
-bit-6 compositions remain unproven or explicit boundaries. The measured
+covering every subset of low bits 1/2/4 (96 more fixtures). Positive bit-6
+compositions outside the measured slices remain unproven or explicit
+boundaries. The measured
 positive slices are exact across all 12 distributions/countdown/mode cases:
 the measured `0x140` (bit 8 + bit 6), `0x142` (bit 8 + bits 1 + 6), `0x144`
 (bit 8 + bits 2 + 6), `0x146` (bit 8 + bits 1 + 2 + 6), `0x150` (bit 8 +
@@ -124,8 +125,8 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
 ```
 
 The measured positive `0x150` (bit 8 + bits 4 + 6) composition is also exact
-across all 12 cases. The next incomplete `0x154` composition remains
-unproven.
+across all 12 cases. The `0x154` and `0x156` compositions are exact as well;
+the next frontier must be selected from a measured high-bit combination.
 
 The `0x150` slice can be reproduced with:
 
@@ -135,6 +136,9 @@ python3 decomp/i960/tools/validate_game_info_state4.py \
   --extra-bit 6 --mask 28 --threshold 0 \
   --base out/state8-positive.boundary.vf2snap
 ```
+
+The `0x154` focused matrix uses `--mask 30`; the `0x156` matrix uses
+`--mask 31`.
 
 ## Native child runner
 

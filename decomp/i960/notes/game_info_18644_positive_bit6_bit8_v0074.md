@@ -12,7 +12,8 @@ the scheduler boundary, including CPU state, condition state, mutable memory
 and instruction/call/return counters.
 
 The neighboring measured `0x152` composition is also exact across its 12-case
-matrix. The next incomplete positive state-8 bit-6 composition is `0x154`.
+matrix. The `0x154` and `0x156` low-bit compositions are now exact as well;
+the next frontier must be selected from a measured high-bit combination.
 
 Reproduction:
 

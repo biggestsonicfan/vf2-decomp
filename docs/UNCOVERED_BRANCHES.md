@@ -59,8 +59,9 @@ nine-bit set, its full ten-bit matrix matches 12,288 fixtures (1,024 masks ×
 12 distributions) exactly. On the positive threshold, the recovered child
 matches the complete no-bit-8 submatrix for bits 1/2/4/6 (192 fixtures), plus
 the eight tested masks containing bit 6, bit 8 and all five high bits,
-covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
-bit-6 compositions remain unproven or explicit boundaries. The measured
+covering every subset of low bits 1/2/4 (96 more fixtures). Positive bit-6
+compositions outside the measured slices remain unproven or explicit
+boundaries. The measured
 positive `0x140` (state bit 8 + bit 6) and `0x142` (state bit 8 + bits 1 + 6)
 fighter-state compositions are additionally exact across all three physical
 distributions, both countdown values and both mode-bit-6 settings (24 more
@@ -69,8 +70,10 @@ fixtures total). The measured positive `0x144` composition (state bit 8 + bits
 measured positive `0x150` composition (state bit 8 + bits 4 + 6) is also exact
 across its 12 distributions/countdown/mode cases. The measured positive
 `0x146` composition (state bit 8 + bits 1 + 2 + 6) is now exact across its
-12-case matrix, and the neighboring `0x152` composition is exact as well. The
-next incomplete composition is `0x154`.
+12-case matrix, and the neighboring `0x152`, `0x154` and `0x156` compositions
+are exact as well. The complete measured no-high low-bit family is therefore
+covered; the next frontier must be selected from a measured high-bit
+combination.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
