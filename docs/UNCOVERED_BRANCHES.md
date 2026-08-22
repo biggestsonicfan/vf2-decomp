@@ -152,6 +152,13 @@ high bits 26, 29, 30 or 31 are now native and exact across their 12-case
 matrices as well. Their admission is limited to those four masks and uses the
 same measured accounting rule; larger multi-high combinations remain
 unsupported.
+The existing shared corridor has also been measured for the bit-14 + bit-15
+ + bit-16 composition with high-bit combinations `21+26`, `21+29`, `21+30`,
+ `21+31`, `21+26+29` and `21+26+29+30+31` (masks `0x421c140`, `0x2021c140`,
+ `0x4021c140`, `0x8021c140`, `0x2421c140` and `0xe421c140`). Each completed
+ its 12-case positive-threshold matrix exactly, including both countdown and
+ mode-bit-6 variants. This records measured coverage of the common corridor;
+ other unmeasured high-bit compositions remain explicit boundaries.
 The measured bit-14 + bit-15 triple-high extensions `0x6400c140`,
 `0xa400c140`, `0xc400c140` and `0xe000c140` (high-bit triples 26+29+30,
 26+29+31, 26+30+31 and 29+30+31) are now native and exact across their
