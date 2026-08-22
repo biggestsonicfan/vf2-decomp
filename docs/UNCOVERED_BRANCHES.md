@@ -176,6 +176,14 @@ countdown/mode-bit-6 settings match the reference. The bilateral distribution
 uses one measured dispatcher-instruction accounting correction; unilateral
 records retain the ordinary count. Other positive dispatcher compositions
 remain explicit boundaries until their full-task accounting is measured.
+The same dispatcher now admits the six measured state-8 field masks
+`0x0421c000`, `0x2021c000`, `0x4021c000`, `0x8021c000`, `0x2421c000` and
+`0xe421c000` (bit-14 + bit-15 + bit-16 with the measured high-bit-21
+compositions). Each mask matches all three fighter-record distributions and
+both countdown/mode-bit-6 settings at threshold `0`; the bilateral controls
+also match thresholds `1` and `2`. The bilateral cases use the measured
+two-instruction accounting correction.
+Other positive dispatcher compositions remain explicit boundaries.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
