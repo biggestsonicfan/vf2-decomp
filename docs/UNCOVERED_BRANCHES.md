@@ -190,6 +190,11 @@ settings at threshold `0`, and all three distributions match both mode values
 at thresholds `1` and `2`. The measured accounting relation includes a fixed
 bilateral join plus distribution-specific countdown/mode terms; other positive
 bit-6 compositions remain explicit boundaries.
+The adjacent state-8 bit-6+bit-15+bit-21 field mask `0x00208000` is also
+admitted. Its three distributions match both countdown/mode settings at
+threshold `0`, and all three distributions match both mode values at
+thresholds `1` and `2`; its accounting uses the separately measured
+unilateral and bilateral countdown corrections.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still

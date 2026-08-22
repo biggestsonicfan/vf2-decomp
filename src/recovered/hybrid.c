@@ -11934,6 +11934,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state8_bit14_bit15_bit16_high21_fighter_path = false;
     bool native_state8_bit6_bit14_high21_accounting_case = false;
     bool native_state8_bit6_bit14_high21_fighter_path = false;
+    bool native_state8_bit6_bit15_high21_accounting_case = false;
+    bool native_state8_bit6_bit15_high21_fighter_path = false;
     uint64_t native_instructions = 0u;
     vf2_status status = VF2_OK;
 
@@ -12216,6 +12218,25 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     native_18644_fighter_path =
         native_18644_fighter_path ||
         native_state8_bit6_bit14_high21_fighter_path;
+    /* The adjacent bit-6/bit-15/high-21 mask has its own measured
+     * distribution/countdown accounting and remains independently gated. */
+    {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        native_state8_bit6_bit15_high21_fighter_path =
+            fighter0_state == 8u && fighter1_state == 8u &&
+            combined_state8_flags == UINT32_C(0x00208000) &&
+            (fighter0_state_flags == 0u ||
+             fighter0_state_flags == combined_state8_flags) &&
+            (fighter1_state_flags == 0u ||
+             fighter1_state_flags == combined_state8_flags) &&
+            shared_fighter_threshold <= UINT32_C(2);
+        native_state8_bit6_bit15_high21_accounting_case =
+            native_state8_bit6_bit15_high21_fighter_path;
+    }
+    native_18644_fighter_path =
+        native_18644_fighter_path ||
+        native_state8_bit6_bit15_high21_fighter_path;
     if (status == VF2_OK &&
         native_state8_bit6_bit14_high21_fighter_path) {
         status = vf2_model2a_read_u32(
@@ -12727,6 +12748,28 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 ++native_instructions;
             }
             if (mode_bit6) {
+                ++native_instructions;
+            }
+        }
+    }
+    if (native_state8_bit6_bit15_high21_accounting_case) {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const bool fighter0_only =
+            fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == 0u;
+        const bool fighter1_only =
+            fighter0_state_flags == 0u &&
+            fighter1_state_flags == combined_state8_flags;
+        if (fighter0_only || fighter1_only) {
+            if (countdown_was_nonzero) {
+                native_instructions -= UINT64_C(4);
+            }
+        } else if (fighter0_state_flags == combined_state8_flags &&
+                   fighter1_state_flags == combined_state8_flags) {
+            if (countdown_was_nonzero) {
+                native_instructions -= UINT64_C(7);
+            } else {
                 ++native_instructions;
             }
         }
