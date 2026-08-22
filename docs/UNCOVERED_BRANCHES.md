@@ -104,6 +104,14 @@ The measured positive isolated bit-6/high-bit masks `0x200140` (bit 21),
 `0x80000140` (bit 31) are each exact across their 12-case matrices. The
 aggregate masks `0x24000140` (bits 26+29) and `0xe4200140` (bits
 21+26+29+30+31) are exact across their 12-case matrices as well.
+All ten pairwise combinations of high bits 21, 26, 29, 30 and 31 with state
+bit 8 and fighter bit 6 are exact across their 12-case matrices too: masks
+`0x4200140`, `0x20200140`, `0x40200140`, `0x80200140`, `0x24000140`,
+`0x44000140`, `0x84000140`, `0x60000140`, `0xa0000140` and
+`0xc0000140`. These ten pairwise matrices contain 120 measured fixtures;
+the 26+29 matrix was already counted in the aggregate evidence above, so the
+nine newly added matrices extend the measured positive family to 360 unique
+cases. Other positive high-bit compositions remain explicit boundaries.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result
