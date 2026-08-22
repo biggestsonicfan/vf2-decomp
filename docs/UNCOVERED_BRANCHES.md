@@ -242,6 +242,12 @@ also matches the full reference snapshot and instruction/call/return counters;
 the native child uses the shared bit-14/bit-16 accounting joins and the same
 condition-state postcondition. Other high-bit compositions remain explicit
 boundaries.
+The first measured high-bit pair, bit-14+bit-16 with high bits 26 and 29,
+uses field mask `0x64014000` and is now admitted as well. Its 36-case matrix
+matches the full reference snapshot and instruction/call/return counters; it
+uses the shared distribution accounting, while all three distributions leave
+the measured `NONE` condition-state postcondition. Other high-bit pairs remain
+explicit boundaries.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
