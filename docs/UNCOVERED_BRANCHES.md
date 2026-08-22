@@ -173,6 +173,9 @@ across its 12-case matrix. The neighboring 21+29+31 composition remains a
 The measured extension `0x60214140` (21+29+30) is now native and exact across
 its 12-case matrix. Its neighboring 21+29+31 control remains 3/12, preserving
 the explicit boundary for the unmeasured triple.
+The final bit-14 + bit-16 high-bit-21 triple `0xc0214140` (21+30+31) is now
+native and exact across its 12-case matrix. The 21+29+31 neighbor remains a
+3/12 control and is not admitted.
 The measured bit-14 + bit-15 triple-high extensions `0x6400c140`,
 `0xa400c140`, `0xc400c140` and `0xe000c140` (high-bit triples 26+29+30,
 26+29+31, 26+30+31 and 29+30+31) are now native and exact across their
