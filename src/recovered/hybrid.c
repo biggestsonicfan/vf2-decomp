@@ -11936,6 +11936,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state8_bit6_bit14_high21_fighter_path = false;
     bool native_state8_bit6_bit15_high21_accounting_case = false;
     bool native_state8_bit6_bit15_high21_fighter_path = false;
+    bool native_state8_bit6_bit16_high21_accounting_case = false;
+    bool native_state8_bit6_bit16_high21_fighter_path = false;
     uint64_t native_instructions = 0u;
     vf2_status status = VF2_OK;
 
@@ -12237,6 +12239,27 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     native_18644_fighter_path =
         native_18644_fighter_path ||
         native_state8_bit6_bit15_high21_fighter_path;
+    /* The bit-6/bit-16/high-21 sibling has a uniform accounting rule except
+     * for the measured bilateral join. */
+    {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        native_state8_bit6_bit16_high21_fighter_path =
+            fighter0_state == 8u && fighter1_state == 8u &&
+            combined_state8_flags == UINT32_C(0x00210000) &&
+            (fighter0_state_flags == 0u ||
+             fighter0_state_flags == combined_state8_flags) &&
+            (fighter1_state_flags == 0u ||
+             fighter1_state_flags == combined_state8_flags) &&
+            shared_fighter_threshold <= UINT32_C(2);
+        native_state8_bit6_bit16_high21_accounting_case =
+            native_state8_bit6_bit16_high21_fighter_path &&
+            fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == combined_state8_flags;
+    }
+    native_18644_fighter_path =
+        native_18644_fighter_path ||
+        native_state8_bit6_bit16_high21_fighter_path;
     if (status == VF2_OK &&
         native_state8_bit6_bit14_high21_fighter_path) {
         status = vf2_model2a_read_u32(
@@ -12773,6 +12796,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 ++native_instructions;
             }
         }
+    }
+    if (native_state8_bit6_bit16_high21_accounting_case) {
+        ++native_instructions;
     }
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
