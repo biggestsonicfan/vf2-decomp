@@ -130,6 +130,10 @@ high bits 26, 29, 30 or 31 are now native and exact across their 12-case
 matrices as well. Their admission is limited to those four masks and uses the
 same measured accounting rule; larger multi-high combinations remain
 unsupported.
+The measured bit-14 + bit-15 triple-high extension `0x6400c140` (high bits
+26+29+30) is also now native and exact across its 12-case matrix. Its
+admission is limited to this measured triple and reuses the same accounting
+rule; other triple-high and larger combinations remain unsupported.
 The measured positive isolated bit-6/high-bit masks `0x200140` (bit 21),
 `0x4000140` (bit 26), `0x20000140` (bit 29), `0x40000140` (bit 30) and
 `0x80000140` (bit 31) are each exact across their 12-case matrices. The
