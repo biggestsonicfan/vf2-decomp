@@ -103,7 +103,18 @@ covering every subset of low bits 1/2/4 (96 more fixtures). Other positive
 bit-6 compositions remain explicit unsupported boundaries. Two additional
 positive slices are exact across all 12 distributions/countdown/mode cases:
 the measured `0x140` (bit 8 + bit 6) and `0x142` (bit 8 + bits 1 + 6)
-fighter-state compositions.
+fighter-state compositions. The measured `0x144` (bit 8 + bits 2 + 6)
+composition is also exact across all 12 cases:
+
+```bash
+python3 decomp/i960/tools/validate_game_info_state4.py \
+  ./build/vf2i960 /path/to/vf2-roms --state 8 --include-bit8 \
+  --extra-bit 6 --mask 26 --threshold 0 \
+  --base out/state8-positive.boundary.vf2snap
+```
+
+The neighboring positive bit-4/bit-6 composition remains an explicit
+unsupported boundary.
 
 ## Native child runner
 
