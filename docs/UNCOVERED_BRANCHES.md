@@ -301,6 +301,21 @@ and the masks fail closed until properly re-measured. Every state-8
 full-dispatch admission now remaining in the tree is proven directly under
 the committed validator (see
 `decomp/i960/notes/game_info_1645c_full_state8_bit14_15_family_and_audit_v0124.md`).
+Nine of those eleven masks have since been re-measured with full deficit
+matrices and re-admitted exactly: all seven bit-14+bit-15+bit-16 base
+compositions (`0x0021C000`, `0x0421C000`, `0x2021C000`, `0x4021C000`,
+`0x8021C000`, `0x2421C000`, `0xE421C000`) under measured per-fighter terms
+(fighter-0 side `3` or `2` when countdown/mode6 is set; fighter-1 side
+`3 + 5*mode6 + 4*cd − 4*cd*mode6`; bilateral the exact sum, except the
+isolated 21-only mask which keeps its own flat `{4, 8, 7, 8}` bilateral
+table), plus the two-bit compounds `0x00204000` and `0x00208000` (the
+latter also leaves a measured stale `r15=0` postcondition). The two bit-16
+compounds `0x00210000` and `0x00218000` remain retired: their recovered
+child corridor misses one work-RAM flag byte at `fighter + 0xb25`
+(bit 15 of the word at offset `+0xb24`) that the reference stores;
+recovering that store is the explicit next step before they can be
+admitted (see
+`decomp/i960/notes/game_info_1645c_full_state8_bit14_15_16_recalibration_v0125.md`).
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still

@@ -11960,6 +11960,10 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state8_bit14_bit16_family_fighter_path = false;
     bool native_state8_bit14_bit15_family_accounting_case = false;
     bool native_state8_bit14_bit15_family_fighter_path = false;
+    bool native_state8_compound21_family_accounting_case = false;
+    bool native_state8_compound21_family_fighter_path = false;
+    bool native_state8_bit14_bit15_bit16_family_accounting_case = false;
+    bool native_state8_bit14_bit15_bit16_family_fighter_path = false;
     bool native_state8_bit6_bit14_bit15_high21_accounting_case = false;
     bool native_state8_bit6_bit14_bit15_high21_fighter_path = false;
     uint64_t native_instructions = 0u;
@@ -12310,6 +12314,59 @@ static vf2_status hybrid_execute_game_info_bit31_native(
      * admitted through the recalibrated family rules below. */
     native_state8_bit6_bit14_bit15_bit16_high21_fighter_path = false;
     native_state8_bit6_bit14_bit15_bit16_high21_accounting_case = native_state8_bit6_bit14_bit15_bit16_high21_fighter_path;
+    /* Recalibrated bit-14+bit-15+bit-16 base family: seven measured
+     * compositions whose full deficit matrices were taken under the
+     * committed harness.  The accounting below reproduces them exactly. */
+    {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const bool measured_family_mask =
+            combined_state8_flags == UINT32_C(0x0021c000) ||
+            combined_state8_flags == UINT32_C(0x0421c000) ||
+            combined_state8_flags == UINT32_C(0x2021c000) ||
+            combined_state8_flags == UINT32_C(0x4021c000) ||
+            combined_state8_flags == UINT32_C(0x8021c000) ||
+            combined_state8_flags == UINT32_C(0x2421c000) ||
+            combined_state8_flags == UINT32_C(0xe421c000);
+        native_state8_bit14_bit15_bit16_family_fighter_path =
+            fighter0_state == 8u && fighter1_state == 8u &&
+            measured_family_mask &&
+            (fighter0_state_flags == 0u ||
+             fighter0_state_flags == combined_state8_flags) &&
+            (fighter1_state_flags == 0u ||
+             fighter1_state_flags == combined_state8_flags) &&
+            shared_fighter_threshold <= UINT32_C(2);
+        native_state8_bit14_bit15_bit16_family_accounting_case =
+            native_state8_bit14_bit15_bit16_family_fighter_path;
+    }
+    native_18644_fighter_path =
+        native_18644_fighter_path ||
+        native_state8_bit14_bit15_bit16_family_fighter_path;
+    /* Recalibrated two-bit compounds carrying bit 21: each mask has its
+     * own fully measured deficit matrix reproduced below. */
+    {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        /* The bit-16 compounds 0x00210000 and 0x00218000 still show one
+         * unrecovered work-RAM flag byte in the child corridor and remain
+         * retired until that store is recovered. */
+        const bool measured_compound21_mask =
+            combined_state8_flags == UINT32_C(0x00204000) ||
+            combined_state8_flags == UINT32_C(0x00208000);
+        native_state8_compound21_family_fighter_path =
+            fighter0_state == 8u && fighter1_state == 8u &&
+            measured_compound21_mask &&
+            (fighter0_state_flags == 0u ||
+             fighter0_state_flags == combined_state8_flags) &&
+            (fighter1_state_flags == 0u ||
+             fighter1_state_flags == combined_state8_flags) &&
+            shared_fighter_threshold <= UINT32_C(2);
+        native_state8_compound21_family_accounting_case =
+            native_state8_compound21_family_fighter_path;
+    }
+    native_18644_fighter_path =
+        native_18644_fighter_path ||
+        native_state8_compound21_family_fighter_path;
     /* The bit-14+bit-15+bit-16 base family and the two-bit bit-21
      * compounds that previously claimed these masks measure against the
      * committed harness with distribution-asymmetric accounting that is
@@ -12622,6 +12679,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          native_state8_bit14_bit16_high21_26_30_fighter_path ||
          native_state8_bit14_bit16_family_fighter_path ||
          native_state8_bit14_bit15_family_fighter_path ||
+         native_state8_bit14_bit15_bit16_family_fighter_path ||
+         native_state8_compound21_family_fighter_path ||
          native_state8_bit6_bit14_bit15_high21_fighter_path)) {
         status = vf2_model2a_read_u32(
             machine, UINT32_C(0x0050016c), &mode_base
@@ -13339,6 +13398,91 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             }
         }
     }
+    if (native_state8_bit14_bit15_bit16_family_accounting_case) {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const uint8_t mode_byte = (uint8_t)mode_value;
+        const bool mode_bit6 = (mode_byte & UINT8_C(0x40)) != 0u;
+        const bool fighter0_only =
+            fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == 0u;
+        const bool bilateral =
+            fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == combined_state8_flags;
+        /* Fully measured deficit matrices under the committed harness.
+         * Fighter-0-side term: 3 instructions, or 2 when either the
+         * countdown byte is nonzero or mode bit 6 is set.  Fighter-1-side
+         * term: 3 plus 5*mode6 plus 4*countdown minus 4 when both are set.
+         * The isolated 21-only mask measures a flat bilateral table that
+         * does not decompose into those two terms, so it keeps its own
+         * complete table; the other six compositions measure bilaterally
+         * as the exact sum of both unilateral terms. */
+        if (combined_state8_flags == UINT32_C(0x0021c000) && bilateral) {
+            static const uint64_t table[2][2] = {
+                {UINT64_C(4), UINT64_C(8)},
+                {UINT64_C(7), UINT64_C(8)}
+            };
+            native_instructions +=
+                table[countdown_was_nonzero ? 1 : 0][mode_bit6 ? 1 : 0];
+        } else if (bilateral) {
+            const uint64_t f0_term =
+                (countdown_was_nonzero || mode_bit6) ? UINT64_C(2)
+                                                     : UINT64_C(3);
+            const uint64_t f1_term =
+                (uint64_t)(3 + (mode_bit6 ? 5 : 0) +
+                           (countdown_was_nonzero ? 4 : 0) -
+                           ((mode_bit6 && countdown_was_nonzero) ? 4 : 0));
+            native_instructions += f0_term + f1_term;
+        } else if (fighter0_only) {
+            native_instructions +=
+                (countdown_was_nonzero || mode_bit6) ? UINT64_C(2)
+                                                     : UINT64_C(3);
+        } else {
+            native_instructions += (uint64_t)(
+                3 + (mode_bit6 ? 5 : 0) + (countdown_was_nonzero ? 4 : 0) -
+                ((mode_bit6 && countdown_was_nonzero) ? 4 : 0));
+        }
+    }
+    if (native_state8_compound21_family_accounting_case) {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const uint8_t mode_byte = (uint8_t)mode_value;
+        const bool mode_bit6 = (mode_byte & UINT8_C(0x40)) != 0u;
+        const bool fighter0_only =
+            fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == 0u;
+        const bool bilateral =
+            fighter0_state_flags == combined_state8_flags &&
+            fighter1_state_flags == combined_state8_flags;
+        /* Per-mask measured tables over countdown x mode bit 6; each cell
+         * was verified across thresholds 0..2 and all distributions. */
+        switch (combined_state8_flags) {
+        case UINT32_C(0x00204000):
+            if (!fighter0_only) {
+                /* fighter-1 side and bilateral share one table */
+                static const uint64_t t[2][2] = {
+                    {UINT64_C(2), UINT64_C(3)},
+                    {UINT64_C(7), UINT64_C(8)}
+                };
+                native_instructions +=
+                    t[countdown_was_nonzero ? 1 : 0][mode_bit6 ? 1 : 0];
+            } else {
+                native_instructions += UINT64_C(2);
+            }
+            break;
+        case UINT32_C(0x00208000):
+            if (bilateral) {
+                native_instructions +=
+                    countdown_was_nonzero ? (uint64_t)-(int64_t)5
+                                          : UINT64_C(3);
+            } else {
+                native_instructions +=
+                    countdown_was_nonzero ? (uint64_t)-(int64_t)2
+                                          : UINT64_C(2);
+            }
+            break;
+        }
+    }
     if (native_state8_bit14_bit16_high29_fighter_path ||
         native_state8_bit14_bit16_high30_fighter_path ||
         native_state8_bit14_bit16_high31_fighter_path ||
@@ -13362,7 +13506,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          native_state8_bit14_bit16_high26_29_fighter_path ||
          native_state8_bit14_bit16_high21_26_30_fighter_path ||
          native_state8_bit14_bit16_family_fighter_path ||
-         native_state8_bit14_bit15_family_fighter_path) &&
+         native_state8_bit14_bit15_family_fighter_path ||
+         native_state8_bit14_bit15_bit16_family_fighter_path ||
+         native_state8_compound21_family_fighter_path) &&
         cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
         /* The ROM child's deepest call leaves measured historical values in
          * the next stale frame slot; the recovered child never materializes
@@ -13389,8 +13535,21 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 stale->registers[14] = 0u;
                 stale->registers[15] = UINT32_C(1);
             }
-        } else if (!fighter0_only) {
-            stale->registers[15] = UINT32_C(1);
+        } else {
+            const uint32_t compound21_flags =
+                native_state8_compound21_family_fighter_path
+                    ? (fighter0_state_flags | fighter1_state_flags)
+                    : 0u;
+            if (compound21_flags == UINT32_C(0x00208000)) {
+                /* The measured bit-15+bit-21 compound leaves the stale
+                 * r15 slot zero in every distribution that touches
+                 * fighter 1. */
+                if (!fighter0_only) {
+                    stale->registers[15] = 0u;
+                }
+            } else if (!fighter0_only) {
+                stale->registers[15] = UINT32_C(1);
+            }
         }
     }
     native_instructions += UINT64_C(1); /* task RET */
