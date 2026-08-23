@@ -11956,8 +11956,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state8_bit14_bit16_high26_29_fighter_path = false;
     bool native_state8_bit14_bit16_high21_26_30_accounting_case = false;
     bool native_state8_bit14_bit16_high21_26_30_fighter_path = false;
-    bool native_state8_bit14_bit16_highpairs_accounting_case = false;
-    bool native_state8_bit14_bit16_highpairs_fighter_path = false;
+    bool native_state8_bit14_bit16_family_accounting_case = false;
+    bool native_state8_bit14_bit16_family_fighter_path = false;
     bool native_state8_bit6_bit14_bit15_high21_accounting_case = false;
     bool native_state8_bit6_bit14_bit15_high21_fighter_path = false;
     uint64_t native_instructions = 0u;
@@ -12454,36 +12454,54 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     native_18644_fighter_path =
         native_18644_fighter_path ||
         native_state8_bit14_bit16_high21_26_30_fighter_path;
-    /* The measured no-bit-21 pair/triple compositions share the unified
-     * dispatcher accounting rule below once the native child runs; the
-     * fallback ROM-child baseline hides that join.  Every mask was measured
-     * across all three fighter-record distributions, countdown 0/1 and mode
-     * bit 6 clear/set; thresholds outside 0..2 stay explicit boundaries. */
+    /* Every remaining bit-14/bit-16 state-8 composition (all high-bit
+     * subsets without the earlier exact-match admissions, including the
+     * empty set) shares the unified dispatcher accounting rule below once
+     * the native child runs; the fallback ROM-child baseline hides that
+     * join.  Each mask was measured across all three fighter-record
+     * distributions, countdown 0/1 and mode bit 6 clear/set at thresholds
+     * 0..2; thresholds outside that range stay explicit boundaries. */
     {
         const uint32_t combined_state8_flags =
             fighter0_state_flags | fighter1_state_flags;
-        const bool measured_highpair_mask =
+        const bool measured_family_mask =
             combined_state8_flags == UINT32_C(0x24014000) ||
             combined_state8_flags == UINT32_C(0x44014000) ||
             combined_state8_flags == UINT32_C(0x84014000) ||
             combined_state8_flags == UINT32_C(0x60014000) ||
             combined_state8_flags == UINT32_C(0xa0014000) ||
             combined_state8_flags == UINT32_C(0xc0014000) ||
-            combined_state8_flags == UINT32_C(0xa4014000);
-        native_state8_bit14_bit16_highpairs_fighter_path =
+            combined_state8_flags == UINT32_C(0xa4014000) ||
+            combined_state8_flags == UINT32_C(0x04014000) ||
+            combined_state8_flags == UINT32_C(0x20014000) ||
+            combined_state8_flags == UINT32_C(0x40014000) ||
+            combined_state8_flags == UINT32_C(0x80014000) ||
+            combined_state8_flags == UINT32_C(0x24214000) ||
+            combined_state8_flags == UINT32_C(0x84214000) ||
+            combined_state8_flags == UINT32_C(0x60214000) ||
+            combined_state8_flags == UINT32_C(0xa0214000) ||
+            combined_state8_flags == UINT32_C(0xc0214000) ||
+            combined_state8_flags == UINT32_C(0xe4014000) ||
+            combined_state8_flags == UINT32_C(0x64214000) ||
+            combined_state8_flags == UINT32_C(0xa4214000) ||
+            combined_state8_flags == UINT32_C(0xc4214000) ||
+            combined_state8_flags == UINT32_C(0xe0214000) ||
+            combined_state8_flags == UINT32_C(0xe4214000) ||
+            combined_state8_flags == UINT32_C(0x00014000);
+        native_state8_bit14_bit16_family_fighter_path =
             fighter0_state == 8u && fighter1_state == 8u &&
-            measured_highpair_mask &&
+            measured_family_mask &&
             (fighter0_state_flags == 0u ||
              fighter0_state_flags == combined_state8_flags) &&
             (fighter1_state_flags == 0u ||
              fighter1_state_flags == combined_state8_flags) &&
             shared_fighter_threshold <= UINT32_C(2);
-        native_state8_bit14_bit16_highpairs_accounting_case =
-            native_state8_bit14_bit16_highpairs_fighter_path;
+        native_state8_bit14_bit16_family_accounting_case =
+            native_state8_bit14_bit16_family_fighter_path;
     }
     native_18644_fighter_path =
         native_18644_fighter_path ||
-        native_state8_bit14_bit16_highpairs_fighter_path;
+        native_state8_bit14_bit16_family_fighter_path;
     /* The bit-6/bit-14/bit-15/high-21 compound has a fixed measured
      * bilateral join; the unilateral distributions need no correction. */
     {
@@ -12514,7 +12532,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          native_state8_bit14_bit16_high31_fighter_path ||
          native_state8_bit14_bit16_high26_29_fighter_path ||
          native_state8_bit14_bit16_high21_26_30_fighter_path ||
-         native_state8_bit14_bit16_highpairs_fighter_path ||
+         native_state8_bit14_bit16_family_fighter_path ||
          native_state8_bit6_bit14_bit15_high21_fighter_path)) {
         status = vf2_model2a_read_u32(
             machine, UINT32_C(0x0050016c), &mode_base
@@ -13170,7 +13188,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_state8_bit14_bit16_high31_accounting_case ||
         native_state8_bit14_bit16_high26_29_accounting_case ||
         native_state8_bit14_bit16_high21_26_30_accounting_case ||
-        native_state8_bit14_bit16_highpairs_accounting_case) {
+        native_state8_bit14_bit16_family_accounting_case) {
         const uint32_t combined_state8_flags =
             fighter0_state_flags | fighter1_state_flags;
         const bool mode_bit6 =
@@ -13221,13 +13239,13 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          native_state8_bit14_bit16_high31_fighter_path ||
          native_state8_bit14_bit16_high26_29_fighter_path ||
          native_state8_bit14_bit16_high21_26_30_fighter_path ||
-         native_state8_bit14_bit16_highpairs_fighter_path) &&
+         native_state8_bit14_bit16_family_fighter_path) &&
         cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
         /* The ROM child's deepest call leaves measured historical values in
          * the next stale frame slot; the recovered child never materializes
          * that frame.  The base values are identical across every measured
          * composition.  The isolated high-26 through high-26+29 masks and
-         * the no-bit-21 pair class leave r15=1 in every distribution that
+         * the remaining-family masks leave r15=1 in every distribution that
          * touches fighter 1, while the high-21+26+30 mask uses a
          * distribution-dependent r14/r15 pair. */
         const uint32_t combined_state8_flags =

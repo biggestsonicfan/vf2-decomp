@@ -264,6 +264,24 @@ condition state keyed on the countdown byte (left naturally by the isolated
 high-26 mask), and measured stale-historical-frame postconditions in the
 frame slot beyond the final call depth. Unadmitted neighbours such as
 `0x60214000` and out-of-range threshold `3` still fail closed.
+Seven further no-bit-21 pair/triple compositions (`0x24014000`,
+`0x44014000`, `0x84014000`, `0x60014000`, `0xA0014000`, `0xC0014000` and
+`0xA4014000`) are now admitted through the same unified measured rule, each
+with its complete 36-case matrix exact, followed by every remaining
+bit-14+bit-16 state-8 composition: the isolated high bits without bit 21
+(`0x04014000`, `0x20014000`, `0x40014000`, `0x80014000`), the remaining
+bit-21 pairs and triples (`0x24214000`, `0x84214000`, `0x60214000`,
+`0xA0214000`, `0xC0214000`), the quads (`0xE4014000`, `0x64214000`,
+`0xA4214000`, `0xC4214000`, `0xE0214000`), the full quint `0xE4214000` and
+the base-only mask `0x00014000`. The whole family — all 32 high-bit subsets
+over bits 21/26/29/30/31 on the bit-14+bit-16 base — now matches the
+reference exactly across its 36-case matrices under one shared accounting
+rule, natural condition-state tail and shared stale-frame postconditions;
+the fallback ROM-child path had hidden this join behind a different raw
+baseline (see
+`decomp/i960/notes/game_info_1645c_full_state8_family_completion_v0123.md`).
+Outside-family compositions such as `{14,15}` or `{15,16}` bases and
+thresholds above 2 still fail closed.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
