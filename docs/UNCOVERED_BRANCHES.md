@@ -248,6 +248,22 @@ matches the full reference snapshot and instruction/call/return counters; it
 uses the shared distribution accounting, while all three distributions leave
 the measured `NONE` condition-state postcondition. Other high-bit pairs remain
 explicit boundaries.
+All six full-dispatch state-8 bit-14+bit-16 compositions admitted so far
+(`0x04214000`, `0x20214000`, `0x40214000`, `0x80214000`, `0x64014000` and the
+new bit-21 triple `0x44214000`) have been re-measured and re-admitted under
+the committed `validate_game_info_full_dispatch.py` calibrated task-entry
+fixture, which is now the single measurement harness for this corridor. The
+earlier dispatcher-accounting constants and NONE/EQUAL condition splits for
+the first five masks came from an earlier ad-hoc fixture lineage and did not
+reproduce; every one of the six 36-case matrices (three fighter-record
+distributions, countdown `0/1`, mode bit 6 clear/set, thresholds `0..2`) now
+matches the full reference snapshot, architecture signature and all counters
+exactly under one shared measured rule: unilateral accounting `+3 + mode6`
+and bilateral accounting `+5 + 2*mode6` instructions, an EQUAL/LESS final
+condition state keyed on the countdown byte (left naturally by the isolated
+high-26 mask), and measured stale-historical-frame postconditions in the
+frame slot beyond the final call depth. Unadmitted neighbours such as
+`0x60214000` and out-of-range threshold `3` still fail closed.
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
