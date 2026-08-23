@@ -282,6 +282,25 @@ baseline (see
 `decomp/i960/notes/game_info_1645c_full_state8_family_completion_v0123.md`).
 Outside-family compositions such as `{14,15}` or `{15,16}` bases and
 thresholds above 2 still fail closed.
+The bit-14+bit-15 state-8 base family is now admitted as well: all 28
+compositions over the `0x...C000` base — the base-only mask, every high-bit
+subset over bits 21/26/29/30/31, and the previously stale `0x0020C000` —
+match their complete 36-case matrices exactly under one measured per-record
+rule (`nrecords * (3 - 4*countdown + mode6)` dispatcher instructions),
+natural condition-state tail and shared stale-frame postconditions.
+A full audit of every remaining legacy full-dispatch admission against the
+committed harness found eleven masks whose predicates still carried
+superseded fixture-lineage constants: the two-bit bit-21 compounds
+`0x00204000`, `0x00208000`, `0x00210000`, `0x00218000` and all seven
+measured bit-14+bit-15+bit-16 compositions (`0x0021C000`, `0x0421C000`,
+`0x2021C000`, `0x4021C000`, `0x8021C000`, `0x2421C000`, `0xE421C000`).
+Their re-measured accounting is genuinely distribution-asymmetric (for
+example `0x0421C000` f0-only versus f1-only differ by 5 instructions in the
+mode-bit-6 cells) and is not yet recovered, so those admissions are retired
+and the masks fail closed until properly re-measured. Every state-8
+full-dispatch admission now remaining in the tree is proven directly under
+the committed validator (see
+`decomp/i960/notes/game_info_1645c_full_state8_bit14_15_family_and_audit_v0124.md`).
 The bit-14 + bit-16 triple-high extension `0x24214140` (21+26+29) is now
 native and exact across its 12-case matrix. Its correction is isolated to the
 measured `0x164c4` return corridor; the neighboring 21+26+30 composition still
