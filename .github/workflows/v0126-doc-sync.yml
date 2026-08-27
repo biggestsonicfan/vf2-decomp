@@ -16,54 +16,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Synchronize recovery frontier documentation
         shell: bash
+        env:
+          OLD_B64: TmluZSBvZiB0aG9zZSBlbGV2ZW4gbWFza3MgaGF2ZSBzaW5jZSBiZWVuIHJlLW1lYXN1cmVkIHdpdGggZnVsbCBkZWZpY2l0Cm1hdHJpY2VzIGFuZCByZS1hZG1pdHRlZCBleGFjdGx5OiBhbGwgc2V2ZW4gYml0LTE0K2JpdC0xNStiaXQtMTYgYmFzZQpjb21wb3NpdGlvbnMgKGAweDAwMjFDMDAwYCwgYDB4MDQyMUMwMDBgLCBgMHgyMDIxQzAwMGAsIGAweDQwMjFDMDAwYCwKYDB4ODAyMUMwMDBgLCBgMHgyNDIxQzAwMGAsIGAweEU0MjFDMDAwYCkgdW5kZXIgbWVhc3VyZWQgcGVyLWZpZ2h0ZXIgdGVybXMKKGZpZ2h0ZXItMCBzaWRlIGAzYCBvciBgMmAgd2hlbiBjb3VudGRvd24vbW9kZTYgaXMgc2V0OyBmaWdodGVyLTEgc2lkZQpgMyArIDUqbW9kZTYgKyA0KmNkIOKIkiA0KmNkKm1vZGU2YDsgYmlsYXRlcmFsIHRoZSBleGFjdCBzdW0sIGV4Y2VwdCB0aGUKaXNvbGF0ZWQgMjEtb25seSBtYXNrIHdoaWNoIGtlZXBzIGl0cyBvd24gZmxhdCBgezQsIDgsIDcsIDh9YCBiaWxhdGVyYWwKdGFibGUpLCBwbHVzIHRoZSB0d28tYml0IGNvbXBvdW5kcyBgMHgwMDIwNDAwMGAgYW5kIGAweDAwMjA4MDAwYCAodGhlCmxhdHRlciBhbHNvIGxlYXZlcyBhIG1lYXN1cmVkIHN0YWxlIGByMTU9MGAgcG9zdGNvbmRpdGlvbikuIFRoZSB0d28gYml0LTE2CmNvbXBvdW5kcyBgMHgwMDIxMDAwMGAgYW5kIGAweDAwMjE4MDAwYCByZW1haW4gcmV0aXJlZDogdGhlaXIgcmVjb3ZlcmVkCmNoaWxkIGNvcnJpZG9yIG1pc3NlcyBvbmUgd29yay1SQU0gZmxhZyBieXRlIGF0IGBmaWdodGVyICsgMHhiMjVgCihiaXQgMTUgb2YgdGhlIHdvcmQgYXQgb2Zmc2V0IGArMHhiMjRgKSB0aGF0IHRoZSByZWZlcmVuY2Ugc3RvcmVzOwpyZWNvdmVyaW5nIHRoYXQgc3RvcmUgaXMgdGhlIGV4cGxpY2l0IG5leHQgc3RlcCBiZWZvcmUgdGhleSBjYW4gYmUKYWRtaXR0ZWQgKHNlZQpkZWNvbXAvaTk2MC9ub3Rlcy9nYW1lX2luZm9fMTY0NWNfZnVsbF9zdGF0ZThfYml0MTRfMTVfMTZfcmVjYWxpYnJhdGlvbl92MDEyNS5tZGApLgo=
+          NEW_B64: QWxsIGVsZXZlbiBtYXNrcyBoYXZlIG5vdyBiZWVuIHJlLWFkbWl0dGVkIGZyb20gbWVhc3VyZWQgZGF0YS4gVGhlIHNldmVuCmJpdC0xNCtiaXQtMTUrYml0LTE2IGJhc2UgY29tcG9zaXRpb25zIChgMHgwMDIxQzAwMGAsIGAweDA0MjFDMDAwYCwKYDB4MjAyMUMwMDBgLCBgMHg0MDIxQzAwMGAsIGAweDgwMjFDMDAwYCwgYDB4MjQyMUMwMDBgLCBgMHhFNDIxQzAwMGApCnJldGFpbiB0aGUgdjAxMjUgbWVhc3VyZWQgcGVyLWZpZ2h0ZXIgYWNjb3VudGluZyAoZmlnaHRlci0wIHNpZGUgYDNgLCBvciBgMmAKd2hlbiBjb3VudGRvd24vbW9kZTYgaXMgc2V0OyBmaWdodGVyLTEgc2lkZQpgMyArIDUqbW9kZTYgKyA0KmNkIOKIkiA0KmNkKm1vZGU2YDsgYmlsYXRlcmFsIHRoZSBleGFjdCBzdW0gZXhjZXB0IHRoZQppc29sYXRlZCAyMS1vbmx5IG1hc2ssIHdob3NlIGJpbGF0ZXJhbCB0YWJsZSBpcyBgezQsIDgsIDcsIDh9YCkuIFRoZSBmb3VyCmJpdC0yMSBjb21wb3VuZHMgYXJlIGluZGVwZW5kZW50bHkgbWVhc3VyZWQ6IGAweDAwMjA0MDAwYCBhbmQgYDB4MDAyMDgwMDBgCnJldGFpbiB0aGVpciB2MDEyNSB0YWJsZXMgKGluY2x1ZGluZyB0aGUgbWVhc3VyZWQgc3RhbGUgYHIxNT0wYCBwb3N0Y29uZGl0aW9uCmZvciBgMHgwMDIwODAwMGApLCB3aGlsZSB2MDEyNiBjbG9zZXMgdGhlIGxhc3QgYXJjaGl0ZWN0dXJhbCBnYXAgZm9yCmAweDAwMjEwMDAwYCBhbmQgYDB4MDAyMTgwMDBgLiBUaGUgcmVjb3ZlcmVkIGAweDE4NjQ0YCBjaGlsZCBub3cgcGVyZm9ybXMgdGhlCnJlZmVyZW5jZSByZWFkL21vZGlmeS93cml0ZSB0aGF0IHNldHMgYml0IDE1IG9mIHRoZSAxNi1iaXQgZmllbGQgYXQKYGZpZ2h0ZXIgKyAweGIyNGAgZm9yIHRob3NlIGV4YWN0IGFjdGl2ZSBtYXNrcywgcHJlc2VydmluZyBhbGwgb3RoZXIgYml0cy4KVGhlaXIgbWVhc3VyZWQgZGlzcGF0Y2hlciBkZWZpY2l0cyBhcmUgYCs0YCB1bmlsYXRlcmFsIC8gYCs3YCBiaWxhdGVyYWwgZm9yCmAweDAwMjEwMDAwYCBhbmQgYCs0YCB1bmlsYXRlcmFsIC8gYCs4YCBiaWxhdGVyYWwgZm9yIGAweDAwMjE4MDAwYC4gU2VlCmBkZWNvbXAvaTk2MC9ub3Rlcy9nYW1lX2luZm9fMTY0NWNfZnVsbF9zdGF0ZThfYml0MTRfMTVfMTZfcmVjYWxpYnJhdGlvbl92MDEyNS5tZGAKYW5kIGBkZWNvbXAvaTk2MC9ub3Rlcy9nYW1lX2luZm9fMTY0NWNfZnVsbF9zdGF0ZThfYml0MTZfY29tcG91bmRzX3YwMTI2Lm1kYC4K
         run: |
           python3 - <<'PY'
+          import base64
+          import os
           from pathlib import Path
-
           path = Path('docs/UNCOVERED_BRANCHES.md')
           text = path.read_text()
-          old = '''Nine of those eleven masks have since been re-measured with full deficit
-matrices and re-admitted exactly: all seven bit-14+bit-15+bit-16 base
-compositions (`0x0021C000`, `0x0421C000`, `0x2021C000`, `0x4021C000`,
-`0x8021C000`, `0x2421C000`, `0xE421C000`) under measured per-fighter terms
-(fighter-0 side `3` or `2` when countdown/mode6 is set; fighter-1 side
-`3 + 5*mode6 + 4*cd − 4*cd*mode6`; bilateral the exact sum, except the
-isolated 21-only mask which keeps its own flat `{4, 8, 7, 8}` bilateral
-table), plus the two-bit compounds `0x00204000` and `0x00208000` (the
-latter also leaves a measured stale `r15=0` postcondition). The two bit-16
-compounds `0x00210000` and `0x00218000` remain retired: their recovered
-child corridor misses one work-RAM flag byte at `fighter + 0xb25`
-(bit 15 of the word at offset `+0xb24`) that the reference stores;
-recovering that store is the explicit next step before they can be
-admitted (see
-`decomp/i960/notes/game_info_1645c_full_state8_bit14_15_16_recalibration_v0125.md`).
-'''
-          new = '''All eleven masks have now been re-admitted from measured data. The seven
-bit-14+bit-15+bit-16 base compositions (`0x0021C000`, `0x0421C000`,
-`0x2021C000`, `0x4021C000`, `0x8021C000`, `0x2421C000`, `0xE421C000`)
-retain the v0125 measured per-fighter accounting (fighter-0 side `3`, or `2`
-when countdown/mode6 is set; fighter-1 side
-`3 + 5*mode6 + 4*cd − 4*cd*mode6`; bilateral the exact sum except the
-isolated 21-only mask, whose bilateral table is `{4, 8, 7, 8}`). The four
-bit-21 compounds are independently measured: `0x00204000` and `0x00208000`
-retain their v0125 tables (including the measured stale `r15=0` postcondition
-for `0x00208000`), while v0126 closes the last architectural gap for
-`0x00210000` and `0x00218000`. The recovered `0x18644` child now performs the
-reference read/modify/write that sets bit 15 of the 16-bit field at
-`fighter + 0xb24` for those exact active masks, preserving all other bits.
-Their measured dispatcher deficits are `+4` unilateral / `+7` bilateral for
-`0x00210000` and `+4` unilateral / `+8` bilateral for `0x00218000`. See
-`decomp/i960/notes/game_info_1645c_full_state8_bit14_15_16_recalibration_v0125.md`
-and `decomp/i960/notes/game_info_1645c_full_state8_bit16_compounds_v0126.md`.
-'''
+          old = base64.b64decode(os.environ['OLD_B64']).decode()
+          new = base64.b64decode(os.environ['NEW_B64']).decode()
           if text.count(old) != 1:
               raise SystemExit(f'documentation anchor count={text.count(old)}')
           path.write_text(text.replace(old, new, 1))
           PY
-
       - name: Commit synchronized documentation
         shell: bash
         run: |
