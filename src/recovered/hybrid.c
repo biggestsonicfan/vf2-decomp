@@ -12093,14 +12093,51 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          ((UINT32_C(1) << 14u) | (UINT32_C(1) << 16u) |
          (UINT32_C(1) << 6u))) == 0u &&
         (int32_t)shared_fighter_threshold >= 0;
-    native_bit6_fighter_path =
-        fighter0_state != 4u && fighter1_state != 4u &&
-        ((fighter0_state_flags | fighter1_state_flags) &
-         (UINT32_C(1) << 6u)) != 0u &&
-        ((fighter0_state_flags | fighter1_state_flags) &
-         ((UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
-          (UINT32_C(1) << 16u))) == 0u &&
-        (int32_t)shared_fighter_threshold >= 0;
+    {
+        const uint32_t combined_state8_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const uint32_t bit6 = UINT32_C(1) << 6u;
+        const uint32_t bit8 = UINT32_C(1) << 8u;
+        const uint32_t low_bits =
+            (UINT32_C(1) << 1u) | (UINT32_C(1) << 2u) |
+            (UINT32_C(1) << 4u);
+        const uint32_t high_bits =
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+            (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+            (UINT32_C(1) << 31u);
+        const uint32_t measured_bits = bit6 | bit8 | low_bits | high_bits;
+        const uint32_t selected_high_bits =
+            combined_state8_flags & high_bits;
+        const uint32_t high_without_first = selected_high_bits == 0u
+            ? 0u
+            : selected_high_bits & (selected_high_bits - UINT32_C(1));
+        const bool one_high_bit =
+            selected_high_bits != 0u && high_without_first == 0u;
+        const bool two_high_bits =
+            high_without_first != 0u &&
+            (high_without_first & (high_without_first - UINT32_C(1))) == 0u;
+        const bool measured_positive_state8_bit6_mask =
+            (combined_state8_flags & bit6) != 0u &&
+            (combined_state8_flags & ~measured_bits) == 0u &&
+            (selected_high_bits == 0u ||
+             ((one_high_bit || two_high_bits) &&
+              (combined_state8_flags & bit8) != 0u &&
+              (combined_state8_flags & low_bits) == 0u) ||
+             (selected_high_bits == high_bits &&
+              (combined_state8_flags & bit8) != 0u));
+
+        /* Positive state-8/bit-6 evidence is deliberately narrower than the
+         * old generic bit-6 predicate. The committed v0090/v0091 matrices
+         * prove: no-high masks over low bits 1/2/4 with optional bit 8;
+         * isolated/pairwise high-bit masks only with bit 8 and no low bits;
+         * and the all-five-high mask with bit 8 and every low-bit subset.
+         * High triples/quads and mixed single/pair-high + low-bit masks have
+         * no committed oracle evidence and must fail closed. */
+        native_bit6_fighter_path =
+            fighter0_state == 8u && fighter1_state == 8u &&
+            measured_positive_state8_bit6_mask &&
+            (int32_t)shared_fighter_threshold >= 0;
+    }
     native_state4_bit15_fighter_path =
         (fighter0_state == 4u || fighter1_state == 4u) &&
         ((fighter0_state_flags | fighter1_state_flags) &
