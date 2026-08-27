@@ -1,0 +1,32 @@
+name: v0127 sanitizer verification
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0127-sanitizer-verification.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Configure sanitizers
+        run: cmake -S . -B build-san -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+      - name: Remove one-shot verifier
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0127-sanitizer-verification.yml
+          git commit -m "Remove v0127 sanitizer verifier"
+          git push origin HEAD:master
