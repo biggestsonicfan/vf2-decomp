@@ -4574,6 +4574,20 @@ static vf2_status hybrid_execute_game_info_18644(
             machine, fighter1 + UINT32_C(0x000001a4), &r8
         );
     }
+    if (status == VF2_OK &&
+        (r7 == UINT32_C(0x00210000) ||
+         r7 == UINT32_C(0x00218000))) {
+        uint16_t field_b24 = 0u;
+        status = hybrid_read_u16(
+            machine, fighter0 + UINT32_C(0x00000b24), &field_b24
+        );
+        if (status == VF2_OK) {
+            status = hybrid_write_u16(
+                machine, fighter0 + UINT32_C(0x00000b24),
+                (uint16_t)(field_b24 | UINT16_C(0x8000))
+            );
+        }
+    }
     if (status == VF2_OK) {
         r10 = 0u;
         r15 = UINT32_C(0x15802b2b);
@@ -12347,12 +12361,14 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     {
         const uint32_t combined_state8_flags =
             fighter0_state_flags | fighter1_state_flags;
-        /* The bit-16 compounds 0x00210000 and 0x00218000 still show one
-         * unrecovered work-RAM flag byte in the child corridor and remain
-         * retired until that store is recovered. */
+        /* The four two-bit/three-bit bit-21 compounds now have complete
+         * measured state and accounting, including the recovered bit-16
+         * child-side flag store at fighter+0xb24. */
         const bool measured_compound21_mask =
             combined_state8_flags == UINT32_C(0x00204000) ||
-            combined_state8_flags == UINT32_C(0x00208000);
+            combined_state8_flags == UINT32_C(0x00208000) ||
+            combined_state8_flags == UINT32_C(0x00210000) ||
+            combined_state8_flags == UINT32_C(0x00218000);
         native_state8_compound21_family_fighter_path =
             fighter0_state == 8u && fighter1_state == 8u &&
             measured_compound21_mask &&
@@ -13480,6 +13496,16 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                     countdown_was_nonzero ? (uint64_t)-(int64_t)2
                                           : UINT64_C(2);
             }
+            break;
+        case UINT32_C(0x00210000):
+            /* Measured flat deficit: +4 for either unilateral orientation,
+             * +7 when both fighter records carry the mask. */
+            native_instructions += bilateral ? UINT64_C(7) : UINT64_C(4);
+            break;
+        case UINT32_C(0x00218000):
+            /* Measured flat deficit: +4 for either unilateral orientation,
+             * +8 when both fighter records carry the mask. */
+            native_instructions += bilateral ? UINT64_C(8) : UINT64_C(4);
             break;
         }
     }
