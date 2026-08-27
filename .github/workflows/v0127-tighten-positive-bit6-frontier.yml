@@ -19,84 +19,32 @@ jobs:
 
       - name: Apply evidence-backed positive bit6 gate
         shell: bash
+        env:
+          OLD_B64: ICAgIG5hdGl2ZV9iaXQ2X2ZpZ2h0ZXJfcGF0aCA9CiAgICAgICAgZmlnaHRlcjBfc3RhdGUgIT0gNHUgJiYgZmlnaHRlcjFfc3RhdGUgIT0gNHUgJiYKICAgICAgICAoKGZpZ2h0ZXIwX3N0YXRlX2ZsYWdzIHwgZmlnaHRlcjFfc3RhdGVfZmxhZ3MpICYKICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDZ1KSkgIT0gMHUgJiYKICAgICAgICAoKGZpZ2h0ZXIwX3N0YXRlX2ZsYWdzIHwgZmlnaHRlcjFfc3RhdGVfZmxhZ3MpICYKICAgICAgICAgKChVSU5UMzJfQygxKSA8PCAxNHUpIHwgKFVJTlQzMl9DKDEpIDw8IDE1dSkgfAogICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDE2dSkpKSA9PSAwdSAmJgogICAgICAgIChpbnQzMl90KXNoYXJlZF9maWdodGVyX3RocmVzaG9sZCA+PSAwOwo=
+          NEW_B64: ICAgIHsKICAgICAgICBjb25zdCB1aW50MzJfdCBjb21iaW5lZF9zdGF0ZThfZmxhZ3MgPQogICAgICAgICAgICBmaWdodGVyMF9zdGF0ZV9mbGFncyB8IGZpZ2h0ZXIxX3N0YXRlX2ZsYWdzOwogICAgICAgIGNvbnN0IHVpbnQzMl90IGJpdDYgPSBVSU5UMzJfQygxKSA8PCA2dTsKICAgICAgICBjb25zdCB1aW50MzJfdCBiaXQ4ID0gVUlOVDMyX0MoMSkgPDwgOHU7CiAgICAgICAgY29uc3QgdWludDMyX3QgbG93X2JpdHMgPQogICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMXUpIHwgKFVJTlQzMl9DKDEpIDw8IDJ1KSB8CiAgICAgICAgICAgIChVSU5UMzJfQygxKSA8PCA0dSk7CiAgICAgICAgY29uc3QgdWludDMyX3QgaGlnaF9iaXRzID0KICAgICAgICAgICAgKFVJTlQzMl9DKDEpIDw8IDIxdSkgfCAoVUlOVDMyX0MoMSkgPDwgMjZ1KSB8CiAgICAgICAgICAgIChVSU5UMzJfQygxKSA8PCAyOXUpIHwgKFVJTlQzMl9DKDEpIDw8IDMwdSkgfAogICAgICAgICAgICAoVUlOVDMyX0MoMSkgPDwgMzF1KTsKICAgICAgICBjb25zdCB1aW50MzJfdCBtZWFzdXJlZF9iaXRzID0gYml0NiB8IGJpdDggfCBsb3dfYml0cyB8IGhpZ2hfYml0czsKICAgICAgICBjb25zdCB1aW50MzJfdCBzZWxlY3RlZF9oaWdoX2JpdHMgPQogICAgICAgICAgICBjb21iaW5lZF9zdGF0ZThfZmxhZ3MgJiBoaWdoX2JpdHM7CiAgICAgICAgY29uc3QgdWludDMyX3QgaGlnaF93aXRob3V0X2ZpcnN0ID0gc2VsZWN0ZWRfaGlnaF9iaXRzID09IDB1CiAgICAgICAgICAgID8gMHUKICAgICAgICAgICAgOiBzZWxlY3RlZF9oaWdoX2JpdHMgJiAoc2VsZWN0ZWRfaGlnaF9iaXRzIC0gVUlOVDMyX0MoMSkpOwogICAgICAgIGNvbnN0IGJvb2wgb25lX2hpZ2hfYml0ID0KICAgICAgICAgICAgc2VsZWN0ZWRfaGlnaF9iaXRzICE9IDB1ICYmIGhpZ2hfd2l0aG91dF9maXJzdCA9PSAwdTsKICAgICAgICBjb25zdCBib29sIHR3b19oaWdoX2JpdHMgPQogICAgICAgICAgICBoaWdoX3dpdGhvdXRfZmlyc3QgIT0gMHUgJiYKICAgICAgICAgICAgKGhpZ2hfd2l0aG91dF9maXJzdCAmIChoaWdoX3dpdGhvdXRfZmlyc3QgLSBVSU5UMzJfQygxKSkpID09IDB1OwogICAgICAgIGNvbnN0IGJvb2wgbWVhc3VyZWRfcG9zaXRpdmVfc3RhdGU4X2JpdDZfbWFzayA9CiAgICAgICAgICAgIChjb21iaW5lZF9zdGF0ZThfZmxhZ3MgJiBiaXQ2KSAhPSAwdSAmJgogICAgICAgICAgICAoY29tYmluZWRfc3RhdGU4X2ZsYWdzICYgfm1lYXN1cmVkX2JpdHMpID09IDB1ICYmCiAgICAgICAgICAgIChzZWxlY3RlZF9oaWdoX2JpdHMgPT0gMHUgfHwKICAgICAgICAgICAgICgob25lX2hpZ2hfYml0IHx8IHR3b19oaWdoX2JpdHMpICYmCiAgICAgICAgICAgICAgKGNvbWJpbmVkX3N0YXRlOF9mbGFncyAmIGJpdDgpICE9IDB1ICYmCiAgICAgICAgICAgICAgKGNvbWJpbmVkX3N0YXRlOF9mbGFncyAmIGxvd19iaXRzKSA9PSAwdSkgfHwKICAgICAgICAgICAgIChzZWxlY3RlZF9oaWdoX2JpdHMgPT0gaGlnaF9iaXRzICYmCiAgICAgICAgICAgICAgKGNvbWJpbmVkX3N0YXRlOF9mbGFncyAmIGJpdDgpICE9IDB1KSk7CgogICAgICAgIC8qIFBvc2l0aXZlIHN0YXRlLTgvYml0LTYgZXZpZGVuY2UgaXMgZGVsaWJlcmF0ZWx5IG5hcnJvd2VyIHRoYW4gdGhlCiAgICAgICAgICogb2xkIGdlbmVyaWMgYml0LTYgcHJlZGljYXRlLiBUaGUgY29tbWl0dGVkIHYwMDkwL3YwMDkxIG1hdHJpY2VzCiAgICAgICAgICogcHJvdmU6IG5vLWhpZ2ggbWFza3Mgb3ZlciBsb3cgYml0cyAxLzIvNCB3aXRoIG9wdGlvbmFsIGJpdCA4OwogICAgICAgICAqIGlzb2xhdGVkL3BhaXJ3aXNlIGhpZ2gtYml0IG1hc2tzIG9ubHkgd2l0aCBiaXQgOCBhbmQgbm8gbG93IGJpdHM7CiAgICAgICAgICogYW5kIHRoZSBhbGwtZml2ZS1oaWdoIG1hc2sgd2l0aCBiaXQgOCBhbmQgZXZlcnkgbG93LWJpdCBzdWJzZXQuCiAgICAgICAgICogSGlnaCB0cmlwbGVzL3F1YWRzIGFuZCBtaXhlZCBzaW5nbGUvcGFpci1oaWdoICsgbG93LWJpdCBtYXNrcyBoYXZlCiAgICAgICAgICogbm8gY29tbWl0dGVkIG9yYWNsZSBldmlkZW5jZSBhbmQgbXVzdCBmYWlsIGNsb3NlZC4gKi8KICAgICAgICBuYXRpdmVfYml0Nl9maWdodGVyX3BhdGggPQogICAgICAgICAgICBmaWdodGVyMF9zdGF0ZSA9PSA4dSAmJiBmaWdodGVyMV9zdGF0ZSA9PSA4dSAmJgogICAgICAgICAgICBtZWFzdXJlZF9wb3NpdGl2ZV9zdGF0ZThfYml0Nl9tYXNrICYmCiAgICAgICAgICAgIChpbnQzMl90KXNoYXJlZF9maWdodGVyX3RocmVzaG9sZCA+PSAwOwogICAgfQo=
+          NOTE_B64: IyBgZmFfZ2FtZV9pbmZvYCBgMHgxNjQ1Y2A6IGZhaWwtY2xvc2VkIHBvc2l0aXZlIHN0YXRlLTggYml0LTYgYWRtaXNzaW9uCgojIyBSZXN1bHQKClRoZSBnZW5lcmljIHBvc2l0aXZlIGBuYXRpdmVfYml0Nl9maWdodGVyX3BhdGhgIGFkbWlzc2lvbiB3YXMgYnJvYWRlciB0aGFuIHRoZQpjb21taXR0ZWQgZGlmZmVyZW50aWFsIGV2aWRlbmNlLiBJdCBhY2NlcHRlZCBhbnkgbm9uLXN0YXRlLTQgY29tcG9zaXRpb24gd2l0aApiaXQgNiBzZXQgYW5kIGJpdHMgMTQvMTUvMTYgY2xlYXIsIGluY2x1ZGluZyBoaWdoLWJpdCB0cmlwbGVzL3F1YWRzIGFuZCBtaXhlZApsb3cvaGlnaCBjb21wb3NpdGlvbnMgdGhhdCB0aGUgcmVjb3Zlcnkgbm90ZXMgZXhwbGljaXRseSBsZWF2ZSB1bnByb3Zlbi4KCnYwMTI3IG5hcnJvd3MgdGhhdCBnYXRlIHRvIHRoZSBtYXNrcyBhbHJlYWR5IG1lYXN1cmVkIGJ5IHRoZSBjb21taXR0ZWQgY2hpbGQKbWF0cmljZXM6CgotIG5vIGhpZ2ggYml0czogYml0IDYgd2l0aCBhbnkgc3Vic2V0IG9mIGxvdyBiaXRzIDEvMi80IGFuZCBvcHRpb25hbCBiaXQgODsKLSBvbmUgb3IgdHdvIG9mIGhpZ2ggYml0cyAyMS8yNi8yOS8zMC8zMTogYml0IDggaXMgcmVxdWlyZWQgYW5kIGxvdyBiaXRzCiAgMS8yLzQgbXVzdCBiZSBjbGVhcjsKLSBhbGwgZml2ZSBoaWdoIGJpdHM6IGJpdCA4IGlzIHJlcXVpcmVkIGFuZCBldmVyeSBzdWJzZXQgb2YgbG93IGJpdHMgMS8yLzQKICByZW1haW5zIGFkbWl0dGVkLgoKVGhlIHN0YXRlIGJ5dGUgbXVzdCBiZSA4IGZvciBib3RoIGZpZ2h0ZXIgcmVjb3JkcywgdGhlIHRocmVzaG9sZCBtdXN0IHJlbWFpbgpub25uZWdhdGl2ZSwgYW5kIGFueSBmbGFnIG91dHNpZGUgdGhlIG1lYXN1cmVkIGJpdCBzZXQgaXMgcmVqZWN0ZWQuIEhpZ2gtYml0CnRyaXBsZXMvcXVhZHMsIHNpbmdsZS9wYWlyLWhpZ2ggbWFza3Mgd2l0aG91dCBiaXQgOCwgYW5kIHNpbmdsZS9wYWlyLWhpZ2ggbWFza3MKbWl4ZWQgd2l0aCBsb3cgYml0cyBub3cgZmFpbCBjbG9zZWQgcmF0aGVyIHRoYW4gc2lsZW50bHkgYm9ycm93aW5nIHRoZSBnZW5lcmljCmJpdC02IGNvcnJpZG9yLgoKVGhpcyBjaGFuZ2UgZG9lcyBub3QgY2xhaW0gbmV3IGdhbWUgYmVoYXZpb3IuIEl0IG1ha2VzIHRoZSBpbXBsZW1lbnRhdGlvbiBtYXRjaAp0aGUgZXhpc3RpbmcgZXZpZGVuY2UgYm91bmRhcnkgcmVjb3JkZWQgaW4KYGdhbWVfaW5mb18xODY0NF9wb3NpdGl2ZV9iaXQ2X2hpZ2hfbWFza3NfdjAwOTAubWRgIGFuZApgZ2FtZV9pbmZvXzE4NjQ0X3Bvc2l0aXZlX2JpdDZfaGlnaF9wYWlyc192MDA5MS5tZGAuCgojIyBWYWxpZGF0aW9uCgpUaGUgcmVwb3NpdG9yeSBzdHJpY3QgQ01ha2UgYnVpbGQgYW5kIENUZXN0IHN1aXRlIG11c3QgcGFzcyBiZWZvcmUgdGhpcyBjaGFuZ2UgaXMKY29tbWl0dGVkLiBUaGUgZXhpc3RpbmcgUk9NLWJhY2tlZCBtYXRyaXggdG9vbHMgcmVtYWluIHRoZSBvcmFjbGUgZm9yIHdpZGVuaW5nCnRoaXMgZ2F0ZSBpbiBhIGxhdGVyIHJlY292ZXJ5Lgo=
         run: |
           python3 - <<'PY'
+          import base64
+          import os
           from pathlib import Path
-
           path = Path('src/recovered/hybrid.c')
           text = path.read_text()
-          old = '''    native_bit6_fighter_path =
-        fighter0_state != 4u && fighter1_state != 4u &&
-        ((fighter0_state_flags | fighter1_state_flags) &
-         (UINT32_C(1) << 6u)) != 0u &&
-        ((fighter0_state_flags | fighter1_state_flags) &
-         ((UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
-          (UINT32_C(1) << 16u))) == 0u &&
-        (int32_t)shared_fighter_threshold >= 0;
-'''
-          new = '''    {
-        const uint32_t combined_state8_flags =
-            fighter0_state_flags | fighter1_state_flags;
-        const uint32_t bit6 = UINT32_C(1) << 6u;
-        const uint32_t bit8 = UINT32_C(1) << 8u;
-        const uint32_t low_bits =
-            (UINT32_C(1) << 1u) | (UINT32_C(1) << 2u) |
-            (UINT32_C(1) << 4u);
-        const uint32_t high_bits =
-            (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
-            (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
-            (UINT32_C(1) << 31u);
-        const uint32_t measured_bits = bit6 | bit8 | low_bits | high_bits;
-        const uint32_t selected_high_bits =
-            combined_state8_flags & high_bits;
-        const uint32_t high_without_first = selected_high_bits == 0u
-            ? 0u
-            : selected_high_bits & (selected_high_bits - UINT32_C(1));
-        const bool one_high_bit =
-            selected_high_bits != 0u && high_without_first == 0u;
-        const bool two_high_bits =
-            high_without_first != 0u &&
-            (high_without_first & (high_without_first - UINT32_C(1))) == 0u;
-        const bool measured_positive_state8_bit6_mask =
-            (combined_state8_flags & bit6) != 0u &&
-            (combined_state8_flags & ~measured_bits) == 0u &&
-            (selected_high_bits == 0u ||
-             (((one_high_bit || two_high_bits) &&
-               (combined_state8_flags & bit8) != 0u &&
-               (combined_state8_flags & low_bits) == 0u)) ||
-             (selected_high_bits == high_bits &&
-              (combined_state8_flags & bit8) != 0u));
-
-        /* Positive state-8/bit-6 evidence is deliberately narrower than the
-         * old generic bit-6 predicate.  The committed v0090/v0091 matrices
-         * prove: no-high masks over low bits 1/2/4 with optional bit 8;
-         * isolated/pairwise high-bit masks only with bit 8 and no low bits;
-         * and the all-five-high mask with bit 8 and every low-bit subset.
-         * High triples/quads and mixed single/pair-high + low-bit masks have
-         * no committed oracle evidence and must fail closed. */
-        native_bit6_fighter_path =
-            fighter0_state == 8u && fighter1_state == 8u &&
-            measured_positive_state8_bit6_mask &&
-            (int32_t)shared_fighter_threshold >= 0;
-    }
-'''
+          old = base64.b64decode(os.environ['OLD_B64']).decode()
+          new = base64.b64decode(os.environ['NEW_B64']).decode()
           if text.count(old) != 1:
               raise SystemExit(f'hybrid.c positive bit6 anchor count={text.count(old)}')
           path.write_text(text.replace(old, new, 1))
-
-          note = Path('decomp/i960/notes/game_info_1645c_positive_bit6_fail_closed_v0127.md')
-          note.write_text('''# `fa_game_info` `0x1645c`: fail-closed positive state-8 bit-6 admission\n\n## Result\n\nThe generic positive `native_bit6_fighter_path` admission was broader than the\ncommitted differential evidence. It accepted any non-state-4 composition with\nbit 6 set and bits 14/15/16 clear, including high-bit triples/quads and mixed\nlow/high compositions that the recovery notes explicitly leave unproven.\n\nv0127 narrows that gate to the masks already measured by the committed child\nmatrices:\n\n- no high bits: bit 6 with any subset of low bits 1/2/4 and optional bit 8;\n- one or two of high bits 21/26/29/30/31: bit 8 is required and low bits\n  1/2/4 must be clear;\n- all five high bits: bit 8 is required and every subset of low bits 1/2/4\n  remains admitted.\n\nThe state byte must be 8 for both fighter records, the threshold must remain\nnonnegative, and any flag outside the measured bit set is rejected. High-bit\ntriples/quads, single/pair-high masks without bit 8, and single/pair-high masks\nmixed with low bits now fail closed rather than silently borrowing the generic\nbit-6 corridor.\n\nThis change does not claim new game behavior. It makes the implementation match\nthe existing evidence boundary recorded in\n`game_info_18644_positive_bit6_high_masks_v0090.md` and\n`game_info_18644_positive_bit6_high_pairs_v0091.md`.\n\n## Validation\n\nThe repository strict CMake build and CTest suite must pass before this change is\ncommitted. The existing ROM-backed matrix tools remain the oracle for widening\nthis gate in a later recovery.\n''')
+          note = base64.b64decode(os.environ['NOTE_B64']).decode()
+          Path('decomp/i960/notes/game_info_1645c_positive_bit6_fail_closed_v0127.md').write_text(note)
           PY
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
-
       - name: Build
         run: cmake --build build --parallel
-
       - name: Test
         run: ctest --test-dir build --output-on-failure
-
       - name: Commit hardened frontier
         shell: bash
         run: |
