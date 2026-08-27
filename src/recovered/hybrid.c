@@ -12069,8 +12069,12 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         fighter0_state == 4u || fighter1_state == 4u ||
         ((fighter0_state_flags | fighter1_state_flags) &
          conditional_state_mask) != 0u;
+    /* The positive isolated bit-14/15/16 dispatcher admissions are
+     * state-8 recoveries.  The caller is selected by fighter flag bit 31
+     * and does not constrain +0xa00, so the former !=4 test silently
+     * admitted unmeasured state bytes. Keep non-state-8 values fail-closed. */
     native_bit14_fighter_path =
-        fighter0_state != 4u && fighter1_state != 4u &&
+        fighter0_state == 8u && fighter1_state == 8u &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 14u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12078,7 +12082,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
           (UINT32_C(1) << 6u))) == 0u &&
         (int32_t)shared_fighter_threshold >= 0;
     native_bit16_fighter_path =
-        fighter0_state != 4u && fighter1_state != 4u &&
+        fighter0_state == 8u && fighter1_state == 8u &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 16u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12086,7 +12090,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          (UINT32_C(1) << 6u))) == 0u &&
         (int32_t)shared_fighter_threshold >= 0;
     native_bit15_fighter_path =
-        fighter0_state != 4u && fighter1_state != 4u &&
+        fighter0_state == 8u && fighter1_state == 8u &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 15u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
