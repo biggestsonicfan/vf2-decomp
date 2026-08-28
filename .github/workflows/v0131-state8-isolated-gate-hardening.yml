@@ -1,0 +1,99 @@
+name: v0131 state8 isolated-gate hardening
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0131-state8-isolated-gate-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restrict generic positive state8 gates to isolated masks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+
+          start_marker = '    /* The positive isolated bit-14/15/16 dispatcher admissions are\n'
+          end_marker = '    {\n        const uint32_t combined_state8_flags =\n'
+          if text.count(start_marker) != 1:
+              raise SystemExit(f'isolated gate start count={text.count(start_marker)}')
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          old = text[start:end]
+          for name in ('native_bit14_fighter_path', 'native_bit15_fighter_path', 'native_bit16_fighter_path'):
+              if old.count(name) != 1:
+                  raise SystemExit(f'{name} count in target block={old.count(name)}')
+
+          new = '''    /* The generic positive bit-14/15/16 admissions represent only the\n     * isolated state-8 masks measured through the complete dispatcher.\n     * High-bit and cross-family compositions are admitted below by their\n     * exact ROM-backed predicates; do not let them hitchhike on these gates. */\n    const uint32_t isolated_state8_flags =\n        fighter0_state_flags | fighter1_state_flags;\n    native_bit14_fighter_path =\n        fighter0_state == 8u && fighter1_state == 8u &&\n        isolated_state8_flags == (UINT32_C(1) << 14u) &&\n        (int32_t)shared_fighter_threshold >= 0;\n    native_bit16_fighter_path =\n        fighter0_state == 8u && fighter1_state == 8u &&\n        isolated_state8_flags == (UINT32_C(1) << 16u) &&\n        (int32_t)shared_fighter_threshold >= 0;\n    native_bit15_fighter_path =\n        fighter0_state == 8u && fighter1_state == 8u &&\n        isolated_state8_flags == (UINT32_C(1) << 15u) &&\n        (int32_t)shared_fighter_threshold >= 0;\n'''
+          text = text[:start] + new + text[end:]
+
+          # Specialized exact-mask state8 predicates must remain present.
+          required_masks = (
+              'combined_state8_flags == UINT32_C(0x00204000)',
+              'combined_state8_flags == UINT32_C(0x00208000)',
+              'combined_state8_flags == UINT32_C(0x00210000)',
+              'combined_state8_flags == UINT32_C(0x04214000)',
+          )
+          for mask in required_masks:
+              if mask not in text:
+                  raise SystemExit(f'specialized state8 predicate disappeared: {mask}')
+
+          # Positive conditional fallback remains broad for unsupported masks.
+          if 'fighter0_state == 4u || fighter1_state == 4u ||\n' not in text:
+              raise SystemExit('positive conditional fallback changed unexpectedly')
+
+          path.write_text(text)
+
+          note = Path('decomp/i960/notes/game_info_1645c_state8_isolated_gate_hardening_v0131.md')
+          note.write_text('''# `fa_game_info` `0x1645c`: state-8 isolated-gate hardening\n\n## Result\n\nThe generic positive state-8 predicates for bits 14, 15 and 16 were broader\nthan the evidence represented by their names. Each gate required its target\nbit and excluded only bits 6/14/15/16 as appropriate, so unrelated low or\nhigh `+0x1a4` bits could hitchhike on an isolated native admission.\n\nThat bypassed the exact-mask predicates used by the later ROM-measured\nhigh-bit and cross-family families. The historical full-dispatch bit-14\nmeasurement explicitly records isolated-bit coverage and keeps other positive\ncompositions as evidence boundaries; the specialized families likewise state\nthat admission is limited to their measured masks.\n\nv0131 makes the generic gates literal: their combined fighter flags must be\nexactly bit 14, exactly bit 15, or exactly bit 16. The three measured fighter\ndistributions remain representable because each record may carry the same\nsingle bit or zero while the combined mask remains exact. Specialized measured\ncompositions continue through their existing exact predicates. Unsupported\ncompositions remain on the conservative dispatcher fallback.\n\nThis is a fail-closed boundary correction; it does not add new ROM semantics.\n\n## Validation\n\nThe one-shot application gate builds and runs CTest with GCC, Clang, and Clang\nASan/UBSan before committing. It also asserts that representative specialized\nstate-8 exact-mask predicates and the conservative fallback remain present.\nNo ROM-derived artifact is created or committed.\n''')
+          PY
+
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+
+      - name: Configure Clang
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-clang -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+
+      - name: Configure Clang sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-san -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build Clang sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test Clang sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+
+      - name: Commit hardened isolated state8 gates
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0131-state8-isolated-gate-hardening.yml
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_state8_isolated_gate_hardening_v0131.md
+          git commit -m "Fail closed broad isolated state8 gates"
+          git push origin HEAD:master
