@@ -1,0 +1,105 @@
+name: v0129 state4 gate hardening
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0129-state4-gate-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restrict native state4 admissions to measured bilateral state
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+          start_marker = '    native_state4_bit15_fighter_path =\n'
+          end_marker = '    native_18644_fighter_path =\n'
+          if text.count(start_marker) != 1:
+              raise SystemExit(f'state4 block start count={text.count(start_marker)}')
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          block = text[start:end]
+
+          old_direct = '        (fighter0_state == 4u || fighter1_state == 4u) &&\n'
+          new_direct = '        fighter0_state == 4u && fighter1_state == 4u &&\n'
+          direct_count = block.count(old_direct)
+          if direct_count != 8:
+              raise SystemExit(f'expected 8 direct native state4 gates, found {direct_count}')
+          block = block.replace(old_direct, new_direct)
+
+          old_compound = '        const bool state4 = fighter0_state == 4u || fighter1_state == 4u;\n'
+          new_compound = '        const bool state4 = fighter0_state == 4u && fighter1_state == 4u;\n'
+          compound_count = block.count(old_compound)
+          if compound_count != 1:
+              raise SystemExit(f'expected 1 compound state4 gate, found {compound_count}')
+          block = block.replace(old_compound, new_compound)
+
+          comment_anchor = '    native_state4_bit15_fighter_path =\n'
+          comment = '''    /* State-4 oracle fixtures set +0xa00 to 4 for both fighters.\n     * Keep native state-4 admissions inside that measured bilateral domain;\n     * mixed state pairs remain on the conservative fallback path. */\n'''
+          if block.count(comment_anchor) != 1:
+              raise SystemExit(f'state4 comment anchor count={block.count(comment_anchor)}')
+          block = block.replace(comment_anchor, comment + comment_anchor, 1)
+
+          text = text[:start] + block + text[end:]
+
+          # The broad conservative fallback gates must remain unchanged.
+          if '        fighter0_state == 4u || fighter1_state == 4u ||\n' not in text:
+              raise SystemExit('conditional fallback gate changed unexpectedly')
+          if text.count('fighter0_state == 4u || fighter1_state == 4u') < 2:
+              raise SystemExit('expected broad state4 fallback gates to remain')
+
+          path.write_text(text)
+
+          note = Path('decomp/i960/notes/game_info_1645c_state4_gate_hardening_v0129.md')
+          note.write_text('''# `fa_game_info` `0x1645c`: state-4 gate hardening\n\n## Result\n\nThe native state-4 admissions were broader than their committed oracle evidence.\nThe state-4 fixture and validator establish state 4 for both fighter records, but\nthe recovered dispatcher predicates used `fighter0_state == 4 ||\nfighter1_state == 4`. That admitted mixed state pairs that were never measured\nagainst the ROM.\n\nv0129 narrows only native state-4 admissions to the measured bilateral domain:\nboth fighter state bytes must equal 4. This applies to the neutral, isolated and\ncomposed bit-6/14/15/16 state-4 predicates. The flag-mask logic inside each\npredicate is unchanged.\n\nThe broad state-4 checks used to select conservative fallback behavior remain\nunchanged. In particular, mixed state pairs still cause the dispatcher to avoid\nclaiming unsupported native semantics; they are not reclassified as a recovered\npath.\n\nThis is a fail-closed boundary correction, not a claim about new game behavior.\nFuture widening requires an explicit ROM-backed mixed-state matrix.\n\n## Validation\n\nThe one-shot application gate builds and runs CTest with GCC, Clang, and Clang\nASan/UBSan before committing the change. No ROM-derived artifact is created or\ncommitted.\n''')
+          PY
+
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+
+      - name: Configure Clang
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-clang -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+
+      - name: Configure Clang sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-san -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build Clang sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test Clang sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+
+      - name: Commit hardened state4 gates
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0129-state4-gate-hardening.yml
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_state4_gate_hardening_v0129.md
+          git commit -m "Fail closed mixed-state state4 dispatcher paths"
+          git push origin HEAD:master
