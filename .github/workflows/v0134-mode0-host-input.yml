@@ -1,0 +1,77 @@
+name: v0134 mode0 host input
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0134-mode0-host-input.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Integrate ROM-measured mode-0 input bank
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/hardware/model2a.c')
+          s = p.read_text()
+          old = '''    const uint32_t relative = address - VF2_IO_CONTROL_BASE;\n    const uint32_t port = relative / 2u;\n    uint8_t value = 0u;\n\n    if (size != sizeof(uint8_t) || (relative & 1u) != 0u ||\n        port < 1u || port > 3u) {\n        return VF2_ERROR_UNSUPPORTED;\n    }\n    if ((machine->io_control[0x10u] & (UINT8_C(1) << port)) != 0u) {\n        value = model2a_host_input_port(machine, port);\n    } else {\n        value = machine->io_control[relative];\n    }\n'''
+          new = '''    const uint32_t relative = address - VF2_IO_CONTROL_BASE;\n    const uint32_t port = relative / 2u;\n    uint8_t value = 0u;\n\n    if (size != sizeof(uint8_t) || (relative & 1u) != 0u) {\n        return VF2_ERROR_UNSUPPORTED;\n    }\n    if (relative == UINT32_C(0x10)) {\n        value = model2a_host_input_port(machine, 1u);\n    } else if (relative == UINT32_C(0x12)) {\n        value = (uint8_t)~model2a_host_input_port(machine, 2u);\n    } else if (relative == UINT32_C(0x14)) {\n        value = (uint8_t)~model2a_host_input_port(machine, 3u);\n    } else if (port >= 1u && port <= 3u) {\n        if ((machine->io_control[0x10u] & (UINT8_C(1) << port)) != 0u) {\n            value = model2a_host_input_port(machine, port);\n        } else {\n            value = machine->io_control[relative];\n        }\n    } else {\n        return VF2_ERROR_UNSUPPORTED;\n    }\n'''
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('tests/test_main.c')
+          s = p.read_text()
+          needle = '''    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 4u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0xd8));\n'''
+          addition = needle + '''    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 0x10u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0xee));\n    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 0x12u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0x27));\n    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 0x14u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0x00));\n'''
+          assert s.count(needle) == 1
+          s = s.replace(needle, addition, 1)
+          needle = '''    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 6u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0x58));\n'''
+          addition = needle + '''    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 0x14u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0xa7));\n'''
+          assert s.count(needle) == 1
+          p.write_text(s.replace(needle, addition, 1))
+
+          p = Path('tests/analysis/test_orchestrator_bridge.c')
+          s = p.read_text()
+          old = 'CHECK(value == UINT32_C(0x0ff7f7ff));'
+          assert s.count(old) >= 2
+          s = s.replace(old, 'CHECK(value == UINT32_C(0x0ff7f700));', 2)
+          p.write_text(s)
+
+          note = Path('decomp/i960/notes/model2a_mode0_host_input_bank_v0134.md')
+          note.write_text('''# Model 2A mode-0 host input bank (v0134)\n\nROM-backed probing at the recovered `0x00001064` video/input compose boundary showed that the current Virtua Fighter 2 mode (`0x00500f00 == 0`) samples the alternate 315-5649 input bank rather than only the legacy `+0x02/+0x04/+0x06` facade.\n\nMeasured neutral bytes are `0xff`, `0x00`, `0x00` at `0x01c00010`, `0x01c00012`, and `0x01c00014`. Clearing individual bits at `+0x10` produces the corresponding low input bits in `0x00500700/0x00500704`, establishing active-low system/coin/start polarity. Setting individual bits at `+0x12` and `+0x14` produces the corresponding P1/P2 byte positions after the compose helper, establishing active-high player polarity for this bank.\n\nThe host-input facade therefore mirrors system input at `+0x10` and complements the existing active-low P1/P2 host bytes for `+0x12/+0x14`. The original `+0x02/+0x04/+0x06` path remains intact for the alternate board mode.\n\nWith the bridge enabled, holding host COIN+START changes the live game input state from `0x0ff7f700` to `0x0ff7f711`, proving that host input now reaches the recovered game-side input state. No ROM data or snapshots are committed.\n''')
+          PY
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+      - name: Configure Clang
+        env: { CC: clang }
+        run: cmake -S . -B build-clang -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+      - name: Configure sanitizers
+        env: { CC: clang }
+        run: cmake -S . -B build-san -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+      - name: Commit v0134
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0134-mode0-host-input.yml
+          git add src/hardware/model2a.c tests/test_main.c tests/analysis/test_orchestrator_bridge.c decomp/i960/notes/model2a_mode0_host_input_bank_v0134.md
+          git commit -m "Bridge mode-0 Model 2 input bank"
+          git push origin HEAD:master
