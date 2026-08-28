@@ -1,0 +1,67 @@
++    cpu->registers[21] = UINT32_C(0x0050e800);
++    status = vf2_i960_cpu_enter_procedure(cpu, VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY, UINT32_C(0x0000a28c));
++    if (status == VF2_OK) status = execute_post_boot_copro_helper(machine, cpu);
++    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a28c)) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
++
++    while (right < cpu->registers[21]) {
++        uint32_t a = 0u, b = 0u;
++        status = vf2_model2a_read_u32(machine, left, &a);
++        if (status == VF2_OK) status = vf2_model2a_read_u32(machine, right, &b);
++        if (status != VF2_OK) return status;
++        if (a != b) return VF2_ERROR_UNSUPPORTED;
++        left += 4u;
++        right += 4u;
++    }
++    if (right != cpu->registers[21]) return VF2_ERROR_UNSUPPORTED;
++
++    for (i = 4u; i < 8u; ++i) {
++        memset(&text_report, 0, sizeof(text_report));
++        cpu->registers[25] = destinations[i];
++        cpu->registers[14] = sources[i];
++        status = execute_inline_text_thunk(machine, cpu, &text_report);
++        if (status != VF2_OK || cpu->ip != exits[i]) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
++    }
++
++    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
++    cpu->compare_result = VF2_I960_COMPARE_GREATER;
++    status = vf2_i960_cpu_return_procedure(cpu, machine);
++    if (status != VF2_OK || cpu->ip != VF2_NATIVE_POST_BOOT_COPRO_INIT_RETURN) {
++        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
++    }
++    cpu->executed_instructions = start_instructions + UINT64_C(13324);
++    if (cpu->procedure_calls != start_calls + UINT64_C(10) ||
++        cpu->procedure_returns != start_returns + UINT64_C(11)) {
++        return VF2_ERROR_UNSUPPORTED;
++    }
++    memset(report, 0, sizeof(*report));
++    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPRO_INIT;
++    report->entry_address = VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY;
++    report->exit_address = cpu->ip;
++    report->recovered_instruction_count = UINT64_C(13324);
++    report->recovered_procedure_calls = UINT64_C(10);
++    report->recovered_procedure_returns = UINT64_C(11);
++    return VF2_OK;
++}
++
++static vf2_status
+ execute_post_boot_main_loop_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                  vf2_native_runtime_step_report *report) {
+     const uint64_t start_instructions = cpu->executed_instructions;
+@@ -6267,6 +6485,8 @@
+         status = execute_post_boot_resumed_luma_return(machine, cpu, &local_report);
+     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY) {
+         status = execute_post_boot_main_loop_init(machine, cpu, &local_report);
++    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY) {
++        status = execute_post_boot_copro_init(machine, cpu, &local_report);
+     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_GEOMETRY_PATTERN_ENTRY ||
+                cpu->ip == VF2_NATIVE_POST_BOOT_PATTERN_WAIT_EXIT) {
+         status = execute_post_boot_geometry_pattern(machine, cpu, &local_report);
+@@ -6895,6 +7115,8 @@
+         return "post-boot-resumed-luma-return";
+     case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT:
+         return "post-boot-main-loop-init";
++    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPRO_INIT:
++        return "post-boot-copro-init";
+     default:
+         return "unknown";
+     }
