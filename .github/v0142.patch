@@ -1,0 +1,336 @@
+diff --git a/include/vf2/hybrid.h b/include/vf2/hybrid.h
+index 6d2c8b5..26baae6 100644
+--- a/include/vf2/hybrid.h
++++ b/include/vf2/hybrid.h
+@@ -234,6 +234,8 @@ typedef enum vf2_hybrid_task_kind {
+     VF2_HYBRID_TASK_OSAGE = 8,
+     VF2_HYBRID_TASK_SOUND = 9,
+     VF2_HYBRID_TASK_KILL_OSAGE = 10,
++    VF2_HYBRID_TASK_OBJECT = 11,
++    VF2_HYBRID_TASK_GAME_DISP = 12,
+ } vf2_hybrid_task_kind;
+ 
+ const char *vf2_hybrid_task_kind_name(vf2_hybrid_task_kind kind);
+diff --git a/include/vf2/native_runtime.h b/include/vf2/native_runtime.h
+index 7918f60..94c2d8f 100644
+--- a/include/vf2/native_runtime.h
++++ b/include/vf2/native_runtime.h
+@@ -80,6 +80,7 @@ typedef enum vf2_native_runtime_step_kind {
+     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT = 55,
+     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPROCESSOR_TEST = 56,
++    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DELAY = 57,
+ } vf2_native_runtime_step_kind;
+ 
+ typedef struct vf2_native_runtime_step_report {
+diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
+index 4a53d87..f4a9bf8 100644
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -9790,6 +9790,10 @@ const char *vf2_hybrid_task_kind_name(vf2_hybrid_task_kind kind)
+             return "fa_sound";
+         case VF2_HYBRID_TASK_KILL_OSAGE:
+             return "fa_kill_osage";
++        case VF2_HYBRID_TASK_OBJECT:
++            return "fa_object";
++        case VF2_HYBRID_TASK_GAME_DISP:
++            return "fa_game_disp";
+         default:
+             return "unknown";
+     }
+@@ -14136,6 +14140,8 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
+     uint32_t recurring_entry = 0u;
+     uint32_t recurring_body_instructions = 0u;
+     uint32_t recurring_body_calls = 0u;
++    uint8_t interpreted_task = 0u;
++    uint32_t interpreted_entry = 0u;
+ 
+     if (machine == NULL || cpu == NULL || report == NULL) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+@@ -14226,6 +14232,32 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
+         case UINT32_C(0x000640f4):
+             report->kind = VF2_HYBRID_TASK_OSAGE;
+             break;
++        case UINT32_C(0x0006ca64): {
++            uint8_t instance = 0u;
++            uint32_t selected_entry = 0u;
++            status = vf2_model2a_read(machine, registry_address + UINT32_C(4),
++                                      &instance, sizeof(instance));
++            if (status == VF2_OK) {
++                status = vf2_model2a_read_u32(
++                    machine, UINT32_C(0x0006ca78) + (uint32_t)instance * UINT32_C(4),
++                    &selected_entry);
++            }
++            if (status == VF2_OK) {
++                status = vf2_model2a_write_u32(
++                    machine, registry_address + UINT32_C(0x0c), selected_entry);
++            }
++            if (status != VF2_OK) return status;
++            report->kind = VF2_HYBRID_TASK_OBJECT;
++            cpu->executed_instructions += UINT64_C(3);
++            break;
++        }
++        case UINT32_C(0x0002b1bc):
++            report->kind = VF2_HYBRID_TASK_GAME_DISP;
++            interpreted_task = 1u;
++            interpreted_entry = UINT32_C(0x0002b1bc);
++            break;
+         default:
+             return VF2_ERROR_UNSUPPORTED;
+     }
+@@ -14252,6 +14284,21 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
+         if (status != VF2_OK) return status;
+     }
+ 
++    if (interpreted_task != 0u) {
++        status = hybrid_execute_interpreted_task(
++            machine, cpu, state, interpreted_entry, VF2_SECOND_SCHEDULER_TASK_RETURN);
++        if (status != VF2_OK) return status;
++        if (interpreted_entry == UINT32_C(0x0002b1bc)) {
++            cpu->arithmetic_control =
++                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
++            cpu->compare_result = VF2_I960_COMPARE_LESS;
++        }
++        report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
++        report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
++        report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
++        return VF2_OK;
++    }
++
+     if (cpu->ip != VF2_SECOND_SCHEDULER_TASK_RETURN) {
+         status = vf2_i960_cpu_return_procedure(cpu, machine);
+         if (status != VF2_OK) return status;
+@@ -14424,7 +14471,7 @@ static vf2_status hybrid_cold_second_scheduler_enter(
+         (runtime_flags & (UINT32_C(1) << 5u)) != 0u ||
+         (timer1 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK ||
+         (timer2 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK ||
+-        cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE || cpu->local_frame_depth > 1u) {
++        cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE || (cpu->local_frame_depth > 1u && cpu->local_frame_depth != 3u)) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+     status = vf2_model2a_read_u32(machine, VF2_SCHEDULER_INPUT_POINTER, &input_pointer);
+diff --git a/src/recovered/native_runtime.c b/src/recovered/native_runtime.c
+index 388b826..8362567 100644
+--- a/src/recovered/native_runtime.c
++++ b/src/recovered/native_runtime.c
+@@ -129,6 +129,8 @@
+ #define VF2_NATIVE_POST_BOOT_COPRO_TEXT7 UINT32_C(0x0000a63c)
+ #define VF2_NATIVE_POST_BOOT_COPRO_RETURN UINT32_C(0x00009f74)
+ #define VF2_NATIVE_POST_BOOT_COPRO_INSTRUCTIONS UINT64_C(13324)
++#define VF2_NATIVE_POST_BOOT_DELAY_ENTRY UINT32_C(0x00009f74)
++#define VF2_NATIVE_POST_BOOT_DELAY_EXIT UINT32_C(0x00009fb0)
+ #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY UINT32_C(0x00009fb0)
+ #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_EXIT UINT32_C(0x00009ff8)
+ #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_INSTRUCTIONS UINT64_C(10)
+@@ -173,6 +175,8 @@
+ #define VF2_NATIVE_SOUND_TASK_ENTRY UINT32_C(0x000439fc)
+ #define VF2_NATIVE_KILL_OSAGE_TASK_ENTRY UINT32_C(0x000657dc)
+ #define VF2_NATIVE_OSAGE_TASK_ENTRY UINT32_C(0x000640f4)
++#define VF2_NATIVE_OBJECT_TASK_ENTRY UINT32_C(0x0006ca64)
++#define VF2_NATIVE_GAME_DISP_TASK_ENTRY UINT32_C(0x0002b1bc)
+ 
+ static vf2_status execute_second_sweep_scheduler_transition(
+     vf2_model2a *machine,
+@@ -5684,7 +5688,8 @@ execute_second_sweep_scheduler_transition(vf2_model2a *machine,
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+     if (cpu->ip != VF2_NATIVE_SECOND_SCHEDULER_TASK_RETURN ||
+-        cpu->local_frame_depth != 1u) {
++        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u)) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -5745,7 +5750,8 @@ execute_second_sweep_scheduler_finish(vf2_model2a *machine,
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+     if (cpu->ip != VF2_NATIVE_SECOND_SCHEDULER_TASK_RETURN ||
+-        cpu->local_frame_depth != 1u) {
++        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u)) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -5828,18 +5834,38 @@ execute_second_sweep_scheduler_finish(vf2_model2a *machine,
+         cpu->registers[25] = UINT32_C(0x010004dc);
+         cpu->registers[29] = end_registry;
+-        cpu->local_frames[1].registers[2] = UINT32_C(0x00010e64);
+-        cpu->local_frames[1].registers[4] = 0u;
+-        cpu->local_frames[1].registers[10] = UINT32_C(0x0050c3a0);
+-        cpu->local_frames[1].registers[11] = UINT32_C(29);
+-        cpu->local_frames[1].registers[15] = UINT32_C(0x000fffff);
+-        cpu->local_frames[2].registers[2] = UINT32_C(0x00009450);
+-        memset(&cpu->local_frames[2].registers[3], 0, 6u * sizeof(cpu->local_frames[2].registers[0]));
+-        cpu->local_frames[2].registers[14] = UINT32_C(0x00010ef4);
+-        cpu->local_frames[2].registers[15] = UINT32_C(0x0100045c);
++        if (cpu->local_frame_depth == 1u) {
++            cpu->local_frames[1].registers[2] = UINT32_C(0x00010e64);
++            cpu->local_frames[1].registers[4] = 0u;
++            cpu->local_frames[1].registers[10] = UINT32_C(0x0050c3a0);
++            cpu->local_frames[1].registers[11] = UINT32_C(29);
++            cpu->local_frames[1].registers[15] = UINT32_C(0x000fffff);
++            cpu->local_frames[2].registers[2] = UINT32_C(0x00009450);
++            memset(&cpu->local_frames[2].registers[3], 0, 6u * sizeof(cpu->local_frames[2].registers[0]));
++            cpu->local_frames[2].registers[14] = UINT32_C(0x00010ef4);
++            cpu->local_frames[2].registers[15] = UINT32_C(0x0100045c);
++        } else {
++            memset(&cpu->local_frames[4].registers[2], 0, 14u * sizeof(cpu->local_frames[4].registers[0]));
++            cpu->local_frames[4].registers[2] = UINT32_C(0x00010e64);
++            cpu->local_frames[4].registers[3] = UINT32_C(29);
++            cpu->local_frames[4].registers[6] = UINT32_C(1);
++            cpu->local_frames[4].registers[8] = VF2_NATIVE_TIMER_MASK;
++            cpu->local_frames[4].registers[9] = runtime_flags;
++            cpu->local_frames[4].registers[10] = UINT32_C(0x0050c3a0);
++            cpu->local_frames[4].registers[11] = UINT32_C(29);
++            cpu->local_frames[4].registers[13] = UINT32_C(0x20);
++            cpu->local_frames[4].registers[14] = timer1;
++            cpu->local_frames[4].registers[15] = timer2;
++            memset(&cpu->local_frames[5].registers[2], 0, 14u * sizeof(cpu->local_frames[5].registers[0]));
++            cpu->local_frames[5].registers[2] = UINT32_C(0x00009450);
++            cpu->local_frames[5].registers[14] = UINT32_C(0x00010ef4);
++            cpu->local_frames[5].registers[15] = UINT32_C(0x0100045c);
++        }
+         cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+         cpu->compare_result = VF2_I960_COMPARE_GREATER;
+@@ -6557,6 +6583,46 @@ execute_post_boot_coprocessor_test(vf2_model2a *machine, vf2_i960_cpu *cpu,
+     return VF2_OK;
+ }
+ 
++static vf2_status execute_post_boot_delay(vf2_i960_cpu *cpu,
++                                          vf2_native_runtime_step_report *report)
++{
++    const uint64_t start_instructions = cpu->executed_instructions;
++    const uint64_t start_calls = cpu->procedure_calls;
++    const uint64_t start_returns = cpu->procedure_returns;
++    vf2_status status = VF2_OK;
++
++    if (cpu == NULL || report == NULL || cpu->ip != VF2_NATIVE_POST_BOOT_DELAY_ENTRY) {
++        return VF2_ERROR_INVALID_ARGUMENT;
++    }
++    if (cpu->local_frame_depth != 3u) {
++        return VF2_ERROR_UNSUPPORTED;
++    }
++
++    status = vf2_i960_cpu_enter_procedure(
++        cpu, UINT32_C(0x00009f84), UINT32_C(0x00009f90));
++    if (status != VF2_OK) return status;
++    cpu->registers[4] = UINT32_C(700000);
++    cpu->registers[5] = 0u;
++    cpu->executed_instructions += UINT64_C(2100196);
++    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
++    cpu->compare_result = VF2_I960_COMPARE_GREATER;
++    status = vf2_i960_cpu_return_procedure(cpu, NULL);
++    if (status != VF2_OK) return status;
++    cpu->ip = VF2_NATIVE_POST_BOOT_DELAY_EXIT;
++    cpu->executed_instructions = start_instructions + UINT64_C(2100198);
++
++    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DELAY;
++    report->exit_address = cpu->ip;
++    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
++    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
++    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
++    return VF2_OK;
++}
++
+ static vf2_status execute_post_boot_main_loop(vf2_i960_cpu *cpu,
+                                               vf2_native_runtime_step_report *report)
+ {
+@@ -7034,6 +7100,12 @@ vf2_status vf2_native_runtime_step_impl(
+         return execute_post_boot_coprocessor_test(machine, cpu, report);
+     }
+ 
++    if (cpu->ip == VF2_NATIVE_POST_BOOT_DELAY_ENTRY) {
++        report->entry_address = cpu->ip;
++        return execute_post_boot_delay(cpu, report);
++    }
++
+     if (cpu->ip == VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY) {
+         report->entry_address = cpu->ip;
+         return execute_post_boot_main_loop(cpu, report);
+@@ -7122,7 +7194,9 @@ vf2_status vf2_native_runtime_step_impl(
+         cpu->ip == VF2_NATIVE_SOUND_TASK_ENTRY ||
+         cpu->ip == VF2_NATIVE_KILL_OSAGE_TASK_ENTRY ||
+-        cpu->ip == VF2_NATIVE_OSAGE_TASK_ENTRY) {
++        cpu->ip == VF2_NATIVE_OSAGE_TASK_ENTRY ||
++        cpu->ip == VF2_NATIVE_OBJECT_TASK_ENTRY ||
++        cpu->ip == VF2_NATIVE_GAME_DISP_TASK_ENTRY) {
+         vf2_hybrid_task_report task_report;
+         vf2_status status = vf2_hybrid_first_dispatch_task_execute(
+             machine, cpu, state, cpu->registers[29], &task_report);
+@@ -7338,6 +7412,8 @@ const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind)
+             return "post-boot-main-loop-init";
+         case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPROCESSOR_TEST:
+             return "post-boot-coprocessor-test";
++        case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DELAY:
++            return "post-boot-delay";
+         default:
+             return "unknown";
+     }
+diff --git a/src/recovered/native_runtime_condition.c b/src/recovered/native_runtime_condition.c
+index 16f074f..0f64645 100644
+--- a/src/recovered/native_runtime_condition.c
++++ b/src/recovered/native_runtime_condition.c
+@@ -1729,7 +1729,9 @@ vf2_status vf2_native_runtime_condition_step(
+             return status;
+         }
+-        cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
++        if (start_depth == 0u) {
++            cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
++        }
+         report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+         report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+         report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+diff --git a/src/recovered/native_runtime_condition_impl.c b/src/recovered/native_runtime_condition_impl.c
+index 04afc4e..341c04e 100644
+--- a/src/recovered/native_runtime_condition_impl.c
++++ b/src/recovered/native_runtime_condition_impl.c
+@@ -3022,6 +3022,14 @@ static vf2_status execute_selector0_dispatch(
+         return status;
+     }
+ 
++    if (cpu->registers[VF2_I960_G0_REGISTER] == UINT32_MAX) {
++        status = vf2_model2a_write(machine, VF2_NATIVE_FRAME_SELECTOR,
++                                   &(const uint8_t){UINT8_C(2)}, sizeof(uint8_t));
++        if (status != VF2_OK) return status;
++        cpu->executed_instructions += UINT64_C(4);
++        return vf2_i960_cpu_return_procedure(cpu, machine);
++    }
++
+     status = execute_selector0_long_path(machine, cpu, state, report);
+     if (status != VF2_OK) return status;
+     return VF2_OK;
+@@ -3311,7 +3319,9 @@ vf2_status vf2_native_runtime_condition_impl_step(
+             return status;
+         }
+-        cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
++        if (start_depth == 0u) {
++            cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
++        }
+         report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
+         report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+         report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+diff --git a/src/recovered/scheduler.c b/src/recovered/scheduler.c
+index e7dc5c0..ab46127 100644
+--- a/src/recovered/scheduler.c
++++ b/src/recovered/scheduler.c
+@@ -1234,7 +1234,7 @@ static vf2_status execute_initializer_scheduler_corridor(
+         cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+@@ -1377,7 +1377,7 @@ static vf2_status execute_initializer_scheduler_corridor(
+     if (status != VF2_OK) return status;
+ 
+     if (cpu->ip != VF2_SECOND_SCHEDULER_TASK_RETURN ||
+-        cpu->local_frame_depth != 1u) {
++        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u)) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+@@ -1412,7 +1412,9 @@ static vf2_status execute_initializer_scheduler_corridor(
+     cpu->registers[29] = registry;
+-    cpu->local_frames[1].registers[0] = UINT32_C(0x005ff500);
++    if (cpu->local_frame_depth == 1u) {
++        cpu->local_frames[1].registers[0] = UINT32_C(0x005ff500);
++    }
+     cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+     cpu->compare_result = VF2_I960_COMPARE_EQUAL;
