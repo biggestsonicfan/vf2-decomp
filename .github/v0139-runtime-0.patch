@@ -1,0 +1,129 @@
+diff --git a/src/recovered/native_runtime.c b/src/recovered/native_runtime.c
+index 2b3b0fd..7237a29 100644
+--- a/src/recovered/native_runtime.c
++++ b/src/recovered/native_runtime.c
+@@ -112,7 +112,7 @@
+ #define VF2_NATIVE_POST_BOOT_INPUT_PROFILE_LOAD_EXIT UINT32_C(0x0001fe60)
+ #define VF2_NATIVE_POST_BOOT_PALETTE_RAMP_BODY UINT32_C(0x0001fffc)
+ #define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY UINT32_C(0x00002c38)
+-#define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_INSTRUCTIONS UINT64_C(30467)
++#define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_INSTRUCTIONS UINT64_C(39208)
+ #define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_RETURN UINT32_C(0x00020050)
+ #define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_ENTRY UINT32_C(0x0001fe64)
+ #define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER UINT32_C(0x0004b410)
+@@ -2674,7 +2674,7 @@ execute_post_boot_video_constants(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_VIDEO_CONSTANTS_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -2734,7 +2734,7 @@ execute_post_boot_display_constants(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_DISPLAY_CONSTANTS_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -2796,7 +2796,7 @@ execute_post_boot_task_registry_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_TASK_REGISTRY_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -2901,7 +2901,7 @@ execute_post_boot_graphics_buffer_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_GRAPHICS_BUFFER_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -2956,7 +2956,7 @@ execute_post_boot_render_state_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_RENDER_STATE_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -3055,7 +3055,7 @@ execute_post_boot_game_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_GAME_DEFAULTS_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -3202,7 +3202,7 @@ execute_post_boot_object_table_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_OBJECT_TABLE_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -3265,10 +3265,10 @@ execute_post_boot_object_table_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+     }
+ 
+-    cpu->executed_instructions = start_instructions + UINT64_C(11284);
++    cpu->executed_instructions = start_instructions + UINT64_C(11285);
+     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_OBJECT_TABLE_INIT;
+     report->exit_address = cpu->ip;
+-    report->recovered_instruction_count = UINT64_C(11284);
++    report->recovered_instruction_count = UINT64_C(11285);
+     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+     report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+     return VF2_OK;
+@@ -3289,7 +3289,7 @@ execute_post_boot_effect_table_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_EFFECT_TABLE_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -3351,7 +3351,7 @@ execute_post_boot_input_ring_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+         cpu->ip != VF2_NATIVE_POST_BOOT_INPUT_RING_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -3430,7 +3430,7 @@ static vf2_status execute_post_boot_io_init(vf2_model2a *machine, vf2_i960_cpu *
+         cpu->ip != VF2_NATIVE_POST_BOOT_IO_ENTRY) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (cpu->local_frame_depth != 0u) {
++    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+ 
+@@ -3511,10 +3511,10 @@ static vf2_status execute_post_boot_io_init(vf2_model2a *machine, vf2_i960_cpu *
+         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+     }
+ 
+-    cpu->executed_instructions = start_instructions + UINT64_C(270);
++    cpu->executed_instructions = start_instructions + UINT64_C(272);
+     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_IO_INIT;
+     report->exit_address = cpu->ip;
+-    report->recovered_instruction_count = UINT64_C(270);
++    report->recovered_instruction_count = UINT64_C(272);
+     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
+     report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+     return VF2_OK;
