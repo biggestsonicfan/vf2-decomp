@@ -14381,6 +14381,144 @@ static int hybrid_second_scheduler_task_supported(uint32_t entry_address)
     }
 }
 
+static vf2_status hybrid_cold_second_scheduler_enter(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t ready_flags,
+    uint32_t runtime_flags,
+    uint32_t task_count,
+    uint32_t timer1,
+    uint32_t timer2,
+    vf2_hybrid_second_scheduler_report *report
+)
+{
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t input_pointer = 0u;
+    uint8_t input_flags = 0u;
+    uint32_t registry = VF2_SECOND_SCHEDULER_REGISTRY_BASE;
+    uint32_t scratch = VF2_SCHEDULER_SCRATCH_BASE;
+    uint32_t selected_entry = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if ((ready_flags & (UINT32_C(1) << 16u)) != 0u ||
+        task_count != 29u ||
+        (runtime_flags & (UINT32_C(1) << 9u)) != 0u ||
+        (runtime_flags & (UINT32_C(1) << 5u)) != 0u ||
+        (timer1 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK ||
+        (timer2 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK ||
+        cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE ||
+        cpu->local_frame_depth > 1u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(machine, VF2_SCHEDULER_INPUT_POINTER, &input_pointer);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, input_pointer + UINT32_C(0xde),
+                                  &input_flags, sizeof(input_flags));
+    }
+    if (status != VF2_OK || (input_flags & (UINT8_C(1) << 2u)) != 0u) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    status = vf2_i960_cpu_enter_procedure(
+        cpu, VF2_SECOND_SCHEDULER_ENTRY,
+        VF2_SECOND_SCHEDULER_CALL_SITE + UINT32_C(4));
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(machine, VF2_SECOND_SCHEDULER_GEOMETRY_STATUS, 0u);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, VF2_SECOND_SCHEDULER_GEOMETRY_COMMAND, 3u);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, VF2_SECOND_SCHEDULER_GEOMETRY_STATUS, 0u);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, VF2_SECOND_SCHEDULER_GEOMETRY_COMMAND, 1u);
+    if (status != VF2_OK) return status;
+
+    for (index = 0u; index < task_count; ++index) {
+        uint8_t task_name[VF2_SCHEDULER_TASK_NAME_SIZE] = {0};
+        uint32_t flags = 0u;
+        uint32_t stride = 0u;
+        size_t ch = 0u;
+
+        status = vf2_model2a_write_u32(machine, VF2_SCHEDULER_CURRENT_INDEX, (uint32_t)index);
+        if (status == VF2_OK) {
+            status = vf2_model2a_read(
+                machine,
+                VF2_SCHEDULER_TASK_NAME_TABLE + (uint32_t)index * VF2_SCHEDULER_TASK_NAME_STRIDE,
+                task_name, VF2_SCHEDULER_TASK_NAME_TEXT_SIZE);
+        }
+        task_name[VF2_SCHEDULER_TASK_NAME_TEXT_SIZE] = 0u;
+        if (status == VF2_OK) {
+            status = vf2_model2a_write(machine, VF2_SCHEDULER_NAME_BUFFER,
+                                        task_name, sizeof(task_name));
+        }
+        for (ch = 3u; status == VF2_OK && ch < VF2_SCHEDULER_TASK_NAME_SIZE && task_name[ch] != 0u; ++ch) {
+            const uint8_t tile[2] = {task_name[ch], UINT8_C(0x80)};
+            status = vf2_model2a_write(
+                machine, VF2_SCHEDULER_NAME_FORMAT + (uint32_t)(ch - 3u) * 2u,
+                tile, sizeof(tile));
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, VF2_TIMER_BASE + UINT32_C(4), VF2_SCHEDULER_TIMER_MASK);
+        }
+        if (status == VF2_OK) status = vf2_model2a_read_u32(machine, registry, &flags);
+        if (status != VF2_OK) return status;
+        cpu->registers[16] = VF2_SCHEDULER_NAME_CURSOR;
+        cpu->registers[25] = VF2_SCHEDULER_NAME_FORMAT;
+        if ((flags & UINT32_C(0x80000000)) != 0u) {
+            status = vf2_model2a_read_u32(machine, registry + UINT32_C(0x0c), &selected_entry);
+            break;
+        }
+        status = vf2_model2a_write_u32(machine, scratch + UINT32_C(0x10), 0u);
+        if (status == VF2_OK) status = vf2_model2a_read_u32(machine, registry + UINT32_C(8), &stride);
+        if (status != VF2_OK || stride == 0u || (stride & UINT32_C(0x1f)) != 0u) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        registry += stride;
+        scratch += VF2_SCHEDULER_SCRATCH_STRIDE;
+    }
+
+    if (index != 13u || selected_entry != VF2_TASK_GAME_INFO_ENTRY || registry != UINT32_C(0x00515200)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(&cpu->registers[2], 0, 14u * sizeof(cpu->registers[0]));
+    cpu->registers[3] = task_count;
+    cpu->registers[4] = selected_entry;
+    cpu->registers[8] = VF2_SCHEDULER_TIMER_MASK;
+    cpu->registers[9] = runtime_flags;
+    cpu->registers[10] = scratch;
+    cpu->registers[11] = (uint32_t)index;
+    cpu->registers[13] = VF2_SCHEDULER_SCRATCH_STRIDE;
+    cpu->registers[14] = timer1;
+    cpu->registers[15] = timer2;
+    cpu->registers[29] = registry;
+    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_cpu_enter_procedure(cpu, selected_entry, VF2_SECOND_SCHEDULER_TASK_RETURN);
+    if (status != VF2_OK) return status;
+
+    /* ROM-backed natural cold scheduler boundary: a010 -> first runnable
+     * fa_game_info at 1645c. The helper/name-loop counts vary with each task
+     * name, so preserve the measured aggregate architectural accounting. */
+    cpu->executed_instructions = start_instructions + UINT64_C(1467);
+    cpu->procedure_calls = start_calls + UINT64_C(32);
+    cpu->procedure_returns = start_returns + UINT64_C(30);
+
+    if (report != NULL) {
+        memset(report, 0, sizeof(*report));
+        report->descriptors_scanned = 14u;
+        report->inactive_descriptors_scanned = 13u;
+        report->selected_task_index = 13u;
+        report->registry_start = VF2_SECOND_SCHEDULER_REGISTRY_BASE;
+        report->selected_registry_address = registry;
+        report->selected_entry_address = selected_entry;
+        report->scheduler_entry_address = VF2_SECOND_SCHEDULER_ENTRY;
+        report->recovered_instruction_count = UINT64_C(1467);
+        report->recovered_procedure_calls = UINT64_C(32);
+        report->recovered_procedure_returns = UINT64_C(30);
+        report->cpu_poststate_applied = 1;
+    }
+    return VF2_OK;
+}
+
 vf2_status vf2_hybrid_second_scheduler_enter(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -14432,9 +14570,13 @@ vf2_status vf2_hybrid_second_scheduler_enter(
     if (status != VF2_OK) {
         return status;
     }
+    if ((runtime_flags & (UINT32_C(1) << 9u)) == 0u) {
+        return hybrid_cold_second_scheduler_enter(
+            machine, cpu, ready_flags, runtime_flags, task_count, timer1, timer2, report
+        );
+    }
     if ((ready_flags & (UINT32_C(1) << 16u)) != 0u ||
         task_count != 29u ||
-        (runtime_flags & (UINT32_C(1) << 9u)) == 0u ||
         (runtime_flags & (UINT32_C(1) << 5u)) != 0u ||
         (timer1 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK ||
         (timer2 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK) {

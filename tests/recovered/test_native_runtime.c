@@ -2015,26 +2015,23 @@ static void test_repeated_scheduler_entry_dispatches_recovery(void) {
 
     memset(&step_report, 0xff, sizeof(step_report));
     CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &step_report) ==
-          VF2_OK);
-    /* With runtime-ready clear, the ROM takes its cold/idle scheduler return
-     * directly back to the main-loop head. */
-    CHECK(step_report.kind == VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER);
-    CHECK(step_report.entry_address == UINT32_C(0x0000a010));
-    CHECK(step_report.exit_address == UINT32_C(0x00009fb0));
-    CHECK(step_report.recovered_instruction_count == UINT64_C(4));
-    CHECK(state.blocks_executed == 1u);
-    CHECK(state.recovered_instruction_count == UINT64_C(4));
-    CHECK(state.scheduler_entries == 2u);
-    CHECK(cpu.ip == UINT32_C(0x00009fb0));
+          VF2_ERROR_UNSUPPORTED);
+    /* A cold scheduler entry is now recovered only for the measured natural
+     * 29-descriptor registry. This synthetic blank-ROM fixture has no valid
+     * registry, so it must fail closed instead of taking the retired 4-step
+     * shortcut back to the main-loop head. */
+    CHECK(state.blocks_executed == 0u);
+    CHECK(state.recovered_instruction_count == 0u);
+    CHECK(state.scheduler_entries == 1u);
+    CHECK(cpu.ip == UINT32_C(0x0000a010));
 
-    /* The same observation must surface through run_until's report. */
+    /* run_until must preserve the same fail-closed boundary. */
     memset(&run_report, 0xff, sizeof(run_report));
     CHECK(vf2_native_runtime_run_until(&machine, &cpu, &state, UINT32_C(0x00000000), 4u,
                                        &run_report) == VF2_ERROR_UNSUPPORTED);
     CHECK(run_report.reached_stop == 0);
-    CHECK(run_report.blocks_executed == 1u);
-    CHECK(run_report.last_step_kind == VF2_NATIVE_RUNTIME_STEP_NONE);
-    CHECK(run_report.final_address == UINT32_C(0x00002f5c));
+    CHECK(run_report.blocks_executed == 0u);
+    CHECK(run_report.final_address == UINT32_C(0x0000a010));
 
     vf2_model2a_shutdown(&machine);
     free(rom);

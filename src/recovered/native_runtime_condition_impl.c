@@ -701,8 +701,9 @@ vf2_status vf2_native_runtime_step(
         }
     } else if (effective_report->kind ==
                    VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION ||
-               effective_report->kind ==
-                   VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH ||
+               (effective_report->kind ==
+                    VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH &&
+                (cpu->registers[15] & (UINT32_C(1) << 9u)) != 0u) ||
                (effective_report->kind == VF2_NATIVE_RUNTIME_STEP_TASK &&
                 effective_report->task_kind == VF2_HYBRID_TASK_CAMERA)) {
         set_runtime_equal_condition(cpu);
