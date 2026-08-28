@@ -112,7 +112,7 @@
 #define VF2_NATIVE_POST_BOOT_INPUT_PROFILE_LOAD_EXIT UINT32_C(0x0001fe60)
 #define VF2_NATIVE_POST_BOOT_PALETTE_RAMP_BODY UINT32_C(0x0001fffc)
 #define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY UINT32_C(0x00002c38)
-#define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_INSTRUCTIONS UINT64_C(30467)
+#define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_INSTRUCTIONS UINT64_C(39208)
 #define VF2_NATIVE_POST_BOOT_PALETTE_BUILD_RETURN UINT32_C(0x00020050)
 #define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_ENTRY UINT32_C(0x0001fe64)
 #define VF2_NATIVE_POST_BOOT_RESUMED_WRAPPER_HELPER UINT32_C(0x0004b410)
@@ -2674,7 +2674,7 @@ execute_post_boot_video_constants(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_VIDEO_CONSTANTS_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -2734,7 +2734,7 @@ execute_post_boot_display_constants(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_DISPLAY_CONSTANTS_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -2796,7 +2796,7 @@ execute_post_boot_task_registry_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_TASK_REGISTRY_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -2901,7 +2901,7 @@ execute_post_boot_graphics_buffer_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_GRAPHICS_BUFFER_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -2956,7 +2956,7 @@ execute_post_boot_render_state_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_RENDER_STATE_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -3055,7 +3055,7 @@ execute_post_boot_game_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_GAME_DEFAULTS_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -3202,7 +3202,7 @@ execute_post_boot_object_table_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_OBJECT_TABLE_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -3265,10 +3265,10 @@ execute_post_boot_object_table_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    cpu->executed_instructions = start_instructions + UINT64_C(11284);
+    cpu->executed_instructions = start_instructions + UINT64_C(11285);
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_OBJECT_TABLE_INIT;
     report->exit_address = cpu->ip;
-    report->recovered_instruction_count = UINT64_C(11284);
+    report->recovered_instruction_count = UINT64_C(11285);
     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
     report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
     return VF2_OK;
@@ -3289,7 +3289,7 @@ execute_post_boot_effect_table_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_EFFECT_TABLE_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -3351,7 +3351,7 @@ execute_post_boot_input_ring_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_INPUT_RING_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -3430,7 +3430,7 @@ static vf2_status execute_post_boot_io_init(vf2_model2a *machine, vf2_i960_cpu *
         cpu->ip != VF2_NATIVE_POST_BOOT_IO_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -3511,10 +3511,10 @@ static vf2_status execute_post_boot_io_init(vf2_model2a *machine, vf2_i960_cpu *
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    cpu->executed_instructions = start_instructions + UINT64_C(270);
+    cpu->executed_instructions = start_instructions + UINT64_C(272);
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_IO_INIT;
     report->exit_address = cpu->ip;
-    report->recovered_instruction_count = UINT64_C(270);
+    report->recovered_instruction_count = UINT64_C(272);
     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
     report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
     return VF2_OK;
@@ -3532,7 +3532,7 @@ execute_post_boot_game_data_copy(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_GAME_DATA_COPY_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -3554,6 +3554,10 @@ execute_post_boot_game_data_copy(vf2_model2a *machine, vf2_i960_cpu *cpu,
     cpu->registers[3] = UINT32_C(0x02400000);
     cpu->registers[4] = UINT32_C(0x005d0000);
     cpu->registers[5] = UINT32_C(0x005d0000);
+    cpu->registers[8] = UINT32_MAX;
+    cpu->registers[9] = UINT32_MAX;
+    cpu->registers[10] = UINT32_MAX;
+    cpu->registers[11] = UINT32_MAX;
     cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
     cpu->compare_result = VF2_I960_COMPARE_EQUAL;
     cpu->ip = UINT32_C(0x00009920);
@@ -3591,7 +3595,7 @@ execute_post_boot_display_offset_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_DISPLAY_OFFSET_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
     memset(color_reports, 0, sizeof(color_reports));
@@ -3674,6 +3678,8 @@ execute_post_boot_display_offset_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
     if (status != VF2_OK || cpu->ip != UINT32_C(0x00009924)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
+    cpu->arithmetic_control &= ~UINT32_C(7);
+    cpu->compare_result = VF2_I960_COMPARE_NONE;
     cpu->executed_instructions = start_instructions + UINT64_C(39) +
                                  color_reports[0].recovered_instruction_count +
                                  color_reports[1].recovered_instruction_count +
@@ -3709,7 +3715,7 @@ execute_post_boot_frame_accumulator_init(vf2_model2a *machine, vf2_i960_cpu *cpu
         cpu->ip != VF2_NATIVE_POST_BOOT_FRAME_ACCUMULATOR_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &base);
@@ -3811,7 +3817,8 @@ execute_post_boot_frame_accumulator_init(vf2_model2a *machine, vf2_i960_cpu *cpu
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    cpu->compare_result = VF2_I960_COMPARE_LESS;
+    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+    cpu->compare_result = VF2_I960_COMPARE_EQUAL;
     cpu->executed_instructions = start_instructions + UINT64_C(1178);
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_FRAME_ACCUMULATOR_INIT;
     report->exit_address = cpu->ip;
@@ -3830,17 +3837,22 @@ execute_post_boot_profile_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
     uint32_t base = 0u;
     uint32_t words[2] = {0u, 0u};
     uint16_t halfwords[2] = {0u, 0u};
+    uint32_t selector_word = 0u;
+    uint16_t selector_halfwords[2] = {0u, 0u};
+    uint16_t overrides[2] = {0u, 0u};
     uint8_t level = 0u;
     uint8_t selector = 0u;
     int8_t override = 0;
     int8_t signed_level = 0;
+    uint32_t override_word = 0u;
+    float override_float = 0.0f;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || report == NULL ||
         cpu->ip != VF2_NATIVE_POST_BOOT_PROFILE_DEFAULTS_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &base);
@@ -3860,8 +3872,7 @@ execute_post_boot_profile_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = vf2_model2a_read(machine, UINT32_C(0x0050d004), &signed_level,
                                   sizeof(signed_level));
     }
-    if (status != VF2_OK || level > UINT8_C(3) || selector > UINT8_C(3) ||
-        override != 0) {
+    if (status != VF2_OK || level > UINT8_C(3) || selector > UINT8_C(3)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
     status = vf2_model2a_read_u32(machine,
@@ -3882,8 +3893,44 @@ execute_post_boot_profile_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                   UINT32_C(0x00011558) + (uint32_t)level * 2u,
                                   &halfwords[1], sizeof(halfwords[1]));
     }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine,
+                                      UINT32_C(0x00011530) + (uint32_t)selector * 4u,
+                                      &selector_word);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine,
+                                  UINT32_C(0x00011550) + (uint32_t)selector * 2u,
+                                  &selector_halfwords[0], sizeof(selector_halfwords[0]));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine,
+                                  UINT32_C(0x00011558) + (uint32_t)selector * 2u,
+                                  &selector_halfwords[1], sizeof(selector_halfwords[1]));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, base + UINT32_C(0x3354), &overrides[0],
+                                  sizeof(overrides[0]));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(machine, base + UINT32_C(0x3352), &overrides[1],
+                                  sizeof(overrides[1]));
+    }
     if (status != VF2_OK) {
         return status;
+    }
+
+    override_float = (float)override * 0.5f;
+    memcpy(&override_word, &override_float, sizeof(override_word));
+    if (override_word != selector_word) {
+        words[0] = override_word;
+        words[1] = override_word;
+    }
+    if (overrides[0] != selector_halfwords[0]) {
+        halfwords[0] = overrides[0];
+    }
+    if (overrides[1] != selector_halfwords[1]) {
+        halfwords[1] = overrides[1];
     }
 
     status = vf2_i960_cpu_enter_procedure(
@@ -3911,11 +3958,15 @@ execute_post_boot_profile_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
+    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
     cpu->compare_result = VF2_I960_COMPARE_EQUAL;
-    cpu->executed_instructions = start_instructions + UINT64_C(32);
+    {
+        const uint64_t recovered = override == 0 ? UINT64_C(32) : UINT64_C(37);
+        cpu->executed_instructions = start_instructions + recovered;
+        report->recovered_instruction_count = recovered;
+    }
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PROFILE_DEFAULTS_INIT;
     report->exit_address = cpu->ip;
-    report->recovered_instruction_count = UINT64_C(32);
     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
     report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
     return VF2_OK;
@@ -3948,7 +3999,7 @@ execute_post_boot_gameplay_globals_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_GAMEPLAY_GLOBALS_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x0050a700), &profile_word);
@@ -3979,6 +4030,7 @@ execute_post_boot_gameplay_globals_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         return status;
     }
 
+    cpu->registers[15] = 0u;
     cpu->ip = VF2_NATIVE_POST_BOOT_GAMEPLAY_GLOBALS_EXIT;
     cpu->executed_instructions = start_instructions + UINT64_C(30);
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_GAMEPLAY_GLOBALS_INIT;
@@ -4017,7 +4069,7 @@ execute_post_boot_input_profile_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_GAMEPLAY_GLOBALS_EXIT) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &fighter0);
@@ -4198,7 +4250,7 @@ execute_post_boot_float_defaults_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
 
     if (machine == NULL || cpu == NULL || report == NULL ||
         cpu->ip != VF2_NATIVE_POST_BOOT_FLOAT_DEFAULTS_ENTRY ||
-        cpu->local_frame_depth != 1u) {
+        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     status = vf2_model2a_read(machine, UINT32_C(0x00500064), &input_mode,
@@ -4289,7 +4341,7 @@ execute_post_boot_input_profile_load(vf2_model2a *machine, vf2_i960_cpu *cpu,
 
     if (machine == NULL || cpu == NULL || report == NULL ||
         cpu->ip != VF2_NATIVE_POST_BOOT_INPUT_PROFILE_LOAD_ENTRY ||
-        cpu->local_frame_depth != 1u) {
+        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     status = vf2_model2a_read(machine, UINT32_C(0x00500064), &input_mode,
@@ -4386,7 +4438,7 @@ execute_post_boot_palette_ramp_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
 
     if (machine == NULL || cpu == NULL || report == NULL ||
         cpu->ip != VF2_NATIVE_POST_BOOT_INPUT_PROFILE_LOAD_EXIT ||
-        cpu->local_frame_depth != 1u) {
+        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     status = vf2_model2a_read(machine, UINT32_C(0x00500064), &input_mode,
@@ -4416,6 +4468,8 @@ execute_post_boot_palette_ramp_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                    sizeof(controls));
     }
     if (status == VF2_OK) {
+        cpu->arithmetic_control &= ~UINT32_C(7);
+        cpu->compare_result = VF2_I960_COMPARE_NONE;
         status = vf2_i960_cpu_enter_procedure(
             cpu, VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY, UINT32_C(0x00020050));
     }
@@ -4440,8 +4494,8 @@ execute_post_boot_palette_build(vf2_model2a *machine, vf2_i960_cpu *cpu,
     const uint64_t start_returns = cpu->procedure_returns;
     const uint32_t work_base = UINT32_C(0x00546008);
     const uint32_t output_base = UINT32_C(0x00546128);
-    const uint32_t row_count = UINT32_C(28);
-    const uint32_t column_count = UINT32_C(32);
+    const uint32_t row_count = UINT32_C(27);
+    const uint32_t column_count = UINT32_C(47);
     const uint32_t fixed_point_denominator = UINT32_C(18);
     const uint32_t fixed_point_scale = UINT32_C(28);
     uint8_t red_base = 0u;
@@ -4466,7 +4520,7 @@ execute_post_boot_palette_build(vf2_model2a *machine, vf2_i960_cpu *cpu,
 
     if (machine == NULL || cpu == NULL || report == NULL ||
         cpu->ip != VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY ||
-        cpu->local_frame_depth != 3u) {
+        (cpu->local_frame_depth != 3u && cpu->local_frame_depth != 6u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
@@ -4583,6 +4637,7 @@ execute_post_boot_palette_build(vf2_model2a *machine, vf2_i960_cpu *cpu,
     /* The final cmpinco is in the build frame.  The ordinary procedure
      * return below restores the caller's locals, so only its condition code
      * survives this return. */
+    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
     cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
     cpu->compare_result = VF2_I960_COMPARE_EQUAL;
     status = vf2_i960_cpu_return_procedure(cpu, machine);
@@ -4610,7 +4665,7 @@ execute_post_boot_palette_build_return(vf2_model2a *machine, vf2_i960_cpu *cpu,
 
     if (machine == NULL || cpu == NULL || report == NULL ||
         cpu->ip != VF2_NATIVE_POST_BOOT_PALETTE_BUILD_RETURN ||
-        cpu->local_frame_depth != 2u) {
+        (cpu->local_frame_depth != 2u && cpu->local_frame_depth != 5u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     status = vf2_i960_cpu_return_procedure(cpu, machine);
@@ -4818,6 +4873,10 @@ execute_post_boot_resumed_helper_init(vf2_model2a *machine,
         status = vf2_model2a_read_u32(machine, UINT32_C(0x0050084c), &stream_base);
     }
     if (status == VF2_OK) {
+        cpu->registers[3] = state_base;
+        cpu->registers[4] = stream_base;
+    }
+    if (status == VF2_OK) {
         status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x40), 0u);
     }
     if (status == VF2_OK) {
@@ -4839,6 +4898,10 @@ execute_post_boot_resumed_helper_init(vf2_model2a *machine,
     if (status == VF2_OK) {
         status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x58),
                                        cpu->registers[9]);
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x5c),
+                                       cpu->registers[10]);
     }
     for (index = 0u; status == VF2_OK && index < 3u; ++index) {
         status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x60) +

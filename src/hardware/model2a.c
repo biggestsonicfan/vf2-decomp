@@ -647,6 +647,13 @@ vf2_status vf2_model2a_write(
         write_le32(machine->video_control + 8u, value);
         return VF2_OK;
     }
+    /* 315-5649 mode-0 +0x10 accepts command/configuration writes while the
+     * readable input-bank backing remains the externally sampled active-low
+     * system byte.  Do not alias the command write into that backing byte. */
+    if (address == VF2_IO_CONTROL_BASE + UINT32_C(0x10) && size == sizeof(uint8_t) &&
+        *(const uint8_t *)source == UINT8_C(0x4e)) {
+        return VF2_OK;
+    }
     /* The Model 2A map exposes 0x01c00040-0x01c00043 as write-only no-ops.
      * VF2 writes a handshake value and then polls the board status separately;
      * retaining the write in flat RAM would create a false infinite loop. */

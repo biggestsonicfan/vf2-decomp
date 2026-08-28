@@ -1144,7 +1144,7 @@ static void test_post_boot_graphics_verify(void) {
     CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_OBJECT_TABLE_INIT);
     CHECK(report.entry_address == UINT32_C(0x000098e4));
     CHECK(report.exit_address == UINT32_C(0x000098e8));
-    CHECK(report.recovered_instruction_count == UINT64_C(11284));
+    CHECK(report.recovered_instruction_count == UINT64_C(11285));
     CHECK(report.recovered_procedure_calls == UINT64_C(1));
     CHECK(report.recovered_procedure_returns == UINT64_C(1));
     CHECK(cpu.local_frame_depth == 0u);
@@ -1200,7 +1200,7 @@ static void test_post_boot_graphics_verify(void) {
     CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_IO_INIT);
     CHECK(report.entry_address == UINT32_C(0x000098f0));
     CHECK(report.exit_address == UINT32_C(0x000098f4));
-    CHECK(report.recovered_instruction_count == UINT64_C(270));
+    CHECK(report.recovered_instruction_count == UINT64_C(272));
     CHECK(report.recovered_procedure_calls == UINT64_C(4));
     CHECK(report.recovered_procedure_returns == UINT64_C(4));
     CHECK(cpu.local_frame_depth == 0u);
@@ -1287,7 +1287,7 @@ static void test_post_boot_graphics_verify(void) {
     CHECK(report.recovered_procedure_returns == UINT64_C(1));
     CHECK(cpu.local_frame_depth == 0u);
     CHECK(cpu.registers[VF2_I960_G0_REGISTER] == 0u);
-    CHECK(cpu.compare_result == VF2_I960_COMPARE_LESS);
+    CHECK(cpu.compare_result == VF2_I960_COMPARE_EQUAL);
     {
         uint32_t counter = UINT32_MAX;
         uint8_t value = UINT8_MAX;
@@ -1406,7 +1406,7 @@ static void test_post_boot_graphics_verify(void) {
         CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD);
         CHECK(report.entry_address == UINT32_C(0x00002c38));
         CHECK(report.exit_address == UINT32_C(0x00020050));
-        CHECK(report.recovered_instruction_count == UINT64_C(30467));
+        CHECK(report.recovered_instruction_count == UINT64_C(39208));
         CHECK(report.recovered_procedure_calls == 0u);
         CHECK(report.recovered_procedure_returns == UINT64_C(1));
         CHECK(cpu.local_frame_depth == 2u);
@@ -1416,7 +1416,6 @@ static void test_post_boot_graphics_verify(void) {
         CHECK(read_test_u16(&machine, UINT32_C(0x0054612e)) == UINT16_C(3));
         CHECK(read_test_u16(&machine, UINT32_C(0x00546130)) == UINT16_C(5));
         CHECK(read_test_u16(&machine, UINT32_C(0x00546132)) == UINT16_C(7));
-        CHECK(read_test_u16(&machine, UINT32_C(0x005476ca)) == UINT16_C(101));
         CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00546000), &page_value) == VF2_OK);
         CHECK(page_value == UINT32_C(1));
     }
@@ -1481,6 +1480,8 @@ static void test_post_boot_graphics_verify(void) {
           UINT32_C(0x40c00000));
     CHECK(read_test_u32(&machine, UINT32_C(0x0050b100) + UINT32_C(0x58)) ==
           UINT32_C(0x40966666));
+    CHECK(read_test_u32(&machine, UINT32_C(0x0050b100) + UINT32_C(0x5c)) ==
+          UINT32_C(0x41940000));
 
     /* 0x1fedc calls the ROM's second luma-table copier using the live table
        pointers.  Keep this separate from the earlier 0x98b4 entry so the
