@@ -356,6 +356,14 @@ bit 8 and fighter bit 6 are exact across their 12-case matrices too: masks
 the 26+29 matrix was already counted in the aggregate evidence above, so the
 nine newly added matrices extend the measured positive family to 360 unique
 cases. Other positive high-bit compositions remain explicit boundaries.
+All ten high-bit triples and all five high-bit quads over bits 21, 26, 29,
+30 and 31 with state bit 8 and fighter bit 6 are now ROM-measured through the
+full `0x1645c` dispatcher as well. Each mask is exact across 36 fixtures
+covering the three fighter distributions, countdown 0/1, mode bit 6 clear/set
+and thresholds 0..2 (540 fixtures total). Together with the existing singles,
+pairs and all-five-high mask, every non-empty high-bit subset is now admitted
+for the no-low-bits positive bit-6+bit-8 family; unmeasured low-bit mixes remain
+fail-closed.
 The controlled probes
 now cover `g0 == 0`, `g0 == 1`, `g0 == 2` and `g0 == 3`; the shared
 `0x18e08`/`0x18e00` command-port helper body and a controlled low-result

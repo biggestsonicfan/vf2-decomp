@@ -12126,15 +12126,32 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         const bool two_high_bits =
             high_without_first != 0u &&
             (high_without_first & (high_without_first - UINT32_C(1))) == 0u;
+        const bool measured_positive_state8_bit6_high_3_4_mask =
+            combined_state8_flags == UINT32_C(0x24200140) ||
+            combined_state8_flags == UINT32_C(0x44200140) ||
+            combined_state8_flags == UINT32_C(0x84200140) ||
+            combined_state8_flags == UINT32_C(0x60200140) ||
+            combined_state8_flags == UINT32_C(0xa0200140) ||
+            combined_state8_flags == UINT32_C(0xc0200140) ||
+            combined_state8_flags == UINT32_C(0x64000140) ||
+            combined_state8_flags == UINT32_C(0xa4000140) ||
+            combined_state8_flags == UINT32_C(0xc4000140) ||
+            combined_state8_flags == UINT32_C(0xe0000140) ||
+            combined_state8_flags == UINT32_C(0x64200140) ||
+            combined_state8_flags == UINT32_C(0xa4200140) ||
+            combined_state8_flags == UINT32_C(0xc4200140) ||
+            combined_state8_flags == UINT32_C(0xe0200140) ||
+            combined_state8_flags == UINT32_C(0xe4000140);
         const bool measured_positive_state8_bit6_mask =
-            (combined_state8_flags & bit6) != 0u &&
-            (combined_state8_flags & ~measured_bits) == 0u &&
-            (selected_high_bits == 0u ||
-             ((one_high_bit || two_high_bits) &&
-              (combined_state8_flags & bit8) != 0u &&
-              (combined_state8_flags & low_bits) == 0u) ||
-             (selected_high_bits == high_bits &&
-              (combined_state8_flags & bit8) != 0u));
+            measured_positive_state8_bit6_high_3_4_mask ||
+            ((combined_state8_flags & bit6) != 0u &&
+             (combined_state8_flags & ~measured_bits) == 0u &&
+             (selected_high_bits == 0u ||
+              ((one_high_bit || two_high_bits) &&
+               (combined_state8_flags & bit8) != 0u &&
+               (combined_state8_flags & low_bits) == 0u) ||
+              (selected_high_bits == high_bits &&
+               (combined_state8_flags & bit8) != 0u)));
 
         /* Positive state-8/bit-6 evidence is deliberately narrower than the
          * old generic bit-6 predicate. The committed v0090/v0091 matrices
@@ -12760,7 +12777,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_18644_fighter_path ||
         native_state8_bit6_bit14_bit15_high21_fighter_path;
     if (status == VF2_OK &&
-        (native_state8_bit6_bit14_high21_fighter_path ||
+        (native_bit6_fighter_path ||
+         native_state8_bit6_bit14_high21_fighter_path ||
          native_state8_bit6_bit14_bit16_high21_fighter_path ||
          native_state8_bit6_bit15_bit16_high21_fighter_path ||
          native_state8_bit6_bit14_bit15_bit16_high21_fighter_path ||
@@ -13652,6 +13670,51 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             } else if (!fighter0_only) {
                 stale->registers[15] = UINT32_C(1);
+            }
+        }
+    }
+    {
+        const uint32_t combined_positive_bit6_flags =
+            fighter0_state_flags | fighter1_state_flags;
+        const bool measured_positive_bit6_high_3_4_family =
+            combined_positive_bit6_flags == UINT32_C(0x24200140) ||
+            combined_positive_bit6_flags == UINT32_C(0x44200140) ||
+            combined_positive_bit6_flags == UINT32_C(0x84200140) ||
+            combined_positive_bit6_flags == UINT32_C(0x60200140) ||
+            combined_positive_bit6_flags == UINT32_C(0xa0200140) ||
+            combined_positive_bit6_flags == UINT32_C(0xc0200140) ||
+            combined_positive_bit6_flags == UINT32_C(0x64000140) ||
+            combined_positive_bit6_flags == UINT32_C(0xa4000140) ||
+            combined_positive_bit6_flags == UINT32_C(0xc4000140) ||
+            combined_positive_bit6_flags == UINT32_C(0xe0000140) ||
+            combined_positive_bit6_flags == UINT32_C(0x64200140) ||
+            combined_positive_bit6_flags == UINT32_C(0xa4200140) ||
+            combined_positive_bit6_flags == UINT32_C(0xc4200140) ||
+            combined_positive_bit6_flags == UINT32_C(0xe0200140) ||
+            combined_positive_bit6_flags == UINT32_C(0xe4000140);
+        if (native_bit6_fighter_path &&
+            measured_positive_bit6_high_3_4_family) {
+            const bool fighter0_only =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            uint64_t excess = bilateral ? UINT64_C(6) : UINT64_C(3);
+            if (!countdown_was_nonzero &&
+                (mode_value & (UINT8_C(1) << 6u)) != 0u) {
+                excess += fighter0_only ? UINT64_C(5) : UINT64_C(1);
+            }
+            native_instructions -= excess;
+            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+                vf2_i960_local_frame *stale =
+                    &cpu->local_frames[cpu->local_frame_depth + 1u];
+                stale->registers[3] = UINT32_C(0x41000000);
+                stale->registers[4] = UINT32_C(0x07800f0f);
+                stale->registers[7] = UINT32_C(0x41000000);
+                if (!fighter0_only) {
+                    stale->registers[15] = UINT32_C(1);
+                }
             }
         }
     }
