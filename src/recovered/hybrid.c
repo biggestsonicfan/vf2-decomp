@@ -14211,6 +14211,18 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         (int32_t)shared_fighter_threshold >= 0) {
         hybrid_set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
     }
+    if (measured_negative_state8_pair &&
+        fighter0_state_flags == 0u && fighter1_state_flags == 0u &&
+        (int32_t)shared_fighter_threshold < 0) {
+        /* ROM-backed bilateral state-8/negative-threshold zero-flag path:
+         * the recovered body already matches memory, registers, calls,
+         * returns and instruction accounting.  The only remaining state is
+         * the countdown-derived condition left by the dispatcher epilogue. */
+        hybrid_set_compare_result(
+            cpu, countdown_was_nonzero
+                ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL
+        );
+    }
 
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
