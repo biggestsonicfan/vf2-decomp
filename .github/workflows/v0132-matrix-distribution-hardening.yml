@@ -1,0 +1,142 @@
+name: v0132 matrix-distribution hardening
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0132-matrix-distribution-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restrict native admissions to measured fighter distributions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+          fn_start = text.index('static vf2_status hybrid_execute_game_info_bit31_native(')
+          fn_end = text.index('\nstatic vf2_status hybrid_camera_fast_gate_supported(', fn_start)
+          fn = text[fn_start:fn_end]
+
+          # The ROM matrices use exactly three flag distributions for every
+          # non-zero mask: fighter0-only, fighter1-only, or the same full mask
+          # on both records. Establish that shape once for all generic gates.
+          anchor = '''    if (status != VF2_OK) {\n        return status;\n    }\n    threshold_fallback_state =\n'''
+          if fn.count(anchor) != 1:
+              raise SystemExit(f'threshold anchor count={fn.count(anchor)}')
+          prelude = '''    if (status != VF2_OK) {\n        return status;\n    }\n    const uint32_t combined_matrix_flags =\n        fighter0_state_flags | fighter1_state_flags;\n    const bool measured_matrix_distribution =\n        (fighter0_state_flags == 0u ||\n         fighter0_state_flags == combined_matrix_flags) &&\n        (fighter1_state_flags == 0u ||\n         fighter1_state_flags == combined_matrix_flags);\n    const bool measured_negative_state8_pair =\n        fighter0_state == 8u && fighter1_state == 8u;\n    const bool measured_negative_state4_pair =\n        fighter0_state == 4u && fighter1_state == 4u;\n    const bool touches_negative_state8 =\n        fighter0_state == 8u || fighter1_state == 8u;\n    const bool touches_negative_state4 =\n        fighter0_state == 4u || fighter1_state == 4u;\n    threshold_fallback_state =\n'''
+          fn = fn.replace(anchor, prelude, 1)
+
+          old_fallback = '''        (((fighter0_state == 8u || fighter1_state == 8u) &&\n          ((fighter0_state_flags | fighter1_state_flags) &\n           ~state8_negative_admitted_flags) != 0u) ||\n         ((fighter0_state == 4u || fighter1_state == 4u) &&\n          ((fighter0_state_flags | fighter1_state_flags) &\n           ~((UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |\n             (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)) &&\n        (int32_t)shared_fighter_threshold < 0;\n'''
+          new_fallback = '''        ((touches_negative_state8 &&\n          (!measured_negative_state8_pair || !measured_matrix_distribution ||\n           ((combined_matrix_flags & ~state8_negative_admitted_flags) != 0u))) ||\n         (touches_negative_state4 &&\n          (!measured_negative_state4_pair || !measured_matrix_distribution ||\n           ((combined_matrix_flags &\n             ~((UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |\n               (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)))) &&\n        (int32_t)shared_fighter_threshold < 0;\n'''
+          if fn.count(old_fallback) != 1:
+              raise SystemExit(f'negative fallback body count={fn.count(old_fallback)}')
+          fn = fn.replace(old_fallback, new_fallback, 1)
+
+          # Positive state-8 bit-6 evidence uses the same three distributions.
+          old_bit6 = '''            fighter0_state == 8u && fighter1_state == 8u &&\n            measured_positive_state8_bit6_mask &&\n            (int32_t)shared_fighter_threshold >= 0;\n'''
+          new_bit6 = '''            fighter0_state == 8u && fighter1_state == 8u &&\n            measured_positive_state8_bit6_mask &&\n            measured_matrix_distribution &&\n            (int32_t)shared_fighter_threshold >= 0;\n'''
+          if fn.count(old_bit6) != 1:
+              raise SystemExit(f'positive bit6 gate count={fn.count(old_bit6)}')
+          fn = fn.replace(old_bit6, new_bit6, 1)
+
+          # Every state-4 native gate must stay inside both the measured flag
+          # domain and the measured three-distribution shape.
+          state4_start = fn.index('    const uint32_t combined_state4_flags =')
+          state4_end = fn.index('    native_18644_fighter_path =', state4_start)
+          state4 = fn[state4_start:state4_end]
+          direct = '        measured_state4_flag_domain &&\n'
+          if state4.count(direct) != 8:
+              raise SystemExit(f'expected 8 direct state4 domain gates, found {state4.count(direct)}')
+          state4 = state4.replace(
+              direct,
+              '        measured_state4_flag_domain &&\n        measured_matrix_distribution &&\n'
+          )
+          compound = '''            fighter0_state == 4u && fighter1_state == 4u &&\n            measured_state4_flag_domain;\n'''
+          compound_new = '''            fighter0_state == 4u && fighter1_state == 4u &&\n            measured_state4_flag_domain &&\n            measured_matrix_distribution;\n'''
+          if state4.count(compound) != 1:
+              raise SystemExit(f'compound state4 gate count={state4.count(compound)}')
+          state4 = state4.replace(compound, compound_new, 1)
+          fn = fn[:state4_start] + state4 + fn[state4_end:]
+
+          # Negative accounting was calibrated only with bilateral state bytes.
+          state8_accounting = '''    if ((int32_t)shared_fighter_threshold < 0 &&\n        (fighter0_state == 8u || fighter1_state == 8u) &&\n'''
+          state8_accounting_new = '''    if ((int32_t)shared_fighter_threshold < 0 &&\n        measured_negative_state8_pair &&\n'''
+          count = fn.count(state8_accounting)
+          if count != 4:
+              raise SystemExit(f'expected 4 broad negative state8 accounting gates, found {count}')
+          fn = fn.replace(state8_accounting, state8_accounting_new)
+
+          state4_accounting = '''    if ((int32_t)shared_fighter_threshold < 0 &&\n        (fighter0_state == 4u || fighter1_state == 4u)) {\n'''
+          if fn.count(state4_accounting) != 1:
+              raise SystemExit(f'broad negative state4 accounting count={fn.count(state4_accounting)}')
+          fn = fn.replace(
+              state4_accounting,
+              '''    if ((int32_t)shared_fighter_threshold < 0 &&\n        measured_negative_state4_pair) {\n''',
+              1,
+          )
+
+          stale = '''    if ((int32_t)shared_fighter_threshold < 0 &&\n        ((fighter0_state == 4u || fighter1_state == 4u) ||\n         ((fighter0_state == 8u || fighter1_state == 8u) &&\n          ((fighter0_state_flags | fighter1_state_flags) &\n           ~state8_negative_admitted_flags) == 0u)) &&\n        cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {\n'''
+          stale_new = '''    if ((int32_t)shared_fighter_threshold < 0 &&\n        (measured_negative_state4_pair ||\n         (measured_negative_state8_pair && measured_matrix_distribution &&\n          (combined_matrix_flags & ~state8_negative_admitted_flags) == 0u)) &&\n        cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {\n'''
+          if fn.count(stale) != 1:
+              raise SystemExit(f'negative stale-frame gate count={fn.count(stale)}')
+          fn = fn.replace(stale, stale_new, 1)
+
+          # All generic matrix admissions now have an explicit distribution guard.
+          if fn.count('measured_matrix_distribution') < 7:
+              raise SystemExit('matrix distribution guard was not wired broadly enough')
+
+          text = text[:fn_start] + fn + text[fn_end:]
+          path.write_text(text)
+
+          note = Path('decomp/i960/notes/game_info_1645c_matrix_distribution_hardening_v0132.md')
+          note.write_text('''# `fa_game_info` `0x1645c`: matrix-distribution hardening\n\n## Result\n\nThe committed ROM matrices do not cover arbitrary partitions of a flag mask\nbetween the two fighter records. For each non-zero mask they measure exactly\nthree record distributions: fighter 0 carries the complete mask, fighter 1\ncarries the complete mask, or both carry the same complete mask.\n\nSeveral generic dispatcher predicates previously checked only the OR-combined\nmask. That allowed an unmeasured split such as bit 14 on fighter 0 and bit 15\non fighter 1 to masquerade as a measured bit-14+bit-15 composition. The same\nissue existed in the generic positive state-8 bit-6 gate and in negative-\nthreshold state-8/state-4 accounting.\n\nv0132 introduces a shared `measured_matrix_distribution` predicate requiring\neach fighter flag word to be either zero or the complete combined mask. It is\napplied to every state-4 native gate and to the generic positive state-8 bit-6\ngate. At negative thresholds, any state-4/state-8 pair outside the bilateral\nstate byte and three-distribution domains now takes the complete interpreted\ntask fallback. Negative accounting and stale-frame corrections are likewise\nrestricted to the bilateral state domains that were actually measured.\n\nAll previously measured fighter0-only, fighter1-only and bilateral fixtures\nremain admitted. No exact-mask specialized state-8 family is changed.\n\nThis is a fail-closed evidence-boundary correction; it adds no new ROM\nsemantics.\n\n## Validation\n\nThe one-shot application gate builds and runs CTest with GCC, Clang, and Clang\nASan/UBSan before committing. Structural assertions require the expected state-4\ngates, generic bit-6 gate, negative accounting gates, and stale-frame gate to\nbe updated together. No ROM-derived artifact is created or committed.\n''')
+          PY
+
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+
+      - name: Configure Clang
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-clang -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+
+      - name: Configure Clang sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-san -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build Clang sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test Clang sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+
+      - name: Commit matrix-distribution hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0132-matrix-distribution-hardening.yml
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_matrix_distribution_hardening_v0132.md
+          git commit -m "Fail closed unmeasured game-info distributions"
+          git push origin HEAD:master
