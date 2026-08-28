@@ -322,14 +322,23 @@ static vf2_status model2a_read_input_port(
     const uint32_t port = relative / 2u;
     uint8_t value = 0u;
 
-    if (size != sizeof(uint8_t) || (relative & 1u) != 0u ||
-        port < 1u || port > 3u) {
+    if (size != sizeof(uint8_t) || (relative & 1u) != 0u) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((machine->io_control[0x10u] & (UINT8_C(1) << port)) != 0u) {
-        value = model2a_host_input_port(machine, port);
+    if (relative == UINT32_C(0x10)) {
+        value = model2a_host_input_port(machine, 1u);
+    } else if (relative == UINT32_C(0x12)) {
+        value = (uint8_t)~model2a_host_input_port(machine, 2u);
+    } else if (relative == UINT32_C(0x14)) {
+        value = (uint8_t)~model2a_host_input_port(machine, 3u);
+    } else if (port >= 1u && port <= 3u) {
+        if ((machine->io_control[0x10u] & (UINT8_C(1) << port)) != 0u) {
+            value = model2a_host_input_port(machine, port);
+        } else {
+            value = machine->io_control[relative];
+        }
     } else {
-        value = machine->io_control[relative];
+        return VF2_ERROR_UNSUPPORTED;
     }
     *(uint8_t *)destination = value;
     return VF2_OK;
