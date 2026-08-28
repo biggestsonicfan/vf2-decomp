@@ -1,0 +1,42 @@
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530140), UINT32_C(0xbee66666));
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530144), UINT32_C(0xbf63d70a));
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530148), UINT32_C(0x3ee66666));
++    if (status == VF2_OK) status = vf2_model2a_write(machine, input0 + UINT32_C(0x1b0), (uint8_t[]){0u, 0u}, 2u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, input1 + UINT32_C(0x1b0), (uint8_t[]){8u, 8u}, 2u);
++    if (status == VF2_OK) status = write_u16_le(machine, UINT32_C(0x005000a2), 0u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500054), (uint8_t[]){1u}, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0050008f), (uint8_t[]){1u}, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500067), (uint8_t[]){1u}, 1u);
++    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &config_base);
++    if (status == VF2_OK) status = vf2_model2a_read(machine, config_base + UINT32_C(0x3340), &config_value, 1u);
++    if (status == VF2_OK) {
++        if (config_value >= 5u) config_value = 2u;
++        status = vf2_model2a_write(machine, UINT32_C(0x0050005a), &config_value, 1u);
++    }
++    if (status == VF2_OK) status = vf2_model2a_read(machine, config_base + UINT32_C(0x3341), &config_value, 1u);
++    if (status == VF2_OK) {
++        if (config_value >= 5u) config_value = 2u;
++        status = vf2_model2a_write(machine, UINT32_C(0x00500059), &config_value, 1u);
++    }
++    if (status == VF2_OK) status = vf2_model2a_read(machine, UINT32_C(0x0050005a), &config_value, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500052), &config_value, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0050004f), &zero, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500051), &zero, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500056), &zero, 1u);
++    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
++    if (status == VF2_OK) {
++        flags &= ~((UINT32_C(1) << 2u) | (UINT32_C(1) << 3u) | (UINT32_C(1) << 21u));
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
++    }
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000e8), &zero, 1u);
++    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &flags);
++    if (status == VF2_OK) {
++        flags |= (UINT32_C(1) << 11u) | (UINT32_C(1) << 15u);
++        cpu->registers[3] = flags;
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x00508000), flags);
++    }
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00500230), 0u);
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0050023c), 0u);
++    if (status != VF2_OK) return status;
++
++    /* Preserve the caller locals produced by the literal 0x9a00..0x9f70 path. */
