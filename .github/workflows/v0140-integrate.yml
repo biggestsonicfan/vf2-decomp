@@ -1,0 +1,66 @@
+name: v0140 warm main-loop prefix
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0140-integrate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply exact v0140 patch
+        run: |
+          cat .github/v0140-part0 .github/v0140-part1 .github/v0140-part2 .github/v0140-part3 > /tmp/v0140.patch
+          git apply /tmp/v0140.patch
+          git diff --check
+      - name: Add ROM-backed note
+        run: |
+          cat > decomp/i960/notes/warm_main_loop_prefix_v0140.md <<'EOF'
+          # Warm main-loop prefix recovery (v0140)
+
+          The warm post-boot corridor now continues from `0x00009a00` to the coprocessor initializer entry at `0x0000a178` using the ROM-observed initialization path rather than the previous synthetic jump to `0x00009fb0`.
+
+          ROM-backed validation of the supplied supported VF2 Version 2.1 image measures this boundary at exactly 1,676 instructions, two procedure calls, and one procedure return, entering `0x0000a178` at local-frame depth 4. The recovered snapshot matches the ROM reference byte for byte.
+
+          A major discrepancy was traced to the routine at `0x00019a7c`. The ROM sets `0x00548005` to 1 and initializes 480 service slots, each `0x40` bytes apart, by storing `0xffffffff` at slot offset `0x30`. The previous model wrote 3, iterated 510 slots, and stored zero. Correcting those semantics accounts exactly for the previously observed 1,921 Work RAM byte differences.
+
+          The recovery also reproduces the fixed warm-main globals, player/input defaults, render values, DIP/profile clamps, runtime flags, and caller-local values produced before the `0x0000a178` call. The former 700,000-instruction shortcut is removed from this measured path.
+
+          No ROM bytes or snapshots are committed.
+          EOF
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+      - name: Configure Clang
+        env: { CC: clang }
+        run: cmake -S . -B build-clang -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+      - name: Configure sanitizers
+        env: { CC: clang }
+        run: cmake -S . -B build-san -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+      - name: Commit v0140
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0140-integrate.yml
+          git rm .github/v0140-a.patch .github/v0140-b1.patch .github/v0140-b2a.patch
+          git rm .github/v0140-part0 .github/v0140-part1 .github/v0140-part2 .github/v0140-part3
+          git add src/recovered/native_runtime.c decomp/i960/notes/warm_main_loop_prefix_v0140.md
+          git commit -m "Recover warm main-loop prefix"
+          git push origin HEAD:master
