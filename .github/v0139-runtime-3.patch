@@ -1,0 +1,72 @@
+diff --git a/src/recovered/native_runtime.c b/src/recovered/native_runtime.c
+index 2b3b0fd..7237a29 100644
+--- a/src/recovered/native_runtime.c
++++ b/src/recovered/native_runtime.c
+@@ -4416,6 +4468,8 @@ execute_post_boot_palette_ramp_entry(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                    sizeof(controls));
+     }
+     if (status == VF2_OK) {
++        cpu->arithmetic_control &= ~UINT32_C(7);
++        cpu->compare_result = VF2_I960_COMPARE_NONE;
+         status = vf2_i960_cpu_enter_procedure(
+             cpu, VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY, UINT32_C(0x00020050));
+     }
+@@ -4440,8 +4494,8 @@ execute_post_boot_palette_build(vf2_model2a *machine, vf2_i960_cpu *cpu,
+     const uint64_t start_returns = cpu->procedure_returns;
+     const uint32_t work_base = UINT32_C(0x00546008);
+     const uint32_t output_base = UINT32_C(0x00546128);
+-    const uint32_t row_count = UINT32_C(28);
+-    const uint32_t column_count = UINT32_C(32);
++    const uint32_t row_count = UINT32_C(27);
++    const uint32_t column_count = UINT32_C(47);
+     const uint32_t fixed_point_denominator = UINT32_C(18);
+     const uint32_t fixed_point_scale = UINT32_C(28);
+     uint8_t red_base = 0u;
+@@ -4466,7 +4520,7 @@ execute_post_boot_palette_build(vf2_model2a *machine, vf2_i960_cpu *cpu,
+ 
+     if (machine == NULL || cpu == NULL || report == NULL ||
+         cpu->ip != VF2_NATIVE_POST_BOOT_PALETTE_BUILD_BODY ||
+-        cpu->local_frame_depth != 3u) {
++        (cpu->local_frame_depth != 3u && cpu->local_frame_depth != 6u)) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+ 
+@@ -4583,6 +4637,7 @@ execute_post_boot_palette_build(vf2_model2a *machine, vf2_i960_cpu *cpu,
+     /* The final cmpinco is in the build frame.  The ordinary procedure
+      * return below restores the caller's locals, so only its condition code
+      * survives this return. */
++    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+     cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+     cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+     status = vf2_i960_cpu_return_procedure(cpu, machine);
+@@ -4610,7 +4665,7 @@ execute_post_boot_palette_build_return(vf2_model2a *machine, vf2_i960_cpu *cpu,
+ 
+     if (machine == NULL || cpu == NULL || report == NULL ||
+         cpu->ip != VF2_NATIVE_POST_BOOT_PALETTE_BUILD_RETURN ||
+-        cpu->local_frame_depth != 2u) {
++        (cpu->local_frame_depth != 2u && cpu->local_frame_depth != 5u)) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+     status = vf2_i960_cpu_return_procedure(cpu, machine);
+@@ -4817,6 +4872,10 @@ execute_post_boot_resumed_helper_init(vf2_model2a *machine,
+     if (status == VF2_OK) {
+         status = vf2_model2a_read_u32(machine, UINT32_C(0x0050084c), &stream_base);
+     }
++    if (status == VF2_OK) {
++        cpu->registers[3] = state_base;
++        cpu->registers[4] = stream_base;
++    }
+     if (status == VF2_OK) {
+         status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x40), 0u);
+     }
+@@ -4840,6 +4899,10 @@ execute_post_boot_resumed_helper_init(vf2_model2a *machine,
+         status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x58),
+                                        cpu->registers[9]);
+     }
++    if (status == VF2_OK) {
++        status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x5c),
++                                       cpu->registers[10]);
++    }
+     for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+         status = vf2_model2a_write_u32(machine, stream_base + UINT32_C(0x60) +
+                                        index * UINT32_C(4), 0u);
