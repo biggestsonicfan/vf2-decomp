@@ -1,0 +1,73 @@
+name: v0137 TEST button
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0137-test-button.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add dedicated TEST input
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('include/vf2/platform.h')
+          s = p.read_text()
+          old = '    VF2_PLATFORM_BUTTON_P2_GUARD = UINT32_C(1) << 16\n};\n'
+          new = '    VF2_PLATFORM_BUTTON_P2_GUARD = UINT32_C(1) << 16,\n    VF2_PLATFORM_BUTTON_TEST = UINT32_C(1) << 17\n};\n'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('src/hardware/model2a.c')
+          s = p.read_text()
+          old = '''        if ((input & VF2_PLATFORM_BUTTON_COIN) != 0u) {\n            value &= (uint8_t)~UINT8_C(0x01);\n        }\n        if ((input & VF2_PLATFORM_BUTTON_SERVICE) != 0u) {\n'''
+          new = '''        if ((input & VF2_PLATFORM_BUTTON_COIN) != 0u) {\n            value &= (uint8_t)~UINT8_C(0x01);\n        }\n        if ((input & VF2_PLATFORM_BUTTON_TEST) != 0u) {\n            value &= (uint8_t)~UINT8_C(0x04);\n        }\n        if ((input & VF2_PLATFORM_BUTTON_SERVICE) != 0u) {\n'''
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('tests/test_main.c')
+          s = p.read_text()
+          needle = '''    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 0x10u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0xee));\n'''
+          addition = needle + '''    EXPECT_TRUE(vf2_model2a_set_input(\n        &machine, VF2_PLATFORM_BUTTON_TEST\n    ) == VF2_OK);\n    EXPECT_TRUE(vf2_model2a_read(\n        &machine, VF2_IO_CONTROL_BASE + 0x10u, &value, sizeof(value)\n    ) == VF2_OK);\n    EXPECT_TRUE(value == UINT8_C(0xfb));\n    EXPECT_TRUE(vf2_model2a_set_input(\n        &machine,\n        VF2_PLATFORM_BUTTON_COIN | VF2_PLATFORM_BUTTON_START |\n        VF2_PLATFORM_BUTTON_PUNCH | VF2_PLATFORM_BUTTON_KICK |\n        VF2_PLATFORM_BUTTON_GUARD | VF2_PLATFORM_BUTTON_UP\n    ) == VF2_OK);\n'''
+          assert s.count(needle) == 1
+          p.write_text(s.replace(needle, addition, 1))
+
+          note = Path('decomp/i960/notes/model2a_test_button_v0137.md')
+          note.write_text('''# Model 2A TEST button input (v0137)\n\nFresh ROM-backed validation of the natural cold-boot TEST MODE exit path showed that the board's TEST switch is distinct from the SERVICE switch. The game observes TEST as active-low bit `0x04` in the mode-0 system input byte read at `0x01c00010`, while SERVICE remains active-low bit `0x08`.\n\nThe platform input API now exposes a dedicated `VF2_PLATFORM_BUTTON_TEST` bit and the Model 2A system-port bridge maps it to active-low `0x04` without changing the existing COIN, START or SERVICE mappings.\n\nUsing the supplied supported ROM, asserting TEST while TEST MODE is positioned on `EXIT TEST MODE` changes the live menu state from `0x0000000b` to `0x0000008b`, arms the observed 320-count exit delay, counts it down to zero and enters the ROM's warm-boot path without modifying the frame selector or other game state directly.\n\nNo ROM data or snapshots are committed.\n''')
+          PY
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+      - name: Configure Clang
+        env: { CC: clang }
+        run: cmake -S . -B build-clang -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+      - name: Configure sanitizers
+        env: { CC: clang }
+        run: cmake -S . -B build-san -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+      - name: Commit v0137
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0137-test-button.yml
+          git add include/vf2/platform.h src/hardware/model2a.c tests/test_main.c decomp/i960/notes/model2a_test_button_v0137.md
+          git commit -m "Add Model 2 TEST button input"
+          git push origin HEAD:master
