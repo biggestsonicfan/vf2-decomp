@@ -1,0 +1,106 @@
+name: v0130 state4 flag-domain hardening
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0130-state4-flag-domain-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restrict native state4 admissions to measured flag domain
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+
+          anchor = '''    /* State-4 oracle fixtures set +0xa00 to 4 for both fighters.\n     * Keep native state-4 admissions inside that measured bilateral domain;\n     * mixed state pairs remain on the conservative fallback path. */\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'state4 domain anchor count={text.count(anchor)}')
+
+          domain = '''    const uint32_t combined_state4_flags =\n        fighter0_state_flags | fighter1_state_flags;\n    const uint32_t measured_state4_flag_mask =\n        (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |\n        (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);\n    const bool measured_state4_flag_domain =\n        (combined_state4_flags & ~measured_state4_flag_mask) == 0u;\n'''
+          text = text.replace(anchor, anchor + domain, 1)
+
+          direct = '        fighter0_state == 4u && fighter1_state == 4u &&\n'
+          direct_with_domain = '''        fighter0_state == 4u && fighter1_state == 4u &&\n        measured_state4_flag_domain &&\n'''
+          block_start = text.index('    const uint32_t combined_state4_flags =')
+          block_end = text.index('    native_18644_fighter_path =', block_start)
+          block = text[block_start:block_end]
+          direct_count = block.count(direct)
+          if direct_count != 8:
+              raise SystemExit(f'expected 8 direct state4 native gates, found {direct_count}')
+          block = block.replace(direct, direct_with_domain)
+
+          compound = '        const bool state4 = fighter0_state == 4u && fighter1_state == 4u;\n'
+          compound_new = '''        const bool state4 =\n            fighter0_state == 4u && fighter1_state == 4u &&\n            measured_state4_flag_domain;\n'''
+          if block.count(compound) != 1:
+              raise SystemExit(f'expected 1 compound state4 gate, found {block.count(compound)}')
+          block = block.replace(compound, compound_new, 1)
+
+          text = text[:block_start] + block + text[block_end:]
+
+          # Keep conservative fallback admission broad; external state4 bits must
+          # simply cease to be claimed by a native predicate.
+          if 'fighter0_state == 4u || fighter1_state == 4u ||' not in text:
+              raise SystemExit('positive conditional fallback changed unexpectedly')
+          if 'fighter0_state == 4u || fighter1_state == 4u ||\n' not in text:
+              raise SystemExit('expected broad state4 fallback gate to remain')
+
+          # The complete proven 4-bit matrix still has 16 masks by construction.
+          if 'measured_state4_flag_mask' not in text or 'measured_state4_flag_domain' not in text:
+              raise SystemExit('measured state4 domain was not installed')
+
+          path.write_text(text)
+
+          note = Path('decomp/i960/notes/game_info_1645c_state4_flag_domain_hardening_v0130.md')
+          note.write_text('''# `fa_game_info` `0x1645c`: state-4 flag-domain hardening\n\n## Result\n\nThe complete committed state-4 oracle matrix proves all 16 combinations of\nflag bits 6, 14, 15 and 16 across fighter-0-only, fighter-1-only and bilateral\ndistributions, both countdown values and both mode-bit-6 values. Those 192\nfixtures remain fully admitted.\n\nThe native predicates, however, previously tested only the conditional bits\nneeded by each corridor. An unrelated bit outside the measured four-bit domain\ncould therefore hitchhike on a neutral, isolated or composed state-4 admission\nwithout any ROM-backed evidence.\n\nv0130 adds one shared `measured_state4_flag_domain` guard. Native state-4\nadmission now requires the combined `+0x1a4` flags to contain no bits outside\n6, 14, 15 and 16. The individual 16-mask semantics and accounting rules are\nunchanged. Unknown extra bits remain on the existing conservative dispatcher\nfallback.\n\nThis is a fail-closed evidence-boundary correction. It does not claim new ROM\nsemantics and does not retire any member of the proven state-4 matrix.\n\n## Validation\n\nThe one-shot application gate builds and runs CTest with GCC, Clang, and Clang\nASan/UBSan before committing the change. ROM-derived artifacts are neither\ncreated nor committed.\n''')
+          PY
+
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+
+      - name: Configure Clang
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-clang -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+
+      - name: Configure Clang sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-san -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build Clang sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test Clang sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+
+      - name: Commit hardened state4 flag domain
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0130-state4-flag-domain-hardening.yml
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_state4_flag_domain_hardening_v0130.md
+          git commit -m "Fail closed unmeasured state4 flag bits"
+          git push origin HEAD:master
