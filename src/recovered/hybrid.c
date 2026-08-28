@@ -18,6 +18,9 @@
 #define VF2_TASK_SOUND_ENTRY UINT32_C(0x000439fc)
 #define VF2_TASK_KILL_OSAGE_ENTRY UINT32_C(0x000657dc)
 #define VF2_TASK_OSAGE_ENTRY UINT32_C(0x000640f4)
+#define VF2_TASK_OBJECT_ENTRY UINT32_C(0x0006ca64)
+#define VF2_TASK_OBJECT_TABLE UINT32_C(0x0006ca78)
+#define VF2_TASK_GAME_DISP_ENTRY UINT32_C(0x0002b1bc)
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -14375,6 +14378,8 @@ static int hybrid_second_scheduler_task_supported(uint32_t entry_address)
     case VF2_TASK_SOUND_ENTRY:
     case VF2_TASK_KILL_OSAGE_ENTRY:
     case VF2_TASK_OSAGE_ENTRY:
+    case VF2_TASK_OBJECT_ENTRY:
+    case VF2_TASK_GAME_DISP_ENTRY:
         return 1;
     default:
         return 0;
@@ -15201,6 +15206,45 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
         }
         break;
 
+    case VF2_TASK_OBJECT_ENTRY: {
+        uint32_t selected_entry = 0u;
+        local_report.kind = VF2_HYBRID_TASK_OBJECT;
+        status = vf2_model2a_read(
+            machine, registry_address + UINT32_C(4),
+            &instance, sizeof(instance)
+        );
+        if (status == VF2_OK) {
+            status = vf2_model2a_read_u32(
+                machine,
+                VF2_TASK_OBJECT_TABLE + (uint32_t)instance * UINT32_C(4),
+                &selected_entry
+            );
+        }
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(
+                machine, registry_address + UINT32_C(0x0c), selected_entry
+            );
+        }
+        if (status == VF2_OK) {
+            body_instructions = UINT64_C(3);
+        }
+        break;
+    }
+
+    case VF2_TASK_GAME_DISP_ENTRY:
+        local_report.kind = VF2_HYBRID_TASK_GAME_DISP;
+        interpreted_task = 1;
+        status = hybrid_execute_interpreted_task(
+            machine, cpu, registry_address, VF2_TASK_GAME_DISP_ENTRY,
+            &task_report
+        );
+        if (status == VF2_OK) {
+            cpu->arithmetic_control =
+                (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+            cpu->compare_result = VF2_I960_COMPARE_LESS;
+        }
+        break;
+
     case VF2_TASK_OSAGE_ENTRY:
         status = vf2_model2a_read(
             machine, registry_address + UINT32_C(4),
@@ -15280,6 +15324,10 @@ const char *vf2_hybrid_task_kind_name(vf2_hybrid_task_kind kind)
         return "fa_osage1";
     case VF2_HYBRID_TASK_PLAYER:
         return "fa_player";
+    case VF2_HYBRID_TASK_OBJECT:
+        return "fa_object";
+    case VF2_HYBRID_TASK_GAME_DISP:
+        return "fa_game_disp";
     case VF2_HYBRID_TASK_NONE:
     default:
         return "none";

@@ -285,12 +285,26 @@ static vf2_status execute_selector0_body(
     if (status == VF2_OK) {
         status = selector0_signature_helper(machine, cpu);
     }
-    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a81c) ||
-        cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a81c)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
     if (bytes_written != NULL) {
         *bytes_written += 4u * sizeof(uint32_t);
+    }
+    if (cpu->registers[VF2_I960_G0_REGISTER] == UINT32_MAX) {
+        selector = UINT8_C(2);
+        status = vf2_model2a_write(
+            machine, VF2_FRAME_SELECTOR, &selector, sizeof(selector));
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (bytes_written != NULL) {
+            *bytes_written += sizeof(selector);
+        }
+        return vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+    if (cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
     }
 
     cpu->registers[3] = UINT32_C(0x0000c007);
@@ -445,18 +459,28 @@ static vf2_status execute_frame_dispatch_selector0(
     if (status != VF2_OK || cpu->ip != VF2_SELECTOR0_BODY_RETURN) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
-    status = vf2_i960_cpu_return_procedure(cpu, machine);
-    if (status != VF2_OK || cpu->ip != VF2_SELECTOR0_DISPATCH_RETURN) {
-        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    {
+        uint8_t final_selector = 0u;
+        const int signature_fast_path =
+            cpu->registers[VF2_I960_G0_REGISTER] == UINT32_MAX;
+        status = read_frame_selector(machine, &final_selector);
+        if (status != VF2_OK ||
+            (signature_fast_path && final_selector != UINT8_C(2))) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status != VF2_OK || cpu->ip != VF2_SELECTOR0_DISPATCH_RETURN) {
+            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+        }
+        cpu->executed_instructions = start_instructions +
+            (signature_fast_path ? UINT64_C(34) : VF2_SELECTOR0_INSTRUCTIONS);
     }
-
-    cpu->executed_instructions = start_instructions + VF2_SELECTOR0_INSTRUCTIONS;
     report->kind = VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;
     report->entry_address = VF2_FRAME_DISPATCH_TICK_ENTRY;
     report->exit_address = cpu->ip;
     report->iterations = UINT64_C(1);
     report->bytes_written = bytes_written;
-    report->recovered_instruction_count = VF2_SELECTOR0_INSTRUCTIONS;
+    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
     report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
     report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
     report->cpu_poststate_applied = 1;
@@ -539,7 +563,9 @@ static vf2_status execute_main_final_cluster_selector0(
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
+    if (start_depth == 0u) {
+        cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
+    }
     cpu->executed_instructions += UINT64_C(7);
     report->kind = VF2_HYBRID_BRIDGE_MAIN_FINAL_CLUSTER;
     report->entry_address = VF2_MAIN_FINAL_CLUSTER_ENTRY;

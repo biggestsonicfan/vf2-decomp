@@ -659,7 +659,9 @@ static vf2_status execute_main_final_cluster_selector2(
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
-    cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
+    if (start_depth == 0u) {
+        cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
+    }
     cpu->executed_instructions += UINT64_C(7);
     report->kind = VF2_HYBRID_BRIDGE_MAIN_FINAL_CLUSTER;
     report->entry_address = VF2_MAIN_FINAL_CLUSTER_ENTRY;

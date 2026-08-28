@@ -200,7 +200,7 @@ static vf2_status execute_initializer_scheduler_corridor(
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || cpu->ip != VF2_NATIVE_SECOND_CALL_SITE ||
-        cpu->local_frame_depth > 1u) {
+        (cpu->local_frame_depth > 1u && cpu->local_frame_depth != 3u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
@@ -331,7 +331,7 @@ static vf2_status execute_initializer_scheduler_corridor(
         status = execute_initializer_task(machine, cpu, registry);
     }
     if (status != VF2_OK || cpu->ip != VF2_NATIVE_SCHEDULER_RETURN ||
-        cpu->local_frame_depth != 1u) {
+        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
