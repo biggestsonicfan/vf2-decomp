@@ -12203,6 +12203,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state4_all_bits_fighter_path = false;
     bool threshold_fallback_state = false;
     bool threshold_fallback_countdown = false;
+    bool mixed_negative_state4_zero_flags = false;
     bool native_18644_fighter_path = false;
     bool native_state8_bit14_accounting_case = false;
     bool native_state8_bit14_bit15_bit16_high21_accounting_case = false;
@@ -12305,6 +12306,10 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         fighter0_state == 8u || fighter1_state == 8u;
     const bool touches_negative_state4 =
         fighter0_state == 4u || fighter1_state == 4u;
+    mixed_negative_state4_zero_flags =
+        touches_negative_state4 && !measured_negative_state4_pair &&
+        fighter0_state_flags == 0u && fighter1_state_flags == 0u &&
+        (int32_t)shared_fighter_threshold < 0;
     threshold_fallback_state =
         ((touches_negative_state8 &&
           (!measured_negative_state8_pair || !measured_matrix_distribution ||
@@ -12314,7 +12319,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
            ((combined_matrix_flags &
              ~((UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)))) &&
-        (int32_t)shared_fighter_threshold < 0;
+        (int32_t)shared_fighter_threshold < 0 &&
+        !mixed_negative_state4_zero_flags;
     if (threshold_fallback_state) {
         status = hybrid_read_u8(
             machine, UINT32_C(0x0050a0b6), &countdown
@@ -13989,6 +13995,21 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             }
         }
     }
+    if (mixed_negative_state4_zero_flags) {
+        /* Mixed state-4 pairs with clear +0x1a4 flags follow the recovered
+         * dispatcher body directly. ROM-backed probes show one fewer task
+         * instruction than the generic conditional accounting, preserve the
+         * countdown-derived final condition, and leave the historical saved
+         * r3/r7 slots at 1.0f before the task RET. */
+        if (native_instructions == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        --native_instructions;
+        hybrid_set_compare_result(
+            cpu, countdown_was_nonzero
+                ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL
+        );
+    }
     /* ROM-backed bit-31 corridor: when both +0x1a4 state-flag words are
      * zero at a nonnegative shared threshold, the dispatcher leaves the
      * final condition code EQUAL regardless of the fighter +0xa00 state
@@ -14000,7 +14021,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
 
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
-        (measured_negative_state4_pair ||
+        (measured_negative_state4_pair || mixed_negative_state4_zero_flags ||
          (measured_negative_state8_pair && measured_matrix_distribution &&
           (combined_matrix_flags & ~state8_negative_admitted_flags) == 0u)) &&
         cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
