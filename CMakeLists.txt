@@ -95,11 +95,6 @@ set_source_files_properties(
 )
 
 set_source_files_properties(
-    src/recovered/native_runtime.c
-    PROPERTIES COMPILE_DEFINITIONS "vf2_native_runtime_step=vf2_native_runtime_step_impl"
-)
-
-set_source_files_properties(
     src/recovered/texture_bridge.c
     PROPERTIES COMPILE_DEFINITIONS "vf2_hybrid_post_frame_bridge_execute=vf2_hybrid_post_frame_bridge_execute_impl"
 )

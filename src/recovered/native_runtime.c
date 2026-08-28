@@ -5817,9 +5817,9 @@ vf2_status vf2_native_runtime_initialize(vf2_native_runtime_state *state,
     return status;
 }
 
-vf2_status vf2_native_runtime_step(vf2_model2a *machine, vf2_i960_cpu *cpu,
-                                   vf2_native_runtime_state *state,
-                                   vf2_native_runtime_step_report *report) {
+vf2_status vf2_native_runtime_step_impl(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                        vf2_native_runtime_state *state,
+                                        vf2_native_runtime_step_report *report) {
     vf2_native_runtime_step_report local_report;
     vf2_status status = VF2_OK;
 
