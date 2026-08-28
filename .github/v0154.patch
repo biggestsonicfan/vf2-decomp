@@ -1,5 +1,5 @@
---- a/src/recovered/hybrid.c	2026-08-28 21:17:22.235428322 +0000
-+++ b/src/recovered/hybrid.c	2026-08-28 21:19:28.360905727 +0000
+--- a/src/recovered/hybrid.c	2026-08-28 21:22:31.083496414 +0000
++++ b/src/recovered/hybrid.c	2026-08-28 21:22:31.084608688 +0000
 @@ -12208,6 +12208,7 @@
      bool mixed_negative_state4_bit14_path = false;
      bool mixed_negative_state4_bit15_path = false;
@@ -72,10 +72,9 @@
      if (mixed_negative_state4_bit16_path) {
          uint32_t corrected_flags = 0u;
          status = vf2_model2a_read_u32(
-
---- /dev/null
-+++ b/decomp/i960/notes/game_info_mixed_negative_state4_bit14_bit16_v0154.md
-@@ -0,0 +1,31 @@
+--- /dev/null	2026-08-28 18:12:50.782266725 +0000
++++ b/decomp/i960/notes/game_info_mixed_negative_state4_bit14_bit16_v0154.md	2026-08-28 21:22:31.085925305 +0000
+@@ -0,0 +1,26 @@
 +# v0154: mixed negative state-4 bit14|bit16 recovery
 +
 +This checkpoint promotes the mixed negative-threshold state-4 corridor with
