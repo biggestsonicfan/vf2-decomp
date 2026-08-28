@@ -1,0 +1,37 @@
+name: v0149 mixed state4 bit6 integration
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/v0149.patch'
+      - '.github/workflows/v0149-integrate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply v0149 recovery
+        run: |
+          git apply --index .github/v0149.patch
+          git diff --cached --check
+      - name: Configure
+        run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit recovery
+        run: |
+          rm -f .github/v0149.patch .github/workflows/v0149-integrate.yml
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Recover mixed negative state4 bit6 path'
+          git push origin master
