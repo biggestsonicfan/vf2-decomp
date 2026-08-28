@@ -1,0 +1,59 @@
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -12204,6 +12204,7 @@
+     bool threshold_fallback_state = false;
+     bool threshold_fallback_countdown = false;
+     bool mixed_negative_state4_zero_flags = false;
++    bool mixed_negative_state4_bit6_zero_countdown = false;
+     bool native_18644_fighter_path = false;
+     bool native_state8_bit14_accounting_case = false;
+     bool native_state8_bit14_bit15_bit16_high21_accounting_case = false;
+@@ -12310,6 +12311,18 @@
+         touches_negative_state4 && !measured_negative_state4_pair &&
+         fighter0_state_flags == 0u && fighter1_state_flags == 0u &&
+         (int32_t)shared_fighter_threshold < 0;
++    if (touches_negative_state4 && !measured_negative_state4_pair &&
++        measured_matrix_distribution &&
++        combined_matrix_flags == (UINT32_C(1) << 6u) &&
++        (int32_t)shared_fighter_threshold < 0) {
++        status = hybrid_read_u8(
++            machine, UINT32_C(0x0050a0b6), &countdown
++        );
++        if (status != VF2_OK) {
++            return status;
++        }
++        mixed_negative_state4_bit6_zero_countdown = countdown == 0u;
++    }
+     threshold_fallback_state =
+         ((touches_negative_state8 &&
+           (!measured_negative_state8_pair || !measured_matrix_distribution ||
+@@ -12320,7 +12333,8 @@
+              ~((UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)))) &&
+         (int32_t)shared_fighter_threshold < 0 &&
+-        !mixed_negative_state4_zero_flags;
++        !mixed_negative_state4_zero_flags &&
++        !mixed_negative_state4_bit6_zero_countdown;
+     if (threshold_fallback_state) {
+         status = hybrid_read_u8(
+             machine, UINT32_C(0x0050a0b6), &countdown
+@@ -13117,6 +13131,9 @@
+         }
+     }
+ 
++    native_18644_fighter_path =
++        native_18644_fighter_path ||
++        mixed_negative_state4_bit6_zero_countdown;
+     combined_flags = fighter0_flags & fighter1_flags;
+     cpu->registers[3] = combined_flags;
+     native_instructions += UINT64_C(2); /* and + bbc */
+--- a/decomp/i960/notes/mixed_negative_state4_bit6_v0149.md
++++ b/decomp/i960/notes/mixed_negative_state4_bit6_v0149.md
+@@ -0,0 +1,7 @@
++# Mixed negative state-4 bit-6 recovery (v0149)
++
++The mixed negative-threshold state-4 family with bit 6 in `fighter + 0x1a4` is now admitted to the recovered `0x00018644` C path when the global countdown byte at `0x0050a0b6` is zero.
++
++ROM-backed differential coverage used twelve counterpart states (`0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 15, 255`), both state-4 orientations, three bit-6 distributions (state-4 fighter only, counterpart only, bilateral), and both mode-bit-6 settings. All 144 cases matched the reference i960 CPU state, mutable memory, and accounting at the `0x00010dcc` task boundary.
++
++Countdown-nonzero cases remain outside this admission because the current whole-task differential probe reaches the intermediate `0x000164f8` boundary before the native recovered block can be compared. They stay fail-closed/interpreted until separately measured.
