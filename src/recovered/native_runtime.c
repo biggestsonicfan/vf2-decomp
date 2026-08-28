@@ -1891,6 +1891,42 @@ execute_post_boot_early_wait_return(vf2_model2a *machine, vf2_i960_cpu *cpu,
 
     candidate.executed_instructions =
         start_instructions + (candidate.procedure_returns - start_returns);
+
+    if (cpu->local_frame_depth >= 4u) {
+        uint64_t warm_wait_instruction_correction = 0u;
+        uint32_t interrupt_stack = 0u;
+        uint32_t saved_ac_address = 0u;
+
+        if (candidate.ip == VF2_NATIVE_POST_BOOT_TEXTURE_WAIT_EXIT &&
+            cpu->local_frame_depth == 6u) {
+            warm_wait_instruction_correction = UINT64_C(4);
+        } else if ((candidate.ip == VF2_NATIVE_POST_BOOT_LUMA_WAIT_EXIT ||
+                    candidate.ip == VF2_NATIVE_POST_BOOT_PATTERN_WAIT_EXIT ||
+                    candidate.ip == VF2_NATIVE_POST_BOOT_FINAL_WAIT_EXIT ||
+                    candidate.ip == VF2_NATIVE_POST_BOOT_GEOMETRY_TABLE_WAIT_EXIT) &&
+                   (cpu->local_frame_depth == 4u || cpu->local_frame_depth == 5u)) {
+            warm_wait_instruction_correction = UINT64_C(7);
+        }
+
+        if (warm_wait_instruction_correction != 0u) {
+            status = vf2_model2a_read_u32(machine, cpu->prcb + UINT32_C(24),
+                                          &interrupt_stack);
+            if (status == VF2_OK) {
+                saved_ac_address =
+                    ((interrupt_stack + UINT32_C(63)) & ~UINT32_C(63)) +
+                    UINT32_C(52);
+                status = vf2_model2a_write_u32(
+                    machine, saved_ac_address,
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1));
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            candidate.executed_instructions += warm_wait_instruction_correction;
+            candidate.arithmetic_control &= ~UINT32_C(7);
+            candidate.compare_result = VF2_I960_COMPARE_NONE;
+        }
+    }
     *cpu = candidate;
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_EARLY_WAIT_RETURN;
     report->exit_address = cpu->ip;
@@ -2249,7 +2285,8 @@ execute_post_boot_geometry_pattern_return(vf2_model2a *machine, vf2_i960_cpu *cp
         cpu->ip != VF2_NATIVE_POST_BOOT_PATTERN_WAIT_EXIT) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 1u || cpu->registers[6] != UINT32_C(0x2000) ||
+    if ((cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u) ||
+        cpu->registers[6] != UINT32_C(0x2000) ||
         cpu->registers[8] != 0u || cpu->registers[9] != UINT32_C(1) ||
         cpu->registers[VF2_I960_G0_REGISTER + 1u] != UINT32_C(0x00011d88) ||
         cpu->registers[VF2_I960_G0_REGISTER + 2u] != UINT32_C(0x00000162) ||
@@ -2313,7 +2350,8 @@ execute_post_boot_geometry_pattern(vf2_model2a *machine, vf2_i960_cpu *cpu,
 
     if (continuation) {
         output_value = cpu->registers[VF2_I960_G0_REGISTER + 3u];
-        if (cpu->local_frame_depth != 1u || cpu->registers[8] != 0u) {
+        if ((cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u) ||
+            cpu->registers[8] != 0u) {
             return VF2_ERROR_UNSUPPORTED;
         }
         if (cpu->registers[9] == UINT32_C(4)) {
@@ -2461,7 +2499,8 @@ execute_post_boot_geometry_table_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_FINAL_WAIT_EXIT) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u || geometry_base != VF2_GEOMETRY_BASE ||
+    if ((cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) ||
+        geometry_base != VF2_GEOMETRY_BASE ||
         geometry_port != VF2_GEOMETRY_BASE + UINT32_C(0x4000)) {
         return VF2_ERROR_UNSUPPORTED;
     }
@@ -2555,7 +2594,8 @@ execute_post_boot_geometry_table_return(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_GEOMETRY_TABLE_WAIT_EXIT) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 1u || cpu->registers[4] != UINT32_C(0x00011970) ||
+    if ((cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u) ||
+        cpu->registers[4] != UINT32_C(0x00011970) ||
         cpu->registers[5] != 0u || cpu->registers[6] != UINT32_C(0x000118e8)) {
         return VF2_ERROR_UNSUPPORTED;
     }
@@ -2587,7 +2627,7 @@ execute_post_boot_graphics_state_reset(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->ip != VF2_NATIVE_POST_BOOT_GRAPHICS_STATE_RESET_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (cpu->local_frame_depth != 0u) {
+    if (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u) {
         return VF2_ERROR_UNSUPPORTED;
     }
 
@@ -6079,9 +6119,50 @@ vf2_status vf2_native_runtime_step_impl(vf2_model2a *machine, vf2_i960_cpu *cpu,
                cpu->ip == VF2_NATIVE_INTERRUPT_RETURN_ENTRY) {
         const uint32_t frame_wait_entry = cpu->ip;
         vf2_hybrid_bridge_report bridge_report;
+        int injected_post_boot_pending_vblank = 0;
         memset(&bridge_report, 0, sizeof(bridge_report));
-        status = vf2_hybrid_frame_wait_execute(machine, cpu, &state->frame_wait,
-                                               &bridge_report);
+
+        if (frame_wait_entry == UINT32_C(0x00000f7c) &&
+            (cpu->local_frame_depth == 4u || cpu->local_frame_depth == 5u)) {
+            const uint32_t caller_return =
+                cpu->local_frames[cpu->local_frame_depth - 1u].registers[2];
+            uint8_t frame_byte = 0u;
+            const int post_boot_wait =
+                caller_return == VF2_NATIVE_POST_BOOT_LUMA_WAIT_EXIT ||
+                caller_return == VF2_NATIVE_POST_BOOT_PATTERN_WAIT_EXIT ||
+                caller_return == VF2_NATIVE_POST_BOOT_FINAL_WAIT_EXIT ||
+                caller_return == VF2_NATIVE_POST_BOOT_GEOMETRY_TABLE_WAIT_EXIT;
+
+            if (post_boot_wait) {
+                status = vf2_model2a_read(machine, UINT32_C(0x00500000),
+                                          &frame_byte, sizeof(frame_byte));
+                if (status == VF2_OK && frame_byte == 0u) {
+                    vf2_hybrid_frame_wait_report wait_report;
+                    memset(&wait_report, 0, sizeof(wait_report));
+                    state->frame_wait.visits =
+                        state->frame_wait.visits_before_interrupt - 1u;
+                    status = vf2_hybrid_frame_wait_observe(
+                        machine, cpu, &state->frame_wait, &wait_report);
+                    if (status == VF2_OK && !wait_report.interrupt_injected) {
+                        status = VF2_ERROR_UNSUPPORTED;
+                    }
+                    if (status == VF2_OK) {
+                        injected_post_boot_pending_vblank = 1;
+                        bridge_report.kind = VF2_HYBRID_BRIDGE_FRAME_WAIT_POLL;
+                        bridge_report.entry_address = frame_wait_entry;
+                        bridge_report.exit_address = cpu->ip;
+                        bridge_report.recovered_instruction_count = 0u;
+                        bridge_report.recovered_procedure_calls = 1u;
+                        bridge_report.recovered_procedure_returns = 0u;
+                        bridge_report.cpu_poststate_applied = 1;
+                    }
+                }
+            }
+        }
+        if (status == VF2_OK && !injected_post_boot_pending_vblank) {
+            status = vf2_hybrid_frame_wait_execute(machine, cpu, &state->frame_wait,
+                                                   &bridge_report);
+        }
         if (status == VF2_OK && frame_wait_entry == VF2_NATIVE_FRAME_WAIT_POLL_ENTRY) {
             uint32_t runtime_flags = 0u;
             uint32_t task_count = 0u;
