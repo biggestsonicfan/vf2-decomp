@@ -1,0 +1,86 @@
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -12204,7 +12204,7 @@
+     bool threshold_fallback_state = false;
+     bool threshold_fallback_countdown = false;
+     bool mixed_negative_state4_zero_flags = false;
+-    bool mixed_negative_state4_bit6_zero_countdown = false;
++    bool mixed_negative_state4_bit6_path = false;
+     bool native_18644_fighter_path = false;
+     bool native_state8_bit14_accounting_case = false;
+     bool native_state8_bit14_bit15_bit16_high21_accounting_case = false;
+@@ -12311,18 +12311,11 @@
+         touches_negative_state4 && !measured_negative_state4_pair &&
+         fighter0_state_flags == 0u && fighter1_state_flags == 0u &&
+         (int32_t)shared_fighter_threshold < 0;
+-    if (touches_negative_state4 && !measured_negative_state4_pair &&
++    mixed_negative_state4_bit6_path =
++        touches_negative_state4 && !measured_negative_state4_pair &&
+         measured_matrix_distribution &&
+         combined_matrix_flags == (UINT32_C(1) << 6u) &&
+-        (int32_t)shared_fighter_threshold < 0) {
+-        status = hybrid_read_u8(
+-            machine, UINT32_C(0x0050a0b6), &countdown
+-        );
+-        if (status != VF2_OK) {
+-            return status;
+-        }
+-        mixed_negative_state4_bit6_zero_countdown = countdown == 0u;
+-    }
++        (int32_t)shared_fighter_threshold < 0;
+     threshold_fallback_state =
+         ((touches_negative_state8 &&
+           (!measured_negative_state8_pair || !measured_matrix_distribution ||
+@@ -12334,7 +12327,7 @@
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)))) &&
+         (int32_t)shared_fighter_threshold < 0 &&
+         !mixed_negative_state4_zero_flags &&
+-        !mixed_negative_state4_bit6_zero_countdown;
++        !mixed_negative_state4_bit6_path;
+     if (threshold_fallback_state) {
+         status = hybrid_read_u8(
+             machine, UINT32_C(0x0050a0b6), &countdown
+@@ -13133,7 +13126,7 @@
+ 
+     native_18644_fighter_path =
+         native_18644_fighter_path ||
+-        mixed_negative_state4_bit6_zero_countdown;
++        mixed_negative_state4_bit6_path;
+     combined_flags = fighter0_flags & fighter1_flags;
+     cpu->registers[3] = combined_flags;
+     native_instructions += UINT64_C(2); /* and + bbc */
+--- /dev/null
++++ b/decomp/i960/notes/game_info_mixed_state4_bit6_countdown_v0150.md
+@@ -0,0 +1,32 @@
++# Mixed negative state-4 bit-6 countdown recovery (v0150)
++
++## Scope
++
++v0150 extends the v0149 native `fa_game_info` recovery for mixed state-4 pairs at a negative shared threshold when the combined `+0x1a4` flags are exactly bit 6.
++
++v0149 admitted this family only when the global countdown byte at `0x0050a0b6` was zero. ROM-backed probes now show that the same recovered C path is exact when the countdown is nonzero as well, so the countdown restriction is removed.
++
++## Evidence
++
++Starting from the same controlled mixed-state matrix used by v0149, the countdown byte was changed from zero to one and each case was executed from `0x0001645c` to the task return boundary at `0x00010dcc` with the ROM executor and the native recovered task.
++
++The matrix covers:
++
++- state 4 on either fighter;
++- the other fighter in states `0,1,2,3,5,6,7,8,9,10,15,255`;
++- bit 6 on the state-4 fighter, on the other fighter, or on both;
++- runtime mode bit 6 clear and set.
++
++Result: **144/144 countdown-nonzero cases match exactly** in CPU state, memory, calls/returns, and architectural state. Together with the 144 v0149 countdown-zero cases, this family now has 288 exact ROM-backed differentials.
++
++A representative countdown-nonzero reference path reaches `0x00010dcc` in 21 ROM instructions. The native recovered block reports 19 recovered instructions internally while producing an exact final snapshot, consistent with the block/task accounting boundary used by the native executor.
++
++## Native change
++
++The mixed negative state-4 bit-6 selector no longer reads the countdown byte merely to decide whether native execution is allowed. Once the measured state/flag/threshold predicate is satisfied, `hybrid_execute_game_info_18644` is used for both zero and nonzero countdown values.
++
++Unknown mixed state-4 flag combinations remain fail-closed behind the interpreted fallback.
++
++## Regression
++
++The ROM-backed CTest suite remains green: tests 1-45 passed in the first run and tests 46-52 passed 7/7 in the continuation.
