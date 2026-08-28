@@ -1,0 +1,114 @@
+name: v0133 positive bit6 high-family integration
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0133-positive-bit6-high-family.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Integrate ROM-measured positive bit6 high triples and quads
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+
+          old = '''        const bool measured_positive_state8_bit6_mask =\n            (combined_state8_flags & bit6) != 0u &&\n            (combined_state8_flags & ~measured_bits) == 0u &&\n            (selected_high_bits == 0u ||\n             ((one_high_bit || two_high_bits) &&\n              (combined_state8_flags & bit8) != 0u &&\n              (combined_state8_flags & low_bits) == 0u) ||\n             (selected_high_bits == high_bits &&\n              (combined_state8_flags & bit8) != 0u));\n'''
+          masks = [
+              0x24200140, 0x44200140, 0x84200140, 0x60200140, 0xa0200140,
+              0xc0200140, 0x64000140, 0xa4000140, 0xc4000140, 0xe0000140,
+              0x64200140, 0xa4200140, 0xc4200140, 0xe0200140, 0xe4000140,
+          ]
+          mask_lines = '\n'.join(
+              f'            combined_state8_flags == UINT32_C(0x{mask:08x}) ||'
+              for mask in masks
+          )
+          mask_lines = mask_lines[:-3]
+          new = f'''        const bool measured_positive_state8_bit6_high_3_4_mask =\n{mask_lines};\n        const bool measured_positive_state8_bit6_mask =\n            measured_positive_state8_bit6_high_3_4_mask ||\n            ((combined_state8_flags & bit6) != 0u &&\n             (combined_state8_flags & ~measured_bits) == 0u &&\n             (selected_high_bits == 0u ||\n              ((one_high_bit || two_high_bits) &&\n               (combined_state8_flags & bit8) != 0u &&\n               (combined_state8_flags & low_bits) == 0u) ||\n              (selected_high_bits == high_bits &&\n               (combined_state8_flags & bit8) != 0u)));\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'positive bit6 predicate count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old_mode = '''    if (status == VF2_OK &&\n        (native_state8_bit6_bit14_high21_fighter_path ||\n'''
+          new_mode = '''    if (status == VF2_OK &&\n        (native_bit6_fighter_path ||\n         native_state8_bit6_bit14_high21_fighter_path ||\n'''
+          if text.count(old_mode) != 1:
+              raise SystemExit(f'mode-load gate count={text.count(old_mode)}')
+          text = text.replace(old_mode, new_mode, 1)
+
+          anchor = '''    native_instructions += UINT64_C(1); /* task RET */\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'task-ret anchor count={text.count(anchor)}')
+          conds = ' ||\n            '.join(
+              f'combined_positive_bit6_flags == UINT32_C(0x{mask:08x})'
+              for mask in masks
+          )
+          accounting = f'''    {{\n        const uint32_t combined_positive_bit6_flags =\n            fighter0_state_flags | fighter1_state_flags;\n        const bool measured_positive_bit6_high_3_4_family =\n            {conds};\n        if (native_bit6_fighter_path &&\n            measured_positive_bit6_high_3_4_family) {{\n            const bool fighter0_only =\n                fighter0_state_flags == combined_positive_bit6_flags &&\n                fighter1_state_flags == 0u;\n            const bool bilateral =\n                fighter0_state_flags == combined_positive_bit6_flags &&\n                fighter1_state_flags == combined_positive_bit6_flags;\n            uint64_t excess = bilateral ? UINT64_C(6) : UINT64_C(3);\n            if (!countdown_was_nonzero &&\n                (mode_value & (UINT8_C(1) << 6u)) != 0u) {{\n                excess += fighter0_only ? UINT64_C(5) : UINT64_C(1);\n            }}\n            native_instructions -= excess;\n            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {{\n                vf2_i960_local_frame *stale =\n                    &cpu->local_frames[cpu->local_frame_depth + 1u];\n                stale->registers[3] = UINT32_C(0x41000000);\n                stale->registers[4] = UINT32_C(0x07800f0f);\n                stale->registers[7] = UINT32_C(0x41000000);\n                if (!fighter0_only) {{\n                    stale->registers[15] = UINT32_C(1);\n                }}\n            }}\n        }}\n    }}\n'''
+          text = text.replace(anchor, accounting + anchor, 1)
+          path.write_text(text)
+
+          note = Path('decomp/i960/notes/game_info_1645c_positive_bit6_high_3_4_v0133.md')
+          note.write_text('''# `fa_game_info` `0x1645c`: positive state-8 bit-6 high triples/quads\n\n## ROM-backed measurement\n\nThe user-supplied 36-chip Virtua Fighter 2 ROM set was used locally as the\nsequential i960 oracle. `compare-boot` and `native-fifth-dispatch` both matched\nbefore probing this family. No ROM data or derived snapshot is committed.\n\nThe ten high-bit triples and five high-bit quads over bits 21, 26, 29, 30 and\n31 were forced through the recovered child with state byte 8, flag bits 8+6,\nno low bits 1/2/4, and the standard three fighter-record distributions. Every\nmask was measured for countdown 0/1, mode bit 6 clear/set and thresholds 0, 1\nand 2: 36 fixtures per mask, 540 fixtures total.\n\nAfter recovering the shared dispatcher accounting and stale-frame\npostcondition, all 15 masks match 36/36 exactly, including snapshot,\narchitectural signature and instruction/call/return counters.\n\nThe shared pre-correction native excess is:\n\n- fighter-0-only: +3 instructions, except countdown=0/mode6=1 => +8;\n- fighter-1-only: +3 instructions, except countdown=0/mode6=1 => +4;\n- bilateral: +6 instructions, except countdown=0/mode6=1 => +7.\n\nThe ROM also leaves the same historical frame values for the entire family:\n`r3=0x41000000`, `r4=0x07800f0f`, `r7=0x41000000`, and `r15=1` whenever\nfighter 1 participates.\n\n## Admitted masks\n\nTriples: `0x24200140`, `0x44200140`, `0x84200140`, `0x60200140`,\n`0xa0200140`, `0xc0200140`, `0x64000140`, `0xa4000140`, `0xc4000140`,\n`0xe0000140`.\n\nQuads: `0x64200140`, `0xa4200140`, `0xc4200140`, `0xe0200140`,\n`0xe4000140`.\n\nTogether with the previously measured singles, pairs and all-five-high mask,\nthis closes every non-empty high-bit subset for the positive state-8 bit-6 +\nbit-8 / no-low-bits family. Low-bit mixing outside the separately proven\nall-five-high family remains fail-closed.\n''')
+
+          docs = Path('docs/UNCOVERED_BRANCHES.md')
+          d = docs.read_text()
+          needle = '''All ten pairwise combinations of high bits 21, 26, 29, 30 and 31 with state\nbit 8 and fighter bit 6 are exact across their 12-case matrices too: masks\n'''
+          if needle not in d:
+              raise SystemExit('positive bit6 docs anchor missing')
+          insert = '''All ten high-bit triples and all five high-bit quads over bits 21, 26, 29,\n30 and 31 with state bit 8 and fighter bit 6 are now ROM-measured through the\nfull `0x1645c` dispatcher as well. Each mask is exact across 36 fixtures\ncovering the three fighter distributions, countdown 0/1, mode bit 6 clear/set\nand thresholds 0..2 (540 fixtures total). Together with the existing singles,\npairs and all-five-high mask, every non-empty high-bit subset is now admitted\nfor the no-low-bits positive bit-6+bit-8 family; unmeasured low-bit mixes remain\nfail-closed.\n'''
+          # Place after the existing pair paragraph block by locating its closing sentence.
+          end = '''nine newly added matrices extend the measured positive family to 360 unique\ncases. Other positive high-bit compositions remain explicit boundaries.\n'''
+          if d.count(end) != 1:
+              raise SystemExit(f'pair paragraph end count={d.count(end)}')
+          d = d.replace(end, end + insert, 1)
+          docs.write_text(d)
+          PY
+
+      - name: Configure GCC
+        run: cmake -S . -B build-gcc -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build GCC
+        run: cmake --build build-gcc --parallel
+      - name: Test GCC
+        run: ctest --test-dir build-gcc --output-on-failure
+
+      - name: Configure Clang
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-clang -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build Clang
+        run: cmake --build build-clang --parallel
+      - name: Test Clang
+        run: ctest --test-dir build-clang --output-on-failure
+
+      - name: Configure Clang sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-san -G Ninja -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON -DVF2_ENABLE_SANITIZERS=ON
+      - name: Build Clang sanitizers
+        run: cmake --build build-san --parallel
+      - name: Test Clang sanitizers
+        run: ctest --test-dir build-san --output-on-failure
+
+      - name: Commit v0133
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0133-positive-bit6-high-family.yml
+          git add src/recovered/hybrid.c docs/UNCOVERED_BRANCHES.md decomp/i960/notes/game_info_1645c_positive_bit6_high_3_4_v0133.md
+          git commit -m "Recover positive state8 bit6 high triples and quads"
+          git push origin HEAD:master
