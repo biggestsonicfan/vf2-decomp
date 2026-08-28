@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply v0142 patch
         run: |
-          git apply .github/v0142.patch
+          git apply --recount .github/v0142.patch
           git diff --check
       - name: Add ROM-backed note
         run: |
