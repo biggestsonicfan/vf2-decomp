@@ -12145,8 +12145,16 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     /* State-4 oracle fixtures set +0xa00 to 4 for both fighters.
      * Keep native state-4 admissions inside that measured bilateral domain;
      * mixed state pairs remain on the conservative fallback path. */
+    const uint32_t combined_state4_flags =
+        fighter0_state_flags | fighter1_state_flags;
+    const uint32_t measured_state4_flag_mask =
+        (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+        (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+    const bool measured_state4_flag_domain =
+        (combined_state4_flags & ~measured_state4_flag_mask) == 0u;
     native_state4_bit15_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 15u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12159,7 +12167,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     {
         const uint32_t state4_flags =
             fighter0_state_flags | fighter1_state_flags;
-        const bool state4 = fighter0_state == 4u && fighter1_state == 4u;
+        const bool state4 =
+            fighter0_state == 4u && fighter1_state == 4u &&
+            measured_state4_flag_domain;
         const uint32_t bit6 = UINT32_C(1) << 6u;
         const uint32_t bit14 = UINT32_C(1) << 14u;
         const uint32_t bit15 = UINT32_C(1) << 15u;
@@ -12193,10 +12203,12 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     const bool native_state4_neutral_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          conditional_state_mask) == 0u;
     const bool native_state4_bit14_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 14u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12204,6 +12216,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
           (UINT32_C(1) << 6u))) == 0u;
     const bool native_state4_bit16_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 16u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12211,6 +12224,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
           (UINT32_C(1) << 6u))) == 0u;
     const bool native_state4_bit6_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 6u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12218,6 +12232,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
           (UINT32_C(1) << 16u))) == 0u;
     const bool native_state4_bit14_bit16_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 14u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12226,6 +12241,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          ((UINT32_C(1) << 15u) | (UINT32_C(1) << 6u))) == 0u;
     const bool native_state4_bit6_bit14_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 6u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12234,6 +12250,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
          ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) == 0u;
     const bool native_state4_bit6_bit16_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
+        measured_state4_flag_domain &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 6u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
