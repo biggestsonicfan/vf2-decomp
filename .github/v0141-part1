@@ -1,0 +1,55 @@
++        status = vf2_model2a_read_u32(machine, UINT32_C(0x005001e4), &cursor);
++        if (status == VF2_OK) {
++            status = vf2_model2a_write_u32(machine, UINT32_C(0x0090e000) + cursor, r3);
++        }
++        cursor += UINT32_C(4);
++        if (status == VF2_OK) {
++            const uint8_t cursor_byte = (uint8_t)cursor;
++            status = vf2_model2a_write(machine, UINT32_C(0x005001e4), &cursor_byte, 1u);
++        }
++        if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, commands[index]);
++    }
++
++    status = status == VF2_OK ? vf2_model2a_read_u32(machine, UINT32_C(0x005001e4), &cursor) : status;
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x0090e000) + cursor, r4);
++        cursor = (cursor + UINT32_C(4)) & ~UINT32_C(0x100);
++    }
++    if (status == VF2_OK) {
++        const uint8_t cursor_byte = (uint8_t)cursor;
++        status = vf2_model2a_write(machine, UINT32_C(0x005001e4), &cursor_byte, 1u);
++    }
++
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x37806f6f));
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x03800707));
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) status = post_boot_copro_write(machine, cpu, r4);
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x06000c0c));
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) status = post_boot_copro_write(machine, cpu, UINT32_C(0x09801313));
++    if (status == VF2_OK) status = post_boot_copro_read(machine, cpu, &value);
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x02800505));
++    for (index = 0u; status == VF2_OK && index < 12u; ++index) {
++        status = post_boot_copro_read(machine, cpu, &value);
++        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, g5 + (uint32_t)index * 4u, value);
++    }
++    g5 += UINT32_C(0x30);
++
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) status = post_boot_copro_write(machine, cpu, UINT32_C(0x01000202));
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x09801313));
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, r4);
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, r5);
++    if (status == VF2_OK) status = post_boot_copro_read(machine, cpu, &value);
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, g5, value);
++    g5 += UINT32_C(4);
++
++#define COPRO_RESULT(cmd, first, second, mask16) do { \
++        if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, (cmd)); \
++        if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, (first)); \
++        if (status == VF2_OK && (second) != UINT32_MAX) status = post_boot_copro_write(machine, cpu, (second)); \
++        if (status == VF2_OK) status = post_boot_copro_read(machine, cpu, &value); \
++        if (mask16) value &= UINT32_C(0xffff); \
++        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, g5, value); \
++        g5 += UINT32_C(4); \
++    } while (0)
++    COPRO_RESULT(UINT32_C(0x0a001414), r5, r4, 0);
++    COPRO_RESULT(UINT32_C(0x0a801515), r4, r5, 0);
++    COPRO_RESULT(UINT32_C(0x0b001616), r5, r4, 0);
