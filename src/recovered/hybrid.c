@@ -13989,6 +13989,18 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             }
         }
     }
+    /* ROM-backed neutral bit-31 corridor: when both fighter state bytes and
+     * both +0x1a4 state-flag words are zero at a nonnegative shared
+     * threshold, the dispatcher leaves the final condition code EQUAL.
+     * Memory, registers and accounting already match; preserve only this
+     * measured architectural postcondition without broadening the state-4/8
+     * families below. */
+    if (fighter0_state == 0u && fighter1_state == 0u &&
+        fighter0_state_flags == 0u && fighter1_state_flags == 0u &&
+        (int32_t)shared_fighter_threshold >= 0) {
+        hybrid_set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    }
+
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
         (measured_negative_state4_pair ||
