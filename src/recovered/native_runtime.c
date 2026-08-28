@@ -123,6 +123,8 @@
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN UINT32_C(0x0002ec20)
 #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY UINT32_C(0x00009a00)
 #define VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY UINT32_C(0x0000a178)
+#define VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY UINT32_C(0x0000a3d4)
+#define VF2_NATIVE_POST_BOOT_COPRO_INIT_RETURN UINT32_C(0x00009f74)
 #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY UINT32_C(0x00009fb0)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED UINT32_C(0x00031004)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INSTRUCTIONS UINT64_C(90)
@@ -5034,6 +5036,222 @@ execute_post_boot_resumed_luma_return(vf2_model2a *machine,
 }
 
 static vf2_status
+post_boot_copro_write(vf2_model2a *machine, const vf2_i960_cpu *cpu,
+                      uint32_t value) {
+    const uint32_t address = cpu->registers[27] + cpu->registers[28];
+    if (address != VF2_COPRO_PORT_BASE + UINT32_C(0x4000)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    return vf2_model2a_write_u32(machine, address, value);
+}
+
+static vf2_status
+post_boot_copro_read(vf2_model2a *machine, const vf2_i960_cpu *cpu,
+                     uint32_t *value) {
+    const uint32_t address = cpu->registers[27] + cpu->registers[28];
+    if (address != VF2_COPRO_PORT_BASE + UINT32_C(0x4000)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    return vf2_model2a_read_u32(machine, address, value);
+}
+
+static vf2_status
+execute_post_boot_copro_helper(vf2_model2a *machine, vf2_i960_cpu *cpu) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_returns = cpu->procedure_returns;
+    uint32_t g5 = cpu->registers[21];
+    const uint32_t r3 = UINT32_C(0x00003039);
+    const uint32_t r4 = UINT32_C(0x3f9e0419);
+    const uint32_t r5 = UINT32_C(0x3f800000);
+    uint32_t cursor = 0u;
+    uint32_t value = 0u;
+    size_t index = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY ||
+        cpu->local_frame_depth != 5u ||
+        (g5 != UINT32_C(0x0050e000) && g5 != UINT32_C(0x0050e800))) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    status = post_boot_copro_write(machine, cpu, UINT32_C(0x00800101));
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x00800101));
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x00800101));
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x01800303));
+
+    /* Three identical scalar probes are mirrored through the byte cursor. */
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+        static const uint32_t commands[3] = {
+            UINT32_C(0x36006c6c), UINT32_C(0x36806d6d), UINT32_C(0x37006e6e)
+        };
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x005001e4), &cursor);
+        if (status == VF2_OK) {
+            status = vf2_model2a_write_u32(machine, UINT32_C(0x0090e000) + cursor, r3);
+        }
+        cursor += UINT32_C(4);
+        if (status == VF2_OK) {
+            const uint8_t cursor_byte = (uint8_t)cursor;
+            status = vf2_model2a_write(machine, UINT32_C(0x005001e4), &cursor_byte, 1u);
+        }
+        if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, commands[index]);
+    }
+
+    status = status == VF2_OK ? vf2_model2a_read_u32(machine, UINT32_C(0x005001e4), &cursor) : status;
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x0090e000) + cursor, r4);
+        cursor = (cursor + UINT32_C(4)) & ~UINT32_C(0x100);
+    }
+    if (status == VF2_OK) {
+        const uint8_t cursor_byte = (uint8_t)cursor;
+        status = vf2_model2a_write(machine, UINT32_C(0x005001e4), &cursor_byte, 1u);
+    }
+
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x37806f6f));
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x03800707));
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) status = post_boot_copro_write(machine, cpu, r4);
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x06000c0c));
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) status = post_boot_copro_write(machine, cpu, UINT32_C(0x09801313));
+    if (status == VF2_OK) status = post_boot_copro_read(machine, cpu, &value);
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x02800505));
+    for (index = 0u; status == VF2_OK && index < 12u; ++index) {
+        status = post_boot_copro_read(machine, cpu, &value);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, g5 + (uint32_t)index * 4u, value);
+    }
+    g5 += UINT32_C(0x30);
+
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) status = post_boot_copro_write(machine, cpu, UINT32_C(0x01000202));
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x09801313));
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, r4);
+    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, r5);
+    if (status == VF2_OK) status = post_boot_copro_read(machine, cpu, &value);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, g5, value);
+    g5 += UINT32_C(4);
+
+#define COPRO_RESULT(cmd, first, second, mask16) do { \
+        if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, (cmd)); \
+        if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, (first)); \
+        if (status == VF2_OK && (second) != UINT32_MAX) status = post_boot_copro_write(machine, cpu, (second)); \
+        if (status == VF2_OK) status = post_boot_copro_read(machine, cpu, &value); \
+        if (mask16) value &= UINT32_C(0xffff); \
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, g5, value); \
+        g5 += UINT32_C(4); \
+    } while (0)
+    COPRO_RESULT(UINT32_C(0x0a001414), r5, r4, 0);
+    COPRO_RESULT(UINT32_C(0x0a801515), r4, r5, 0);
+    COPRO_RESULT(UINT32_C(0x0b001616), r5, r4, 0);
+    COPRO_RESULT(UINT32_C(0x16802d2d), r4, r5, 0);
+    COPRO_RESULT(UINT32_C(0x10802121), r3, UINT32_MAX, 0);
+    COPRO_RESULT(UINT32_C(0x11002222), r3, UINT32_MAX, 0);
+    COPRO_RESULT(UINT32_C(0x13802727), r4, r5, 1);
+#undef COPRO_RESULT
+
+    if (status != VF2_OK) return status;
+    cpu->registers[21] = g5;
+    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+    cpu->compare_result = VF2_I960_COMPARE_LESS;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK) return status;
+    cpu->executed_instructions = start_instructions + UINT64_C(147);
+    if (cpu->procedure_returns != start_returns + UINT64_C(1)) return VF2_ERROR_UNSUPPORTED;
+    return VF2_OK;
+}
+
+static vf2_status
+execute_post_boot_copro_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                             vf2_native_runtime_step_report *report) {
+    static const uint32_t destinations[8] = {
+        UINT32_C(0x01000a14), UINT32_C(0x01000a94), UINT32_C(0x01000b14), UINT32_C(0x01000b94),
+        UINT32_C(0x01000a14), UINT32_C(0x01000a94), UINT32_C(0x01000b14), UINT32_C(0x01000b94)
+    };
+    static const uint32_t sources[8] = {
+        UINT32_C(0x0000a188), UINT32_C(0x0000a1b0), UINT32_C(0x0000a1cc), UINT32_C(0x0000a208),
+        UINT32_C(0x0000a2c4), UINT32_C(0x0000a300), UINT32_C(0x0000a33c), UINT32_C(0x0000a378)
+    };
+    static const uint32_t exits[8] = {
+        UINT32_C(0x0000a1a0), UINT32_C(0x0000a1bc), UINT32_C(0x0000a1f8), UINT32_C(0x0000a234),
+        UINT32_C(0x0000a2f0), UINT32_C(0x0000a32c), UINT32_C(0x0000a368), UINT32_C(0x0000a3a4)
+    };
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_hybrid_bridge_report text_report;
+    uint32_t i = 0u;
+    uint32_t left = UINT32_C(0x0050e000);
+    uint32_t right = UINT32_C(0x0050e800);
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY || cpu->local_frame_depth != 4u ||
+        cpu->registers[27] + cpu->registers[28] != VF2_COPRO_PORT_BASE + UINT32_C(0x4000)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    for (i = 0u; i < 4u; ++i) {
+        memset(&text_report, 0, sizeof(text_report));
+        cpu->registers[25] = destinations[i];
+        cpu->registers[14] = sources[i];
+        status = execute_inline_text_thunk(machine, cpu, &text_report);
+        if (status != VF2_OK || cpu->ip != exits[i]) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    for (i = 0u; status == VF2_OK && i < UINT32_C(1280); ++i) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050e000) + i * 4u, 0u);
+    }
+    for (i = 0u; status == VF2_OK && i < UINT32_C(1280); ++i) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050e800) + i * 4u, UINT32_C(10));
+    }
+    if (status != VF2_OK) return status;
+
+    cpu->registers[21] = UINT32_C(0x0050e000);
+    status = vf2_i960_cpu_enter_procedure(cpu, VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY, UINT32_C(0x0000a280));
+    if (status == VF2_OK) status = execute_post_boot_copro_helper(machine, cpu);
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a280)) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    cpu->registers[21] = UINT32_C(0x0050e800);
+    status = vf2_i960_cpu_enter_procedure(cpu, VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY, UINT32_C(0x0000a28c));
+    if (status == VF2_OK) status = execute_post_boot_copro_helper(machine, cpu);
+    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a28c)) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+
+    while (right < cpu->registers[21]) {
+        uint32_t a = 0u, b = 0u;
+        status = vf2_model2a_read_u32(machine, left, &a);
+        if (status == VF2_OK) status = vf2_model2a_read_u32(machine, right, &b);
+        if (status != VF2_OK) return status;
+        if (a != b) return VF2_ERROR_UNSUPPORTED;
+        left += 4u;
+        right += 4u;
+    }
+    if (right != cpu->registers[21]) return VF2_ERROR_UNSUPPORTED;
+
+    for (i = 4u; i < 8u; ++i) {
+        memset(&text_report, 0, sizeof(text_report));
+        cpu->registers[25] = destinations[i];
+        cpu->registers[14] = sources[i];
+        status = execute_inline_text_thunk(machine, cpu, &text_report);
+        if (status != VF2_OK || cpu->ip != exits[i]) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+    cpu->compare_result = VF2_I960_COMPARE_GREATER;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK || cpu->ip != VF2_NATIVE_POST_BOOT_COPRO_INIT_RETURN) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    cpu->executed_instructions = start_instructions + UINT64_C(13324);
+    if (cpu->procedure_calls != start_calls + UINT64_C(10) ||
+        cpu->procedure_returns != start_returns + UINT64_C(11)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    memset(report, 0, sizeof(*report));
+    report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPRO_INIT;
+    report->entry_address = VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = UINT64_C(13324);
+    report->recovered_procedure_calls = UINT64_C(10);
+    report->recovered_procedure_returns = UINT64_C(11);
+    return VF2_OK;
+}
+
+static vf2_status
 execute_post_boot_main_loop_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                  vf2_native_runtime_step_report *report) {
     const uint64_t start_instructions = cpu->executed_instructions;
@@ -6267,6 +6485,8 @@ vf2_status vf2_native_runtime_step_impl(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = execute_post_boot_resumed_luma_return(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY) {
         status = execute_post_boot_main_loop_init(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY) {
+        status = execute_post_boot_copro_init(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_POST_BOOT_GEOMETRY_PATTERN_ENTRY ||
                cpu->ip == VF2_NATIVE_POST_BOOT_PATTERN_WAIT_EXIT) {
         status = execute_post_boot_geometry_pattern(machine, cpu, &local_report);
@@ -6895,6 +7115,8 @@ const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind)
         return "post-boot-resumed-luma-return";
     case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT:
         return "post-boot-main-loop-init";
+    case VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPRO_INIT:
+        return "post-boot-copro-init";
     default:
         return "unknown";
     }
