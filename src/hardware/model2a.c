@@ -257,6 +257,9 @@ static uint8_t model2a_host_input_port(
         if ((input & VF2_PLATFORM_BUTTON_COIN) != 0u) {
             value &= (uint8_t)~UINT8_C(0x01);
         }
+        if ((input & VF2_PLATFORM_BUTTON_TEST) != 0u) {
+            value &= (uint8_t)~UINT8_C(0x04);
+        }
         if ((input & VF2_PLATFORM_BUTTON_SERVICE) != 0u) {
             value &= (uint8_t)~UINT8_C(0x08);
         }
