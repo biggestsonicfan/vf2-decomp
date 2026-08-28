@@ -1,0 +1,19 @@
+--- a/src/recovered/native_runtime.c
++++ b/src/recovered/native_runtime.c
+@@ -5179,34 +5210,96 @@
+         status = vf2_model2a_write(machine, UINT32_C(0x00548004), &zero, sizeof(zero));
+     }
+     if (status == VF2_OK) {
+-        status = vf2_model2a_write(machine, UINT32_C(0x00548005), (uint8_t[]){3u}, 1u);
++        status = vf2_model2a_write(machine, UINT32_C(0x00548005), (uint8_t[]){1u}, 1u);
+     }
+-    for (index = 0u; status == VF2_OK && index < UINT32_C(0x1fe); ++index) {
++    for (index = 0u; status == VF2_OK && index < UINT32_C(480); ++index) {
+         status = vf2_model2a_write_u32(machine,
+                                        UINT32_C(0x00548010) + index * UINT32_C(0x40) +
+                                            UINT32_C(0x30),
+-                                       0u);
++                                       UINT32_MAX);
+     }
+ 
+-    memset(&text_report, 0, sizeof(text_report));
