@@ -12205,6 +12205,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool threshold_fallback_countdown = false;
     bool mixed_negative_state4_zero_flags = false;
     bool mixed_negative_state4_bit6_path = false;
+    bool mixed_negative_state4_bit14_path = false;
     bool native_18644_fighter_path = false;
     bool native_state8_bit14_accounting_case = false;
     bool native_state8_bit14_bit15_bit16_high21_accounting_case = false;
@@ -12316,6 +12317,11 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         measured_matrix_distribution &&
         combined_matrix_flags == (UINT32_C(1) << 6u) &&
         (int32_t)shared_fighter_threshold < 0;
+    mixed_negative_state4_bit14_path =
+        touches_negative_state4 && !measured_negative_state4_pair &&
+        measured_matrix_distribution &&
+        combined_matrix_flags == (UINT32_C(1) << 14u) &&
+        (int32_t)shared_fighter_threshold < 0;
     threshold_fallback_state =
         ((touches_negative_state8 &&
           (!measured_negative_state8_pair || !measured_matrix_distribution ||
@@ -12327,7 +12333,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)))) &&
         (int32_t)shared_fighter_threshold < 0 &&
         !mixed_negative_state4_zero_flags &&
-        !mixed_negative_state4_bit6_path;
+        !mixed_negative_state4_bit6_path &&
+        !mixed_negative_state4_bit14_path;
     if (threshold_fallback_state) {
         status = hybrid_read_u8(
             machine, UINT32_C(0x0050a0b6), &countdown
@@ -13126,7 +13133,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
 
     native_18644_fighter_path =
         native_18644_fighter_path ||
-        mixed_negative_state4_bit6_path;
+        mixed_negative_state4_bit6_path ||
+        mixed_negative_state4_bit14_path;
     combined_flags = fighter0_flags & fighter1_flags;
     cpu->registers[3] = combined_flags;
     native_instructions += UINT64_C(2); /* and + bbc */
