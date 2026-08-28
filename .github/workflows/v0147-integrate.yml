@@ -1,0 +1,41 @@
+name: v0147 bit31 state-condition integration
+
+on:
+  push:
+    paths:
+      - '.github/v0147.patch'
+      - '.github/workflows/v0147-integrate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply v0147 recovery
+        run: |
+          git apply --index .github/v0147.patch
+          git diff --cached --check
+
+      - name: Configure
+        run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Commit recovery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/v0147.patch .github/workflows/v0147-integrate.yml
+          git commit -m "Generalize game-info bit31 state condition"
+          git push origin HEAD:master
