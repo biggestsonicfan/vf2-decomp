@@ -12209,6 +12209,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool mixed_negative_state4_bit15_path = false;
     bool mixed_negative_state4_bit16_path = false;
     bool mixed_negative_state4_bit14_bit16_path = false;
+    bool mixed_negative_state4_bit15_bit16_path = false;
+    bool mixed_negative_state4_bit14_bit15_path = false;
+    bool mixed_negative_state4_bit14_bit15_bit16_path = false;
     bool native_18644_fighter_path = false;
     bool native_state8_bit14_accounting_case = false;
     bool native_state8_bit14_bit15_bit16_high21_accounting_case = false;
@@ -12340,6 +12343,22 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         measured_matrix_distribution &&
         combined_matrix_flags == ((UINT32_C(1) << 14u) | (UINT32_C(1) << 16u)) &&
         (int32_t)shared_fighter_threshold < 0;
+    mixed_negative_state4_bit15_bit16_path =
+        touches_negative_state4 && !measured_negative_state4_pair &&
+        measured_matrix_distribution &&
+        combined_matrix_flags == ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u)) &&
+        (int32_t)shared_fighter_threshold < 0;
+    mixed_negative_state4_bit14_bit15_path =
+        touches_negative_state4 && !measured_negative_state4_pair &&
+        measured_matrix_distribution &&
+        combined_matrix_flags == ((UINT32_C(1) << 14u) | (UINT32_C(1) << 15u)) &&
+        (int32_t)shared_fighter_threshold < 0;
+    mixed_negative_state4_bit14_bit15_bit16_path =
+        touches_negative_state4 && !measured_negative_state4_pair &&
+        measured_matrix_distribution &&
+        combined_matrix_flags == ((UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
+                                  (UINT32_C(1) << 16u)) &&
+        (int32_t)shared_fighter_threshold < 0;
     threshold_fallback_state =
         ((touches_negative_state8 &&
           (!measured_negative_state8_pair || !measured_matrix_distribution ||
@@ -12355,7 +12374,10 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         !mixed_negative_state4_bit14_path &&
         !mixed_negative_state4_bit15_path &&
         !mixed_negative_state4_bit16_path &&
-        !mixed_negative_state4_bit14_bit16_path;
+        !mixed_negative_state4_bit14_bit16_path &&
+        !mixed_negative_state4_bit15_bit16_path &&
+        !mixed_negative_state4_bit14_bit15_path &&
+        !mixed_negative_state4_bit14_bit15_bit16_path;
     if (threshold_fallback_state) {
         status = hybrid_read_u8(
             machine, UINT32_C(0x0050a0b6), &countdown
@@ -12480,6 +12502,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         (combined_state4_flags & ~measured_state4_flag_mask) == 0u;
     native_state4_bit15_fighter_path =
         mixed_negative_state4_bit15_path ||
+        mixed_negative_state4_bit14_bit15_path ||
         (fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
         measured_matrix_distribution &&
@@ -12505,8 +12528,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         const uint32_t bit16 = UINT32_C(1) << 16u;
 
         native_state4_bit15_bit16_fighter_path =
-            state4 && (state4_flags & (bit15 | bit16)) == (bit15 | bit16) &&
-            (state4_flags & (bit6 | bit14)) == 0u;
+            mixed_negative_state4_bit15_bit16_path ||
+            (state4 && (state4_flags & (bit15 | bit16)) == (bit15 | bit16) &&
+            (state4_flags & (bit6 | bit14)) == 0u);
         native_state4_bit6_bit15_fighter_path =
             state4 && (state4_flags & (bit6 | bit15)) == (bit6 | bit15) &&
             (state4_flags & (bit14 | bit16)) == 0u;
@@ -12523,9 +12547,10 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                           (bit6 | bit15 | bit16) &&
             (state4_flags & bit14) == 0u;
         native_state4_bit14_bit15_bit16_fighter_path =
-            state4 && (state4_flags & (bit14 | bit15 | bit16)) ==
+            mixed_negative_state4_bit14_bit15_bit16_path ||
+            (state4 && (state4_flags & (bit14 | bit15 | bit16)) ==
                           (bit14 | bit15 | bit16) &&
-            (state4_flags & bit6) == 0u;
+            (state4_flags & bit6) == 0u);
         native_state4_all_bits_fighter_path =
             state4 && (state4_flags & (bit6 | bit14 | bit15 | bit16)) ==
                           (bit6 | bit14 | bit15 | bit16);
@@ -13160,7 +13185,10 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         mixed_negative_state4_bit14_path ||
         mixed_negative_state4_bit15_path ||
         mixed_negative_state4_bit16_path ||
-        mixed_negative_state4_bit14_bit16_path;
+        mixed_negative_state4_bit14_bit16_path ||
+        mixed_negative_state4_bit15_bit16_path ||
+        mixed_negative_state4_bit14_bit15_path ||
+        mixed_negative_state4_bit14_bit15_bit16_path;
     combined_flags = fighter0_flags & fighter1_flags;
     cpu->registers[3] = combined_flags;
     native_instructions += UINT64_C(2); /* and + bbc */
@@ -14056,6 +14084,16 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     if (mixed_negative_state4_bit15_path) {
         hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+    }
+    if (mixed_negative_state4_bit15_bit16_path ||
+        mixed_negative_state4_bit14_bit15_path ||
+        mixed_negative_state4_bit14_bit15_bit16_path) {
+        const uint32_t state4_side_flags =
+            fighter0_state == 4u ? fighter0_state_flags : fighter1_state_flags;
+        hybrid_set_compare_result(
+            cpu, countdown_was_nonzero || state4_side_flags != 0u
+                ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL
+        );
     }
     if (mixed_negative_state4_bit14_bit16_path) {
         hybrid_set_compare_result(
