@@ -1,0 +1,67 @@
++    COPRO_RESULT(UINT32_C(0x16802d2d), r4, r5, 0);
++    COPRO_RESULT(UINT32_C(0x10802121), r3, UINT32_MAX, 0);
++    COPRO_RESULT(UINT32_C(0x11002222), r3, UINT32_MAX, 0);
++    COPRO_RESULT(UINT32_C(0x13802727), r4, r5, 1);
++#undef COPRO_RESULT
++
++    if (status != VF2_OK) return status;
++    cpu->registers[21] = g5;
++    cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
++    cpu->compare_result = VF2_I960_COMPARE_LESS;
++    status = vf2_i960_cpu_return_procedure(cpu, machine);
++    if (status != VF2_OK) return status;
++    cpu->executed_instructions = start_instructions + UINT64_C(147);
++    if (cpu->procedure_returns != start_returns + UINT64_C(1)) return VF2_ERROR_UNSUPPORTED;
++    return VF2_OK;
++}
++
++static vf2_status
++execute_post_boot_copro_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
++                             vf2_native_runtime_step_report *report) {
++    static const uint32_t destinations[8] = {
++        UINT32_C(0x01000a14), UINT32_C(0x01000a94), UINT32_C(0x01000b14), UINT32_C(0x01000b94),
++        UINT32_C(0x01000a14), UINT32_C(0x01000a94), UINT32_C(0x01000b14), UINT32_C(0x01000b94)
++    };
++    static const uint32_t sources[8] = {
++        UINT32_C(0x0000a188), UINT32_C(0x0000a1b0), UINT32_C(0x0000a1cc), UINT32_C(0x0000a208),
++        UINT32_C(0x0000a2c4), UINT32_C(0x0000a300), UINT32_C(0x0000a33c), UINT32_C(0x0000a378)
++    };
++    static const uint32_t exits[8] = {
++        UINT32_C(0x0000a1a0), UINT32_C(0x0000a1bc), UINT32_C(0x0000a1f8), UINT32_C(0x0000a234),
++        UINT32_C(0x0000a2f0), UINT32_C(0x0000a32c), UINT32_C(0x0000a368), UINT32_C(0x0000a3a4)
++    };
++    const uint64_t start_instructions = cpu->executed_instructions;
++    const uint64_t start_calls = cpu->procedure_calls;
++    const uint64_t start_returns = cpu->procedure_returns;
++    vf2_hybrid_bridge_report text_report;
++    uint32_t i = 0u;
++    uint32_t left = UINT32_C(0x0050e000);
++    uint32_t right = UINT32_C(0x0050e800);
++    vf2_status status = VF2_OK;
++
++    if (machine == NULL || cpu == NULL || report == NULL ||
++        cpu->ip != VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY || cpu->local_frame_depth != 4u ||
++        cpu->registers[27] + cpu->registers[28] != VF2_COPRO_PORT_BASE + UINT32_C(0x4000)) {
++        return VF2_ERROR_UNSUPPORTED;
++    }
++
++    for (i = 0u; i < 4u; ++i) {
++        memset(&text_report, 0, sizeof(text_report));
++        cpu->registers[25] = destinations[i];
++        cpu->registers[14] = sources[i];
++        status = execute_inline_text_thunk(machine, cpu, &text_report);
++        if (status != VF2_OK || cpu->ip != exits[i]) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
++    }
++
++    for (i = 0u; status == VF2_OK && i < UINT32_C(1280); ++i) {
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050e000) + i * 4u, 0u);
++    }
++    for (i = 0u; status == VF2_OK && i < UINT32_C(1280); ++i) {
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x0050e800) + i * 4u, UINT32_C(10));
++    }
++    if (status != VF2_OK) return status;
++
++    cpu->registers[21] = UINT32_C(0x0050e000);
++    status = vf2_i960_cpu_enter_procedure(cpu, VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY, UINT32_C(0x0000a280));
++    if (status == VF2_OK) status = execute_post_boot_copro_helper(machine, cpu);
++    if (status != VF2_OK || cpu->ip != UINT32_C(0x0000a280)) return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
