@@ -1,0 +1,75 @@
+--- a/include/vf2/native_runtime.h
++++ b/include/vf2/native_runtime.h
+@@ -70,7 +70,8 @@
+     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT,
+     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_TABLE,
+     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_LUMA_RETURN,
+-    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT
++    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT,
++    VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPRO_INIT
+ } vf2_native_runtime_step_kind;
+ 
+ typedef struct vf2_native_runtime_state {
+--- a/src/recovered/native_runtime.c
++++ b/src/recovered/native_runtime.c
+@@ -123,6 +123,8 @@
+ #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN UINT32_C(0x0002ec20)
+ #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY UINT32_C(0x00009a00)
+ #define VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY UINT32_C(0x0000a178)
++#define VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY UINT32_C(0x0000a3d4)
++#define VF2_NATIVE_POST_BOOT_COPRO_INIT_RETURN UINT32_C(0x00009f74)
+ #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY UINT32_C(0x00009fb0)
+ #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED UINT32_C(0x00031004)
+ #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INSTRUCTIONS UINT64_C(90)
+@@ -5034,6 +5036,222 @@
+ }
+ 
+ static vf2_status
++post_boot_copro_write(vf2_model2a *machine, const vf2_i960_cpu *cpu,
++                      uint32_t value) {
++    const uint32_t address = cpu->registers[27] + cpu->registers[28];
++    if (address != VF2_COPRO_PORT_BASE + UINT32_C(0x4000)) {
++        return VF2_ERROR_UNSUPPORTED;
++    }
++    return vf2_model2a_write_u32(machine, address, value);
++}
++
++static vf2_status
++post_boot_copro_read(vf2_model2a *machine, const vf2_i960_cpu *cpu,
++                     uint32_t *value) {
++    const uint32_t address = cpu->registers[27] + cpu->registers[28];
++    if (address != VF2_COPRO_PORT_BASE + UINT32_C(0x4000)) {
++        return VF2_ERROR_UNSUPPORTED;
++    }
++    return vf2_model2a_read_u32(machine, address, value);
++}
++
++static vf2_status
++execute_post_boot_copro_helper(vf2_model2a *machine, vf2_i960_cpu *cpu) {
++    const uint64_t start_instructions = cpu->executed_instructions;
++    const uint64_t start_returns = cpu->procedure_returns;
++    uint32_t g5 = cpu->registers[21];
++    const uint32_t r3 = UINT32_C(0x00003039);
++    const uint32_t r4 = UINT32_C(0x3f9e0419);
++    const uint32_t r5 = UINT32_C(0x3f800000);
++    uint32_t cursor = 0u;
++    uint32_t value = 0u;
++    size_t index = 0u;
++    vf2_status status = VF2_OK;
++
++    if (machine == NULL || cpu == NULL || cpu->ip != VF2_NATIVE_POST_BOOT_COPRO_HELPER_ENTRY ||
++        cpu->local_frame_depth != 5u ||
++        (g5 != UINT32_C(0x0050e000) && g5 != UINT32_C(0x0050e800))) {
++        return VF2_ERROR_UNSUPPORTED;
++    }
++
++    status = post_boot_copro_write(machine, cpu, UINT32_C(0x00800101));
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x00800101));
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x00800101));
++    if (status == VF2_OK) status = post_boot_copro_write(machine, cpu, UINT32_C(0x01800303));
++
++    /* Three identical scalar probes are mirrored through the byte cursor. */
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
++        static const uint32_t commands[3] = {
++            UINT32_C(0x36006c6c), UINT32_C(0x36806d6d), UINT32_C(0x37006e6e)
++        };
