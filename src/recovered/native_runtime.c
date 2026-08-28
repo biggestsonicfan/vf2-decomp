@@ -122,6 +122,7 @@
 #define VF2_NATIVE_POST_BOOT_RESUMED_LUMA_RETURN UINT32_C(0x0001fee0)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN UINT32_C(0x0002ec20)
 #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY UINT32_C(0x00009a00)
+#define VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY UINT32_C(0x0000a178)
 #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY UINT32_C(0x00009fb0)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED UINT32_C(0x00031004)
 #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INSTRUCTIONS UINT64_C(90)
@@ -5045,12 +5046,13 @@ execute_post_boot_main_loop_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
     uint32_t flags = 0u;
     uint32_t index = 0u;
     uint8_t zero = 0u;
-    vf2_hybrid_bridge_report text_report;
+    uint32_t config_base = 0u;
+    uint8_t config_value = 0u;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || report == NULL ||
         cpu->ip != VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY ||
-        cpu->local_frame_depth != 0u) {
+        (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
@@ -5164,6 +5166,35 @@ execute_post_boot_main_loop_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
     }
 
+    /* 0x9b90..0x9c90 fixed warm-main defaults before sound init. */
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000a8), (uint8_t[]){1u}, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000ac), &zero, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000a9), (uint8_t[]){7u}, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000aa), (uint8_t[]){8u}, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000ab), (uint8_t[]){9u}, 1u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050083c), &state_base);
+    }
+    if (status == VF2_OK) status = vf2_model2a_write(machine, state_base + UINT32_C(6), &zero, 1u);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500840), &state_base);
+    }
+    if (status == VF2_OK) status = vf2_model2a_write(machine, state_base + UINT32_C(6), (uint8_t[]){1u}, 1u);
+    for (index = 0u; status == VF2_OK && index < 4u; ++index) {
+        status = vf2_model2a_write(machine, UINT32_C(0x00500148) + index, &zero, 1u);
+    }
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x005001e4), 0u);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x005010c4), UINT32_C(0x40aaaaab));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x005010d4), 0u);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
+    if (status == VF2_OK) {
+        flags &= ~((UINT32_C(1) << 16u) | (UINT32_C(1) << 25u) |
+                   (UINT32_C(1) << 23u) | (UINT32_C(1) << 24u));
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
+    }
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500814), &state_base);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, state_base + UINT32_C(0x2d4), &zero, 1u);
+
     /* The 0x19a7c sound initializer writes the small SCSP control block and
        clears the repeating 0x30-byte service slots. */
     if (status == VF2_OK) {
@@ -5179,34 +5210,96 @@ execute_post_boot_main_loop_init(vf2_model2a *machine, vf2_i960_cpu *cpu,
         status = vf2_model2a_write(machine, UINT32_C(0x00548004), &zero, sizeof(zero));
     }
     if (status == VF2_OK) {
-        status = vf2_model2a_write(machine, UINT32_C(0x00548005), (uint8_t[]){3u}, 1u);
+        status = vf2_model2a_write(machine, UINT32_C(0x00548005), (uint8_t[]){1u}, 1u);
     }
-    for (index = 0u; status == VF2_OK && index < UINT32_C(0x1fe); ++index) {
+    for (index = 0u; status == VF2_OK && index < UINT32_C(480); ++index) {
         status = vf2_model2a_write_u32(machine,
                                        UINT32_C(0x00548010) + index * UINT32_C(0x40) +
                                            UINT32_C(0x30),
-                                       0u);
+                                       UINT32_MAX);
     }
 
-    memset(&text_report, 0, sizeof(text_report));
+    /* 0x9c98..0x9f68 fixed warm-main state after sound init. */
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
     if (status == VF2_OK) {
-        cpu->registers[25] = UINT32_C(0x01000ca8);
-        cpu->registers[14] = UINT32_C(0x00009f84);
-        status = execute_inline_text_thunk(machine, cpu, &text_report);
+        flags = (flags | (UINT32_C(1) << 31u)) & ~(UINT32_C(1) << 22u);
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
     }
-    if (status != VF2_OK) {
-        return status;
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00530000), (uint8_t[]){0u, 0u, 0xefu, 0x3fu, 0x7fu}, 5u);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530100), UINT32_C(0x45480000));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530104), UINT32_C(0x3f800000));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530108), 0u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0053010c), &zero, 1u);
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+        status = write_u16_le(machine, UINT32_C(0x0053011c) + index * UINT32_C(4), 0u);
     }
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00530110) + index * UINT32_C(4), 0u);
+    }
+    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00530130) + index * UINT32_C(4), UINT32_C(0x3f800000));
+    }
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0053014c), 0u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00530150), &zero, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0053013c), &zero, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530140), UINT32_C(0xbee66666));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530144), UINT32_C(0xbf63d70a));
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530148), UINT32_C(0x3ee66666));
+    if (status == VF2_OK) status = vf2_model2a_write(machine, input0 + UINT32_C(0x1b0), (uint8_t[]){0u, 0u}, 2u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, input1 + UINT32_C(0x1b0), (uint8_t[]){8u, 8u}, 2u);
+    if (status == VF2_OK) status = write_u16_le(machine, UINT32_C(0x005000a2), 0u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500054), (uint8_t[]){1u}, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0050008f), (uint8_t[]){1u}, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500067), (uint8_t[]){1u}, 1u);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &config_base);
+    if (status == VF2_OK) status = vf2_model2a_read(machine, config_base + UINT32_C(0x3340), &config_value, 1u);
+    if (status == VF2_OK) {
+        if (config_value >= 5u) config_value = 2u;
+        status = vf2_model2a_write(machine, UINT32_C(0x0050005a), &config_value, 1u);
+    }
+    if (status == VF2_OK) status = vf2_model2a_read(machine, config_base + UINT32_C(0x3341), &config_value, 1u);
+    if (status == VF2_OK) {
+        if (config_value >= 5u) config_value = 2u;
+        status = vf2_model2a_write(machine, UINT32_C(0x00500059), &config_value, 1u);
+    }
+    if (status == VF2_OK) status = vf2_model2a_read(machine, UINT32_C(0x0050005a), &config_value, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500052), &config_value, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0050004f), &zero, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500051), &zero, 1u);
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00500056), &zero, 1u);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
+    if (status == VF2_OK) {
+        flags &= ~((UINT32_C(1) << 2u) | (UINT32_C(1) << 3u) | (UINT32_C(1) << 21u));
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
+    }
+    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000e8), &zero, 1u);
+    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &flags);
+    if (status == VF2_OK) {
+        flags |= (UINT32_C(1) << 11u) | (UINT32_C(1) << 15u);
+        cpu->registers[3] = flags;
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00508000), flags);
+    }
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00500230), 0u);
+    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0050023c), 0u);
+    if (status != VF2_OK) return status;
 
-    /* Skip the ROM's calibrated delay loop; 0x9fb0 is an existing recovered
-       main-loop bridge entry and begins the same visible state transition. */
-    cpu->ip = VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY;
-    cpu->executed_instructions = start_instructions + UINT64_C(700000);
+    /* Preserve the caller locals produced by the literal 0x9a00..0x9f70 path. */
+    cpu->registers[4] = UINT32_C(0x00515400);
+    cpu->registers[5] = 0u;
+    cpu->registers[7] = 0u;
+    cpu->registers[14] = 0u;
+
+    /* ROM boundary: 0x9f70 calls the coprocessor initializer at 0xa178. */
+    status = vf2_i960_cpu_enter_procedure(cpu, VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY, UINT32_C(0x00009f74));
+    if (status != VF2_OK) return status;
+    cpu->executed_instructions = start_instructions + UINT64_C(1676);
+    cpu->procedure_calls = start_calls + UINT64_C(2);
+    cpu->procedure_returns = start_returns + UINT64_C(1);
     report->kind = VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT;
     report->exit_address = cpu->ip;
-    report->recovered_instruction_count = cpu->executed_instructions - start_instructions;
-    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
-    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
+    report->recovered_instruction_count = UINT64_C(1676);
+    report->recovered_procedure_calls = UINT64_C(2);
+    report->recovered_procedure_returns = UINT64_C(1);
     return VF2_OK;
 }
 
