@@ -1,0 +1,51 @@
++    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500814), &state_base);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, state_base + UINT32_C(0x2d4), &zero, 1u);
++
+     /* The 0x19a7c sound initializer writes the small SCSP control block and
+        clears the repeating 0x30-byte service slots. */
+     if (status == VF2_OK) {
+@@ -5179,34 +5210,96 @@
+         status = vf2_model2a_write(machine, UINT32_C(0x00548004), &zero, sizeof(zero));
+     }
+     if (status == VF2_OK) {
+-        status = vf2_model2a_write(machine, UINT32_C(0x00548005), (uint8_t[]){3u}, 1u);
++        status = vf2_model2a_write(machine, UINT32_C(0x00548005), (uint8_t[]){1u}, 1u);
+     }
+-    for (index = 0u; status == VF2_OK && index < UINT32_C(0x1fe); ++index) {
++    for (index = 0u; status == VF2_OK && index < UINT32_C(480); ++index) {
+         status = vf2_model2a_write_u32(machine,
+                                        UINT32_C(0x00548010) + index * UINT32_C(0x40) +
+                                            UINT32_C(0x30),
+-                                       0u);
++                                       UINT32_MAX);
+     }
+ 
+-    memset(&text_report, 0, sizeof(text_report));
++    /* 0x9c98..0x9f68 fixed warm-main state after sound init. */
++    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
+     if (status == VF2_OK) {
+-        cpu->registers[25] = UINT32_C(0x01000ca8);
+-        cpu->registers[14] = UINT32_C(0x00009f84);
+-        status = execute_inline_text_thunk(machine, cpu, &text_report);
++        flags = (flags | (UINT32_C(1) << 31u)) & ~(UINT32_C(1) << 22u);
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
+     }
+-    if (status != VF2_OK) {
+-        return status;
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00530000), (uint8_t[]){0u, 0u, 0xefu, 0x3fu, 0x7fu}, 5u);
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530100), UINT32_C(0x45480000));
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530104), UINT32_C(0x3f800000));
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00530108), 0u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0053010c), &zero, 1u);
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
++        status = write_u16_le(machine, UINT32_C(0x0053011c) + index * UINT32_C(4), 0u);
+     }
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x00530110) + index * UINT32_C(4), 0u);
++    }
++    for (index = 0u; status == VF2_OK && index < 3u; ++index) {
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x00530130) + index * UINT32_C(4), UINT32_C(0x3f800000));
++    }
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0053014c), 0u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x00530150), &zero, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x0053013c), &zero, 1u);
