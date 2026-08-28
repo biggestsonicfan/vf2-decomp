@@ -12029,14 +12029,30 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     if (status != VF2_OK) {
         return status;
     }
+    const uint32_t combined_matrix_flags =
+        fighter0_state_flags | fighter1_state_flags;
+    const bool measured_matrix_distribution =
+        (fighter0_state_flags == 0u ||
+         fighter0_state_flags == combined_matrix_flags) &&
+        (fighter1_state_flags == 0u ||
+         fighter1_state_flags == combined_matrix_flags);
+    const bool measured_negative_state8_pair =
+        fighter0_state == 8u && fighter1_state == 8u;
+    const bool measured_negative_state4_pair =
+        fighter0_state == 4u && fighter1_state == 4u;
+    const bool touches_negative_state8 =
+        fighter0_state == 8u || fighter1_state == 8u;
+    const bool touches_negative_state4 =
+        fighter0_state == 4u || fighter1_state == 4u;
     threshold_fallback_state =
-        (((fighter0_state == 8u || fighter1_state == 8u) &&
-          ((fighter0_state_flags | fighter1_state_flags) &
-           ~state8_negative_admitted_flags) != 0u) ||
-         ((fighter0_state == 4u || fighter1_state == 4u) &&
-          ((fighter0_state_flags | fighter1_state_flags) &
-           ~((UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
-             (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)) &&
+        ((touches_negative_state8 &&
+          (!measured_negative_state8_pair || !measured_matrix_distribution ||
+           ((combined_matrix_flags & ~state8_negative_admitted_flags) != 0u))) ||
+         (touches_negative_state4 &&
+          (!measured_negative_state4_pair || !measured_matrix_distribution ||
+           ((combined_matrix_flags &
+             ~((UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+               (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u)))) &&
         (int32_t)shared_fighter_threshold < 0;
     if (threshold_fallback_state) {
         status = hybrid_read_u8(
@@ -12130,6 +12146,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_bit6_fighter_path =
             fighter0_state == 8u && fighter1_state == 8u &&
             measured_positive_state8_bit6_mask &&
+            measured_matrix_distribution &&
             (int32_t)shared_fighter_threshold >= 0;
     }
     /* State-4 oracle fixtures set +0xa00 to 4 for both fighters.
@@ -12145,6 +12162,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     native_state4_bit15_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 15u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12159,7 +12177,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             fighter0_state_flags | fighter1_state_flags;
         const bool state4 =
             fighter0_state == 4u && fighter1_state == 4u &&
-            measured_state4_flag_domain;
+            measured_state4_flag_domain &&
+            measured_matrix_distribution;
         const uint32_t bit6 = UINT32_C(1) << 6u;
         const uint32_t bit14 = UINT32_C(1) << 14u;
         const uint32_t bit15 = UINT32_C(1) << 15u;
@@ -12194,11 +12213,13 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     const bool native_state4_neutral_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          conditional_state_mask) == 0u;
     const bool native_state4_bit14_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 14u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12207,6 +12228,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     const bool native_state4_bit16_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 16u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12215,6 +12237,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     const bool native_state4_bit6_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 6u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12223,6 +12246,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     const bool native_state4_bit14_bit16_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 14u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12232,6 +12256,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     const bool native_state4_bit6_bit14_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 6u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12241,6 +12266,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     const bool native_state4_bit6_bit16_fighter_path =
         fighter0_state == 4u && fighter1_state == 4u &&
         measured_state4_flag_domain &&
+        measured_matrix_distribution &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 6u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -12988,7 +13014,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             (((fighter1_state_flags & (UINT32_C(1) << 6u)) != 0u) ? 1u : 0u);
     }
     if ((int32_t)shared_fighter_threshold < 0 &&
-        (fighter0_state == 8u || fighter1_state == 8u) &&
+        measured_negative_state8_pair &&
         ((fighter0_state_flags | fighter1_state_flags) &
          (UINT32_C(1) << 6u)) != 0u) {
         const uint32_t bit6_count =
@@ -13000,19 +13026,19 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_instructions -= UINT64_C(3) - bit6_count;
     }
     if ((int32_t)shared_fighter_threshold < 0 &&
-        (fighter0_state == 8u || fighter1_state == 8u) &&
+        measured_negative_state8_pair &&
         (fighter0_state_flags | fighter1_state_flags) == 0u) {
         native_instructions += UINT64_C(2);
     }
     if ((int32_t)shared_fighter_threshold < 0 &&
-        (fighter0_state == 8u || fighter1_state == 8u) &&
+        measured_negative_state8_pair &&
         (fighter0_state_flags | fighter1_state_flags) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
          ~state8_negative_admitted_flags) == 0u) {
         native_instructions += UINT64_C(2);
     }
     if ((int32_t)shared_fighter_threshold < 0 &&
-        (fighter0_state == 8u || fighter1_state == 8u) &&
+        measured_negative_state8_pair &&
         (fighter0_state_flags & (UINT32_C(1) << 8u)) != 0u &&
         (fighter1_state_flags & (UINT32_C(1) << 8u)) != 0u &&
         ((fighter0_state_flags | fighter1_state_flags) &
@@ -13069,7 +13095,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         native_instructions += UINT64_C(2) * pair_count;
     }
     if ((int32_t)shared_fighter_threshold < 0 &&
-        (fighter0_state == 4u || fighter1_state == 4u)) {
+        measured_negative_state4_pair) {
         const uint32_t bit14_bit15 =
             (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u);
         const uint32_t bit6_bit15_bit16 =
@@ -13631,10 +13657,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
-        ((fighter0_state == 4u || fighter1_state == 4u) ||
-         ((fighter0_state == 8u || fighter1_state == 8u) &&
-          ((fighter0_state_flags | fighter1_state_flags) &
-           ~state8_negative_admitted_flags) == 0u)) &&
+        (measured_negative_state4_pair ||
+         (measured_negative_state8_pair && measured_matrix_distribution &&
+          (combined_matrix_flags & ~state8_negative_admitted_flags) == 0u)) &&
         cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
         /* The 0x1645c prefix reaches this task with a stale saved frame from
          * the preceding 0x18144/0x18d44 corridor.  ROM leaves r3/r7 at the
