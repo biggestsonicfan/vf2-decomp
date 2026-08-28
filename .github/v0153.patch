@@ -1,0 +1,65 @@
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -12206,6 +12206,7 @@
+     bool mixed_negative_state4_zero_flags = false;
+     bool mixed_negative_state4_bit6_path = false;
+     bool mixed_negative_state4_bit14_path = false;
++    bool mixed_negative_state4_bit15_path = false;
+     bool mixed_negative_state4_bit16_path = false;
+     bool native_18644_fighter_path = false;
+     bool native_state8_bit14_accounting_case = false;
+@@ -12323,6 +12324,11 @@
+         measured_matrix_distribution &&
+         combined_matrix_flags == (UINT32_C(1) << 14u) &&
+         (int32_t)shared_fighter_threshold < 0;
++    mixed_negative_state4_bit15_path =
++        touches_negative_state4 && !measured_negative_state4_pair &&
++        measured_matrix_distribution &&
++        combined_matrix_flags == (UINT32_C(1) << 15u) &&
++        (int32_t)shared_fighter_threshold < 0;
+     mixed_negative_state4_bit16_path =
+         touches_negative_state4 && !measured_negative_state4_pair &&
+         measured_matrix_distribution &&
+@@ -12341,6 +12347,7 @@
+         !mixed_negative_state4_zero_flags &&
+         !mixed_negative_state4_bit6_path &&
+         !mixed_negative_state4_bit14_path &&
++        !mixed_negative_state4_bit15_path &&
+         !mixed_negative_state4_bit16_path;
+     if (threshold_fallback_state) {
+         status = hybrid_read_u8(
+@@ -12465,13 +12472,14 @@
+     const bool measured_state4_flag_domain =
+         (combined_state4_flags & ~measured_state4_flag_mask) == 0u;
+     native_state4_bit15_fighter_path =
+-        fighter0_state == 4u && fighter1_state == 4u &&
++        mixed_negative_state4_bit15_path ||
++        (fighter0_state == 4u && fighter1_state == 4u &&
+         measured_state4_flag_domain &&
+         measured_matrix_distribution &&
+         ((fighter0_state_flags | fighter1_state_flags) &
+          (UINT32_C(1) << 15u)) != 0u &&
+         ((fighter0_state_flags | fighter1_state_flags) &
+-         ((UINT32_C(1) << 6u) | (UINT32_C(1) << 16u))) == 0u;
++         ((UINT32_C(1) << 6u) | (UINT32_C(1) << 16u))) == 0u);
+     /* The state-4/bit-15 prefix clears bit 15 before rejoining 0x18188;
+      * the already recovered 0x181c0 body then composes the remaining
+      * conditional bits. Keep every remaining bit-15 composition explicit
+@@ -13142,6 +13150,7 @@
+         native_18644_fighter_path ||
+         mixed_negative_state4_bit6_path ||
+         mixed_negative_state4_bit14_path ||
++        mixed_negative_state4_bit15_path ||
+         mixed_negative_state4_bit16_path;
+     combined_flags = fighter0_flags & fighter1_flags;
+     cpu->registers[3] = combined_flags;
+@@ -14036,6 +14045,9 @@
+                 ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL
+         );
+     }
++    if (mixed_negative_state4_bit15_path) {
++        hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
++    }
+     if (mixed_negative_state4_bit16_path) {
+         uint32_t corrected_flags = 0u;
+         status = vf2_model2a_read_u32(
