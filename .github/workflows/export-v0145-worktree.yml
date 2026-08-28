@@ -1,0 +1,16 @@
+name: Export v0145 worktree
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2-v0145-worktree
+          path: .
+          include-hidden-files: true
