@@ -1,0 +1,43 @@
+name: v0148 mixed state4 integration
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/v0148.patch'
+      - '.github/workflows/v0148-integrate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply v0148 recovery
+        run: |
+          git apply --index .github/v0148.patch
+          git diff --cached --check
+
+      - name: Configure
+        run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Commit recovery
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm .github/v0148.patch .github/workflows/v0148-integrate.yml
+          git add -A
+          git commit -m 'Recover mixed negative state4 game-info path'
+          git push origin master
