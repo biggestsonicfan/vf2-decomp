@@ -1,0 +1,56 @@
+--- a/src/recovered/native_runtime.c	2026-08-28 14:09:10.185781481 +0000
++++ b/src/recovered/native_runtime.c	2026-08-28 14:32:43.013454590 +0000
+@@ -122,6 +122,7 @@
+ #define VF2_NATIVE_POST_BOOT_RESUMED_LUMA_RETURN UINT32_C(0x0001fee0)
+ #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INIT_RETURN UINT32_C(0x0002ec20)
+ #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY UINT32_C(0x00009a00)
++#define VF2_NATIVE_POST_BOOT_COPRO_INIT_ENTRY UINT32_C(0x0000a178)
+ #define VF2_NATIVE_POST_BOOT_MAIN_LOOP_ENTRY UINT32_C(0x00009fb0)
+ #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_NESTED UINT32_C(0x00031004)
+ #define VF2_NATIVE_POST_BOOT_RESUMED_HELPER_INSTRUCTIONS UINT64_C(90)
+@@ -5045,12 +5046,13 @@
+     uint32_t flags = 0u;
+     uint32_t index = 0u;
+     uint8_t zero = 0u;
+-    vf2_hybrid_bridge_report text_report;
++    uint32_t config_base = 0u;
++    uint8_t config_value = 0u;
+     vf2_status status = VF2_OK;
+ 
+     if (machine == NULL || cpu == NULL || report == NULL ||
+         cpu->ip != VF2_NATIVE_POST_BOOT_MAIN_LOOP_INIT_ENTRY ||
+-        cpu->local_frame_depth != 0u) {
++        (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u)) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+ 
+@@ -5164,6 +5166,35 @@
+         status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
+     }
+ 
++    /* 0x9b90..0x9c90 fixed warm-main defaults before sound init. */
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000a8), (uint8_t[]){1u}, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000ac), &zero, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000a9), (uint8_t[]){7u}, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000aa), (uint8_t[]){8u}, 1u);
++    if (status == VF2_OK) status = vf2_model2a_write(machine, UINT32_C(0x005000ab), (uint8_t[]){9u}, 1u);
++    if (status == VF2_OK) {
++        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050083c), &state_base);
++    }
++    if (status == VF2_OK) status = vf2_model2a_write(machine, state_base + UINT32_C(6), &zero, 1u);
++    if (status == VF2_OK) {
++        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500840), &state_base);
++    }
++    if (status == VF2_OK) status = vf2_model2a_write(machine, state_base + UINT32_C(6), (uint8_t[]){1u}, 1u);
++    for (index = 0u; status == VF2_OK && index < 4u; ++index) {
++        status = vf2_model2a_write(machine, UINT32_C(0x00500148) + index, &zero, 1u);
++    }
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x005001e4), 0u);
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x005010c4), UINT32_C(0x40aaaaab));
++    if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x005010d4), 0u);
++    if (status == VF2_OK) status = vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &flags);
++    if (status == VF2_OK) {
++        flags &= ~((UINT32_C(1) << 16u) | (UINT32_C(1) << 25u) |
++                   (UINT32_C(1) << 23u) | (UINT32_C(1) << 24u));
++        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500068), flags);
++    }
