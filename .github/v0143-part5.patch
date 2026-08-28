@@ -1,0 +1,86 @@
+diff --git a/tests/recovered/test_native_runtime.c b/tests/recovered/test_native_runtime.c
+index c0f8cac..9884d22 100644
+--- a/tests/recovered/test_native_runtime.c
++++ b/tests/recovered/test_native_runtime.c
+@@ -94,7 +94,9 @@ static void test_initialize_and_names(void) {
+             VF2_NATIVE_RUNTIME_STEP_POST_BOOT_PALETTE_BUILD_RETURN,
+             VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_WRAPPER_PREFIX,
+             VF2_NATIVE_RUNTIME_STEP_POST_BOOT_RESUMED_HELPER_INIT,
+-            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT};
++            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_MAIN_LOOP_INIT,
++            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPRO_INIT,
++            VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DELAY};
+         static const char *const names[] = {"post-boot-video-init-entry",
+                                             "post-boot-video-ramp",
+                                             "post-boot-color-tables",
+@@ -143,7 +145,9 @@ static void test_initialize_and_names(void) {
+                                             "post-boot-palette-build-return",
+                                             "post-boot-resumed-wrapper-prefix",
+                                             "post-boot-resumed-helper-init",
+-                                            "post-boot-main-loop-init"};
++                                            "post-boot-main-loop-init",
++                                            "post-boot-copro-init",
++                                            "post-boot-delay"};
+         size_t index = 0u;
+         for (index = 0u; index < sizeof(kinds) / sizeof(kinds[0]); ++index) {
+             CHECK(strcmp(vf2_native_runtime_step_kind_name(kinds[index]),
+@@ -152,6 +156,51 @@ static void test_initialize_and_names(void) {
+     }
+ }
+ 
++
++static void test_post_boot_delay(void) {
++    vf2_model2a machine;
++    vf2_i960_cpu cpu;
++    vf2_native_runtime_state state;
++    vf2_native_runtime_step_report report;
++    uint64_t start_instructions = UINT64_C(1234);
++
++    memset(&machine, 0, sizeof(machine));
++    memset(&cpu, 0, sizeof(cpu));
++    memset(&state, 0, sizeof(state));
++    memset(&report, 0, sizeof(report));
++    CHECK(vf2_model2a_initialize(&machine) != 0);
++    CHECK(vf2_native_runtime_initialize(&state, 4u) == VF2_OK);
++
++    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00001000));
++    cpu.registers[1] = VF2_WORK_RAM_BASE + UINT32_C(0x3000);
++    CHECK(vf2_i960_cpu_enter_procedure(
++              &cpu, UINT32_C(0x00002000), UINT32_C(0x00001004)) == VF2_OK);
++    CHECK(vf2_i960_cpu_enter_procedure(
++              &cpu, UINT32_C(0x00003000), UINT32_C(0x00002004)) == VF2_OK);
++    CHECK(vf2_i960_cpu_enter_procedure(
++              &cpu, UINT32_C(0x00009f74), UINT32_C(0x00003004)) == VF2_OK);
++    cpu.executed_instructions = start_instructions;
++    cpu.procedure_calls = UINT64_C(40);
++    cpu.procedure_returns = UINT64_C(20);
++
++    CHECK(cpu.local_frame_depth == 3u);
++    CHECK(vf2_native_runtime_step(&machine, &cpu, &state, &report) == VF2_OK);
++    CHECK(report.kind == VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DELAY);
++    CHECK(report.entry_address == UINT32_C(0x00009f74));
++    CHECK(report.exit_address == UINT32_C(0x00009fb0));
++    CHECK(report.recovered_instruction_count == UINT64_C(2100198));
++    CHECK(report.recovered_procedure_calls == UINT64_C(1));
++    CHECK(report.recovered_procedure_returns == UINT64_C(1));
++    CHECK(cpu.ip == UINT32_C(0x00009fb0));
++    CHECK(cpu.local_frame_depth == 3u);
++    CHECK(cpu.executed_instructions == start_instructions + UINT64_C(2100198));
++    CHECK(cpu.procedure_calls == UINT64_C(41));
++    CHECK(cpu.procedure_returns == UINT64_C(21));
++    CHECK(cpu.compare_result == VF2_I960_COMPARE_GREATER);
++
++    vf2_model2a_shutdown(&machine);
++}
++
+ static void test_post_boot_texture_init_prefix(void) {
+     static const uint32_t cleared_words[] = {
+         UINT32_C(0x0055000c), UINT32_C(0x00550080), UINT32_C(0x005500f4),
+@@ -2263,6 +2312,7 @@ static void test_scheduler_finishes_after_early_last_active_task(void) {
+ 
+ int main(void) {
+     test_initialize_and_names();
++    test_post_boot_delay();
+     test_post_boot_texture_init_prefix();
+     test_post_boot_texture_wait_poll();
+     test_post_boot_graphics_verify();
