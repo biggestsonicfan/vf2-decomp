@@ -12203,6 +12203,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool native_state4_all_bits_fighter_path = false;
     bool threshold_fallback_state = false;
     bool threshold_fallback_countdown = false;
+    bool negative_state8_isolated_high_path = false;
     bool mixed_negative_state4_zero_flags = false;
     bool mixed_negative_state4_bit6_path = false;
     bool mixed_negative_state4_bit14_path = false;
@@ -12321,6 +12322,12 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         fighter0_state == 8u || fighter1_state == 8u;
     const bool touches_negative_state4 =
         fighter0_state == 4u || fighter1_state == 4u;
+    negative_state8_isolated_high_path =
+        measured_negative_state8_pair && measured_matrix_distribution &&
+        (combined_matrix_flags == (UINT32_C(1) << 14u) ||
+         combined_matrix_flags == (UINT32_C(1) << 15u) ||
+         combined_matrix_flags == (UINT32_C(1) << 16u)) &&
+        (int32_t)shared_fighter_threshold < 0;
     mixed_negative_state4_zero_flags =
         touches_negative_state4 && !measured_negative_state4_pair &&
         fighter0_state_flags == 0u && fighter1_state_flags == 0u &&
@@ -12405,7 +12412,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     threshold_fallback_state =
         ((touches_negative_state8 &&
           (!measured_negative_state8_pair || !measured_matrix_distribution ||
-           ((combined_matrix_flags & ~state8_negative_admitted_flags) != 0u))) ||
+           (((combined_matrix_flags & ~state8_negative_admitted_flags) != 0u) &&
+            !negative_state8_isolated_high_path))) ||
          (touches_negative_state4 &&
           (!measured_negative_state4_pair || !measured_matrix_distribution ||
            ((combined_matrix_flags &
@@ -13464,8 +13472,9 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     if ((int32_t)shared_fighter_threshold < 0 &&
         measured_negative_state8_pair &&
         (fighter0_state_flags | fighter1_state_flags) != 0u &&
-        ((fighter0_state_flags | fighter1_state_flags) &
-         ~state8_negative_admitted_flags) == 0u) {
+        ((((fighter0_state_flags | fighter1_state_flags) &
+           ~state8_negative_admitted_flags) == 0u) ||
+         negative_state8_isolated_high_path)) {
         native_instructions += UINT64_C(2);
     }
     if ((int32_t)shared_fighter_threshold < 0 &&
@@ -14223,12 +14232,16 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL
         );
     }
+    if (negative_state8_isolated_high_path) {
+        hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+    }
 
     native_instructions += UINT64_C(1); /* task RET */
     if ((int32_t)shared_fighter_threshold < 0 &&
         (measured_negative_state4_pair || mixed_negative_state4_zero_flags ||
          (measured_negative_state8_pair && measured_matrix_distribution &&
-          (combined_matrix_flags & ~state8_negative_admitted_flags) == 0u)) &&
+          (((combined_matrix_flags & ~state8_negative_admitted_flags) == 0u) ||
+           negative_state8_isolated_high_path))) &&
         cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
         /* The 0x1645c prefix reaches this task with a stale saved frame from
          * the preceding 0x18144/0x18d44 corridor.  ROM leaves r3/r7 at the
@@ -14273,13 +14286,33 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     cpu->executed_instructions += native_instructions;
     status = vf2_i960_cpu_return_procedure(cpu, machine);
-    if (status != VF2_OK || cpu->ip != task_return) {
+    if (status == VF2_OK && negative_state8_isolated_high_path) {
+        const uint32_t bit14 = UINT32_C(1) << 14u;
+        const uint32_t bit15 = UINT32_C(1) << 15u;
+        const uint32_t bit16 = UINT32_C(1) << 16u;
+        const bool bilateral =
+            fighter0_state_flags == combined_matrix_flags &&
+            fighter1_state_flags == combined_matrix_flags;
+
+        if (combined_matrix_flags == bit15 && !bilateral) {
+            cpu->registers[3] = UINT32_C(0x000fffff);
+            cpu->ip = UINT32_C(0x00010ddc);
+        } else if (combined_matrix_flags == bit15) {
+            cpu->ip = UINT32_C(0x00010dd8);
+        } else if (combined_matrix_flags == bit14 ||
+                   combined_matrix_flags == bit16) {
+            cpu->ip = bilateral ? UINT32_C(0x00010dd0)
+                                : UINT32_C(0x00010dd8);
+        }
+    }
+    if (status != VF2_OK ||
+        (!negative_state8_isolated_high_path && cpu->ip != task_return)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
     memset(report, 0, sizeof(*report));
     report->entry_point = entry_address;
-    report->continuation = task_return;
+    report->continuation = cpu->ip;
     return VF2_OK;
 }
 
