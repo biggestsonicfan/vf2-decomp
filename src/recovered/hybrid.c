@@ -14391,6 +14391,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         const uint32_t combined_positive_bit6_flags =
             fighter0_state_flags | fighter1_state_flags;
         const bool measured_positive_bit6_high_3_4_family =
+            combined_positive_bit6_flags == UINT32_C(0x00000140) ||
+            combined_positive_bit6_flags == UINT32_C(0x00000150) ||
             combined_positive_bit6_flags == UINT32_C(0x24200140) ||
             combined_positive_bit6_flags == UINT32_C(0x44200140) ||
             combined_positive_bit6_flags == UINT32_C(0x84200140) ||
@@ -14420,6 +14422,49 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 excess += fighter0_only ? UINT64_C(5) : UINT64_C(1);
             }
             native_instructions -= excess;
+            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+                vf2_i960_local_frame *stale =
+                    &cpu->local_frames[cpu->local_frame_depth + 1u];
+                stale->registers[3] = UINT32_C(0x41000000);
+                stale->registers[4] = UINT32_C(0x07800f0f);
+                stale->registers[7] = UINT32_C(0x41000000);
+                if (!fighter0_only) {
+                    stale->registers[15] = UINT32_C(1);
+                }
+            }
+        }
+        if (native_bit6_fighter_path &&
+            (combined_positive_bit6_flags == UINT32_C(0x00000140) ||
+             combined_positive_bit6_flags == UINT32_C(0x00000150))) {
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero
+                    ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL
+            );
+        }
+        if (native_bit6_fighter_path &&
+            (combined_positive_bit6_flags == UINT32_C(0x00000142) ||
+             combined_positive_bit6_flags == UINT32_C(0x00000144) ||
+             combined_positive_bit6_flags == UINT32_C(0x00000146) ||
+             combined_positive_bit6_flags == UINT32_C(0x00000152) ||
+             combined_positive_bit6_flags == UINT32_C(0x00000154) ||
+             combined_positive_bit6_flags == UINT32_C(0x00000156))) {
+            const bool fighter0_only =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            uint64_t excess = 0u;
+            if (countdown_was_nonzero) {
+                excess = bilateral ? UINT64_C(6) : UINT64_C(3);
+            } else {
+                excess = bilateral ? UINT64_C(11) : UINT64_C(8);
+            }
+            native_instructions -= excess;
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero
+                    ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL
+            );
             if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
                 vf2_i960_local_frame *stale =
                     &cpu->local_frames[cpu->local_frame_depth + 1u];
