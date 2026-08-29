@@ -1,0 +1,57 @@
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -1053,12 +1053,14 @@
+     }
+     if (status == VF2_OK) {
+         status = vf2_model2a_write_u32(
+-            machine, player + UINT32_C(0x6d0), data_pointer + 12u
++            machine, player + UINT32_C(0x6d0),
++            data_pointer + (selector == UINT32_C(0x00000284) ? 11u : 12u)
+         );
+     }
+     if (status == VF2_OK) {
+         status = vf2_model2a_write_u32(
+-            machine, player + UINT32_C(0x82c), data_pointer + 12u
++            machine, player + UINT32_C(0x82c),
++            data_pointer + (selector == UINT32_C(0x00000284) ? 11u : 12u)
+         );
+     }
+@@ -1138,16 +1140,36 @@
+     if (status == VF2_OK) {
+         status = hybrid_write_u16(machine, player + UINT32_C(0xbe2), 0u);
+     }
++    if (status == VF2_OK && selector == UINT32_C(0x00000284)) {
++        status = vf2_model2a_write_u32(
++            machine, player + UINT32_C(0x170), UINT32_C(0x40000000)
++        );
++        if (status == VF2_OK) {
++            const uint8_t profile_byte = UINT8_C(0x20);
++            status = vf2_model2a_write(
++                machine, player + UINT32_C(0xbdc), &profile_byte, 1u
++            );
++        }
++    }
+ 
+     if (status != VF2_OK) {
+         return status;
+     }
+     cpu->registers[VF2_I960_G0_REGISTER + 2u] =
+-        scratch_r9 + scratch_output_offset;
++        selector == UINT32_C(0x00000284)
++            ? table_pointer + UINT32_C(0x37)
++            : scratch_r9 + scratch_output_offset;
+     cpu->registers[VF2_I960_G0_REGISTER + 5u] = scratch_base + 0x7c8u;
+     cpu->registers[VF2_I960_G0_REGISTER + 6u] = scratch_base;
++    cpu->registers[2] = UINT32_C(0x0001428c);
+     cpu->ip = UINT32_C(0x0001428c);
+-    cpu->executed_instructions += UINT64_C(1652);
++    if (selector == UINT32_C(0x00000284)) {
++        cpu->arithmetic_control &= ~UINT32_C(7);
++        cpu->compare_result = VF2_I960_COMPARE_NONE;
++        cpu->executed_instructions += UINT64_C(1805);
++    } else {
++        cpu->executed_instructions += UINT64_C(1652);
++    }
+     cpu->procedure_calls += UINT64_C(4);
+     cpu->procedure_returns += UINT64_C(4);
+     return VF2_OK;
