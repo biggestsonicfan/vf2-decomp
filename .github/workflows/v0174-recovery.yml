@@ -12,96 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Apply measured dispatcher accounting
-        shell: bash
+        env:
+          V0174_BLOCK: 'ICAgIH0KICAgIC8qIFJPTS1iYWNrZWQgdjAxNzQgc3RhdGUtOC9wb3NpdGl2ZS10aHJlc2hvbGQgY29tcG9zaXRpb25zLiBUaGUKICAgICAqIHN1cnJvdW5kaW5nIHJlY292ZXJlZC9ST00gY2hpbGQgcGF0aCBhbHJlYWR5IGxlYXZlcyBhcmNoaXRlY3R1cmFsCiAgICAgKiBzdGF0ZSBleGFjdCBmb3IgdGhlc2UgcGFpci90cmlwbGUvcXVhZCBtYXNrczsgb25seSB0YXNrIGluc3RydWN0aW9uCiAgICAgKiBhY2NvdW50aW5nIGRpZmZlcnMgZnJvbSB0aGUgc2VxdWVudGlhbCBpOTYwIHJlZmVyZW5jZS4gKi8KICAgIGlmIChmaWdodGVyMF9zdGF0ZSA9PSA4dSAmJiBmaWdodGVyMV9zdGF0ZSA9PSA4dSAmJgogICAgICAgIG1lYXN1cmVkX21hdHJpeF9kaXN0cmlidXRpb24gJiYKICAgICAgICAoaW50MzJfdClzaGFyZWRfZmlnaHRlcl90aHJlc2hvbGQgPj0gMCkgewogICAgICAgIGNvbnN0IGJvb2wgYmlsYXRlcmFsX3Bvc2l0aXZlX2JpdDYgPQogICAgICAgICAgICBmaWdodGVyMF9zdGF0ZV9mbGFncyA9PSBjb21iaW5lZF9wb3NpdGl2ZV9iaXQ2X2ZsYWdzICYmCiAgICAgICAgICAgIGZpZ2h0ZXIxX3N0YXRlX2ZsYWdzID09IGNvbWJpbmVkX3Bvc2l0aXZlX2JpdDZfZmxhZ3M7CiAgICAgICAgY29uc3QgYm9vbCBwb3NpdGl2ZV84MTQwX2NvbXBvc2l0ZSA9CiAgICAgICAgICAgIGNvbWJpbmVkX3Bvc2l0aXZlX2JpdDZfZmxhZ3MgPT0gVUlOVDMyX0MoMHgyNDAwODE0MCkgfHwKICAgICAgICAgICAgY29tYmluZWRfcG9zaXRpdmVfYml0Nl9mbGFncyA9PSBVSU5UMzJfQygweDQ0MDA4MTQwKSB8fAogICAgICAgICAgICBjb21iaW5lZF9wb3NpdGl2ZV9iaXQ2X2ZsYWdzID09IFVJTlQzMl9DKDB4ODQwMDgxNDApIHx8CiAgICAgICAgICAgIGNvbWJpbmVkX3Bvc2l0aXZlX2JpdDZfZmxhZ3MgPT0gVUlOVDMyX0MoMHg2MDAwODE0MCkgfHwKICAgICAgICAgICAgY29tYmluZWRfcG9zaXRpdmVfYml0Nl9mbGFncyA9PSBVSU5UMzJfQygweGEwMDA4MTQwKSB8fAogICAgICAgICAgICBjb21iaW5lZF9wb3NpdGl2ZV9iaXQ2X2ZsYWdzID09IFVJTlQzMl9DKDB4YzAwMDgxNDApIHx8CiAgICAgICAgICAgIGNvbWJpbmVkX3Bvc2l0aXZlX2JpdDZfZmxhZ3MgPT0gVUlOVDMyX0MoMHg2NDAwODE0MCkgfHwKICAgICAgICAgICAgY29tYmluZWRfcG9zaXRpdmVfYml0Nl9mbGFncyA9PSBVSU5UMzJfQygweGE0MDA4MTQwKSB8fAogICAgICAgICAgICBjb21iaW5lZF9wb3NpdGl2ZV9iaXQ2X2ZsYWdzID09IFVJTlQzMl9DKDB4YzQwMDgxNDApIHx8CiAgICAgICAgICAgIGNvbWJpbmVkX3Bvc2l0aXZlX2JpdDZfZmxhZ3MgPT0gVUlOVDMyX0MoMHhlMDAwODE0MCkgfHwKICAgICAgICAgICAgY29tYmluZWRfcG9zaXRpdmVfYml0Nl9mbGFncyA9PSBVSU5UMzJfQygweGU0MDA4MTQwKTsKICAgICAgICBjb25zdCBib29sIHBvc2l0aXZlXzEwMTQwX3BsdXMzX2NvbXBvc2l0ZSA9CiAgICAgICAgICAgIGNvbWJpbmVkX3Bvc2l0aXZlX2JpdDZfZmxhZ3MgPT0gVUlOVDMyX0MoMHgyNDAxMDE0MCkgfHwKICAgICAgICAgICAgY29tYmluZWRfcG9zaXRpdmVfYml0Nl9mbGFncyA9PSBVSU5UMzJfQygweDYwMDEwMTQwKSB8fAogICAgICAgICAgICBjb21iaW5lZF9wb3NpdGl2ZV9iaXQ2X2ZsYWdzID09IFVJTlQzMl9DKDB4NjQwMTAxNDApOwogICAgICAgIGNvbnN0IGJvb2wgcG9zaXRpdmVfMTAxNDBfcGx1czRfY29tcG9zaXRlID0KICAgICAgICAgICAgY29tYmluZWRfcG9zaXRpdmVfYml0Nl9mbGFncyA9PSBVSU5UMzJfQygweDQ0MDEwMTQwKSB8fAogICAgICAgICAgICBjb21iaW5lZF9wb3NpdGl2ZV9iaXQ2X2ZsYWdzID09IFVJTlQzMl9DKDB4ODQwMTAxNDApOwoKICAgICAgICBpZiAocG9zaXRpdmVfODE0MF9jb21wb3NpdGUpIHsKICAgICAgICAgICAgY29uc3QgdWludDY0X3QgZXhjZXNzID0gYmlsYXRlcmFsX3Bvc2l0aXZlX2JpdDYKICAgICAgICAgICAgICAgID8gVUlOVDY0X0MoNSkgOiBVSU5UNjRfQygzKTsKICAgICAgICAgICAgaWYgKG5hdGl2ZV9pbnN0cnVjdGlvbnMgPCBleGNlc3MpIHsKICAgICAgICAgICAgICAgIHJldHVybiBWRjJfRVJST1JfVU5TVVBQT1JURUQ7CiAgICAgICAgICAgIH0KICAgICAgICAgICAgbmF0aXZlX2luc3RydWN0aW9ucyAtPSBleGNlc3M7CiAgICAgICAgfSBlbHNlIGlmIChwb3NpdGl2ZV8xMDE0MF9wbHVzM19jb21wb3NpdGUpIHsKICAgICAgICAgICAgbmF0aXZlX2luc3RydWN0aW9ucyArPSBiaWxhdGVyYWxfcG9zaXRpdmVfYml0NgogICAgICAgICAgICAgICAgPyBVSU5UNjRfQyg2KSA6IFVJTlQ2NF9DKDMpOwogICAgICAgIH0gZWxzZSBpZiAocG9zaXRpdmVfMTAxNDBfcGx1czRfY29tcG9zaXRlKSB7CiAgICAgICAgICAgIG5hdGl2ZV9pbnN0cnVjdGlvbnMgKz0gYmlsYXRlcmFsX3Bvc2l0aXZlX2JpdDYKICAgICAgICAgICAgICAgID8gVUlOVDY0X0MoOCkgOiBVSU5UNjRfQyg0KTsKICAgICAgICB9CiAgICB9CiAgICBpZiAobWl4ZWRfbmVnYXRpdmVfc3RhdGU0X3plcm9fZmxhZ3MpIHs='
+          V0174_NOTE: 'IyB2MDE3NDogcmVjb3ZlciBwb3NpdGl2ZSBzdGF0ZS04IGJpdC02IDgxNDAvMTAxNDAgY29tcG9zaXRlcwoKRW50cnkgYDB4MDAwMTY0NWNgLCBib3RoIGZpZ2h0ZXIgc3RhdGUgYnl0ZXMgOCwgbWVhc3VyZWQgbWF0cml4IGRpc3RyaWJ1dGlvbiwgbm9ubmVnYXRpdmUgc2hhcmVkIHRocmVzaG9sZC4KCkZyZXNoIFJPTS1iYWNrZWQgZnVsbC1kaXNwYXRjaCBtZWFzdXJlbWVudHMgY292ZXJlZCBhbGwgMjIgcmVtYWluaW5nIHBhaXIvdHJpcGxlL3F1YWQgY29tYmluYXRpb25zIG9mIGhpZ2ggYml0cyAyNi8yOS8zMC8zMSBvdmVyIHRoZSBgMHg4MTQwYCBhbmQgYDB4MTAxNDBgIGxvdyBmYW1pbGllcyAoMzYgZml4dHVyZXMgcGVyIG1hc2spLgoKRm9yIGV2ZXJ5IGAweDgxNDBgIGNvbXBvc2l0ZSwgYXJjaGl0ZWN0dXJhbCBzdGF0ZSBhbHJlYWR5IG1hdGNoZWQgdGhlIHNlcXVlbnRpYWwgaTk2MCByZWZlcmVuY2UgYW5kIG9ubHkgaW5zdHJ1Y3Rpb24gYWNjb3VudGluZyB3YXMgaGlnaCBieSAzIGZvciB1bmlsYXRlcmFsIGRpc3RyaWJ1dGlvbnMgYW5kIDUgZm9yIGJpbGF0ZXJhbC4gdjAxNzQgc3VidHJhY3RzIGV4YWN0bHkgdGhhdCBtZWFzdXJlZCBleGNlc3MgZm9yIHRoZSBlbGV2ZW4gZXhhY3QgbWFza3MuCgpTaXggYDB4MTAxNDBgIGNvbXBvc2l0ZXMgd2VyZSBhbHJlYWR5IDM2LzM2IGV4YWN0IGFuZCByZW1haW4gdW50b3VjaGVkOiBgMHhhMDAwMTAxNDBgLCBgMHhjMDAwMTAxNDBgLCBgMHhhNDAwMTAxNDBgLCBgMHhjNDAwMTAxNDBgLCBgMHhlMDAwMTAxNDBgLCBgMHhlNDAwMTAxNDBgLgoKVGhlIGZpdmUgcmVtYWluaW5nIGAweDEwMTQwYCBjb21wb3NpdGVzIGFsc28gaGFkIGV4YWN0IGFyY2hpdGVjdHVyYWwgc3RhdGUsIGNhbGxzLCByZXR1cm5zIGFuZCBpbnRlcnJ1cHQgY291bnRlcnMuIFRoZWlyIGluc3RydWN0aW9uLW9ubHkgZGVmaWNpdHMgd2VyZToKCi0gYDB4MjQwMTAxNDBgLCBgMHg2MDAxMDE0MGAsIGAweDY0MDEwMTQwYDogKzMgdW5pbGF0ZXJhbCAvICs2IGJpbGF0ZXJhbAotIGAweDQ0MDEwMTQwYCwgYDB4ODQwMTAxNDBgOiArNCB1bmlsYXRlcmFsIC8gKzggYmlsYXRlcmFsCgpUaGUgaW1wbGVtZW50YXRpb24gYWRqdXN0cyBvbmx5IGBuYXRpdmVfaW5zdHJ1Y3Rpb25zYDsgaXQgZGVsaWJlcmF0ZWx5IGRvZXMgbm90IHJld3JpdGUgbWVtb3J5LCByZWdpc3RlcnMsIGNvbmRpdGlvbiBjb2RlcyBvciBzdGFsZSBmcmFtZXMuIEFsbCBvdGhlciBtYXNrcyByZW1haW4gb3V0c2lkZSB0aGlzIGV4YWN0IGFkbWlzc2lvbiBzZXQuCg=='
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/recovered/hybrid.c')
-          s = p.read_text()
-          marker = '''    }\n    if (mixed_negative_state4_zero_flags) {'''
-          block = r'''    }
-    /* ROM-backed v0174 state-8/positive-threshold compositions.  The
-     * surrounding recovered/ROM child path already leaves architectural
-     * state exact for these pair/triple/quad masks; only task instruction
-     * accounting differs from the sequential i960 reference. */
-    if (fighter0_state == 8u && fighter1_state == 8u &&
-        measured_matrix_distribution &&
-        (int32_t)shared_fighter_threshold >= 0) {
-        const bool bilateral_positive_bit6 =
-            fighter0_state_flags == combined_positive_bit6_flags &&
-            fighter1_state_flags == combined_positive_bit6_flags;
-        const bool positive_8140_composite =
-            combined_positive_bit6_flags == UINT32_C(0x24008140) ||
-            combined_positive_bit6_flags == UINT32_C(0x44008140) ||
-            combined_positive_bit6_flags == UINT32_C(0x84008140) ||
-            combined_positive_bit6_flags == UINT32_C(0x60008140) ||
-            combined_positive_bit6_flags == UINT32_C(0xa0008140) ||
-            combined_positive_bit6_flags == UINT32_C(0xc0008140) ||
-            combined_positive_bit6_flags == UINT32_C(0x64008140) ||
-            combined_positive_bit6_flags == UINT32_C(0xa4008140) ||
-            combined_positive_bit6_flags == UINT32_C(0xc4008140) ||
-            combined_positive_bit6_flags == UINT32_C(0xe0008140) ||
-            combined_positive_bit6_flags == UINT32_C(0xe4008140);
-        const bool positive_10140_plus3_composite =
-            combined_positive_bit6_flags == UINT32_C(0x24010140) ||
-            combined_positive_bit6_flags == UINT32_C(0x60010140) ||
-            combined_positive_bit6_flags == UINT32_C(0x64010140);
-        const bool positive_10140_plus4_composite =
-            combined_positive_bit6_flags == UINT32_C(0x44010140) ||
-            combined_positive_bit6_flags == UINT32_C(0x84010140);
-
-        if (positive_8140_composite) {
-            const uint64_t excess = bilateral_positive_bit6
-                ? UINT64_C(5) : UINT64_C(3);
-            if (native_instructions < excess) {
-                return VF2_ERROR_UNSUPPORTED;
-            }
-            native_instructions -= excess;
-        } else if (positive_10140_plus3_composite) {
-            native_instructions += bilateral_positive_bit6
-                ? UINT64_C(6) : UINT64_C(3);
-        } else if (positive_10140_plus4_composite) {
-            native_instructions += bilateral_positive_bit6
-                ? UINT64_C(8) : UINT64_C(4);
-        }
-    }
-    if (mixed_negative_state4_zero_flags) {'''
-          if marker not in s:
-              raise SystemExit('v0174 insertion marker not found')
-          if 'positive_8140_composite' in s:
-              raise SystemExit('v0174 block already present')
-          p.write_text(s.replace(marker, block, 1))
-          PY
-          cat > decomp/i960/notes/game_info_1645c_positive_bit6_8140_10140_composites_v0174.md <<'EOF'
-          # v0174: recover positive state-8 bit-6 8140/10140 composites
-
-          Entry `0x0001645c`, both fighter state bytes 8, measured matrix
-          distribution, nonnegative shared threshold.
-
-          Fresh ROM-backed full-dispatch measurements covered all 22 remaining
-          pair/triple/quad combinations of high bits 26/29/30/31 over the
-          `0x8140` and `0x10140` low families (36 fixtures per mask).
-
-          For every `0x8140` composite, architectural state already matched the
-          sequential i960 reference and only instruction accounting was high by
-          3 for unilateral distributions and 5 for bilateral.  v0174 subtracts
-          exactly that measured excess for the eleven exact masks.
-
-          Six `0x10140` composites were already 36/36 exact and remain untouched:
-          `0xa00010140`, `0xc00010140`, `0xa40010140`, `0xc40010140`,
-          `0xe00010140`, `0xe40010140`.
-
-          The five remaining `0x10140` composites also had exact architectural
-          state, calls, returns and interrupt counters.  Their instruction-only
-          deficits were:
-
-          - `0x24010140`, `0x60010140`, `0x64010140`: +3 unilateral / +6 bilateral
-          - `0x44010140`, `0x84010140`: +4 unilateral / +8 bilateral
-
-          The implementation adjusts only `native_instructions`; it deliberately
-          does not rewrite memory, registers, condition codes or stale frames.
-          All other masks remain outside this exact admission set.
-          EOF
+          python3 -c "import base64,os,pathlib; p=pathlib.Path('src/recovered/hybrid.c'); s=p.read_text(); marker='    }\\n    if (mixed_negative_state4_zero_flags) {'; block=base64.b64decode(os.environ['V0174_BLOCK']).decode(); assert marker in s and 'positive_8140_composite' not in s; p.write_text(s.replace(marker,block,1))"
+          printf '%s' "$V0174_NOTE" | base64 -d > decomp/i960/notes/game_info_1645c_positive_bit6_8140_10140_composites_v0174.md
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
       - name: Build
@@ -109,11 +25,10 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
       - name: Commit recovered corridor
-        shell: bash
         run: |
           git config user.name 'celsowm'
           git config user.email 'celsowm@users.noreply.github.com'
           git rm .github/workflows/v0174-recovery.yml
           git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_positive_bit6_8140_10140_composites_v0174.md
-          git commit -m 'Recover positive state-8 bit-6 8140/10140 composites' -m 'Close all 22 remaining high-26/29/30/31 pair/triple/quad combinations across the 8140 and 10140 low families using fresh ROM-backed full-dispatch measurements. Architectural state already matched; apply only the exact measured instruction-accounting corrections while leaving six already-exact 10140 composites untouched.'
+          git commit -m 'Recover positive state-8 bit-6 8140/10140 composites' -m 'Close all 22 remaining high-26/29/30/31 pair/triple/quad combinations across the 8140 and 10140 low families using fresh ROM-backed measurements. Architectural state already matched; apply only exact instruction-accounting corrections and leave six already-exact 10140 composites untouched.'
           git push origin HEAD:master
