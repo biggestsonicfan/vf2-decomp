@@ -2,21 +2,22 @@
 
 Entry `0x0001645c`, both fighter state bytes 8, measured matrix distribution, nonnegative shared threshold.
 
-Fresh ROM-backed full-dispatch measurements covered all 22 remaining pair/triple/quad combinations of high bits 26/29/30/31 over the `0x8140` and `0x10140` low families (36 fixtures per mask).
+Fresh ROM-backed full-dispatch measurements cover all 22 remaining pair/triple/quad combinations of high bits 26/29/30/31 over the `0x8140` and `0x10140` low families (36 fixtures per mask).
 
-For every `0x8140` composite, architectural state already matched the sequential i960 reference and only instruction accounting was high by 3 for unilateral distributions and 5 for bilateral. v0174 subtracts exactly that measured excess for the eleven exact masks.
+## 0x8140 composites
 
-Six `0x10140` composites were already 36/36 exact and remain untouched: `0xa00010140`, `0xc00010140`, `0xa40010140`, `0xc40010140`, `0xe00010140`, `0xe40010140`.
+All eleven masks share the isolated/single-family postconditions:
 
-The five remaining `0x10140` composites also had exact architectural state, calls, returns and interrupt counters. Their instruction-only deficits were:
+- instruction accounting is lower by 3 for unilateral distributions and 5 for bilateral;
+- final compare state is countdown-derived `EQUAL`/`LESS`;
+- the stale local frame receives the measured `0x41000000` / `0x07800f0f` register pattern.
 
-- `0x24010140`, `0x60010140`, `0x64010140`: +3 unilateral / +6 bilateral
-- `0x44010140`, `0x84010140`: +4 unilateral / +8 bilateral
+Admitted masks: `0x24008140`, `0x44008140`, `0x84008140`, `0x60008140`, `0xa0008140`, `0xc0008140`, `0x64008140`, `0xa4008140`, `0xc4008140`, `0xe0008140`, `0xe4008140`.
 
-The implementation adjusts only `native_instructions`; it deliberately does not rewrite memory, registers, condition codes or stale frames. All other masks remain outside this exact admission set.
+## 0x10140 composites
 
-Validation protocol:
+Six masks were already exact through the existing recovered/ROM-child path and remain untouched: `0xa00010140`, `0xc00010140`, `0xa40010140`, `0xc40010140`, `0xe00010140`, `0xe40010140`.
 
-- release configure/build with `VF2_BUILD_TESTS=ON` and `VF2_WARNINGS_AS_ERRORS=ON`;
-- complete `ctest --output-on-failure` before committing the recovered source;
-- post-commit CI artifact is re-run against the fresh ROM dump with the full 36-case dispatcher harness for every one of the 22 masks, so the committed binary—not only the pre-patch measurements—is checked end-to-end.
+Five masks need explicit dispatcher postconditions. `0x24010140`, `0x60010140`, and `0x64010140` add 3 unilateral / 6 bilateral instructions; `0x44010140` and `0x84010140` add 4 / 8. All five also restore countdown-derived compare state, the measured stale-frame pattern, and OR bit 11 into the selected fighter `+0x1a4` word. The three masks containing high bit 29 additionally write `0x1e` to selected fighter `+0x6da`, matching the previously recovered `0x20010140` single-high behavior.
+
+All corrections are exact-mask guarded; unrelated masks remain fail-closed.
