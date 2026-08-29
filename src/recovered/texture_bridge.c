@@ -79,6 +79,41 @@ static vf2_status execute_texture_convert_post_dispatch(
     return VF2_OK;
 }
 
+static vf2_status execute_return_stub(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    vf2_hybrid_bridge_report *report
+)
+{
+    const uint32_t entry = cpu->ip;
+    const uint32_t expected_exit =
+        entry == VF2_TEXTURE_UPLOAD_DISPATCH_RETURN
+            ? UINT32_C(0x00000c0c)
+            : (entry == VF2_GAME_STATE_RETURN_STUB
+                ? UINT32_C(0x00000c94)
+                : 0u);
+    const uint64_t start_returns = cpu->procedure_returns;
+    vf2_status status = VF2_OK;
+
+    if (expected_exit == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status != VF2_OK || cpu->ip != expected_exit) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    ++cpu->executed_instructions;
+
+    report->kind = VF2_HYBRID_BRIDGE_RETURN_STUB;
+    report->entry_address = entry;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count = UINT64_C(1);
+    report->recovered_procedure_returns =
+        cpu->procedure_returns - start_returns;
+    report->cpu_poststate_applied = 1;
+    return VF2_OK;
+}
+
 vf2_status vf2_hybrid_post_frame_bridge_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -93,6 +128,10 @@ vf2_status vf2_hybrid_post_frame_bridge_execute(
     }
     memset(&local_report, 0, sizeof(local_report));
     switch (cpu->ip) {
+    case VF2_TEXTURE_UPLOAD_DISPATCH_RETURN:
+    case VF2_GAME_STATE_RETURN_STUB:
+        status = execute_return_stub(machine, cpu, &local_report);
+        break;
     case VF2_TEXTURE_BYTE_RUN_ENTRY:
         status = execute_texture_byte_run(machine, cpu, &local_report);
         break;
@@ -639,6 +678,8 @@ const char *vf2_hybrid_bridge_kind_name(vf2_hybrid_bridge_kind kind)
         return "texture-counter-update";
     case VF2_HYBRID_BRIDGE_TEXTURE_ORCHESTRATOR_EPILOGUE:
         return "texture-orchestrator-epilogue";
+    case VF2_HYBRID_BRIDGE_RETURN_STUB:
+        return "return-stub";
     case VF2_HYBRID_BRIDGE_SECOND_SCHEDULER_ENTRY:
         return "second-scheduler-entry";
     case VF2_HYBRID_BRIDGE_CAMERA_BIT7_INTERPRETER:

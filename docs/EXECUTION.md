@@ -381,9 +381,9 @@ as evidence only -- no source file reads the CSV.
 This release achieves 0 interpreted instructions in the post-frame bridge! The accepted startup path from the end of the first scheduler sweep through the second entry into `fa_game_info` now executes entirely as recovered C.
 
 ```text
-Recovered bridge instructions:      1270822
+Recovered bridge instructions:      1270824
 Interpreted bridge instructions:           0
-Recovered bridge blocks:                 190
+Recovered bridge blocks:                 192
 Recovered bridge calls/returns:       342/340
 Final CPU and memory state:             MATCH
 ```
@@ -391,6 +391,13 @@ Final CPU and memory state:             MATCH
 ```bash
 build/vf2i960 native-second-dispatch /path/to/vf2
 ```
+
+The v0168 audit closed two architectural `ret` handoffs that were still being
+stepped by the reference executor at `0x0004bab4` and `0x000020ec`. They are
+now explicit one-instruction recovered `return-stub` bridges, preserving the
+original block boundaries while the strict second-dispatch path remains fully
+recovered. The repeated game-state path also models the measured selector-
+dependent condition state at the `0x000020ec` boundary.
 
 
 ## v0.0.25 consolidation phase
