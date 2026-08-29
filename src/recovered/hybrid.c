@@ -16029,6 +16029,36 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             }
         }
+        /* ROM-backed v0177: state-4 isolated high-bit postconditions. */
+        if (fighter0_state == 4u && fighter1_state == 4u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0) {
+            const uint32_t v0177_state4_high = combined_state4_flags;
+            const bool v0177_isolated_high =
+                v0177_state4_high == (UINT32_C(1) << 21u) ||
+                v0177_state4_high == (UINT32_C(1) << 26u) ||
+                v0177_state4_high == (UINT32_C(1) << 29u) ||
+                v0177_state4_high == (UINT32_C(1) << 30u) ||
+                v0177_state4_high == (UINT32_C(1) << 31u);
+            const bool v0177_distribution =
+                (fighter0_state_flags == 0u ||
+                 fighter0_state_flags == v0177_state4_high) &&
+                (fighter1_state_flags == 0u ||
+                 fighter1_state_flags == v0177_state4_high);
+            if (v0177_isolated_high && v0177_distribution) {
+                native_instructions += UINT64_C(1);
+                hybrid_set_compare_result(
+                    cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                               : VF2_I960_COMPARE_EQUAL);
+                if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+                    vf2_i960_local_frame *stale =
+                        &cpu->local_frames[cpu->local_frame_depth + 1u];
+                    stale->registers[3] = UINT32_C(0x41000000);
+                    stale->registers[4] = UINT32_C(0x07800f0f);
+                    stale->registers[7] = UINT32_C(0x41000000);
+                }
+            }
+        }
         /* ROM-backed v0176: final positive bit-6 high-extension gaps. */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
