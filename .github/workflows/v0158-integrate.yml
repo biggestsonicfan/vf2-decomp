@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
       - name: Apply recovery patch
         run: |
-          git apply --index .github/v0158.patch
+          git apply --recount --index .github/v0158.patch
           git diff --cached --check
       - name: Configure
         run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
