@@ -15373,7 +15373,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
             (int32_t)shared_fighter_threshold >= 0 &&
-            combined_positive_bit6_flags == UINT32_C(0xffffffff)) {
+            combined_positive_bit6_flags == UINT32_C(0x20010140)) {
             const bool fighter0_only =
                 fighter0_state_flags == combined_positive_bit6_flags &&
                 fighter1_state_flags == 0u;
@@ -15424,8 +15424,13 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
                 if (fighter0_state_flags == UINT32_C(0x20010140)) {
                     uint8_t _v = UINT8_C(0x1e);
-                    (void)vf2_model2a_write(machine, UINT32_C(0x0051105a), &_v,
-                                            sizeof(_v));
+                    (void)vf2_model2a_write(machine, fighter0 + UINT32_C(0x000006da),
+                                            &_v, sizeof(_v));
+                }
+                if (fighter1_state_flags == UINT32_C(0x20010140)) {
+                    uint8_t _v2 = UINT8_C(0x1e);
+                    (void)vf2_model2a_write(machine, fighter1 + UINT32_C(0x000006da),
+                                            &_v2, sizeof(_v2));
                 }
             }
         }
