@@ -1,0 +1,39 @@
+name: v0164 integrate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/v0164-*.patch'
+      - '.github/workflows/v0164-integrate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply recovery patches
+        run: |
+          git apply --recount --index .github/v0164-1.patch
+          git apply --recount --index .github/v0164-2.patch
+          git apply --recount --index .github/v0164-3.patch
+          git diff --cached --check
+      - name: Configure
+        run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit recovery
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/v0164-1.patch .github/v0164-2.patch .github/v0164-3.patch .github/workflows/v0164-integrate.yml
+          git add src/recovered/hybrid.c
+          git commit -m 'Recover second-fighter 19ef8 corridor'
+          git push origin master
