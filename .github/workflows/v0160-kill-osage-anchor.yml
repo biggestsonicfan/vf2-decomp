@@ -1,0 +1,67 @@
+name: v0160 kill osage helper anchor
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0160-kill-osage-anchor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attribute ROM helper range
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          functions = Path('decomp/i960/functions.csv')
+          text = functions.read_text()
+          row = '0x00065838,0x000658a4,kill_osage_evaluate_record,recovered-rom-anchor,rom-disassembly,Shared fa_kill_osage record evaluator; continuation/flag gate age threshold bit-3 mark and global kill counter exactly match the semantic helper in src/recovered/tasks.c\n'
+          if row not in text:
+              functions.write_text(text + row)
+
+          note = Path('decomp/i960/notes/kill_osage_evaluate_record_v0160.md')
+          note.write_text('''# `fa_kill_osage` record evaluator (`0x00065838`)
+
+The ROM block at `0x00065838..0x000658a0` is the shared record evaluator called twice by `fa_kill_osage` (`0x000657dc`). It is already represented semantically by `kill_osage_evaluate_record()` in `src/recovered/tasks.c`; this note closes the previously unattributed ROM range.
+
+ROM behavior:
+
+- starts with local accumulated age `r7 = 0`;
+- accepts only continuation `0x0006428c`, flag bit 0 clear, and flag bit 2 set for the age/kill path;
+- loads the record age from `record + 0x128`;
+- compares `elapsed + age` against `0x00004268`;
+- on threshold reach, sets record flag bit 3 and increments the global counter at `0x00500164`;
+- otherwise clears record flag bit 3 and adds the loaded age to the running elapsed value;
+- returns to either caller at `0x0006582c` or `0x00065834`.
+
+This matches the existing clean-room helper exactly, including the threshold path not adding the record age to the running accumulator. No ROM data is committed.
+''')
+
+          changelog = Path('CHANGELOG.md')
+          text = changelog.read_text()
+          entry = '- attributed ROM range `0x00065838..0x000658a0` to the existing clean-room `kill_osage_evaluate_record()` semantic helper; the continuation/flag gate, `record+0x128` age accumulation, `0x4268` threshold, bit-3 mark/clear behavior and `0x00500164` kill counter match the i960 block exactly, closing the first unattributed edge in a fresh sixth-dispatch frontier trace;\n'
+          anchor = '## Unreleased\n\n'
+          if entry not in text:
+              assert anchor in text
+              changelog.write_text(text.replace(anchor, anchor + entry, 1))
+          PY
+      - name: Configure
+        run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit v0160
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0160-kill-osage-anchor.yml
+          git add CHANGELOG.md decomp/i960/functions.csv decomp/i960/notes/kill_osage_evaluate_record_v0160.md
+          git commit -m "Attribute kill osage record evaluator"
+          git push origin HEAD:master
