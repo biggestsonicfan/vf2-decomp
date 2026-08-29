@@ -2,7 +2,9 @@ name: v0167 integrate
 on:
   push:
     branches: [master]
-    paths: ['.github/v0167.patch']
+    paths:
+      - '.github/v0167.patch'
+      - '.github/workflows/v0167-integrate.yml'
 permissions:
   contents: write
 jobs:
