@@ -1,0 +1,196 @@
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -182,7 +182,23 @@
+         cpu->ip != entry_address || cpu->local_frame_depth == 0u) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (entry_address == UINT32_C(0x0001428c) &&
++    if (entry_address == UINT32_C(0x000143e4) &&
++        registry_address == UINT32_C(0x00512980)) {
++        size_t steps = 0u;
++        while (status == VF2_OK && cpu->ip != VF2_SCHEDULER_RETURN &&
++               steps < 3765u) {
++            status = vf2_i960_step(cpu, machine, NULL);
++            ++steps;
++        }
++        if (status != VF2_OK) {
++            return status;
++        }
++        if (cpu->ip != VF2_SCHEDULER_RETURN || steps != 3765u ||
++            cpu->procedure_calls - start_calls != UINT64_C(38) ||
++            cpu->procedure_returns - start_returns != UINT64_C(39)) {
++            return VF2_ERROR_UNSUPPORTED;
++        }
++    } else if (entry_address == UINT32_C(0x0001428c) &&
+         registry_address == UINT32_C(0x00512980)) {
+         size_t steps = 0u;
+         while (status == VF2_OK && cpu->ip != VF2_SCHEDULER_RETURN &&
+@@ -1413,6 +1429,23 @@
+         player == 0u || cpu->local_frame_depth < 2u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
++    if (player == UINT32_C(0x00512980)) {
++        const uint64_t start_calls = cpu->procedure_calls;
++        const uint64_t start_returns = cpu->procedure_returns;
++        size_t steps = 0u;
++        while (status == VF2_OK && cpu->ip != UINT32_C(0x000142c0) &&
++               steps < 10000u) {
++            status = vf2_i960_step(cpu, machine, NULL);
++            ++steps;
++        }
++        if (status != VF2_OK) {
++            return status;
++        }
++        return cpu->ip == UINT32_C(0x000142c0) &&
++               cpu->procedure_calls - start_calls == UINT64_C(6) &&
++               cpu->procedure_returns - start_returns == UINT64_C(6)
++            ? VF2_OK : VF2_ERROR_UNSUPPORTED;
++    }
+     status = vf2_model2a_read_u32(machine, player, &player_flags);
+     if (status == VF2_OK) {
+         status = vf2_model2a_read_u32(
+@@ -1874,7 +1907,7 @@
+     vf2_status status = VF2_OK;
+ 
+     if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x000142c0) ||
+-        player == 0u || g1 != 0u) {
++        player == 0u || g1 > 1u) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+     status = vf2_model2a_write_u32(machine, UINT32_C(0x00550000), 1u);
+@@ -1884,24 +1917,17 @@
+         );
+     }
+     if (status == VF2_OK) {
+-        status = vf2_model2a_write_u32(
+-            machine, UINT32_C(0x005502c0), 3u
+-        );
+-    }
+-    if (status == VF2_OK) {
+-        status = vf2_model2a_write_u32(
+-            machine, UINT32_C(0x005502c4), g0
+-        );
+-    }
+-    if (status == VF2_OK) {
+-        status = vf2_model2a_write_u32(
+-            machine, UINT32_C(0x005502c8), g1
+-        );
+-    }
+-    if (status == VF2_OK) {
+-        status = vf2_model2a_write_u32(
+-            machine, UINT32_C(0x005502cc), g2
+-        );
++        const uint32_t command = UINT32_C(0x005502c0) + g1 * UINT32_C(0x10);
++        status = vf2_model2a_write_u32(machine, command, 3u);
++        if (status == VF2_OK) {
++            status = vf2_model2a_write_u32(machine, command + UINT32_C(4), g0);
++        }
++        if (status == VF2_OK) {
++            status = vf2_model2a_write_u32(machine, command + UINT32_C(8), g1);
++        }
++        if (status == VF2_OK) {
++            status = vf2_model2a_write_u32(machine, command + UINT32_C(0x0c), g2);
++        }
+     }
+     if (status == VF2_OK) {
+         status = hybrid_read_u16(
+@@ -1938,9 +1964,14 @@
+     }
+     cpu->registers[VF2_I960_G0_REGISTER] = table_pointer;
+     cpu->registers[2] = UINT32_C(0x000142e8);
+-    cpu->registers[15u] = table_last_value;
++    if (g1 == 1u) {
++        cpu->registers[14u] = 0u;
++        cpu->registers[15u] = g0;
++    } else {
++        cpu->registers[15u] = table_last_value;
++    }
+     cpu->ip = UINT32_C(0x00014310);
+-    cpu->executed_instructions += UINT64_C(56);
++    cpu->executed_instructions += g1 == 1u ? UINT64_C(55) : UINT64_C(56);
+     cpu->procedure_calls += UINT64_C(3);
+     cpu->procedure_returns += UINT64_C(3);
+     return VF2_OK;
+@@ -1999,13 +2030,24 @@
+     cpu->registers[2] = UINT32_C(0x0001438c);
+     cpu->registers[3] = (uint32_t)player_selector;
+     cpu->registers[5] = player_flags;
+-    cpu->registers[12] = 1u;
+     cpu->registers[15] = player_flags;
+     cpu->registers[VF2_I960_G0_REGISTER + 6u] = record_pointer;
+     cpu->ip = UINT32_C(0x000143e4);
+-    cpu->executed_instructions += UINT64_C(86);
+-    cpu->procedure_calls += UINT64_C(3);
+-    cpu->procedure_returns += UINT64_C(3);
++    if (player == UINT32_C(0x00512980)) {
++        cpu->registers[2] = UINT32_C(0x000142e8);
++        cpu->registers[12] = 0u;
++        cpu->registers[13] = 1u;
++        cpu->registers[14] = 1u;
++        cpu->registers[VF2_I960_G0_REGISTER + 8u] = UINT32_C(0x00510980);
++        cpu->arithmetic_control &= ~UINT32_C(7);
++        cpu->compare_result = VF2_I960_COMPARE_NONE;
++        cpu->executed_instructions += UINT64_C(33);
++    } else {
++        cpu->registers[12] = 1u;
++        cpu->executed_instructions += UINT64_C(86);
++        cpu->procedure_calls += UINT64_C(3);
++        cpu->procedure_returns += UINT64_C(3);
++    }
+     return VF2_OK;
+ }
+ 
+@@ -15666,13 +15708,6 @@
+                     machine, cpu, registry_address, UINT32_C(0x00014288),
+                     &task_report
+                 );
+-            } else if (status == VF2_OK &&
+-                       registry_address == UINT32_C(0x00512980)) {
+-                interpreted_task = 1;
+-                status = hybrid_execute_interpreted_task(
+-                    machine, cpu, registry_address, UINT32_C(0x0001428c),
+-                    &task_report
+-                );
+             } else if (status == VF2_OK) {
+                 status = hybrid_execute_player_1428c(machine, cpu);
+                 if (status == VF2_ERROR_UNSUPPORTED) {
+@@ -15697,6 +15732,13 @@
+                                 machine, cpu, registry_address,
+                                 UINT32_C(0x00014310), &task_report
+                             );
++                        } else if (status == VF2_OK &&
++                                   registry_address == UINT32_C(0x00512980)) {
++                            interpreted_task = 1;
++                            status = hybrid_execute_interpreted_task(
++                                machine, cpu, registry_address,
++                                UINT32_C(0x000143e4), &task_report
++                            );
+                         } else if (status == VF2_OK) {
+                             status = hybrid_execute_player_143e4_prefix(
+                                 machine, cpu
+--- /dev/null
++++ b/decomp/i960/notes/player_second_fighter_142c0_14310_v0165.md
+@@ -0,0 +1,27 @@
++# v0165: second-fighter 142c0 and 14310 corridors
++
++This checkpoint advances the recovered second-fighter `fa_player` path beyond the v0164 `0x1428c` boundary without claiming the still-divergent `0x270d4`/`0x27b5c` record expanders as recovered.
++
++For fighter 1 (`g7 = 0x00512980`), the remaining `0x1428c -> 0x142c0` aggregate record-expansion corridor is kept as a narrowly bounded direct-i960 bridge. The next two blocks are now recovered in C and ROM-validated exactly:
++
++- `0x142c0 -> 0x14310`: `g1 == 1` appends the four-word command at `0x005502d0` instead of overwriting the existing slot at `0x005502c0`; the measured path is 55 instructions with 3 calls and 3 returns and leaves `r14 = 0`, `r15 = 0x11`.
++- `0x14310 -> 0x143e4`: the second fighter takes the short no-call branch, 33 instructions and 0 calls/returns, while preserving the same memory result as the existing recovered body. The architectural post-state is recovered explicitly.
++
++The remaining bridge now starts at `0x143e4` and is bounded by the measured reference totals: 3,765 instructions, 38 calls and 39 returns.
++
++ROM-backed validation keeps the full fighter-1 task exact:
++
++- entry `0x00013f08`;
++- exit `0x00010dcc`;
++- 16,275 instructions;
++- 53 calls;
++- 54 returns;
++- final snapshot exactly matches the i960 reference.
++
++The first fighter-1 `0x27b5c` invocation (`selector 0x0283`) was also probed independently and still differs from the currently recovered expander by 192 work-RAM bytes. It remains explicitly unrecovered rather than being admitted under a broadened predicate.
++
++No ROM bytes or generated snapshots are committed.
