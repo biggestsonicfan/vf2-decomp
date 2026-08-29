@@ -1,0 +1,37 @@
+name: v0166 integrate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/v0166.patch'
+      - '.github/workflows/v0166-integrate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply recovery patch
+        run: |
+          git apply --recount --index .github/v0166.patch
+          git diff --cached --check
+      - name: Configure
+        run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Commit recovery
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f .github/v0166.patch .github/workflows/v0166-integrate.yml .github/workflows/v0166-source-export.yml
+          git add src/recovered/hybrid.c decomp/i960/notes/player_second_fighter_27b5c_v0166.md
+          git commit -m 'Recover second-fighter 27b5c record expander'
+          git push origin master
