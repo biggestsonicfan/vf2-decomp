@@ -1,0 +1,94 @@
+name: v0161b state8 bit14 high26 high29
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/v0161b-state8-bit14-high26-29.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Integrate measured state8 mask
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(text, old, new, label, expected=2):
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{label}: expected {expected} matches, got {count}')
+              return text.replace(old, new)
+
+          path = Path('src/recovered/hybrid.c')
+          text = path.read_text()
+
+          anchor = '''        const uint32_t state8_bit6_bit14_bit15_high26_29_bit8 =\n'''
+          insert = '''        const uint32_t state8_bit6_bit14_high26_29_bit8 =\n            state8 | (UINT32_C(1) << 6u) |\n            (UINT32_C(1) << 14u) | (UINT32_C(1) << 26u) |\n            (UINT32_C(1) << 29u);\n        const bool bilateral_both_bit6_bit14_high26_29_bit8 =\n            r7 == state8_bit6_bit14_high26_29_bit8 &&\n            r8 == state8_bit6_bit14_high26_29_bit8;\n'''
+          text = replace_exact(text, anchor, insert + anchor, 'bilateral declaration')
+
+          old = '''            !bilateral_both_bit6_bit14_bit15_high26_29_bit8 &&\n'''
+          new = '''            !bilateral_both_bit6_bit14_high26_29_bit8 &&\n''' + old
+          text = replace_exact(text, old, new, 'bilateral admission')
+
+          old = '''                     extra_state ==\n                         ((UINT32_C(1) << 6u) |\n                          (UINT32_C(1) << 14u) |\n                          (UINT32_C(1) << 15u) |\n                          (UINT32_C(1) << 16u) |\n                          (UINT32_C(1) << 21u)) ||\n                     extra_state == (UINT32_C(1) << 21u) ||\n'''
+          new = '''                     extra_state ==\n                         ((UINT32_C(1) << 6u) |\n                          (UINT32_C(1) << 14u) |\n                          (UINT32_C(1) << 15u) |\n                          (UINT32_C(1) << 16u) |\n                          (UINT32_C(1) << 21u)) ||\n                     extra_state ==\n                         ((UINT32_C(1) << 6u) |\n                          (UINT32_C(1) << 14u) |\n                          (UINT32_C(1) << 26u) |\n                          (UINT32_C(1) << 29u)) ||\n                     extra_state == (UINT32_C(1) << 21u) ||\n'''
+          text = replace_exact(text, old, new, 'mode-bit6 whitelist')
+
+          old = '''    native_bit14_fighter_path =\n        fighter0_state == 8u && fighter1_state == 8u &&\n        isolated_state8_flags == (UINT32_C(1) << 14u) &&\n        (int32_t)shared_fighter_threshold >= 0;\n'''
+          new = '''    native_bit14_fighter_path =\n        fighter0_state == 8u && fighter1_state == 8u &&\n        (isolated_state8_flags == (UINT32_C(1) << 14u) ||\n         isolated_state8_flags == UINT32_C(0x24004140)) &&\n        (int32_t)shared_fighter_threshold >= 0;\n'''
+          text = replace_exact(text, old, new, 'dispatcher admission')
+
+          anchor = '''    if (status == VF2_OK) {\n        cpu->ip = UINT32_C(0x00018a50);\n        cpu->executed_instructions += body_instructions + tail_instruction_delta;\n'''
+          accounting = '''    if (status == VF2_OK &&\n        return_address == UINT32_C(0x000164c4)) {\n        const uint32_t state8_bit6_bit14_high26_29 =\n            (UINT32_C(1) << 8u) | (UINT32_C(1) << 6u) |\n            (UINT32_C(1) << 14u) | (UINT32_C(1) << 26u) |\n            (UINT32_C(1) << 29u);\n        const bool fighter0_only =\n            r7 == state8_bit6_bit14_high26_29 && r8 == 0u;\n        const bool fighter1_only =\n            r7 == 0u && r8 == state8_bit6_bit14_high26_29;\n        const bool bilateral =\n            r7 == state8_bit6_bit14_high26_29 &&\n            r8 == state8_bit6_bit14_high26_29;\n\n        if (fighter0_only) {\n            if (countdown_path) {\n                body_instructions -= UINT32_C(4);\n            }\n        } else if (fighter1_only) {\n            if (mode_bit6) {\n                ++body_instructions;\n            }\n            if (countdown_path) {\n                ++body_instructions;\n            }\n        } else if (bilateral) {\n            if (!countdown_path && !mode_bit6) {\n                --body_instructions;\n            } else if (!countdown_path && mode_bit6) {\n                body_instructions -= UINT32_C(8);\n            } else if (countdown_path && !mode_bit6) {\n                body_instructions -= UINT32_C(4);\n            } else {\n                body_instructions -= UINT32_C(3);\n            }\n        }\n    }\n'''
+          text = replace_exact(text, anchor, accounting + anchor, 'child accounting')
+          path.write_text(text)
+
+          note = '# Positive state-8 bit-14 + high-26/high-29 (`0x24004140`)\n\nThe positive-threshold `fa_game_info` state-8 matrix now admits the exact fighter flag composition `0x24004140`: state bit 8, bit 6, bit 14 and high bits 26+29.\n\nThe user-supplied Virtua Fighter 2 ROM set was used locally as the sequential i960 oracle. The mask was validated across all 12 controlled cases: fighter-0-only, fighter-1-only and bilateral distributions; countdown 0/1; and mode bit 6 clear/set. Every case matched complete snapshot state and instruction/call/return counters.\n\nThe second `0x18644` call (`return 0x164c4`) exposes the measured order asymmetry. Its exact counter corrections are kept mask-local rather than generalized to the other high-bit pairs, which remain fail-closed until independently measured. No ROM data or derived snapshots are committed.\n'
+          Path('decomp/i960/notes/game_info_18644_positive_bit14_high26_29_v0161.md').write_text(note)
+
+          docs = Path('docs/UNCOVERED_BRANCHES.md')
+          d = docs.read_text()
+          old = 'The admission is limited to one of these four single high bits; their measured\nfirst-order, second-order and bilateral countdown/mode joins share the\nvalidated accounting rule, while multi-high extensions remain unsupported.\n'
+          new = 'The admission is limited to one of these four single high bits, plus the\nindependently measured high-26+high-29 pair `0x24004140`; its 12-case matrix\nis exact with a mask-local second-call accounting correction. Other multi-high\nextensions remain unsupported.\n'
+          if d.count(old) != 1:
+              raise SystemExit(f'UNCOVERED_BRANCHES anchor count={d.count(old)}')
+          docs.write_text(d.replace(old, new, 1))
+
+          changelog = Path('CHANGELOG.md')
+          c = changelog.read_text()
+          entry = '- recovered the positive state-8 `fa_game_info` bit-14 + high-26/high-29 mask `0x24004140`; all 12 fighter-distribution/countdown/mode-bit-6 fixtures match the original i960 exactly in snapshot state and instruction/call/return accounting, while the other high-bit pairs remain fail-closed;\n'
+          marker = '## Unreleased\n\n'
+          if entry not in c:
+              if c.count(marker) != 1:
+                  raise SystemExit(f'CHANGELOG marker count={c.count(marker)}')
+              changelog.write_text(c.replace(marker, marker + entry, 1))
+          PY
+
+      - name: Check diff
+        run: git diff --check
+
+      - name: Configure
+        run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Commit v0161
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v0161-state8-bit14-high26-29.yml .github/workflows/v0161b-state8-bit14-high26-29.yml
+          git add src/recovered/hybrid.c CHANGELOG.md docs/UNCOVERED_BRANCHES.md decomp/i960/notes/game_info_18644_positive_bit14_high26_29_v0161.md
+          git commit -m "Recover state8 bit14 high26 high29 pair"
+          git push origin HEAD:master
