@@ -16,7 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply v0142 fix
         run: |
-          git apply .github/v0142-r13.patch
+          perl -0pi -e 's/cpu->registers\[13\]=\(start_depth<<8u\)\|cpu->local_frame_depth;/if (start_depth == 0u) {\n        cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;\n    }/' src/recovered/texture_bridge_match.c
+          grep -q 'if (start_depth == 0u)' src/recovered/texture_bridge_match.c
           git diff --check
       - name: Configure GCC
         run: cmake -S . -B build-gcc -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
