@@ -33,7 +33,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/v0165.patch .github/workflows/v0165-integrate.yml
+          git rm -f .github/v0165.patch .github/workflows/v0165-integrate.yml
           git add src/recovered/hybrid.c decomp/i960/notes/player_second_fighter_142c0_14310_v0165.md
           git commit -m 'Recover second-fighter 142c0 and 14310 corridors'
           git push origin master
