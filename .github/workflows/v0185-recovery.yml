@@ -1,0 +1,36 @@
+name: v0185 recovery
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/v0185-recovery.yml'
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply v0185 recovery
+        shell: bash
+        run: |
+          echo 'H4sICE5wk2oCA3YwMTg1LnBhdGNoAOVZWW/bOBB+z6+YJ8OKo0aUZcVJ4xzIukDRpE6dZrFAURCyRMdCZSnQkaMb728vKcu2DlKH0y4KlA+JRWlmPn4zHA5JWZbB2A98c98npvdAfGLtz54nvm29MXc6nQ5MRC/PzkBGutY93NOhs/yB1C6cne1Avi12RI+Lnc7q5/4ujEdX8sQwvxELHhTU7x3B1HYNB4LQCImswcQOdTC9+b0XuRbYgefQfkue2XczCA3bCd7A7v5Goz2F9pS+C4mv4FgHDAagRdBqQdKPcv0bYdbmxAgiOmg8N0LffsKWHdD/kyi0Pbfwcdt2w66KQymYGUwmsYDDmU+CmedYcDIARYJ/s2Km5wYhRInwctzY8R6pzeAbDLIfx3Zu33/8TL+9aCMJjo9BjyR4KfQijXVXS6MeX5xqfVsDKKO+NlIVcW2pej2o6iFXvKvUE++iekOi3MOARdnEdqkb4/jQ8NQx7gJo5fxTl6JKhWseuRonnuckH5oOMVwu2SID/7VzMfWStylJLP6VqMr2asIlQypiSA94IHD/S2MxfTuxw63EltHUXKxmcLEMxv6g3iumdq+hLU1ssYCKn0m2MKf/D7lLb0q6GFkdIvTteK9tVGtuOjU7p8bcdp7FZuK8NuAM9KWZhPYqOb2xXG9LuQz7VeRlVnZe4GbriCS5xlmTCwxE33OztFQoJtI2UUObqJ7NHCWsWEovMa0WN+uvu5Nw4wEvUlqoenJOmNjMhE9LPQ73jenkgmpM0NtSxDMjiAlRD2FQYyXiKNsQLoh7LmnZrKNrNOuQJ5MEdBwpFk+BYaBvL9q6BEebpy4PyQqNa4T2A8E21e5HJvNbAMeJeiEY1nwSRr4Lf79T8XA8Ho3x7ceb2+vr0fjz8C+BvQW/mwdBHiQYOKoWQJyAVHKZ5J6fw2g3wyj6MxntVTDKM9sZpKaNeOyCdgrtWgEuNdZ8JNDcz2jWJElMVzMWuNa0jDWVa6zYtdyO44CEmG2M6c4T0+1m5IRtQaTfR3t1lukKEk/ZfiNyQ8t7dPEjdarrud+J79EXLGbfH+oKvhhdXZ+Ph/hyeHPT2Cdr1xTUDT/dnl9WOfmID0OUhykr8onjmYaDp74xJ9gi9+EMOoAiOl/Xqq7O/8GXo4vzS/xufH41vBFG/8NUxTaTSOmEXbq6OES0wrHWyuMIvpQg+ypIBLEZ+cQnd3QFJn7wpfuVprL1oqQ8aUiJm1RXgZZToBz0FWWqTGsrOGiIIHVyU7OaKUumBTiol8EjTOGLWlPwtalyvX0wPd8nJiu1ksEW9+Tio61ta6JVuM49iziqQbOHYeGoq7bLZ9jcMGfUyN66MqMhmY4Q1pChSXvlalq5MccnEWy+jT6UujRP1UvGnfGWCYm4i2vrB8+2pPS4H32bkvgTB57HKDVbtxtPgV/tYfSnehj9Qg9v6qEKMlb1aZ/midXJ8uSZnVzH2PoxNESkEkYa54xSSCUct6tX+zqzSLeMquCKAyxNxx4E9nfiTdvpTqmMlUUtwtDvRhj63QirXitTj6kboMK1z4G+uva59wKb1c/s3kfWgc0TmTyFxA3YKc2dcb+874Hy+56+4L4n7s9eTFXd9/wAdvlNBS0bAAA=' | base64 -d | gunzip > /tmp/v0185.patch
+          git apply /tmp/v0185.patch
+          echo 'H4sICE5wk2oCA3YwMTg1LW5vdGUubWQAdVTLbtswELzrKxbIJXElm5TkRxLkEBTJKUXRJs1ZlLiKiMikQVKx06/vknb8aFoDFqTl7nB2ONwzeGN8Mb2CpjcOwXnhMSuhVn4GjVmuzKAlKGd6isusUy8dLIW3apMkd9rbd6jYhjHGZ+W0qVKoje+gpSyPdgsG9btHB+UYnjrlwGJj3pDq4n4OfIeU/4a0sBRKK/0CvVlDK5aqV7TeGO13ceIEkVStNEpYK9rKaNyzg8guZOU8hXxG/8sUCpaCsVDwqyTJAtsFK1kF56HDL/Tg04srcEPtrWg8FDBoFdCs6GFC29UfX9fb6uav6nKPIaSE/LS8/FTOy3/Wz4458FOQ4jPIpxb2IIFEOVmkgJsGVz5KkuWXMV5MZh8A/+niBCaflOMkue37w2FYdN7Y6JIes9aKJUJlixu2KTmLP7JAZUsKsPmCsZa1MTA/zVj1g6Mon97wCtYd6r1jOKyE9apRK2rYjY8UG1w0w6C9NGudSbRkGhktKojReXX349ftQwXCw2+0hnZ9uHt8rID8iHatHF5cR6/Fb2jNYA9tteQv1+0qqOeDxKSD8spo0ffv4NC7PdPqCyWJsop+45wQ7RH3YNddpgOhZRrXd4eRwtqqcCfCPliBNyeoMykCibMzeKYmW9WIwCBJ7kn9Dp7vc3jOxzn8/P4tq0XzSiJI1bZoUXtFhnkTvZKxBOJNo/V8SnfWvTrYkJmkcnR96yFkhEh+UDXUDrgNLo3EjHrLZodoSQoGEqaXjhTPeDjceOTxLa/IOaMRzxmbhAd5MNjZabGiGu9GozADgnusovha2HCtXSZchtYaUqoeVC+DXjQDGurl6xMZji4GqUXiOkfoeTHJC0JKkifzgvEw4yCgKTafZ2GWlSnRpElzNGBI7DAfFiwLOuyH3OlYw41H7YJu2wE3Tv4AeDI5mRwFAAA=' | base64 -d | gunzip > decomp/i960/notes/game_info_1645c_state4_bit6_remaining_high_v0185.md
+      - name: Build and test
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+      - name: Commit recovery
+        shell: bash
+        run: |
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_state4_bit6_remaining_high_v0185.md
+          git commit -m 'Close state-4 bit6 isolated-high matrix'
+          git rm .github/workflows/v0185-recovery.yml
+          git commit -m 'Remove v0185 recovery workflow'
+          git push origin master
