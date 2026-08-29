@@ -14,3 +14,9 @@ The five remaining `0x10140` composites also had exact architectural state, call
 - `0x44010140`, `0x84010140`: +4 unilateral / +8 bilateral
 
 The implementation adjusts only `native_instructions`; it deliberately does not rewrite memory, registers, condition codes or stale frames. All other masks remain outside this exact admission set.
+
+Validation protocol:
+
+- release configure/build with `VF2_BUILD_TESTS=ON` and `VF2_WARNINGS_AS_ERRORS=ON`;
+- complete `ctest --output-on-failure` before committing the recovered source;
+- post-commit CI artifact is re-run against the fresh ROM dump with the full 36-case dispatcher harness for every one of the 22 masks, so the committed binary—not only the pre-patch measurements—is checked end-to-end.
