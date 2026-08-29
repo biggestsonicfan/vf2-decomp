@@ -1,21 +1,15 @@
-# Warm selector and scheduler recovery (v0143)
+# Warm selector scheduler stack recovery (v0143)
 
-This recovery rebases the previously staged warm-selector work onto the current native runtime instead of applying the stale v0142 patch mechanically.
+After TEST exit and warm initialization, the main loop reaches `0x0000a010` at local-frame depth 3 with selector 2. The cold scheduler semantics are reused under the three persistent warm frames.
 
-Recovered boundaries and behavior:
+Warm scheduler entry (`0xa010` to `fa_game_info`) is ROM-validated at 1,467 instructions, 32 calls, and 30 returns. Scheduler transitions admit the historical depth 1 or warm depth 4; `fa_game_info` to `fa_camera` is exact at 448 instructions, 9 calls, and 9 returns.
 
-- `0x00009f74 -> 0x00009fb0`: post-coprocessor delay, 2,100,198 instructions, 1 call, 1 return. The native path preserves the observed 700,000-iteration helper semantics without spending 2.1M host interpreter steps.
-- selector-0 signature path `0x0000a6c0 -> 0x0000a010`: when the four-word signature helper returns `g0 == 0xffffffff`, selector 0 advances directly to selector 2. The recovered aggregate is 34 instructions, 2 calls, 3 returns.
-- warm scheduler entry accepts the observed three-deep caller stack and the corresponding four-deep scheduler return state instead of treating those states as synthetic corruption.
-- synthetic `r13` frame-depth instrumentation is restricted to depth-zero instrumentation paths and no longer overwrites live warm register state.
-- `fa_object` (`0x0006ca64`) is accepted as the generic object task: the instance byte selects the entry from the ROM table at `0x0006ca78`, writes it to descriptor `+0x0c`, and returns through the scheduler.
-- `fa_game_disp` (`0x0002b1bc`) is an explicit interpreted bridge while its native body remains unrecovered; the bridge preserves the observed post-condition state instead of silently approximating it.
+The task-name formatter now writes only the eight styled characters (16 bytes). The ROM leaves the following word untouched; the regression test preserves a sentinel there.
 
-Validation performed against the supplied Virtua Fighter 2 v2.2 ROM set:
+Scheduler finish stores its stale scheduler/text frames relative to the live depth, preserving the three outer warm frames. `fa_osage1` return to `0xa014` is exact at 281 instructions, 4 calls, and 5 returns.
 
-- ROM manifest matched the expected `epr-18385.12` through `epr-18388.15` i960 program set.
-- native-runtime and native-scheduler unit tests pass.
-- phase-17 zero differential test passes.
-- ROM-backed native second, third, fourth, fifth and sixth dispatch tests pass after the recovery.
+The complete selector-2 frame from warm `0xa010` to the next `0xa010` executes 204 blocks, 1,276,892 instructions, 421 calls, and 421 returns. Snapshot matches the ROM byte-for-byte and selector advances naturally from 2 to 3.
 
-The old v0142 patch was intentionally discarded because its source context no longer matched the current tree. This v0143 recovery is a semantic rebase onto the current implementation.
+The specialized hot initializer scheduler no longer overwrites `r0` with a cold-stack constant after the executor has already constructed the correct procedure frame. This makes the warm selector-3 scheduler prefix exact through `0xa014` while retaining the cold behavior.
+
+No ROM bytes or snapshots are committed.

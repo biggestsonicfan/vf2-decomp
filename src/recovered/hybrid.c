@@ -14821,11 +14821,9 @@ vf2_status vf2_hybrid_first_dispatch_scheduler_advance(
             tile_name[character_index * 2u] = source;
             tile_name[character_index * 2u + 1u] = UINT8_C(0x80);
         }
-        tile_name[16] = UINT8_C(0x20);
-        tile_name[17] = UINT8_C(0x00);
         status = vf2_model2a_write(
             machine, VF2_SCHEDULER_NAME_FORMAT,
-            tile_name, sizeof(tile_name)
+            tile_name, VF2_SCHEDULER_TILE_NAME_CHARS * 2u
         );
     }
     if (status == VF2_OK) {
@@ -14951,7 +14949,7 @@ static vf2_status hybrid_cold_second_scheduler_enter(
         (timer1 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK ||
         (timer2 & VF2_SCHEDULER_TIMER_MASK) != VF2_SCHEDULER_TIMER_MASK ||
         cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE ||
-        cpu->local_frame_depth > 1u) {
+        (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u)) {
         return VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, VF2_SCHEDULER_INPUT_POINTER, &input_pointer);
@@ -15082,7 +15080,7 @@ vf2_status vf2_hybrid_second_scheduler_enter(
         (cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE &&
          cpu->ip != VF2_SECOND_SCHEDULER_ENTRY) ||
         (cpu->ip == VF2_SECOND_SCHEDULER_CALL_SITE &&
-         cpu->local_frame_depth > 1u)) {
+         cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u)) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 

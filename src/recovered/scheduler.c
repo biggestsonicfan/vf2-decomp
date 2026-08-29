@@ -309,7 +309,6 @@ static vf2_status execute_initializer_scheduler_corridor(
     }
 
     memset(&cpu->registers[2], 0, 14u * sizeof(cpu->registers[0]));
-    cpu->registers[0] = UINT32_C(0x005ff500);
     cpu->registers[2] = UINT32_C(0x00010d64);
     cpu->registers[3] = task_count;
     cpu->registers[4] = VF2_NATIVE_INITIALIZER_ENTRY;

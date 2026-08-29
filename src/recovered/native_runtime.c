@@ -5983,7 +5983,8 @@ execute_second_sweep_scheduler_finish(vf2_model2a *machine, vf2_i960_cpu *cpu,
     uint32_t inactive_scratch = 0u;
     vf2_status status = VF2_OK;
 
-    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN || cpu->local_frame_depth != 1u ||
+    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN ||
+        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u) ||
         current_index != 27u || current_registry != UINT32_C(0x00516180) ||
         current_scratch !=
             VF2_NATIVE_SCRATCH_BASE + UINT32_C(27) * VF2_NATIVE_SCRATCH_STRIDE) {
@@ -6067,20 +6068,24 @@ execute_second_sweep_scheduler_finish(vf2_model2a *machine, vf2_i960_cpu *cpu,
         cpu->registers[16] = UINT32_C(0x00444158);
         cpu->registers[25] = UINT32_C(0x010004dc);
         cpu->registers[29] = end_registry;
-        cpu->local_frames[1].registers[2] = UINT32_C(0x00010e64);
-        cpu->local_frames[1].registers[4] = 0u;
-        cpu->local_frames[1].registers[10] = UINT32_C(0x0050c3a0);
-        cpu->local_frames[1].registers[11] = UINT32_C(29);
-        cpu->local_frames[1].registers[15] = UINT32_C(0x000fffff);
-        cpu->local_frames[2].registers[2] = UINT32_C(0x00009450);
-        cpu->local_frames[2].registers[3] = 0u;
-        cpu->local_frames[2].registers[4] = 0u;
-        cpu->local_frames[2].registers[5] = 0u;
-        cpu->local_frames[2].registers[6] = 0u;
-        cpu->local_frames[2].registers[7] = 0u;
-        cpu->local_frames[2].registers[8] = 0u;
-        cpu->local_frames[2].registers[14] = UINT32_C(0x00010ef4);
-        cpu->local_frames[2].registers[15] = UINT32_C(0x0100045c);
+        {
+            const size_t scheduler_frame = cpu->local_frame_depth;
+            const size_t text_frame = scheduler_frame + 1u;
+            cpu->local_frames[scheduler_frame].registers[2] = UINT32_C(0x00010e64);
+            cpu->local_frames[scheduler_frame].registers[4] = 0u;
+            cpu->local_frames[scheduler_frame].registers[10] = UINT32_C(0x0050c3a0);
+            cpu->local_frames[scheduler_frame].registers[11] = UINT32_C(29);
+            cpu->local_frames[scheduler_frame].registers[15] = UINT32_C(0x000fffff);
+            cpu->local_frames[text_frame].registers[2] = UINT32_C(0x00009450);
+            cpu->local_frames[text_frame].registers[3] = 0u;
+            cpu->local_frames[text_frame].registers[4] = 0u;
+            cpu->local_frames[text_frame].registers[5] = 0u;
+            cpu->local_frames[text_frame].registers[6] = 0u;
+            cpu->local_frames[text_frame].registers[7] = 0u;
+            cpu->local_frames[text_frame].registers[8] = 0u;
+            cpu->local_frames[text_frame].registers[14] = UINT32_C(0x00010ef4);
+            cpu->local_frames[text_frame].registers[15] = UINT32_C(0x0100045c);
+        }
         cpu->arithmetic_control = (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
         cpu->compare_result = VF2_I960_COMPARE_GREATER;
         status = vf2_i960_cpu_return_procedure(cpu, machine);
@@ -6230,7 +6235,8 @@ execute_second_sweep_scheduler_transition(vf2_model2a *machine, vf2_i960_cpu *cp
     size_t scanned = 0u;
     vf2_status status = VF2_OK;
 
-    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN || cpu->local_frame_depth != 1u ||
+    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN ||
+        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u) ||
         current_scratch != VF2_NATIVE_SCRATCH_BASE +
                                (uint32_t)current_index * VF2_NATIVE_SCRATCH_STRIDE) {
         return VF2_ERROR_INVALID_ARGUMENT;
