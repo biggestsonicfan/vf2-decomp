@@ -62,9 +62,9 @@ static void check_rotation(
 static void test_cardinal_orientation(void)
 {
     check_rotation(0, 2.0f, 3.0f, 2.0f, 3.0f);
-    check_rotation((int16_t)UINT16_C(0x4000), 2.0f, 3.0f, 3.0f, -2.0f);
-    check_rotation((int16_t)UINT16_C(0xc000), 2.0f, 3.0f, -3.0f, 2.0f);
-    check_rotation((int16_t)UINT16_C(0x8000), 2.0f, 3.0f, -2.0f, -3.0f);
+    check_rotation((int16_t)INT16_C(16384), 2.0f, 3.0f, 3.0f, -2.0f);
+    check_rotation((int16_t)INT16_C(-16384), 2.0f, 3.0f, -3.0f, 2.0f);
+    check_rotation(INT16_MIN, 2.0f, 3.0f, -2.0f, -3.0f);
 }
 
 static void test_atan_edge_alignment_evidence(void)
