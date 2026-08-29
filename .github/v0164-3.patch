@@ -1,0 +1,16 @@
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -15629,6 +15629,13 @@
+                     machine, cpu, registry_address, UINT32_C(0x00014288),
+                     &task_report
+                 );
++            } else if (status == VF2_OK &&
++                       registry_address == UINT32_C(0x00512980)) {
++                interpreted_task = 1;
++                status = hybrid_execute_interpreted_task(
++                    machine, cpu, registry_address, UINT32_C(0x0001428c),
++                    &task_report
++                );
+             } else if (status == VF2_OK) {
+                 status = hybrid_execute_player_1428c(machine, cpu);
+                 if (status == VF2_ERROR_UNSUPPORTED) {
