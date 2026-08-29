@@ -1,0 +1,23 @@
+name: v0167 integrate
+on:
+  push:
+    branches: [master]
+    paths: ['.github/v0167.patch']
+permissions:
+  contents: write
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: patch -p1 < .github/v0167.patch
+      - run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --parallel 2
+      - run: ctest --test-dir build --output-on-failure
+      - run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add src/recovered/hybrid.c decomp/i960/notes/player_second_fighter_143e4_v0167.md
+          git rm .github/v0167.patch .github/workflows/v0167-integrate.yml
+          git commit -m 'Remove second-fighter 143e4 scheduler bridge'
+          git push
