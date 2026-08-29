@@ -142,6 +142,8 @@
 #define VF2_NATIVE_SCHEDULER_EPILOGUE_AND UINT32_C(0x00010dd8)
 #define VF2_NATIVE_SCHEDULER_EPILOGUE_SUB UINT32_C(0x00010ddc)
 #define VF2_NATIVE_SCHEDULER_EPILOGUE_EXIT UINT32_C(0x00010e3c)
+#define VF2_NATIVE_SCHEDULER_SCAN_EXIT UINT32_C(0x0001d458)
+#define VF2_NATIVE_SCHEDULER_SCAN_NEXT_REGISTRY UINT32_C(0x00515400)
 #define VF2_NATIVE_MAIN_AFTER_SCHEDULER UINT32_C(0x0000a014)
 #define VF2_NATIVE_GAME_INFO_TASK_ENTRY UINT32_C(0x0001645c)
 #define VF2_NATIVE_PLAYER_TASK_ENTRY UINT32_C(0x00013f08)
@@ -6214,6 +6216,86 @@ execute_second_sweep_scheduler_epilogue(vf2_model2a *machine, vf2_i960_cpu *cpu,
 }
 
 static vf2_status
+execute_second_sweep_scheduler_scan(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                    vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    const uint32_t current_registry = cpu->registers[29];
+    const uint32_t current_scratch = cpu->registers[10];
+    uint32_t stride = 0u;
+    uint32_t flags = 0u;
+    uint32_t entry = 0u;
+    uint32_t registry = current_registry;
+    size_t index = 0u;
+    size_t steps = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL ||
+        cpu->ip != VF2_NATIVE_SCHEDULER_EPILOGUE_EXIT ||
+        cpu->registers[11] != UINT32_C(13) ||
+        current_registry != UINT32_C(0x00515200) ||
+        current_scratch != UINT32_C(0x0050c1a0)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* Validate the exact measured descriptor layout before executing any
+     * scheduler instructions. Descriptors 14-16 are inactive 0x80 records;
+     * descriptor 17 is the active recurring-camera task. */
+    for (index = 0u; index < 4u && status == VF2_OK; ++index) {
+        status = vf2_model2a_read_u32(machine, registry + UINT32_C(8), &stride);
+        if (status == VF2_OK && stride != UINT32_C(0x80)) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+        if (status == VF2_OK) {
+            registry += stride;
+            status = vf2_model2a_read_u32(machine, registry, &flags);
+        }
+        if (status == VF2_OK && index < 3u &&
+            (flags & UINT32_C(0x80000000)) != 0u) {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(machine, registry + UINT32_C(0x0c), &entry);
+    }
+    if (status != VF2_OK || registry != VF2_NATIVE_SCHEDULER_SCAN_NEXT_REGISTRY ||
+        (flags & UINT32_C(0x80000000)) == 0u ||
+        entry != VF2_NATIVE_SCHEDULER_SCAN_EXIT) {
+        return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+
+    while (status == VF2_OK && cpu->ip != VF2_NATIVE_SCHEDULER_SCAN_EXIT &&
+           steps < 62u) {
+        status = vf2_i960_step(cpu, machine, NULL);
+        ++steps;
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (cpu->ip != VF2_NATIVE_SCHEDULER_SCAN_EXIT || steps != 62u ||
+        cpu->procedure_calls - start_calls != UINT64_C(1) ||
+        cpu->procedure_returns != start_returns ||
+        cpu->registers[29] != VF2_NATIVE_SCHEDULER_SCAN_NEXT_REGISTRY) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    memset(report, 0, sizeof(*report));
+    report->kind = VF2_NATIVE_RUNTIME_STEP_SCHEDULER_SCAN;
+    report->exit_address = cpu->ip;
+    report->current_task_index = 13u;
+    report->next_task_index = 17u;
+    report->descriptors_scanned = 4u;
+    report->current_registry_address = current_registry;
+    report->next_registry_address = cpu->registers[29];
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = UINT64_C(1);
+    report->recovered_procedure_returns = UINT64_C(0);
+    return VF2_OK;
+}
+
+static vf2_status
 execute_second_sweep_scheduler_transition(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                           vf2_native_runtime_step_report *report) {
     const size_t current_index = (size_t)cpu->registers[11];
@@ -6720,6 +6802,8 @@ vf2_status vf2_native_runtime_step_impl(vf2_model2a *machine, vf2_i960_cpu *cpu,
                cpu->ip == VF2_NATIVE_SCHEDULER_EPILOGUE_AND ||
                cpu->ip == VF2_NATIVE_SCHEDULER_EPILOGUE_SUB) {
         status = execute_second_sweep_scheduler_epilogue(machine, cpu, &local_report);
+    } else if (cpu->ip == VF2_NATIVE_SCHEDULER_EPILOGUE_EXIT) {
+        status = execute_second_sweep_scheduler_scan(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_SCHEDULER_RETURN &&
                cpu->registers[29] == UINT32_C(0x00516180)) {
         status = execute_second_sweep_scheduler_finish(machine, cpu, &local_report);
@@ -7036,7 +7120,8 @@ vf2_status vf2_native_runtime_run_until(vf2_model2a *machine, vf2_i960_cpu *cpu,
             ++local_report.frame_wait_phases;
         } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER) {
             ++local_report.scheduler_entries;
-        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION) {
+        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION ||
+                   step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_SCAN) {
             ++local_report.scheduler_transitions;
         } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH) {
             ++local_report.scheduler_finishes;
@@ -7101,7 +7186,8 @@ vf2_status vf2_native_runtime_run_frame(vf2_model2a *machine, vf2_i960_cpu *cpu,
             ++local_report.frame_wait_phases;
         } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SECOND_SCHEDULER) {
             ++local_report.scheduler_entries;
-        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION) {
+        } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_TRANSITION ||
+                   step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_SCAN) {
             ++local_report.scheduler_transitions;
         } else if (step_report.kind == VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH) {
             ++local_report.scheduler_finishes;
@@ -7138,6 +7224,8 @@ const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind)
         return "scheduler-finish";
     case VF2_NATIVE_RUNTIME_STEP_SCHEDULER_EPILOGUE:
         return "scheduler-epilogue";
+    case VF2_NATIVE_RUNTIME_STEP_SCHEDULER_SCAN:
+        return "scheduler-scan";
     case VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE1:
         return "boot-stage1";
     case VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE2:
