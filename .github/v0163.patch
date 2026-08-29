@@ -1,6 +1,8 @@
+diff --git a/src/recovered/hybrid.c b/src/recovered/hybrid.c
+index 652561f..f5f663d 100644
 --- a/src/recovered/hybrid.c
 +++ b/src/recovered/hybrid.c
-@@ -182,18 +182,36 @@
+@@ -182,18 +182,36 @@ static vf2_status hybrid_execute_interpreted_task(
          cpu->ip != entry_address || cpu->local_frame_depth == 0u) {
          return VF2_ERROR_INVALID_ARGUMENT;
      }
@@ -49,7 +51,7 @@
      }
  
      memset(report, 0, sizeof(*report));
-@@ -221,6 +239,23 @@
+@@ -221,6 +239,23 @@ static vf2_status hybrid_execute_interpreted_until(
          cpu->local_frame_depth == 0u) {
          return VF2_ERROR_INVALID_ARGUMENT;
      }
@@ -73,7 +75,7 @@
      memset(&options, 0, sizeof(options));
      options.stop_address = stop_address;
      options.max_steps = VF2_INTERPRETED_TASK_STEP_LIMIT;
-@@ -553,8 +588,9 @@
+@@ -553,8 +588,9 @@ static vf2_status hybrid_execute_player_prefix(
              );
          }
          if (status == VF2_OK) {
@@ -84,7 +86,7 @@
              );
          }
          byte_value = 0u;
-@@ -664,13 +700,86 @@
+@@ -664,13 +700,83 @@ static vf2_status hybrid_execute_player_prefix(
              machine, player_base + UINT32_C(0x1b1), &byte_value
          );
          if (byte_value == 8u) {
@@ -174,7 +176,7 @@
      }
      if (status != VF2_OK) {
          return status;
-@@ -688,10 +797,13 @@
+@@ -688,10 +794,13 @@ static vf2_status hybrid_execute_player_prefix(
      cpu->registers[11] = 0u;
      cpu->registers[12] = 0u;
      cpu->registers[13] = 0u;
@@ -191,6 +193,9 @@
      return VF2_OK;
  }
  
+diff --git a/decomp/i960/notes/player_second_fighter_selector8_v0163.md b/decomp/i960/notes/player_second_fighter_selector8_v0163.md
+new file mode 100644
+index 0000000..7cc8421
 --- /dev/null
 +++ b/decomp/i960/notes/player_second_fighter_selector8_v0163.md
 @@ -0,0 +1,43 @@
