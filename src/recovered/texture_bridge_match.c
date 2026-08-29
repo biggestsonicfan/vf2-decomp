@@ -18270,7 +18270,7 @@ vf2_status execute_game_state_update(
     cpu->registers[14] = UINT32_C(0x00030000);
     if ((selector_mask & UINT32_C(0x00030000)) != 0u) {
         if (leave_return_stub) {
-            cpu->executed_instructions += UINT64_C(7);
+            cpu->executed_instructions += UINT64_C(6);
             cpu->ip = UINT32_C(0x000020ec);
             status = VF2_OK;
         } else {
@@ -18283,7 +18283,8 @@ vf2_status execute_game_state_update(
         report->entry_address = VF2_GAME_STATE_UPDATE_ENTRY;
         report->exit_address = cpu->ip;
         report->iterations = UINT64_C(1);
-        report->recovered_instruction_count = UINT64_C(7);
+        report->recovered_instruction_count = leave_return_stub
+            ? UINT64_C(6) : UINT64_C(7);
         report->recovered_procedure_returns = leave_return_stub ?
             UINT64_C(0) : UINT64_C(1);
         report->cpu_poststate_applied = 1;
@@ -18327,7 +18328,7 @@ vf2_status execute_game_state_update(
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
         if (leave_return_stub) {
-            cpu->executed_instructions += UINT64_C(17);
+            cpu->executed_instructions += UINT64_C(16);
             cpu->ip = UINT32_C(0x000020ec);
             status = VF2_OK;
         } else {

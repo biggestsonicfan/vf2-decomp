@@ -26,6 +26,13 @@ It routes accepted bridge, task, frame-wait, interrupt and scheduler states,
 uses live task-registry strides, preserves persistent task contexts and reports
 unknown or unobserved paths as `VF2_ERROR_UNSUPPORTED`.
 
+The interrupt corridor treats the architectural returns at `0x0004bab4` and
+`0x000020ec` as explicit recovered one-instruction bridges. The runtime no
+longer calls `vf2_i960_step` for those return stubs or bundles the subsequent
+`0x00000c94 -> 0x00000cd4` input-ring continuation into an interpreted helper.
+This keeps each recovered block aligned with a guest-i960 boundary and lets the
+differential layer compare the intermediate CPU condition/frame state directly.
+
 ## Fighter-state bridge
 
 When either fighter record carries bit 31, `fa_game_info` selects the ROM

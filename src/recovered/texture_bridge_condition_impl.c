@@ -44,6 +44,7 @@
 #define VF2_TEXTURE_FINAL_STATUS_TARGET UINT32_C(0x0004d25c)
 #define VF2_TEXTURE_ACTIVE_FLAGS UINT32_C(0x0055c2f4)
 #define VF2_FRAME_SELECTOR UINT32_C(0x0050002a)
+#define VF2_GAME_STATE_SELECTOR_MASK UINT32_C(0x0050002c)
 
 vf2_status vf2_hybrid_post_frame_bridge_execute_impl(
     vf2_model2a *machine,
@@ -294,7 +295,19 @@ vf2_status vf2_hybrid_bridge_apply_condition_poststate(
     } else if (entry == VF2_INTERRUPT_GAME_STATE_ENTRY &&
                cpu->ip == VF2_GAME_STATE_RETURN_STUB &&
                machine->main_rom != NULL) {
-        set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+        uint32_t selector_mask = 0u;
+        const vf2_status status = vf2_model2a_read_u32(
+            machine, VF2_GAME_STATE_SELECTOR_MASK, &selector_mask
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        set_compare_result(
+            cpu,
+            (selector_mask & UINT32_C(0x00030000)) != 0u
+                ? VF2_I960_COMPARE_LESS
+                : VF2_I960_COMPARE_GREATER
+        );
     } else if (entry == VF2_INTERRUPT_INPUT_RING_ENTRY &&
                cpu->ip == VF2_INTERRUPT_TILE_SYNC_ENTRY &&
                machine->main_rom != NULL) {
