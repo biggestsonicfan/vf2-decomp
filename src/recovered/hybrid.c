@@ -16059,6 +16059,53 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             }
         }
+        /* ROM-backed v0178: state-4 bit14/bit16 + isolated high postconditions. */
+        if (fighter0_state == 4u && fighter1_state == 4u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0) {
+            const uint32_t v0178_low_mask =
+                (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+            const uint32_t v0178_high_mask =
+                (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+                (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+                (UINT32_C(1) << 31u);
+            const uint32_t v0178_low = combined_state4_flags & v0178_low_mask;
+            const uint32_t v0178_high = combined_state4_flags & v0178_high_mask;
+            const bool v0178_clean =
+                (combined_state4_flags & ~(v0178_low_mask | v0178_high_mask)) == 0u;
+            const bool v0178_isolated_high =
+                v0178_high == (UINT32_C(1) << 21u) ||
+                v0178_high == (UINT32_C(1) << 26u) ||
+                v0178_high == (UINT32_C(1) << 29u) ||
+                v0178_high == (UINT32_C(1) << 30u) ||
+                v0178_high == (UINT32_C(1) << 31u);
+            const bool v0178_low_family =
+                v0178_low == (UINT32_C(1) << 14u) ||
+                v0178_low == (UINT32_C(1) << 16u);
+            const bool v0178_distribution =
+                (fighter0_state_flags == 0u ||
+                 fighter0_state_flags == combined_state4_flags) &&
+                (fighter1_state_flags == 0u ||
+                 fighter1_state_flags == combined_state4_flags);
+            if (v0178_clean && v0178_isolated_high && v0178_low_family &&
+                v0178_distribution) {
+                native_instructions += UINT64_C(1);
+                hybrid_set_compare_result(
+                    cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                               : VF2_I960_COMPARE_EQUAL);
+                if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+                    vf2_i960_local_frame *stale =
+                        &cpu->local_frames[cpu->local_frame_depth + 1u];
+                    stale->registers[3] = UINT32_C(0x41000000);
+                    stale->registers[4] = UINT32_C(0x07800f0f);
+                    stale->registers[7] = UINT32_C(0x41000000);
+                    if (fighter1_state_flags == combined_state4_flags) {
+                        stale->registers[15] = UINT32_C(1);
+                    }
+                }
+            }
+        }
         /* ROM-backed v0176: final positive bit-6 high-extension gaps. */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
