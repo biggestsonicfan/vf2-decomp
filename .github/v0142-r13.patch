@@ -1,0 +1,11 @@
+diff --git a/src/recovered/texture_bridge_match.c b/src/recovered/texture_bridge_match.c
+--- a/src/recovered/texture_bridge_match.c
++++ b/src/recovered/texture_bridge_match.c
+@@ -19500,7 +19500,9 @@ vf2_status execute_main_final_cluster(
+     if(cpu->ip!=UINT32_C(0x000000b0) &&
+        cpu->ip!=UINT32_C(0x0000a010))return VF2_ERROR_UNSUPPORTED;
+-    cpu->registers[13]=(start_depth<<8u)|cpu->local_frame_depth;
++    if (start_depth == 0u) {
++        cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
++    }
+     cpu->executed_instructions+=UINT64_C(7);
