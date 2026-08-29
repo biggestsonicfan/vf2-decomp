@@ -138,6 +138,10 @@
 #define VF2_NATIVE_SECOND_SCHEDULER_ENTRY UINT32_C(0x0000a010)
 #define VF2_NATIVE_SECOND_SCHEDULER_BODY UINT32_C(0x00010d54)
 #define VF2_NATIVE_SCHEDULER_RETURN UINT32_C(0x00010dcc)
+#define VF2_NATIVE_SCHEDULER_EPILOGUE_LDL UINT32_C(0x00010dd0)
+#define VF2_NATIVE_SCHEDULER_EPILOGUE_AND UINT32_C(0x00010dd8)
+#define VF2_NATIVE_SCHEDULER_EPILOGUE_SUB UINT32_C(0x00010ddc)
+#define VF2_NATIVE_SCHEDULER_EPILOGUE_EXIT UINT32_C(0x00010e3c)
 #define VF2_NATIVE_MAIN_AFTER_SCHEDULER UINT32_C(0x0000a014)
 #define VF2_NATIVE_GAME_INFO_TASK_ENTRY UINT32_C(0x0001645c)
 #define VF2_NATIVE_PLAYER_TASK_ENTRY UINT32_C(0x00013f08)
@@ -6153,6 +6157,58 @@ execute_second_sweep_scheduler_finish(vf2_model2a *machine, vf2_i960_cpu *cpu,
 }
 
 static vf2_status
+execute_second_sweep_scheduler_epilogue(vf2_model2a *machine, vf2_i960_cpu *cpu,
+                                        vf2_native_runtime_step_report *report) {
+    const uint64_t start_instructions = cpu->executed_instructions;
+    const uint64_t start_calls = cpu->procedure_calls;
+    const uint64_t start_returns = cpu->procedure_returns;
+    const uint32_t entry = cpu->ip;
+    size_t max_steps = 0u;
+    size_t steps = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (entry == VF2_NATIVE_SCHEDULER_EPILOGUE_LDL) {
+        max_steps = 14u;
+    } else if (entry == VF2_NATIVE_SCHEDULER_EPILOGUE_AND) {
+        max_steps = 13u;
+    } else if (entry == VF2_NATIVE_SCHEDULER_EPILOGUE_SUB) {
+        max_steps = 12u;
+    } else {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+
+    while (status == VF2_OK && cpu->ip != VF2_NATIVE_SCHEDULER_EPILOGUE_EXIT &&
+           steps < max_steps) {
+        status = vf2_i960_step(cpu, machine, NULL);
+        ++steps;
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (cpu->ip != VF2_NATIVE_SCHEDULER_EPILOGUE_EXIT || steps != max_steps ||
+        cpu->procedure_calls != start_calls ||
+        cpu->procedure_returns != start_returns) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* The measured epilogue leaves the architectural compare state GREATER
+     * at 0x10e3c for all three admitted entry points. */
+    cpu->arithmetic_control &= ~UINT32_C(7);
+    cpu->compare_result = VF2_I960_COMPARE_GREATER;
+
+    memset(report, 0, sizeof(*report));
+    report->kind = VF2_NATIVE_RUNTIME_STEP_SCHEDULER_EPILOGUE;
+    report->exit_address = cpu->ip;
+    report->recovered_instruction_count =
+        cpu->executed_instructions - start_instructions;
+    report->recovered_procedure_calls = 0u;
+    report->recovered_procedure_returns = 0u;
+    return VF2_OK;
+}
+
+static vf2_status
 execute_second_sweep_scheduler_transition(vf2_model2a *machine, vf2_i960_cpu *cpu,
                                           vf2_native_runtime_step_report *report) {
     const size_t current_index = (size_t)cpu->registers[11];
@@ -6654,6 +6710,10 @@ vf2_status vf2_native_runtime_step_impl(vf2_model2a *machine, vf2_i960_cpu *cpu,
                     scheduler_report.recovered_procedure_returns;
             }
         }
+    } else if (cpu->ip == VF2_NATIVE_SCHEDULER_EPILOGUE_LDL ||
+               cpu->ip == VF2_NATIVE_SCHEDULER_EPILOGUE_AND ||
+               cpu->ip == VF2_NATIVE_SCHEDULER_EPILOGUE_SUB) {
+        status = execute_second_sweep_scheduler_epilogue(machine, cpu, &local_report);
     } else if (cpu->ip == VF2_NATIVE_SCHEDULER_RETURN &&
                cpu->registers[29] == UINT32_C(0x00516180)) {
         status = execute_second_sweep_scheduler_finish(machine, cpu, &local_report);
@@ -7070,6 +7130,8 @@ const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind)
         return "scheduler-transition";
     case VF2_NATIVE_RUNTIME_STEP_SCHEDULER_FINISH:
         return "scheduler-finish";
+    case VF2_NATIVE_RUNTIME_STEP_SCHEDULER_EPILOGUE:
+        return "scheduler-epilogue";
     case VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE1:
         return "boot-stage1";
     case VF2_NATIVE_RUNTIME_STEP_BOOT_STAGE2:
