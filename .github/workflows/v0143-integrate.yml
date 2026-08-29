@@ -14,11 +14,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply v0143 patches
+      - name: Apply v0143 recovery
         run: |
-          git apply .github/v0143-hybrid.patch
-          git apply .github/v0143-runtime.patch
-          git apply .github/v0143-test.patch
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              assert s.count(old) == 1, (path, s.count(old), old)
+              p.write_text(s.replace(old, new, 1))
+
+          replace_once('src/recovered/hybrid.c',
+              '        tile_name[16] = UINT8_C(0x20);\n        tile_name[17] = UINT8_C(0x00);\n        status = vf2_model2a_write(\n            machine, VF2_SCHEDULER_NAME_FORMAT,\n            tile_name, sizeof(tile_name)\n        );',
+              '        status = vf2_model2a_write(\n            machine, VF2_SCHEDULER_NAME_FORMAT,\n            tile_name, VF2_SCHEDULER_TILE_NAME_CHARS * 2u\n        );')
+          replace_once('src/recovered/hybrid.c',
+              '        cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE ||\n        cpu->local_frame_depth > 1u) {',
+              '        cpu->ip != VF2_SECOND_SCHEDULER_CALL_SITE ||\n        (cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u)) {')
+          replace_once('src/recovered/hybrid.c',
+              '        (cpu->ip == VF2_SECOND_SCHEDULER_CALL_SITE &&\n         cpu->local_frame_depth > 1u)) {',
+              '        (cpu->ip == VF2_SECOND_SCHEDULER_CALL_SITE &&\n         cpu->local_frame_depth != 0u && cpu->local_frame_depth != 3u)) {')
+
+          replace_once('src/recovered/native_runtime.c',
+              '    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN || cpu->local_frame_depth != 1u ||\n        current_index != 27u',
+              '    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN ||\n        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u) ||\n        current_index != 27u')
+          replace_once('src/recovered/native_runtime.c',
+              '''        cpu->local_frames[1].registers[2] = UINT32_C(0x00010e64);\n        cpu->local_frames[1].registers[4] = 0u;\n        cpu->local_frames[1].registers[10] = UINT32_C(0x0050c3a0);\n        cpu->local_frames[1].registers[11] = UINT32_C(29);\n        cpu->local_frames[1].registers[15] = UINT32_C(0x000fffff);\n        cpu->local_frames[2].registers[2] = UINT32_C(0x00009450);\n        cpu->local_frames[2].registers[3] = 0u;\n        cpu->local_frames[2].registers[4] = 0u;\n        cpu->local_frames[2].registers[5] = 0u;\n        cpu->local_frames[2].registers[6] = 0u;\n        cpu->local_frames[2].registers[7] = 0u;\n        cpu->local_frames[2].registers[8] = 0u;\n        cpu->local_frames[2].registers[14] = UINT32_C(0x00010ef4);\n        cpu->local_frames[2].registers[15] = UINT32_C(0x0100045c);''',
+              '''        {\n            const size_t scheduler_frame = cpu->local_frame_depth;\n            const size_t text_frame = scheduler_frame + 1u;\n            cpu->local_frames[scheduler_frame].registers[2] = UINT32_C(0x00010e64);\n            cpu->local_frames[scheduler_frame].registers[4] = 0u;\n            cpu->local_frames[scheduler_frame].registers[10] = UINT32_C(0x0050c3a0);\n            cpu->local_frames[scheduler_frame].registers[11] = UINT32_C(29);\n            cpu->local_frames[scheduler_frame].registers[15] = UINT32_C(0x000fffff);\n            cpu->local_frames[text_frame].registers[2] = UINT32_C(0x00009450);\n            cpu->local_frames[text_frame].registers[3] = 0u;\n            cpu->local_frames[text_frame].registers[4] = 0u;\n            cpu->local_frames[text_frame].registers[5] = 0u;\n            cpu->local_frames[text_frame].registers[6] = 0u;\n            cpu->local_frames[text_frame].registers[7] = 0u;\n            cpu->local_frames[text_frame].registers[8] = 0u;\n            cpu->local_frames[text_frame].registers[14] = UINT32_C(0x00010ef4);\n            cpu->local_frames[text_frame].registers[15] = UINT32_C(0x0100045c);\n        }''')
+          replace_once('src/recovered/native_runtime.c',
+              '    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN || cpu->local_frame_depth != 1u ||\n        current_scratch != VF2_NATIVE_SCRATCH_BASE +',
+              '    if (cpu->ip != VF2_NATIVE_SCHEDULER_RETURN ||\n        (cpu->local_frame_depth != 1u && cpu->local_frame_depth != 4u) ||\n        current_scratch != VF2_NATIVE_SCRATCH_BASE +')
+
+          replace_once('src/recovered/scheduler.c',
+              '    memset(&cpu->registers[2], 0, 14u * sizeof(cpu->registers[0]));\n    cpu->registers[0] = UINT32_C(0x005ff500);\n    cpu->registers[2] = UINT32_C(0x00010d64);',
+              '    memset(&cpu->registers[2], 0, 14u * sizeof(cpu->registers[0]));\n    cpu->registers[2] = UINT32_C(0x00010d64);')
+
+          replace_once('tests/test_main.c',
+              "        'r', 0x80u, 'a', 0x80u, ' ', 0x80u, ' ', 0x80u,\n        ' ', 0x00u\n    };",
+              "        'r', 0x80u, 'a', 0x80u, ' ', 0x80u, ' ', 0x80u,\n        0xaau, 0xbbu\n    };\n    static const uint8_t trailing_tile_sentinel[2] = {0xaau, 0xbbu};")
+          replace_once('tests/test_main.c',
+              '''    EXPECT_TRUE(\n        vf2_model2a_write_u32(\n            &machine, current_registry + UINT32_C(0x38), 0u\n        ) == VF2_OK\n    );\n\n    cpu.ip''',
+              '''    EXPECT_TRUE(\n        vf2_model2a_write_u32(\n            &machine, current_registry + UINT32_C(0x38), 0u\n        ) == VF2_OK\n    );\n    EXPECT_TRUE(\n        vf2_model2a_write(\n            &machine, UINT32_C(0x0100045c) + UINT32_C(16),\n            trailing_tile_sentinel, sizeof(trailing_tile_sentinel)\n        ) == VF2_OK\n    );\n\n    cpu.ip''')
+          PY
           git diff --check
       - name: Configure GCC
         run: cmake -S . -B build-gcc -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
@@ -47,19 +84,21 @@ jobs:
           cat > decomp/i960/notes/warm_selector_scheduler_v0143.md <<'EOF'
           # Warm selector scheduler stack recovery (v0143)
 
-          After the ROM-backed TEST exit and warm initialization, the main loop reaches `0x0000a010` at local-frame depth 3 with selector 2 and runtime flags `0x00008800`. The scheduler semantics are the same cold path recovered previously, but nested under three persistent warm frames.
+          After TEST exit and warm initialization, the main loop reaches `0x0000a010` at local-frame depth 3 with selector 2. The cold scheduler semantics are reused under the three persistent warm frames.
 
-          The scheduler entry now admits exactly depth 0 or the ROM-observed warm depth 3. The first runnable task remains `fa_game_info` at index 13 and `0x0001645c`; the warm entry is ROM-validated at 1,467 instructions, 32 calls, and 30 returns with an exact snapshot match.
+          Warm scheduler entry (`0xa010` to `fa_game_info`) is ROM-validated at 1,467 instructions, 32 calls, and 30 returns. Scheduler transitions admit the historical depth 1 or warm depth 4; `fa_game_info` to `fa_camera` is exact at 448 instructions, 9 calls, and 9 returns.
 
-          Scheduler task transitions now admit the historical depth 1 or the warm depth 4. The `fa_game_info` to `fa_camera` transition is ROM-validated at 448 instructions, 9 calls, and 9 returns. The task-name formatter was corrected to write only the eight styled tile characters; the ROM does not overwrite the trailing word after the 16-byte formatted name. A regression test now preserves a sentinel in that trailing word.
+          The task-name formatter now writes only the eight styled characters (16 bytes). The ROM leaves the following word untouched; the regression test preserves a sentinel there.
 
-          The scheduler finish uses frame slots relative to the live scheduler depth instead of absolute slots 1 and 2. This preserves the three outer warm frames while reproducing the scheduler/text stale frames at slots 4 and 5. The warm `fa_osage1` return to `0x0000a014` is ROM-validated at 281 instructions, 4 calls, and 5 returns with an exact snapshot match.
+          Scheduler finish stores its stale scheduler/text frames relative to the live depth, preserving the three outer warm frames. `fa_osage1` return to `0xa014` is exact at 281 instructions, 4 calls, and 5 returns.
 
-          The complete selector-2 frame from warm `0x0000a010` to the next `0x0000a010` executes 204 native blocks, 1,276,892 recovered instructions, 421 calls, and 421 returns. The resulting snapshot matches the ROM byte-for-byte and selector advances naturally from 2 to 3.
+          The complete selector-2 frame from warm `0xa010` to the next `0xa010` executes 204 blocks, 1,276,892 instructions, 421 calls, and 421 returns. Snapshot matches the ROM byte-for-byte and selector advances naturally from 2 to 3.
+
+          The specialized hot initializer scheduler no longer overwrites `r0` with a cold-stack constant after the executor has already constructed the correct procedure frame. This makes the warm selector-3 scheduler prefix exact through `0xa014` while retaining the cold behavior.
 
           No ROM bytes or snapshots are committed.
           EOF
           git rm .github/v0143-hybrid.patch .github/v0143-runtime.patch .github/v0143-test.patch .github/workflows/v0143-integrate.yml
-          git add src/recovered/hybrid.c src/recovered/native_runtime.c tests/test_main.c decomp/i960/notes/warm_selector_scheduler_v0143.md
+          git add src/recovered/hybrid.c src/recovered/native_runtime.c src/recovered/scheduler.c tests/test_main.c decomp/i960/notes/warm_selector_scheduler_v0143.md
           git commit -m "Recover warm selector scheduler stack"
           git push origin HEAD:master
