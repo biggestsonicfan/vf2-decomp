@@ -532,3 +532,7 @@ branch is rejected, and video input validation occurs before writes. Other
 large composite blocks have not yet been proven globally transactional for every
 unsupported subpath; additional candidate-state or rollback boundaries should
 be introduced as new rejection cases are observed.
+
+### v0161 positive state-8 bit-14 high pair
+
+The high-26+high-29 pair `0x24004140` is independently ROM-measured across all 12 fighter-distribution/countdown/mode-bit-6 cases and is now admitted with its mask-local second-call accounting correction. Other unmeasured bit-14 multi-high extensions remain fail-closed.

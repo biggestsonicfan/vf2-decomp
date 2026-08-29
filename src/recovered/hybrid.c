@@ -5187,6 +5187,13 @@ static vf2_status hybrid_execute_game_info_18644(
         const bool bilateral_both_bit6_bit14_bit15_bit16_bit31_bit8 =
             r7 == state8_bit6_bit14_bit15_bit16_bit31_bit8 &&
             r8 == state8_bit6_bit14_bit15_bit16_bit31_bit8;
+        const uint32_t state8_bit6_bit14_high26_29_bit8 =
+            state8 | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 26u) |
+            (UINT32_C(1) << 29u);
+        const bool bilateral_both_bit6_bit14_high26_29_bit8 =
+            r7 == state8_bit6_bit14_high26_29_bit8 &&
+            r8 == state8_bit6_bit14_high26_29_bit8;
         const uint32_t state8_bit6_bit14_bit15_high26_29_bit8 =
             state8 | (UINT32_C(1) << 6u) |
             (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u) |
@@ -5976,6 +5983,7 @@ static vf2_status hybrid_execute_game_info_18644(
             !bilateral_both_bit6_bit14_bit15_bit16_bit29_bit8 &&
             !bilateral_both_bit6_bit14_bit15_bit16_bit30_bit8 &&
             !bilateral_both_bit6_bit14_bit15_bit16_bit31_bit8 &&
+            !bilateral_both_bit6_bit14_high26_29_bit8 &&
             !bilateral_both_bit6_bit14_bit15_high26_29_bit8 &&
             !bilateral_both_bit6_bit14_bit15_high26_30_bit8 &&
             !bilateral_both_bit6_bit14_bit15_high26_31_bit8 &&
@@ -6741,6 +6749,11 @@ static vf2_status hybrid_execute_game_info_18644(
                           (UINT32_C(1) << 15u) |
                           (UINT32_C(1) << 16u) |
                           (UINT32_C(1) << 21u)) ||
+                     extra_state ==
+                         ((UINT32_C(1) << 6u) |
+                          (UINT32_C(1) << 14u) |
+                          (UINT32_C(1) << 26u) |
+                          (UINT32_C(1) << 29u)) ||
                      extra_state == (UINT32_C(1) << 21u) ||
                      extra_state == (UINT32_C(1) << 26u) ||
                      extra_state == (UINT32_C(1) << 29u) ||
@@ -11270,6 +11283,43 @@ static vf2_status hybrid_execute_game_info_18644(
             --body_instructions;
         }
     }
+    if (status == VF2_OK &&
+        return_address == UINT32_C(0x000164c4)) {
+        const uint32_t state8_bit6_bit14_high26_29 =
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 6u) |
+            (UINT32_C(1) << 14u) | (UINT32_C(1) << 26u) |
+            (UINT32_C(1) << 29u);
+        const bool fighter0_only =
+            r7 == state8_bit6_bit14_high26_29 && r8 == 0u;
+        const bool fighter1_only =
+            r7 == 0u && r8 == state8_bit6_bit14_high26_29;
+        const bool bilateral =
+            r7 == state8_bit6_bit14_high26_29 &&
+            r8 == state8_bit6_bit14_high26_29;
+
+        if (fighter0_only) {
+            if (countdown_path) {
+                body_instructions -= UINT32_C(4);
+            }
+        } else if (fighter1_only) {
+            if (mode_bit6) {
+                ++body_instructions;
+            }
+            if (countdown_path) {
+                ++body_instructions;
+            }
+        } else if (bilateral) {
+            if (!countdown_path && !mode_bit6) {
+                --body_instructions;
+            } else if (!countdown_path && mode_bit6) {
+                body_instructions -= UINT32_C(8);
+            } else if (countdown_path && !mode_bit6) {
+                body_instructions -= UINT32_C(4);
+            } else {
+                body_instructions -= UINT32_C(3);
+            }
+        }
+    }
     if (status == VF2_OK) {
         cpu->ip = UINT32_C(0x00018a50);
         cpu->executed_instructions += body_instructions + tail_instruction_delta;
@@ -12475,7 +12525,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         fighter0_state_flags | fighter1_state_flags;
     native_bit14_fighter_path =
         fighter0_state == 8u && fighter1_state == 8u &&
-        isolated_state8_flags == (UINT32_C(1) << 14u) &&
+        (isolated_state8_flags == (UINT32_C(1) << 14u) ||
+         isolated_state8_flags == UINT32_C(0x24004140)) &&
         (int32_t)shared_fighter_threshold >= 0;
     native_bit16_fighter_path =
         fighter0_state == 8u && fighter1_state == 8u &&
