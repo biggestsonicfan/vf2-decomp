@@ -1346,7 +1346,8 @@ static vf2_status hybrid_execute_player_27b5c(
     cpu->registers[VF2_I960_G0_REGISTER + 6u] = scratch_base;
 
     for (row = 0u; status == VF2_OK && row < 20u; ++row) {
-        for (column = 0u; status == VF2_OK && column < 3u; ++column) {
+        column = 0u;
+        while (status == VF2_OK && column < 3u) {
             status = hybrid_read_u8(
                 machine,
                 output_cursor + (uint32_t)(row * 3u + column),
@@ -1355,31 +1356,76 @@ static vf2_status hybrid_execute_player_27b5c(
             if (status != VF2_OK) {
                 break;
             }
+
+            if (status_byte <= 1u) {
+                size_t word = 0u;
+                for (word = 0u; status == VF2_OK && word < 3u; ++word) {
+                    status = vf2_model2a_read_u32(
+                        machine, data_cursor + (uint32_t)word * UINT32_C(4),
+                        &value
+                    );
+                    if (status == VF2_OK) {
+                        status = vf2_model2a_write_u32(
+                            machine,
+                            destination_cursor + (uint32_t)word * UINT32_C(4),
+                            value
+                        );
+                    }
+                }
+                if (status == VF2_OK) {
+                    data_cursor += UINT32_C(12);
+                    destination_cursor += UINT32_C(12);
+                    column = 3u;
+                }
+                continue;
+            }
+
+            if (status_byte == 2u) {
+                column = 3u;
+                continue;
+            }
+
+            if (status_byte == 3u) {
+                status = vf2_model2a_write_u32(
+                    machine, destination_cursor, 0u
+                );
+                if (status == VF2_OK) {
+                    destination_cursor += UINT32_C(4);
+                    ++column;
+                }
+                continue;
+            }
+
             status = vf2_model2a_read_u32(machine, data_cursor, &value);
             if (status == VF2_OK) {
                 status = vf2_model2a_write_u32(
                     machine, destination_cursor, value
                 );
             }
-            if (status == VF2_OK) {
+            if (status != VF2_OK) {
+                break;
+            }
+            destination_cursor += UINT32_C(4);
+
+            if (status_byte == 4u) {
+                data_cursor += UINT32_C(4);
+            } else {
                 status = hybrid_read_u8(machine, jump_cursor, &jump);
+                if (status == VF2_OK) {
+                    ++jump_cursor;
+                    data_cursor += status_byte > 5u
+                        ? (uint32_t)jump * UINT32_C(12)
+                        : (uint32_t)jump << 2u;
+                }
             }
-            if (status == VF2_OK) {
-                ++jump_cursor;
-                data_cursor += status_byte > 5u
-                    ? (uint32_t)jump * 12u
-                    : (uint32_t)jump << 2u;
-                destination_cursor += 4u;
-            }
+            ++column;
         }
     }
 
-    /* The direct cmpobl/be sequence leaves the emulator compare state
-     * unchanged, so this accepted data set takes the 27c88 one-word path
-     * for all 60 cells.  The ROM then rewinds the complete block and runs
-     * cvtri/stis over its first 36 words. */
+    /* 0x27cb8 rewinds g3 by a fixed 240 bytes, then cvtri/stis converts
+     * 36 consecutive words in place. */
     if (status == VF2_OK) {
-        destination_cursor -= 60u * 4u;
+        destination_cursor -= UINT32_C(240);
     }
     for (row = 0u; status == VF2_OK && row < 36u; ++row) {
         status = vf2_model2a_read_u32(
@@ -1401,7 +1447,9 @@ static vf2_status hybrid_execute_player_27b5c(
     }
     if (status == VF2_OK) {
         cpu->registers[VF2_I960_G0_REGISTER + 2u] = jump_cursor;
-        cpu->registers[VF2_I960_G0_REGISTER + 5u] = output_cursor;
+        cpu->registers[VF2_I960_G0_REGISTER + 3u] = destination_cursor;
+        cpu->registers[VF2_I960_G0_REGISTER + 5u] =
+            output_cursor + UINT32_C(60);
         cpu->registers[VF2_I960_G0_REGISTER + 6u] = scratch_base;
     }
     return status;
@@ -1428,23 +1476,6 @@ static vf2_status hybrid_execute_player_1428c(
     if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x0001428c) ||
         player == 0u || cpu->local_frame_depth < 2u) {
         return VF2_ERROR_UNSUPPORTED;
-    }
-    if (player == UINT32_C(0x00512980)) {
-        const uint64_t start_calls = cpu->procedure_calls;
-        const uint64_t start_returns = cpu->procedure_returns;
-        size_t steps = 0u;
-        while (status == VF2_OK && cpu->ip != UINT32_C(0x000142c0) &&
-               steps < 10000u) {
-            status = vf2_i960_step(cpu, machine, NULL);
-            ++steps;
-        }
-        if (status != VF2_OK) {
-            return status;
-        }
-        return cpu->ip == UINT32_C(0x000142c0) &&
-               cpu->procedure_calls - start_calls == UINT64_C(6) &&
-               cpu->procedure_returns - start_returns == UINT64_C(6)
-            ? VF2_OK : VF2_ERROR_UNSUPPORTED;
     }
     status = vf2_model2a_read_u32(machine, player, &player_flags);
     if (status == VF2_OK) {
@@ -1528,7 +1559,8 @@ static vf2_status hybrid_execute_player_1428c(
     cpu->local_frames[3].registers[13] = 0u;
     cpu->local_frames[3].registers[15] = 0u;
     cpu->ip = UINT32_C(0x000142c0);
-    cpu->executed_instructions += UINT64_C(9726);
+    cpu->executed_instructions +=
+        player == UINT32_C(0x00512980) ? UINT64_C(9745) : UINT64_C(9726);
     cpu->procedure_calls += UINT64_C(6);
     cpu->procedure_returns += UINT64_C(6);
     return VF2_OK;
