@@ -1,0 +1,23 @@
+diff --git a/tests/test_main.c b/tests/test_main.c
+--- a/tests/test_main.c
++++ b/tests/test_main.c
+@@ -687,8 +687,9 @@
+     static const uint8_t expected_tile[18] = {
+         'c', 0x80u, 'a', 0x80u, 'm', 0x80u, 'e', 0x80u,
+         'r', 0x80u, 'a', 0x80u, ' ', 0x80u, ' ', 0x80u,
+-        ' ', 0x00u
++        0xaau, 0xbbu
+     };
++    static const uint8_t trailing_tile_sentinel[2] = {0xaau, 0xbbu};
+@@ -738,6 +739,12 @@
+             &machine, current_registry + UINT32_C(0x38), 0u
+         ) == VF2_OK
+     );
++    EXPECT_TRUE(
++        vf2_model2a_write(
++            &machine, UINT32_C(0x0100045c) + UINT32_C(16),
++            trailing_tile_sentinel, sizeof(trailing_tile_sentinel)
++        ) == VF2_OK
++    );
+ 
+     cpu.ip = UINT32_C(0x00010dcc);
