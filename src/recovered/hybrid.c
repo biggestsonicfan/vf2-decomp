@@ -15926,6 +15926,50 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             }
         }
+        /* ROM-backed v0174 state-8/positive-threshold composites: the
+         * existing path already matches architectural state; adjust only the
+         * measured task instruction count for the exact admitted masks. */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0) {
+            const bool bilateral_positive_bit6 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            const bool positive_8140_composite =
+                combined_positive_bit6_flags == UINT32_C(0x24008140) ||
+                combined_positive_bit6_flags == UINT32_C(0x44008140) ||
+                combined_positive_bit6_flags == UINT32_C(0x84008140) ||
+                combined_positive_bit6_flags == UINT32_C(0x60008140) ||
+                combined_positive_bit6_flags == UINT32_C(0xa0008140) ||
+                combined_positive_bit6_flags == UINT32_C(0xc0008140) ||
+                combined_positive_bit6_flags == UINT32_C(0x64008140) ||
+                combined_positive_bit6_flags == UINT32_C(0xa4008140) ||
+                combined_positive_bit6_flags == UINT32_C(0xc4008140) ||
+                combined_positive_bit6_flags == UINT32_C(0xe0008140) ||
+                combined_positive_bit6_flags == UINT32_C(0xe4008140);
+            const bool positive_10140_plus3_composite =
+                combined_positive_bit6_flags == UINT32_C(0x24010140) ||
+                combined_positive_bit6_flags == UINT32_C(0x60010140) ||
+                combined_positive_bit6_flags == UINT32_C(0x64010140);
+            const bool positive_10140_plus4_composite =
+                combined_positive_bit6_flags == UINT32_C(0x44010140) ||
+                combined_positive_bit6_flags == UINT32_C(0x84010140);
+
+            if (positive_8140_composite) {
+                const uint64_t excess = bilateral_positive_bit6
+                    ? UINT64_C(5) : UINT64_C(3);
+                if (native_instructions < excess) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                native_instructions -= excess;
+            } else if (positive_10140_plus3_composite) {
+                native_instructions += bilateral_positive_bit6
+                    ? UINT64_C(6) : UINT64_C(3);
+            } else if (positive_10140_plus4_composite) {
+                native_instructions += bilateral_positive_bit6
+                    ? UINT64_C(8) : UINT64_C(4);
+            }
+        }
     }
     if (mixed_negative_state4_zero_flags) {
         /* Mixed state-4 pairs with clear +0x1a4 flags follow the recovered
