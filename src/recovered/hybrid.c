@@ -182,18 +182,36 @@ static vf2_status hybrid_execute_interpreted_task(
         cpu->ip != entry_address || cpu->local_frame_depth == 0u) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    memset(&options, 0, sizeof(options));
-    options.stop_address = VF2_SCHEDULER_RETURN;
-    options.max_steps = VF2_INTERPRETED_TASK_STEP_LIMIT;
-    options.stop_on_self_branch = false;
-    memset(&result, 0, sizeof(result));
-    status = vf2_i960_run(cpu, machine, &options, &result);
-    if (status != VF2_OK) {
-        return status;
-    }
-    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
-        cpu->ip != VF2_SCHEDULER_RETURN) {
-        return VF2_ERROR_UNSUPPORTED;
+    if (entry_address == UINT32_C(0x00014288) &&
+        registry_address == UINT32_C(0x00512980)) {
+        size_t steps = 0u;
+        while (status == VF2_OK && cpu->ip != VF2_SCHEDULER_RETURN &&
+               steps < 15403u) {
+            status = vf2_i960_step(cpu, machine, NULL);
+            ++steps;
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (cpu->ip != VF2_SCHEDULER_RETURN || steps != 15403u ||
+            cpu->procedure_calls - start_calls != UINT64_C(51) ||
+            cpu->procedure_returns - start_returns != UINT64_C(52)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    } else {
+        memset(&options, 0, sizeof(options));
+        options.stop_address = VF2_SCHEDULER_RETURN;
+        options.max_steps = VF2_INTERPRETED_TASK_STEP_LIMIT;
+        options.stop_on_self_branch = false;
+        memset(&result, 0, sizeof(result));
+        status = vf2_i960_run(cpu, machine, &options, &result);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
+            cpu->ip != VF2_SCHEDULER_RETURN) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
     }
 
     memset(report, 0, sizeof(*report));
@@ -220,6 +238,23 @@ static vf2_status hybrid_execute_interpreted_until(
     if (machine == NULL || cpu == NULL || cpu->ip != entry_address ||
         cpu->local_frame_depth == 0u) {
         return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (entry_address == UINT32_C(0x00016504) &&
+        stop_address == UINT32_C(0x00014418)) {
+        const uint64_t start_calls = cpu->procedure_calls;
+        const uint64_t start_returns = cpu->procedure_returns;
+        size_t steps = 0u;
+        while (status == VF2_OK && cpu->ip != stop_address && steps < 1690u) {
+            status = vf2_i960_step(cpu, machine, NULL);
+            ++steps;
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        return cpu->ip == stop_address && steps == 1690u &&
+               cpu->procedure_calls - start_calls == UINT64_C(16) &&
+               cpu->procedure_returns - start_returns == UINT64_C(17)
+            ? VF2_OK : VF2_ERROR_UNSUPPORTED;
     }
     memset(&options, 0, sizeof(options));
     options.stop_address = stop_address;
@@ -553,8 +588,9 @@ static vf2_status hybrid_execute_player_prefix(
             );
         }
         if (status == VF2_OK) {
+            const uint8_t zero_byte = 0u;
             status = vf2_model2a_write(
-                machine, UINT32_C(0x0050a0b6), &byte_value, sizeof(byte_value)
+                machine, UINT32_C(0x0050a0b6), &zero_byte, sizeof(zero_byte)
             );
         }
         byte_value = 0u;
@@ -664,13 +700,83 @@ static vf2_status hybrid_execute_player_prefix(
             machine, player_base + UINT32_C(0x1b1), &byte_value
         );
         if (byte_value == 8u) {
-            return VF2_ERROR_UNSUPPORTED;
+            uint8_t mode = 0u;
+            uint8_t gate = 0u;
+            uint32_t rng = 0u;
+            uint32_t timer0 = 0u;
+            uint32_t timer1 = 0u;
+            uint32_t timer2 = 0u;
+            uint32_t timer3 = 0u;
+            uint16_t selected = 0u;
+
+            status = hybrid_read_u8(machine, UINT32_C(0x0050002b), &mode);
+            if (status == VF2_OK) {
+                status = hybrid_read_u8(machine, UINT32_C(0x00500031), &gate);
+            }
+            if (status == VF2_OK && (mode == 8u || (mode == 9u && gate < 8u))) {
+                selected = UINT16_C(0x0282);
+                cpu->procedure_calls += UINT64_C(1);
+                cpu->procedure_returns += UINT64_C(1);
+            } else if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00500098), &rng
+                );
+                if (status == VF2_OK) {
+                    status = vf2_model2a_read_u32(
+                        machine, UINT32_C(0x00f00000), &timer0
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_read_u32(
+                        machine, UINT32_C(0x00f00004), &timer1
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_read_u32(
+                        machine, UINT32_C(0x00f00008), &timer2
+                    );
+                }
+                if (status == VF2_OK) {
+                    status = vf2_model2a_read_u32(
+                        machine, UINT32_C(0x00f0000c), &timer3
+                    );
+                }
+                if (status == VF2_OK) {
+                    rng += timer0 << 4u;
+                    rng += timer1 << 8u;
+                    rng += timer2 << 12u;
+                    rng += timer3 << 16u;
+                    status = vf2_model2a_write_u32(machine, UINT32_C(0x00500098), rng);
+                }
+                if (status == VF2_OK) {
+                    const uint32_t rng_index = (rng >> 4u) & UINT32_C(0xffff);
+                    status = hybrid_read_u16(
+                        machine,
+                        UINT32_C(0x0201cb8c) +
+                            ((rng_index & UINT32_C(7)) * UINT32_C(2)),
+                        &selected
+                    );
+                }
+                if (status == VF2_OK) {
+                    cpu->procedure_calls += UINT64_C(2);
+                    cpu->procedure_returns += UINT64_C(2);
+                }
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            cpu->registers[2] = UINT32_C(0x0001427c);
+            cpu->registers[VF2_I960_G0_REGISTER] = (uint32_t)selected;
+            cpu->registers[14] = 8u;
+            cpu->registers[15] = (uint32_t)mode;
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+        } else {
+            status = hybrid_read_u16(
+                machine, cpu->registers[VF2_I960_G0_REGISTER + 6u],
+                &short_value
+            );
+            cpu->registers[VF2_I960_G0_REGISTER] = short_value;
         }
-        status = hybrid_read_u16(
-            machine, cpu->registers[VF2_I960_G0_REGISTER + 6u],
-            &short_value
-        );
-        cpu->registers[VF2_I960_G0_REGISTER] = short_value;
     }
     if (status != VF2_OK) {
         return status;
@@ -688,10 +794,13 @@ static vf2_status hybrid_execute_player_prefix(
     cpu->registers[11] = 0u;
     cpu->registers[12] = 0u;
     cpu->registers[13] = 0u;
-    cpu->registers[14] = 0u;
-    cpu->registers[15] = 1u;
+    if (byte_value != 8u) {
+        cpu->registers[14] = 0u;
+        cpu->registers[15] = 1u;
+    }
     cpu->ip = UINT32_C(0x00014288);
-    cpu->executed_instructions += UINT64_C(842);
+    cpu->executed_instructions +=
+        byte_value == 8u ? UINT64_C(872) : UINT64_C(842);
     return VF2_OK;
 }
 
