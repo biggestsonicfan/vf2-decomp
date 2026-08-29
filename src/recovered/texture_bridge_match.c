@@ -19500,7 +19500,9 @@ vf2_status execute_main_final_cluster(
     if(status!=VF2_OK)return status;
     if(cpu->ip!=UINT32_C(0x000000b0) &&
        cpu->ip!=UINT32_C(0x0000a010))return VF2_ERROR_UNSUPPORTED;
-    cpu->registers[13]=(start_depth<<8u)|cpu->local_frame_depth;
+    if (start_depth == 0u) {
+        cpu->registers[13] = (start_depth << 8u) | cpu->local_frame_depth;
+    }
     cpu->executed_instructions+=UINT64_C(7);
     report->kind=VF2_HYBRID_BRIDGE_MAIN_FINAL_CLUSTER; report->entry_address=VF2_MAIN_FINAL_CLUSTER_ENTRY; report->exit_address=cpu->ip; report->bytes_written=a.bytes_written+b.bytes_written+d.bytes_written+e.bytes_written+f.bytes_written; report->recovered_instruction_count=cpu->executed_instructions-i; report->recovered_procedure_calls=cpu->procedure_calls-c; report->recovered_procedure_returns=cpu->procedure_returns-r; report->cpu_poststate_applied=1; return VF2_OK;
 }
