@@ -16256,6 +16256,139 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             }
         }
+        /* ROM-backed v0182: state-4 bit15+bit16 isolated-high tail. */
+        if (fighter0_state == 4u && fighter1_state == 4u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0) {
+            const uint32_t v0182_low_mask =
+                (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+            const uint32_t v0182_high_mask =
+                (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+                (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+                (UINT32_C(1) << 31u);
+            const uint32_t v0182_low = combined_state4_flags & v0182_low_mask;
+            const uint32_t v0182_high = combined_state4_flags & v0182_high_mask;
+            const bool v0182_clean =
+                (combined_state4_flags & ~(v0182_low_mask | v0182_high_mask)) == 0u;
+            const bool v0182_isolated_high =
+                v0182_high == (UINT32_C(1) << 21u) ||
+                v0182_high == (UINT32_C(1) << 26u) ||
+                v0182_high == (UINT32_C(1) << 29u) ||
+                v0182_high == (UINT32_C(1) << 30u) ||
+                v0182_high == (UINT32_C(1) << 31u);
+            const uint32_t v0182_bit15_bit16 =
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+            const bool v0182_distribution =
+                (fighter0_state_flags == 0u ||
+                 fighter0_state_flags == combined_state4_flags) &&
+                (fighter1_state_flags == 0u ||
+                 fighter1_state_flags == combined_state4_flags);
+            if (v0182_clean && v0182_isolated_high &&
+                v0182_low == v0182_bit15_bit16 && v0182_distribution) {
+                const bool bilateral =
+                    fighter0_state_flags == combined_state4_flags &&
+                    fighter1_state_flags == combined_state4_flags;
+                const bool has_high29 = v0182_high == (UINT32_C(1) << 29u);
+                native_instructions += has_high29
+                    ? (bilateral ? UINT64_C(6) : UINT64_C(3))
+                    : (bilateral ? UINT64_C(8) : UINT64_C(4));
+                hybrid_set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+                if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+                    vf2_i960_local_frame *stale =
+                        &cpu->local_frames[cpu->local_frame_depth + 1u];
+                    stale->registers[3] = UINT32_C(0x41000000);
+                    stale->registers[4] = UINT32_C(0x07800f0f);
+                    stale->registers[7] = UINT32_C(0x41000000);
+                    if (fighter1_state_flags == combined_state4_flags) {
+                        stale->registers[15] = UINT32_C(1);
+                    }
+                }
+
+                uint32_t corrected_flags = 0u;
+                if (fighter0_state_flags == combined_state4_flags &&
+                    vf2_model2a_read_u32(
+                        machine, fighter0 + UINT32_C(0x000001a4),
+                        &corrected_flags) == VF2_OK) {
+                    corrected_flags |= UINT32_C(1) << 11u;
+                    (void)vf2_model2a_write_u32(
+                        machine, fighter0 + UINT32_C(0x000001a4), corrected_flags);
+                }
+                if (fighter1_state_flags == combined_state4_flags &&
+                    vf2_model2a_read_u32(
+                        machine, fighter1 + UINT32_C(0x000001a4),
+                        &corrected_flags) == VF2_OK) {
+                    corrected_flags |= UINT32_C(1) << 11u;
+                    (void)vf2_model2a_write_u32(
+                        machine, fighter1 + UINT32_C(0x000001a4), corrected_flags);
+                }
+                if (has_high29) {
+                    const uint8_t fighter_byte = UINT8_C(0x1e);
+                    if (fighter0_state_flags == combined_state4_flags) {
+                        (void)vf2_model2a_write(
+                            machine, fighter0 + UINT32_C(0x000006da),
+                            &fighter_byte, sizeof(fighter_byte));
+                    }
+                    if (fighter1_state_flags == combined_state4_flags) {
+                        (void)vf2_model2a_write(
+                            machine, fighter1 + UINT32_C(0x000006da),
+                            &fighter_byte, sizeof(fighter_byte));
+                    }
+                }
+            }
+        }
+        /* ROM-backed v0183: state-4 bit6 isolated-high tail. */
+        if (fighter0_state == 4u && fighter1_state == 4u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0) {
+            const uint32_t v0183_low_mask =
+                (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+            const uint32_t v0183_high_mask =
+                (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+                (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+                (UINT32_C(1) << 31u);
+            const uint32_t v0183_low = combined_state4_flags & v0183_low_mask;
+            const uint32_t v0183_high = combined_state4_flags & v0183_high_mask;
+            const bool v0183_clean =
+                (combined_state4_flags & ~(v0183_low_mask | v0183_high_mask)) == 0u;
+            const bool v0183_isolated_high =
+                v0183_high == (UINT32_C(1) << 21u) ||
+                v0183_high == (UINT32_C(1) << 26u) ||
+                v0183_high == (UINT32_C(1) << 29u) ||
+                v0183_high == (UINT32_C(1) << 30u) ||
+                v0183_high == (UINT32_C(1) << 31u);
+            const bool v0183_distribution =
+                (fighter0_state_flags == 0u ||
+                 fighter0_state_flags == combined_state4_flags) &&
+                (fighter1_state_flags == 0u ||
+                 fighter1_state_flags == combined_state4_flags);
+            if (v0183_clean && v0183_isolated_high &&
+                v0183_low == (UINT32_C(1) << 6u) && v0183_distribution) {
+                const bool bilateral =
+                    fighter0_state_flags == combined_state4_flags &&
+                    fighter1_state_flags == combined_state4_flags;
+                if (bilateral) {
+                    if (native_instructions == 0u) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    native_instructions -= UINT64_C(1);
+                }
+                hybrid_set_compare_result(
+                    cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                               : VF2_I960_COMPARE_EQUAL);
+                if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+                    vf2_i960_local_frame *stale =
+                        &cpu->local_frames[cpu->local_frame_depth + 1u];
+                    stale->registers[3] = UINT32_C(0x41000000);
+                    stale->registers[4] = UINT32_C(0x07800f0f);
+                    stale->registers[7] = UINT32_C(0x41000000);
+                    if (fighter1_state_flags == combined_state4_flags) {
+                        stale->registers[15] = UINT32_C(1);
+                    }
+                }
+            }
+        }
         /* ROM-backed v0176: final positive bit-6 high-extension gaps. */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
