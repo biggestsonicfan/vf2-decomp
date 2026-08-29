@@ -1,0 +1,21 @@
+name: v0168 source export
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/v0168-source-export.yml'
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2-source-v0168
+          path: |
+            .
+            !.git
+          include-hidden-files: true
+          retention-days: 1
