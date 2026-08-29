@@ -19,7 +19,8 @@ jobs:
           fetch-depth: 0
       - name: Apply recovery patch
         run: |
-          git apply --recount --index .github/v0165.patch
+          patch -p1 --forward --batch < .github/v0165.patch
+          git add src/recovered/hybrid.c decomp/i960/notes/player_second_fighter_142c0_14310_v0165.md
           git diff --cached --check
       - name: Configure
         run: cmake -S . -B build -DVF2_BUILD_TESTS=ON -DVF2_WARNINGS_AS_ERRORS=ON
