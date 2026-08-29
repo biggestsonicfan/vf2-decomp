@@ -16151,6 +16151,58 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             }
         }
+        /* ROM-backed v0180: state-4 bit14+bit15 compound isolated-high tails. */
+        if (fighter0_state == 4u && fighter1_state == 4u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0) {
+            const uint32_t v0180_low_mask =
+                (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+                (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+            const uint32_t v0180_high_mask =
+                (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+                (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+                (UINT32_C(1) << 31u);
+            const uint32_t v0180_low = combined_state4_flags & v0180_low_mask;
+            const uint32_t v0180_high = combined_state4_flags & v0180_high_mask;
+            const bool v0180_clean =
+                (combined_state4_flags & ~(v0180_low_mask | v0180_high_mask)) == 0u;
+            const bool v0180_isolated_high =
+                v0180_high == (UINT32_C(1) << 21u) ||
+                v0180_high == (UINT32_C(1) << 26u) ||
+                v0180_high == (UINT32_C(1) << 29u) ||
+                v0180_high == (UINT32_C(1) << 30u) ||
+                v0180_high == (UINT32_C(1) << 31u);
+            const uint32_t v0180_bit14_bit15 =
+                (UINT32_C(1) << 14u) | (UINT32_C(1) << 15u);
+            const uint32_t v0180_bit14_bit15_bit16 =
+                v0180_bit14_bit15 | (UINT32_C(1) << 16u);
+            const bool v0180_low_family =
+                v0180_low == v0180_bit14_bit15 ||
+                v0180_low == v0180_bit14_bit15_bit16;
+            const bool v0180_distribution =
+                (fighter0_state_flags == 0u ||
+                 fighter0_state_flags == combined_state4_flags) &&
+                (fighter1_state_flags == 0u ||
+                 fighter1_state_flags == combined_state4_flags);
+            if (v0180_clean && v0180_isolated_high && v0180_low_family &&
+                v0180_distribution) {
+                const bool bilateral =
+                    fighter0_state_flags == combined_state4_flags &&
+                    fighter1_state_flags == combined_state4_flags;
+                native_instructions += bilateral ? UINT64_C(4) : UINT64_C(2);
+                hybrid_set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+                if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+                    vf2_i960_local_frame *stale =
+                        &cpu->local_frames[cpu->local_frame_depth + 1u];
+                    stale->registers[3] = UINT32_C(0x41000000);
+                    stale->registers[4] = UINT32_C(0x07800f0f);
+                    stale->registers[7] = UINT32_C(0x41000000);
+                    if (fighter1_state_flags == combined_state4_flags) {
+                        stale->registers[15] = UINT32_C(1);
+                    }
+                }
+            }
+        }
         /* ROM-backed v0176: final positive bit-6 high-extension gaps. */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
