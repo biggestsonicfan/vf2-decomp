@@ -19,6 +19,7 @@ jobs:
           fetch-depth: 0
       - name: Apply recovery patch
         run: |
+          sed -i 's/@@ -0,0 +1,27 @@/@@ -0,0 +1,23 @@/' .github/v0165.patch
           patch -p1 --forward --batch < .github/v0165.patch
           git add src/recovered/hybrid.c decomp/i960/notes/player_second_fighter_142c0_14310_v0165.md
           git diff --cached --check
