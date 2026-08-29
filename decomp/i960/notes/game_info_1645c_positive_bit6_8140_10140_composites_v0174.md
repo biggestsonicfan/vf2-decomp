@@ -24,4 +24,8 @@ All corrections are exact-mask guarded; unrelated masks remain fail-closed.
 
 ## Verification
 
-The completed dispatcher block was configured and built in Release with `VF2_BUILD_TESTS=ON` and `VF2_WARNINGS_AS_ERRORS=ON`; the complete CTest suite passed before the source commit. A post-commit CI artifact is used for the final ROM-backed 22-mask x 36-case differential sweep.
+The completed dispatcher block was configured and built in Release with `VF2_BUILD_TESTS=ON` and `VF2_WARNINGS_AS_ERRORS=ON`; the complete CTest suite passed before the source commit.
+
+Post-commit CI for `3c544786ac193c416f4a7a6b2c4040fbe0007ee2` passed Python tooling syntax, GCC Release, Clang Release, and Clang ASan/UBSan, including each job's test suite. The GCC artifact from that exact commit was then run against the fresh VF2 ROM dump through the complete full-dispatch matrix for all 22 masks: **792/792 exact** (`22 masks x 36 fixtures`). The comparison includes the full snapshot, architectural signature, instruction/call/return counters, and interrupt counters.
+
+This closes the `0x8140` / `0x10140` pair/triple/quad high-26/29/30/31 frontier left by v0173.
