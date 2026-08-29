@@ -1,0 +1,65 @@
+--- a/src/recovered/hybrid.c
++++ b/src/recovered/hybrid.c
+@@ -182,7 +182,23 @@
+         cpu->ip != entry_address || cpu->local_frame_depth == 0u) {
+         return VF2_ERROR_INVALID_ARGUMENT;
+     }
+-    if (entry_address == UINT32_C(0x00014288) &&
++    if (entry_address == UINT32_C(0x0001428c) &&
++        registry_address == UINT32_C(0x00512980)) {
++        size_t steps = 0u;
++        while (status == VF2_OK && cpu->ip != VF2_SCHEDULER_RETURN &&
++               steps < 13598u) {
++            status = vf2_i960_step(cpu, machine, NULL);
++            ++steps;
++        }
++        if (status != VF2_OK) {
++            return status;
++        }
++        if (cpu->ip != VF2_SCHEDULER_RETURN || steps != 13598u ||
++            cpu->procedure_calls - start_calls != UINT64_C(47) ||
++            cpu->procedure_returns - start_returns != UINT64_C(48)) {
++            return VF2_ERROR_UNSUPPORTED;
++        }
++    } else if (entry_address == UINT32_C(0x00014288) &&
+         registry_address == UINT32_C(0x00512980)) {
+         size_t steps = 0u;
+         while (status == VF2_OK && cpu->ip != VF2_SCHEDULER_RETURN &&
+@@ -845,7 +861,7 @@
+ 
+     if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00014288) ||
+         cpu->local_frame_depth == 0u || player == 0u ||
+-        selector != UINT32_C(0x00000505)) {
++        (selector != UINT32_C(0x00000505) && selector != UINT32_C(0x00000284))) {
+         return VF2_ERROR_UNSUPPORTED;
+     }
+@@ -880,9 +896,6 @@
+         status = hybrid_read_u8(
+             machine, player + UINT32_C(0x1b1), &player_type
+         );
+-        if (status == VF2_OK && player_type == UINT8_C(8)) {
+-            return VF2_ERROR_UNSUPPORTED;
+-        }
+     }
+@@ -924,16 +937,18 @@
+         (runtime_flags & (UINT32_C(1) << 20u)) != 0u ||
+         (board_flags & (UINT32_C(1) << 16u)) != 0u ||
+         (packed_value != UINT32_C(0x00000200)) ||
+-        (source_bytes[4] | source_bytes[5] | source_bytes[6] |
+-         source_bytes[7]) != 0u ||
++        !((selector == UINT32_C(0x00000505) &&
++           (source_bytes[4] | source_bytes[5] | source_bytes[6] | source_bytes[7]) == 0u) ||
++          (selector == UINT32_C(0x00000284) && source_bytes[4] == 0u &&
++           source_bytes[5] == 0u && source_bytes[6] == UINT8_C(0x7f) &&
++           source_bytes[7] == 0u)) ||
+         (player_flags & (UINT32_C(1) << 6u)) != 0u ||
+         (player_flags & (UINT32_C(1) << 5u)) != 0u ||
+         (player_flags & (UINT32_C(1) << 23u)) != 0u ||
+         (player_flags & (UINT32_C(1) << 21u)) != 0u ||
+         (selector & (UINT32_C(1) << 13u)) != 0u ||
+         (selector & (UINT32_C(1) << 14u)) != 0u ||
+-        (branch_byte & (UINT8_C(1) << 6u)) != 0u ||
+-        (player_type == UINT8_C(8))) {
++        (branch_byte & (UINT8_C(1) << 6u)) != 0u) {
+         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+     }
