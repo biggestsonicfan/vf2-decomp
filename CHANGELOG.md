@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- attributed ROM range `0x00065838..0x000658a0` to the existing clean-room `kill_osage_evaluate_record()` semantic helper; the continuation/flag gate, `record+0x128` age accumulation, `0x4268` threshold, bit-3 mark/clear behavior and `0x00500164` kill counter match the i960 block exactly, closing the first unattributed edge in a fresh sixth-dispatch frontier trace;
 - extended the positive-threshold `fa_game_info` `0x18644` state-8 bit-6
   recovery with the measured `0x154` (bit 8 + bits 2 + 4 + 6) composition;
   all three physical distributions, both countdown values and both mode-bit-6
