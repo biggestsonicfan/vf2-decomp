@@ -5716,46 +5716,6 @@ execute_texture_selector_interpreter(vf2_model2a *machine,
     return VF2_OK;
 }
 
-static vf2_status
-execute_texture_counter_interpreter(vf2_model2a *machine,
-                                     vf2_i960_cpu *cpu,
-                                     vf2_native_runtime_step_report *report)
-{
-    vf2_i960_run_options options;
-    vf2_i960_run_result result;
-    const uint64_t start_instructions = cpu->executed_instructions;
-    const uint64_t start_calls = cpu->procedure_calls;
-    const uint64_t start_returns = cpu->procedure_returns;
-    vf2_status status = VF2_OK;
-
-    if (machine == NULL || cpu == NULL || report == NULL ||
-        cpu->ip != VF2_TEXTURE_COUNTER_UPDATE_ENTRY ||
-        cpu->local_frame_depth == 0u) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-    memset(&options, 0, sizeof(options));
-    options.stop_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
-    options.max_steps = UINT64_C(20000000);
-    options.stop_on_self_branch = false;
-    memset(&result, 0, sizeof(result));
-    status = vf2_i960_run(cpu, machine, &options, &result);
-    if (status != VF2_OK) {
-        return status;
-    }
-    if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
-        cpu->ip != VF2_TEXTURE_COUNTER_UPDATE_EXIT) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    report->kind = VF2_NATIVE_RUNTIME_STEP_BRIDGE;
-    report->bridge_kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_INTERPRETER;
-    report->exit_address = cpu->ip;
-    report->recovered_instruction_count =
-        cpu->executed_instructions - start_instructions;
-    report->recovered_procedure_calls = cpu->procedure_calls - start_calls;
-    report->recovered_procedure_returns = cpu->procedure_returns - start_returns;
-    return VF2_OK;
-}
-
 typedef struct vf2_native_wrapper_boundary_context {
     uint32_t hit_address;
 } vf2_native_wrapper_boundary_context;
@@ -6918,22 +6878,7 @@ vf2_status vf2_native_runtime_step_impl(vf2_model2a *machine, vf2_i960_cpu *cpu,
             }
         }
     } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {
-        uint32_t counter0 = 0u;
-        uint32_t counter1 = 0u;
-        status = vf2_model2a_read_u32(
-            machine, VF2_TEXTURE_COUNTER0, &counter0
-        );
         if (status == VF2_OK) {
-            status = vf2_model2a_read_u32(
-                machine, VF2_TEXTURE_COUNTER1, &counter1
-            );
-        }
-        if (status == VF2_OK &&
-            (counter0 == UINT32_C(1) || counter1 == UINT32_C(1))) {
-            status = execute_texture_counter_interpreter(
-                machine, cpu, &local_report
-            );
-        } else if (status == VF2_OK) {
             vf2_hybrid_bridge_report bridge_report;
             memset(&bridge_report, 0, sizeof(bridge_report));
             status = vf2_hybrid_post_frame_bridge_execute(
