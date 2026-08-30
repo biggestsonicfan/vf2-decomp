@@ -16948,6 +16948,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         const uint32_t bit14 = UINT32_C(1) << 14u;
         const uint32_t bit15 = UINT32_C(1) << 15u;
         const uint32_t bit6_bit14 = bit14 | (UINT32_C(1) << 6u);
+        const uint32_t bit6_bit15 = bit15 | (UINT32_C(1) << 6u);
         if (clean && high_count == 2u &&
             (low == 0u || low == bit14 || low == bit6_bit14)) {
             state4_pair_high_neutral_path = true;
@@ -16967,6 +16968,29 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 stale->registers[7] = UINT32_C(0x41000000);
                 if (fighter1_state_flags == combined_matrix_flags) {
                     stale->registers[15] = UINT32_C(0x80004400);
+                }
+            }
+        } else if (clean && high_count == 2u && low == bit6_bit15) {
+            const bool bilateral =
+                fighter0_state_flags == combined_matrix_flags &&
+                fighter1_state_flags == combined_matrix_flags;
+            const uint64_t excess = bilateral ? UINT64_C(6) : UINT64_C(3);
+            if (cpu->executed_instructions < excess) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            cpu->executed_instructions -= excess;
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+            if (cpu->local_frame_depth + 2u < VF2_I960_MAX_LOCAL_FRAMES) {
+                vf2_i960_local_frame *stale =
+                    &cpu->local_frames[cpu->local_frame_depth + 2u];
+                stale->registers[3] = UINT32_C(0x41000000);
+                stale->registers[4] = UINT32_C(0x07800f0f);
+                stale->registers[7] = UINT32_C(0x41000000);
+                if (fighter1_state_flags == combined_matrix_flags) {
+                    stale->registers[8] = UINT32_C(0x07800f0f);
+                    stale->registers[12] = UINT32_C(0x07800f0f);
+                    stale->registers[13] = UINT32_C(0x3f6b871d);
+                    stale->registers[15] = UINT32_C(1);
                 }
             }
         }
