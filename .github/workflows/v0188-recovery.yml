@@ -1,0 +1,34 @@
+name: v0188 recovery
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/v0188-recovery.yml'
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply v0188 recovery
+        run: |
+          echo 'LS0tIGEvc3JjL3JlY292ZXJlZC9oeWJyaWQuYworKysgYi9zcmMvcmVjb3ZlcmVkL2h5YnJpZC5jCkBAIC0xNjk0NiwxMiArMTY5NDYsMjkgQEAKICAgICAgICAgfQogICAgICAgICBjb25zdCB1aW50MzJfdCBsb3cgPSBjb21iaW5lZF9tYXRyaXhfZmxhZ3MgJiBsb3dfbWFzazsKICAgICAgICAgY29uc3QgdWludDMyX3QgYml0MTQgPSBVSU5UMzJfQygxKSA8PCAxNHU7CisgICAgICAgIGNvbnN0IHVpbnQzMl90IGJpdDE1ID0gVUlOVDMyX0MoMSkgPDwgMTV1OwogICAgICAgICBjb25zdCB1aW50MzJfdCBiaXQ2X2JpdDE0ID0gYml0MTQgfCAoVUlOVDMyX0MoMSkgPDwgNnUpOwogICAgICAgICBpZiAoY2xlYW4gJiYgaGlnaF9jb3VudCA9PSAydSAmJgogICAgICAgICAgICAgKGxvdyA9PSAwdSB8fCBsb3cgPT0gYml0MTQgfHwgbG93ID09IGJpdDZfYml0MTQpKSB7CiAgICAgICAgICAgICBzdGF0ZTRfcGFpcl9oaWdoX25ldXRyYWxfcGF0aCA9IHRydWU7CiAgICAgICAgICAgICBoeWJyaWRfc2V0X2NvbXBhcmVfcmVzdWx0KGNwdSwgVkYyX0k5NjBfQ09NUEFSRV9OT05FKTsKICAgICAgICAgICAgIGNwdS0+aXAgPSBVSU5UMzJfQygweDAwMDEwZGQwKTsKKyAgICAgICAgfSBlbHNlIGlmIChjbGVhbiAmJiBoaWdoX2NvdW50ID09IDJ1ICYmIGxvdyA9PSBiaXQxNSkgeworICAgICAgICAgICAgY29uc3QgYm9vbCBiaWxhdGVyYWwgPQorICAgICAgICAgICAgICAgIGZpZ2h0ZXIwX3N0YXRlX2ZsYWdzID09IGNvbWJpbmVkX21hdHJpeF9mbGFncyAmJgorICAgICAgICAgICAgICAgIGZpZ2h0ZXIxX3N0YXRlX2ZsYWdzID09IGNvbWJpbmVkX21hdHJpeF9mbGFnczsKKyAgICAgICAgICAgIGNwdS0+ZXhlY3V0ZWRfaW5zdHJ1Y3Rpb25zICs9IGJpbGF0ZXJhbCA/IFVJTjY0X0MoMikgOiBVSU5UNjRfQygxKTsKKyAgICAgICAgICAgIGh5YnJpZF9zZXRfY29tcGFyZV9yZXN1bHQoY3B1LCBWRjJfSTk2MF9DT01QQVJFX0xFU1MpOworICAgICAgICAgICAgaWYgKGNwdS0+bG9jYWxfZnJhbWVfZGVwdGggKyAydSA8IFZGMl9JOTYwX01BWF9MT0NBTF9GUkFNRVMpIHsKKyAgICAgICAgICAgICAgICB2ZjJfaTk2MF9sb2NhbF9mcmFtZSAqc3RhbGUgPQorICAgICAgICAgICAgICAgICAgICAmY3B1LT5sb2NhbF9mcmFtZXNbY3B1LT5sb2NhbF9mcmFtZV9kZXB0aCArIDJ1XTsKKyAgICAgICAgICAgICAgICBzdGFsZS0+cmVnaXN0ZXJzWzNdID0gVUlOVDMyX0MoMHg0MTAwMDAwMCk7CisgICAgICAgICAgICAgICAgc3RhbGUtPnJlZ2lzdGVyc1s0XSA9IFVJTlQzMl9DKDB4MDc4MDBmMGYpOworICAgICAgICAgICAgICAgIHN0YWxlLT5yZWdpc3RlcnNbN10gPSBVSU5UMzJfQygweDQxMDAwMDAwKTsKKyAgICAgICAgICAgICAgICBpZiAoZmlnaHRlcjFfc3RhdGVfZmxhZ3MgPT0gY29tYmluZWRfbWF0cml4X2ZsYWdzKSB7CisgICAgICAgICAgICAgICAgICAgIHN0YWxlLT5yZWdpc3RlcnNbMTVdID0gVUlOVDMyX0MoMHg4MDAwNDQwMCk7CisgICAgICAgICAgICAgICAgfQorICAgICAgICAgICAgfQogICAgICAgIH0KICAgICB9CiAgICAgaWYgKHN0YXR1cyA9PSBWRjJfT0sgJiYgbmVnYXRpdmVfc3RhdGU4X2lzb2xhdGVkX2hpZ2hfcGF0aCkgew==' | base64 -d > /tmp/v0188.patch
+          git apply /tmp/v0188.patch
+          echo 'IyB2MDE4ODogc3RhdGUtNCBiaXQxNSBwYWlyLWhpZ2ggcG9zdHN0YXRlCgpFbnRyeSBgMHgwMDAxNjQ1Y2AsIGJvdGggZmlnaHRlciBzdGF0ZSBieXRlcyA0LiBUaGlzIHJlY292ZXJ5IGNvdmVycyBsb3cgYml0MTUgYWxvbmUgKGAweDgwMDBgKSBjb21iaW5lZCB3aXRoIGV4YWN0bHkgdHdvIGhpZ2ggYml0cyBhbW9uZyAyMSwgMjYsIDI5LCAzMCwgYW5kIDMxLgoKUk9NLWJhY2tlZCBtZWFzdXJlbWVudCBzaG93cyB0aGUgdGFzayBhbHJlYWR5IHJldHVybnMgdGhyb3VnaCB0aGUgb3JkaW5hcnkgc2NoZWR1bGVyLXJldHVybiBhZGRyZXNzIGAweDAwMDEwZGNjYCwgYnV0IHRoZSBuYXRpdmUgcG9zdHN0YXRlIGlzIHNob3J0IGJ5IG9uZSBpbnN0cnVjdGlvbiBmb3IgdW5pbGF0ZXJhbCBkaXN0cmlidXRpb25zIGFuZCB0d28gaW5zdHJ1Y3Rpb25zIGZvciBiaWxhdGVyYWwgZGlzdHJpYnV0aW9uLiBUaGUgZmluYWwgY29tcGFyZSBzdGF0ZSBpcyBhbHdheXMgYExFU1NgLgoKVGhlIHN0YWxlIGxvY2FsIGZyYW1lIHR3byBsZXZlbHMgYWJvdmUgdGhlIHJldHVybmVkIGZyYW1lIG11c3QgcmVzdG9yZSBgcjM9MHg0MTAwMDAwMGAsIGByND0weDA3ODAwZjBmYCwgYW5kIGByNz0weDQxMDAwMDAwYC4gV2hlbiBmaWdodGVyIDEgcGFydGljaXBhdGVzLCBzdGFsZS1mcmFtZSBgcjE1PTB4ODAwMDQ0MDBgLiBObyBtdXRhYmxlIE1vZGVsIDIgUkFNIGNvcnJlY3Rpb24gaXMgcmVxdWlyZWQuCgojIyBWZXJpZmljYXRpb24KCkFsbCAxMCBoaWdoLWJpdCBwYWlycyB4IDMgZmlnaHRlciBkaXN0cmlidXRpb25zIHggMiBjb3VudGRvd24gdmFsdWVzIHggMiBtb2RlLWJpdC02IHZhbHVlcyB4IHRocmVzaG9sZHMgMC8xLzIgcGFzczogKiozNjAvMzYwIGV4YWN0IFJPTS1iYWNrZWQgc25hcHNob3RzKiouCgpUaHJlc2hvbGQgYC0xYCByZW1haW5zIG91dHNpZGUgdGhlIG5ldyBwcmVkaWNhdGUgYW5kIHBhc3NlcyBhcyBhIG5lZ2F0aXZlIGNvbnRyb2wgYWNyb3NzIHRoZSBzYW1lIHBhaXIvZGlzdHJpYnV0aW9uL2NvdW50ZG93bi9tb2RlIG1hdHJpeDogKioxMjAvMTIwIGV4YWN0IHNuYXBzaG90cyoqLgoKVGhlIHN0YW5kYXJkIGxvY2FsIENUZXN0IGdhdGUgcGFzc2VzICoqMjMvMjMqKi4K' | base64 -d > decomp/i960/notes/game_info_1645c_state4_bit15_pair_high_v0188.md
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          git diff --check
+      - name: Commit recovery
+        run: |
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git rm -f .github/workflows/v0188-source-export.yml .github/workflows/v0188-recovery.yml
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_state4_bit15_pair_high_v0188.md
+          git commit -m 'Recover state-4 bit15 pair-high poststate'
+          git push origin HEAD:master
