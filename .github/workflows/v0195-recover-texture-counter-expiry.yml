@@ -15,87 +15,59 @@ jobs:
           fetch-depth: 0
       - name: Recover counter expiry helper
         env:
-          HELPER_B64: c3RhdGljIHZmMl9zdGF0dXMgZXhlY3V0ZV90ZXh0dXJlX3JlY29yZF9wdWJsaXNoKAogICAgdmYyX21vZGVsMmEgKm1hY2hpbmUsCiAgICB2ZjJfaTk2MF9jcHUgKmNwdSwKICAgIHVpbnQzMl90IHZhbHVlLAogICAgdWludDMyX3QgZmxhZ3MsCiAgICB1aW50MzJfdCByZWNvcmQsCiAgICB1aW50MzJfdCBwcmlvcml0eSwKICAgIHVpbnQ2NF90ICppbnN0cnVjdGlvbnMsCiAgICB1aW50NjRfdCAqY2hhbmdlZF92YWx1ZXMsCiAgICBzaXplX3QgKmJ5dGVzX3dyaXR0ZW4KKQp7CiAgICB1aW50MTZfdCBvbGRfdmFsdWUgPSAwdTsKICAgIHVpbnQxNl90IGN1cnJlbnRfcHJpb3JpdHkgPSAwdTsKICAgIHVpbnQxNl90IG9sZF9tZXRyaWMgPSAwdTsKICAgIHZmMl9zdGF0dXMgc3RhdHVzID0gVkYyX09LOwoKICAgIC8qIFRoZSBvcmlnaW5hbCBoZWxwZXIgY29tcGFyZXMgdGhlIGZpeGVkIE1vZGVsIDJBIGJvYXJkIHNpZ25hdHVyZQogICAgICogYmVmb3JlIHRvdWNoaW5nIHRoZSByZWNvcmQuIFRoaXMgcmVjb3ZlcmVkIGJhY2tlbmQgaXMgYWxyZWFkeSBib3VuZAogICAgICogdG8gdGhhdCBib2FyZCwgc28gcHJlc2VydmUgdGhlIHRocmVlIGFyY2hpdGVjdHVyYWwgaW5zdHJ1Y3Rpb25zCiAgICAgKiB3aXRob3V0IGEgUk9NL2RldmljZSByZWFkLiAqLwogICAgKmluc3RydWN0aW9ucyArPSBVSU5UNjRfQygzKTsKICAgICppbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoMik7CiAgICBpZiAodmFsdWUgPiBVSU5UMzJfQygweDU2KSkgewogICAgICAgIHJldHVybiBWRjJfRVJST1JfVU5TVVBQT1JURUQ7CiAgICB9CgogICAgKmluc3RydWN0aW9ucyArPSBVSU5UNjRfQygxKTsKICAgIGlmICgoZmxhZ3MgJiBVSU5UMzJfQygweDEwKSkgIT0gMHUpIHsKICAgICAgICBzdGF0dXMgPSByZWFkX3UxNihtYWNoaW5lLCByZWNvcmQgKyBVSU5UMzJfQyg4KSwgJm9sZF9tZXRyaWMpOwogICAgICAgIGlmIChzdGF0dXMgPT0gVkYyX09LKSB7CiAgICAgICAgICAgIHN0YXR1cyA9IHdyaXRlX3UxNigKICAgICAgICAgICAgICAgIG1hY2hpbmUsIHJlY29yZCArIFVJTlQzMl9DKDgpLAogICAgICAgICAgICAgICAgKHVpbnQxNl90KWNwdS0+cmVnaXN0ZXJzW1ZGMl9JOTYwX0cwX1JFR0lTVEVSICsgNHVdCiAgICAgICAgICAgICk7CiAgICAgICAgfQogICAgICAgICppbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoMyk7CiAgICAgICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICAgICAgcmV0dXJuIHN0YXR1czsKICAgICAgICB9CiAgICAgICAgKysqY2hhbmdlZF92YWx1ZXM7CiAgICAgICAgKmJ5dGVzX3dyaXR0ZW4gKz0gMnU7CiAgICAgICAgaWYgKG9sZF9tZXRyaWMgIT0KICAgICAgICAgICAgKHVpbnQxNl90KWNwdS0+cmVnaXN0ZXJzW1ZGMl9JOTYwX0cwX1JFR0lTVEVSICsgNHVdKSB7CiAgICAgICAgICAgIGdvdG8gcHVibGlzaDsKICAgICAgICB9CiAgICB9CgogICAgc3RhdHVzID0gcmVhZF91MTYobWFjaGluZSwgcmVjb3JkLCAmb2xkX3ZhbHVlKTsKICAgICppbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoMik7CiAgICBpZiAoc3RhdHVzICE9IFZGMl9PSykgewogICAgICAgIHJldHVybiBzdGF0dXM7CiAgICB9CiAgICBpZiAob2xkX3ZhbHVlID09ICh1aW50MTZfdCl2YWx1ZSkgewogICAgICAgICppbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoMSk7CiAgICAgICAgcmV0dXJuIFZGMl9PSzsKICAgIH0KCnB1Ymxpc2g6CiAgICBzdGF0dXMgPSB2ZjJfbW9kZWwyYV93cml0ZV91MzIoCiAgICAgICAgbWFjaGluZSwgVUlOVDMyX0MoMHgwMDU1MDAwMCksIFVJTlQzMl9DKDEpCiAgICApOwogICAgaWYgKHN0YXR1cyA9PSBWRjJfT0spIHsKICAgICAgICBzdGF0dXMgPSB3cml0ZV91MTYobWFjaGluZSwgcmVjb3JkLCAodWludDE2X3QpdmFsdWUpOwogICAgfQogICAgaWYgKHN0YXR1cyA9PSBWRjJfT0spIHsKICAgICAgICBzdGF0dXMgPSB3cml0ZV91MTYobWFjaGluZSwgcmVjb3JkICsgVUlOVDMyX0MoMiksIFVJTlQxNl9NQVgpOwogICAgfQogICAgaWYgKHN0YXR1cyA9PSBWRjJfT0spIHsKICAgICAgICBzdGF0dXMgPSB2ZjJfbW9kZWwyYV93cml0ZV91MzIoCiAgICAgICAgICAgIG1hY2hpbmUsIHJlY29yZCArIFVJTlQzMl9DKDB4MTApLCBmbGFncwogICAgICAgICk7CiAgICB9CiAgICBpZiAoc3RhdHVzID09IFZGMl9PSykgewogICAgICAgIHN0YXR1cyA9IHdyaXRlX3UxNigKICAgICAgICAgICAgbWFjaGluZSwgcmVjb3JkICsgVUlOVDMyX0MoMHgxYyksICh1aW50MTZfdClwcmlvcml0eQogICAgICAgICk7CiAgICB9CiAgICAqaW5zdHJ1Y3Rpb25zICs9IFVJTlQ2NF9DKDgpOwogICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgfQogICAgKmNoYW5nZWRfdmFsdWVzICs9IFVJTlQ2NF9DKDUpOwogICAgKmJ5dGVzX3dyaXR0ZW4gKz0gMTR1OwoKICAgIHN0YXR1cyA9IHJlYWRfdTE2KG1hY2hpbmUsIFVJTlQzMl9DKDB4MDA1NWMyZjApLCAmY3VycmVudF9wcmlvcml0eSk7CiAgICAqaW5zdHJ1Y3Rpb25zICs9IFVJTlQ2NF9DKDIpOwogICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgfQogICAgaWYgKHByaW9yaXR5IDw9ICh1aW50MzJfdCljdXJyZW50X3ByaW9yaXR5KSB7CiAgICAgICAgKmluc3RydWN0aW9ucyArPSBVSU5UNjRfQygxKTsKICAgICAgICByZXR1cm4gVkYyX09LOwogICAgfQoKICAgIGNwdS0+cmVnaXN0ZXJzW1ZGMl9JOTYwX0cwX1JFR0lTVEVSXSA9IDB1OwogICAgc3RhdHVzID0gdmYyX21vZGVsMmFfd3JpdGVfdTMyKG1hY2hpbmUsIFVJTlQzMl9DKDB4MDA1NTAwMGMpLCAwdSk7CiAgICBpZiAoc3RhdHVzID09IFZGMl9PSykgewogICAgICAgIHN0YXR1cyA9IHZmMl9tb2RlbDJhX3dyaXRlX3UzMihtYWNoaW5lLCBVSU5UMzJfQygweDAwNTUwMDgwKSwgMHUpOwogICAgfQogICAgaWYgKHN0YXR1cyA9PSBWRjJfT0spIHsKICAgICAgICBzdGF0dXMgPSB2ZjJfbW9kZWwyYV93cml0ZV91MzIobWFjaGluZSwgVUlOVDMyX0MoMHgwMDU1MDBmNCksIDB1KTsKICAgIH0KICAgICppbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoNSk7CiAgICBpZiAoc3RhdHVzICE9IFZGMl9PSykgewogICAgICAgIHJldHVybiBzdGF0dXM7CiAgICB9CiAgICAqY2hhbmdlZF92YWx1ZXMgKz0gVUlOVDY0X0MoMyk7CiAgICAqYnl0ZXNfd3JpdHRlbiArPSAxMnU7CiAgICByZXR1cm4gVkYyX09LOwp9CgpzdGF0aWMgdmYyX3N0YXR1cyBleGVjdXRlX3RleHR1cmVfY291bnRlcl9leHBpcnkoCiAgICB2ZjJfbW9kZWwyYSAqbWFjaGluZSwKICAgIHZmMl9pOTYwX2NwdSAqY3B1LAogICAgdWludDMyX3QgYXJndW1lbnQwLAogICAgdWludDMyX3QgYXJndW1lbnQxLAogICAgdWludDMyX3QgYXJndW1lbnQyLAogICAgdWludDMyX3QgcmV0dXJuX2FkZHJlc3MsCiAgICB1aW50NjRfdCAqaW5zdHJ1Y3Rpb25zLAogICAgdWludDY0X3QgKmNoYW5nZWRfdmFsdWVzLAogICAgc2l6ZV90ICpieXRlc193cml0dGVuCikKewogICAgdWludDMyX3QgcXVldWUgPSAwdTsKICAgIHVpbnQzMl90IGZpcnN0X3JlY29yZCA9IDB1OwogICAgdWludDMyX3Qgc2Vjb25kX3JlY29yZCA9IDB1OwogICAgdWludDY0X3QgaGVscGVyX2luc3RydWN0aW9ucyA9IDB1OwogICAgdmYyX3N0YXR1cyBzdGF0dXMgPSBWRjJfT0s7CgogICAgaWYgKGFyZ3VtZW50MCA+IFVJTlQzMl9DKDB4NTYpKSB7CiAgICAgICAgcmV0dXJuIFZGMl9FUlJPUl9VTlNVUFBPUlRFRDsKICAgIH0KCiAgICBzdGF0dXMgPSB2ZjJfaTk2MF9jcHVfZW50ZXJfcHJvY2VkdXJlKAogICAgICAgIGNwdSwgVUlOVDMyX0MoMHgwMDA0YjkzNCksIHJldHVybl9hZGRyZXNzCiAgICApOwogICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgfQoKICAgIGhlbHBlcl9pbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoNCk7CiAgICBpZiAoYXJndW1lbnQxID09IDB1KSB7CiAgICAgICAgcXVldWUgPSBVSU5UMzJfQygweDAwNTUwMmE4KTsKICAgICAgICBmaXJzdF9yZWNvcmQgPSBVSU5UMzJfQygweDAwNTUwMTg4KTsKICAgICAgICBzZWNvbmRfcmVjb3JkID0gVUlOVDMyX0MoMHgwMDU1MDI0OCk7CiAgICAgICAgaGVscGVyX2luc3RydWN0aW9ucyArPSBVSU5UNjRfQyg0KTsKICAgIH0gZWxzZSB7CiAgICAgICAgcXVldWUgPSBVSU5UMzJfQygweDAwNTUwMmIwKTsKICAgICAgICBmaXJzdF9yZWNvcmQgPSBVSU5UMzJfQygweDAwNTUwMWE4KTsKICAgICAgICBzZWNvbmRfcmVjb3JkID0gVUlOVDMyX0MoMHgwMDU1MDI2OCk7CiAgICAgICAgaGVscGVyX2luc3RydWN0aW9ucyArPSBVSU5UNjRfQygzKTsKICAgIH0KCiAgICBzdGF0dXMgPSB3cml0ZV91MTYobWFjaGluZSwgcXVldWUsIFVJTlQxNl9DKDEpKTsKICAgIGlmIChzdGF0dXMgPT0gVkYyX09LKSB7CiAgICAgICAgc3RhdHVzID0gd3JpdGVfdTE2KG1hY2hpbmUsIHF1ZXVlICsgVUlOVDMyX0MoMiksICh1aW50MTZfdClhcmd1bWVudDEpOwogICAgfQogICAgaWYgKHN0YXR1cyA9PSBWRjJfT0spIHsKICAgICAgICBzdGF0dXMgPSB3cml0ZV91MTYobWFjaGluZSwgcXVldWUgKyBVSU5UMzJfQyg0KSwgKHVpbnQxNl90KWFyZ3VtZW50Mik7CiAgICB9CiAgICBoZWxwZXJfaW5zdHJ1Y3Rpb25zICs9IFVJTlQ2NF9DKDgpOwogICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgfQogICAgKmNoYW5nZWRfdmFsdWVzICs9IFVJTlQ2NF9DKDMpOwogICAgKmJ5dGVzX3dyaXR0ZW4gKz0gNnU7CgogICAgY3B1LT5yZWdpc3RlcnNbVkYyX0k5NjBfRzBfUkVHSVNURVJdID0gYXJndW1lbnQwOwogICAgY3B1LT5yZWdpc3RlcnNbVkYyX0k5NjBfRzBfUkVHSVNURVIgKyAxdV0gPSBhcmd1bWVudDE7CiAgICBjcHUtPnJlZ2lzdGVyc1tWRjJfSTk2MF9HMF9SRUdJU1RFUiArIDJ1XSA9IGZpcnN0X3JlY29yZDsKICAgIGNwdS0+cmVnaXN0ZXJzW1ZGMl9JOTYwX0cwX1JFR0lTVEVSICsgM3VdID0gVUlOVDMyX0MoMyk7CiAgICBoZWxwZXJfaW5zdHJ1Y3Rpb25zICs9IFVJTlQ2NF9DKDUpOwogICAgc3RhdHVzID0gZXhlY3V0ZV90ZXh0dXJlX3JlY29yZF9wdWJsaXNoKAogICAgICAgIG1hY2hpbmUsIGNwdSwgYXJndW1lbnQwLCBhcmd1bWVudDEsIGZpcnN0X3JlY29yZCwgVUlOVDMyX0MoMyksCiAgICAgICAgJmhlbHBlcl9pbnN0cnVjdGlvbnMsIGNoYW5nZWRfdmFsdWVzLCBieXRlc193cml0dGVuCiAgICApOwogICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgfQoKICAgIGNwdS0+cmVnaXN0ZXJzW1ZGMl9JOTYwX0cwX1JFR0lTVEVSXSA9IGFyZ3VtZW50MCArIFVJTlQzMl9DKDEpOwogICAgY3B1LT5yZWdpc3RlcnNbVkYyX0k5NjBfRzBfUkVHSVNURVIgKyAxdV0gPSBhcmd1bWVudDE7CiAgICBjcHUtPnJlZ2lzdGVyc1tWRjJfSTk2MF9HMF9SRUdJU1RFUiArIDJ1XSA9IHNlY29uZF9yZWNvcmQ7CiAgICBjcHUtPnJlZ2lzdGVyc1tWRjJfSTk2MF9HMF9SRUdJU1RFUiArIDN1XSA9IFVJTlQzMl9DKDEpOwogICAgaGVscGVyX2luc3RydWN0aW9ucyArPSBVSU5UNjRfQyg1KTsKICAgIHN0YXR1cyA9IGV4ZWN1dGVfdGV4dHVyZV9yZWNvcmRfcHVibGlzaCgKICAgICAgICBtYWNoaW5lLCBjcHUsIGFyZ3VtZW50MCArIFVJTlQzMl9DKDEpLCBhcmd1bWVudDEsCiAgICAgICAgc2Vjb25kX3JlY29yZCwgVUlOVDMyX0MoMSksCiAgICAgICAgJmhlbHBlcl9pbnN0cnVjdGlvbnMsIGNoYW5nZWRfdmFsdWVzLCBieXRlc193cml0dGVuCiAgICApOwogICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgfQoKICAgIGhlbHBlcl9pbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoMSk7CiAgICBhY2NvdW50X25lc3RlZF9wcm9jZWR1cmUoY3B1LCBVSU5UNjRfQygzKSwgVUlOVDY0X0MoMykpOwogICAgc3RhdHVzID0gdmYyX2k5NjBfY3B1X3JldHVybl9wcm9jZWR1cmUoY3B1LCBtYWNoaW5lKTsKICAgIGlmIChzdGF0dXMgIT0gVkYyX09LIHx8IGNwdS0+aXAgIT0gcmV0dXJuX2FkZHJlc3MpIHsKICAgICAgICByZXR1cm4gc3RhdHVzID09IFZGMl9PSyA/IFZGMl9FUlJPUl9VTlNVUFBPUlRFRCA6IHN0YXR1czsKICAgIH0KICAgICppbnN0cnVjdGlvbnMgKz0gaGVscGVyX2luc3RydWN0aW9uczsKICAgIHJldHVybiBWRjJfT0s7Cn0KCg==
-          C0_B64: ICAgIGlmIChjb3VudGVyMCA9PSBVSU5UMzJfQygxKSkgewogICAgICAgIHVpbnQzMl90IGFyZ3VtZW50MCA9IDB1OwogICAgICAgIHVpbnQzMl90IGFyZ3VtZW50MSA9IDB1OwogICAgICAgIHVpbnQzMl90IGFyZ3VtZW50MiA9IDB1OwogICAgICAgIGNwdS0+cmVnaXN0ZXJzWzRdID0gMHU7CiAgICAgICAgc2V0X2VxdWFsX2NvbmRpdGlvbihjcHUpOwogICAgICAgIHN0YXR1cyA9IHZmMl9tb2RlbDJhX3dyaXRlX3UzMihtYWNoaW5lLCBWRjJfVEVYVFVSRV9DT1VOVEVSMCwgMHUpOwogICAgICAgIGlmIChzdGF0dXMgPT0gVkYyX09LKSB7CiAgICAgICAgICAgIHN0YXR1cyA9IHZmMl9tb2RlbDJhX3JlYWRfdTMyKAogICAgICAgICAgICAgICAgbWFjaGluZSwgVkYyX1RFWFRVUkVfQ09VTlRFUjAgKyBVSU5UMzJfQyg0KSwgJmFyZ3VtZW50MAogICAgICAgICAgICApOwogICAgICAgIH0KICAgICAgICBpZiAoc3RhdHVzID09IFZGMl9PSykgewogICAgICAgICAgICBzdGF0dXMgPSB2ZjJfbW9kZWwyYV9yZWFkX3UzMigKICAgICAgICAgICAgICAgIG1hY2hpbmUsIFZGMl9URVhUVVJFX0NPVU5URVIwICsgVUlOVDMyX0MoOCksICZhcmd1bWVudDEKICAgICAgICAgICAgKTsKICAgICAgICB9CiAgICAgICAgaWYgKHN0YXR1cyA9PSBWRjJfT0spIHsKICAgICAgICAgICAgc3RhdHVzID0gdmYyX21vZGVsMmFfcmVhZF91MzIoCiAgICAgICAgICAgICAgICBtYWNoaW5lLCBWRjJfVEVYVFVSRV9DT1VOVEVSMCArIFVJTlQzMl9DKDEyKSwgJmFyZ3VtZW50MgogICAgICAgICAgICApOwogICAgICAgIH0KICAgICAgICBpZiAoc3RhdHVzICE9IFZGMl9PSykgewogICAgICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgICAgIH0KICAgICAgICBpbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoNik7CiAgICAgICAgKytjaGFuZ2VkX3ZhbHVlczsKICAgICAgICBieXRlc193cml0dGVuICs9IDR1OwogICAgICAgIHN0YXR1cyA9IGV4ZWN1dGVfdGV4dHVyZV9jb3VudGVyX2V4cGlyeSgKICAgICAgICAgICAgbWFjaGluZSwgY3B1LCBhcmd1bWVudDAsIGFyZ3VtZW50MSwgYXJndW1lbnQyLAogICAgICAgICAgICBVSU5UMzJfQygweDAwMDRiYmQ4KSwKICAgICAgICAgICAgJmluc3RydWN0aW9ucywgJmNoYW5nZWRfdmFsdWVzLCAmYnl0ZXNfd3JpdHRlbgogICAgICAgICk7CiAgICAgICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICAgICAgcmV0dXJuIHN0YXR1czsKICAgICAgICB9CiAgICB9Cg==
-          C1_B64: ICAgIGlmIChjb3VudGVyMSA9PSBVSU5UMzJfQygxKSkgewogICAgICAgIHVpbnQzMl90IGFyZ3VtZW50MCA9IDB1OwogICAgICAgIHVpbnQzMl90IGFyZ3VtZW50MSA9IDB1OwogICAgICAgIHVpbnQzMl90IGFyZ3VtZW50MiA9IDB1OwogICAgICAgIGNwdS0+cmVnaXN0ZXJzWzRdID0gMHU7CiAgICAgICAgc2V0X2VxdWFsX2NvbmRpdGlvbihjcHUpOwogICAgICAgIHN0YXR1cyA9IHZmMl9tb2RlbDJhX3dyaXRlX3UzMihtYWNoaW5lLCBWRjJfVEVYVFVSRV9DT1VOVEVSMSwgMHUpOwogICAgICAgIGlmIChzdGF0dXMgPT0gVkYyX09LKSB7CiAgICAgICAgICAgIHN0YXR1cyA9IHZmMl9tb2RlbDJhX3JlYWRfdTMyKAogICAgICAgICAgICAgICAgbWFjaGluZSwgVkYyX1RFWFRVUkVfQ09VTlRFUjEgKyBVSU5UMzJfQyg0KSwgJmFyZ3VtZW50MAogICAgICAgICAgICApOwogICAgICAgIH0KICAgICAgICBpZiAoc3RhdHVzID09IFZGMl9PSykgewogICAgICAgICAgICBzdGF0dXMgPSB2ZjJfbW9kZWwyYV9yZWFkX3UzMigKICAgICAgICAgICAgICAgIG1hY2hpbmUsIFZGMl9URVhUVVJFX0NPVU5URVIxICsgVUlOVDMyX0MoOCksICZhcmd1bWVudDEKICAgICAgICAgICAgKTsKICAgICAgICB9CiAgICAgICAgaWYgKHN0YXR1cyA9PSBWRjJfT0spIHsKICAgICAgICAgICAgc3RhdHVzID0gdmYyX21vZGVsMmFfcmVhZF91MzIoCiAgICAgICAgICAgICAgICBtYWNoaW5lLCBWRjJfVEVYVFVSRV9DT1VOVEVSMSArIFVJTlQzMl9DKDEyKSwgJmFyZ3VtZW50MgogICAgICAgICAgICApOwogICAgICAgIH0KICAgICAgICBpZiAoc3RhdHVzICE9IFZGMl9PSykgewogICAgICAgICAgICByZXR1cm4gc3RhdHVzOwogICAgICAgIH0KICAgICAgICBpbnN0cnVjdGlvbnMgKz0gVUlOVDY0X0MoNik7CiAgICAgICAgKytjaGFuZ2VkX3ZhbHVlczsKICAgICAgICBieXRlc193cml0dGVuICs9IDR1OwogICAgICAgIHN0YXR1cyA9IGV4ZWN1dGVfdGV4dHVyZV9jb3VudGVyX2V4cGlyeSgKICAgICAgICAgICAgbWFjaGluZSwgY3B1LCBhcmd1bWVudDAsIGFyZ3VtZW50MSwgYXJndW1lbnQyLAogICAgICAgICAgICBVSU5UMzJfQygweDAwMDRiYzE4KSwKICAgICAgICAgICAgJmluc3RydWN0aW9ucywgJmNoYW5nZWRfdmFsdWVzLCAmYnl0ZXNfd3JpdHRlbgogICAgICAgICk7CiAgICAgICAgaWYgKHN0YXR1cyAhPSBWRjJfT0spIHsKICAgICAgICAgICAgcmV0dXJuIHN0YXR1czsKICAgICAgICB9CiAgICB9Cg==
-          TEST_B64: c3RhdGljIHZvaWQgdGVzdF9jb3VudGVyX3VwZGF0ZV9maXJzdF9leHBpcnlfcmVjb3ZlcmVkKHZvaWQpCnsKICAgIHZmMl9tb2RlbDJhIG1hY2hpbmU7CiAgICB2ZjJfaTk2MF9jcHUgY3B1OwogICAgdmYyX2h5YnJpZF9icmlkZ2VfcmVwb3J0IHJlcG9ydCA9IHsවMH07CiAgICB1aW50MzJfdCB2YWx1ZSA9IDB1OwoKICAgIENIRUNLKHZmMl9tb2RlbDJhX2luaXRpYWxpemUoJm1hY2hpbmUpICE9IDApOwogICAgaWYgKG1hY2hpbmUud29ya19yYW0gPT0gTlVMTCkgewogICAgICAgIHJldHVybjsKICAgIH0KICAgIENIRUNLKHZmMl9tb2RlbDJhX3dyaXRlX3UzMigKICAgICAgICAmbWFjaGluZSwgVUlOVDMyX0MoMHgwMDU1MDJjMCksIFVJTlQzMl9DKDEpCiAgICApID09IFZGMl9PSyk7CiAgICBDSEVDSyh2ZjJfbW9kZWwyYV93cml0ZV91MzIoCiAgICAgICAgJm1hY2hpbmUsIFVJTlQzMl9DKDB4MDA1NTAyYzQpLCBVSU5UMzJfQygweDIyKQogICAgKSA9PSBWRjJfT0spOwogICAgQ0hFQ0sodmYyX21vZGVsMmFfd3JpdGVfdTMyKAogICAgICAgICZtYWNoaW5lLCBVSU5UMzJfQygweDAwNTUwMmM4KSwgMHUKICAgICkgPT0gVkYyX09LKTsKICAgIENIRUNLKHZmMl9tb2RlbDJhX3dyaXRlX3UzMigKICAgICAgICAmbWFjaGluZSwgVUlOVDMyX0MoMHgwMDU1MDJjYyksIFVJTlQzMl9DKDB4MTYyKQogICAgKSA9PSBWRjJfT0spOwogICAgQ0hFQ0sodmYyX21vZGVsMmFfd3JpdGVfdTMyKAogICAgICAgICZtYWNoaW5lLCBVSU5UMzJfQygweDAwNTUwMmQwKSwgMHUKICAgICkgPT0gVkYyX09LKTsKICAgIENIRUNLKHZmMl9tb2RlbDJhX3dyaXRlX3UzMigKICAgICAgICAmbWFjaGluZSwgVUlOVDMyX0MoMHgwMDU1MDJlMCksIDB1CiAgICApID09IFZGMl9PSyk7CiAgICBlbnRlcl9wYXJlbnQoJmNwdSwgVUlOVDMyX0MoMHgwMDA0YmI5OCkpOwoKICAgIENIRUNLKHZmMl9oeWJyaWRfcG9zdF9mcmFtZV9icmlkZ2VfZXhlY3V0ZSgKICAgICAgICAmbWFjaGluZSwgJmNwdSwgJnJlcG9ydAogICAgKSA9PSBWRjJfT0spOwogICAgQ0hFQ0socmVwb3J0LmtpbmQgPT0gVkYyX0hZQlJJRF9CUklER0VfVEVYVFVSRV9DT1VOVEVSX1VQREFURSk7CiAgICBDSEVDSyhyZXBvcnQucmVjb3ZlcmVkX2luc3RydWN0aW9uX2NvdW50ID09IFVJTlQ2NF9DKDkxKSk7CiAgICBDSEVDSyhyZXBvcnQucmVjb3ZlcmVkX3Byb2NlZHVyZV9jYWxscyA9PSBVSU5UNjRfQyg0KSk7CiAgICBDSEVDSyhyZXBvcnQucmVjb3ZlcmVkX3Byb2NlZHVyZV9yZXR1cm5zID09IFVJTlQ2NF9DKDQpKTsKICAgIENIRUNLKGNwdS5pcCA9PSBVSU5UMzJfQygweDAwMDRiYzU4KSk7CiAgICBDSEVDSyh2ZjJfbW9kZWwyYV9yZWFkX3UzMigKICAgICAgICAmbWFjaGluZSwgVUlOVDMyX0MoMHgwMDU1MDJjMCksICZ2YWx1ZQogICAgKSA9PSBWRjJfT0spOwogICAgQ0hFQ0sodmFsdWUgPT0gMHUpOwogICAgQ0hFQ0sodmYyX21vZGVsMmFfcmVhZF91MzIoCiAgICAgICAgJm1hY2hpbmUsIFVJTlQzMl9DKDB4MDA1NTAwMDApLCAmdmFsdWUKICAgICkgPT0gVkYyX09LKTsKICAgIENIRUNLKHZhbHVlID09IFVJTlQzMl9DKDEpKTsKICAgIENIRUNLKHZmMl9tb2RlbDJhX3JlYWRfdTMyKAogICAgICAgICZtYWNoaW5lLCBVSU5UMzJfQygweDAwNTUwMTg4KSwgJnZhbHVlCiAgICApID09IFZGMl9PSyk7CiAgICBDSEVDSyh2YWx1ZSA9PSBVSU5UMzJfQygweGZmZmYwMDIyKSk7CiAgICBDSEVDSyh2ZjJfbW9kZWwyYV9yZWFkX3UzMigKICAgICAgICAmbWFjaGluZSwgVUlOVDMyX0MoMHgwMDU1MDI0OCksICZ2YWx1ZQogICAgKSA9PSBWRjJfT0spOwogICAgQ0hFQ0sodmFsdWUgPT0gVUlOVDMyX0MoMHhmZmZmMDAyMykpOwoKICAgIHZmMl9tb2RlbDJhX3NodXRkb3duKCZtYWNoaW5lKTsKfQoK
+          H: eNrNWG1v2zYQ/u5fwXwJLMdbJPkFbj13KLqsCIY0hZsMA4ZCoKWzLcyWPIpynbX+7yWpN5KWLLt22vlDnPDlnuPd8xyPiSimvovWU9uJ2K9xhGADbkzBobChMQGHgBsSz1nFk4UfzZsNxD58+TL0YGFj1Fpid+4H0M5n/Bd903FXMWqxH8lw7Ae0YzsUrfEiBm1susCzSBtLULXBFfFD4tOnYrjfZcMtP4goiV3qh0Gkz7lzHMzAcwRwOhv5/wGfmzxRiJxPzCSFoGE0Pud7rT6bDxfpNjRCZjxUJ92YEAiok/lUtoYbWAIlLMDFrBTq9GuE/vzddu7/GDbEgusWepgDYlZnfoAXaA6LFRDkhssVJhAhyian/gY8dMdTgOzXaBJi4rFjzQLMcybMoBaawDQkgGgY8wzNxM4ksD8zCD8Sf6yBMFMT7P4DgYfYIF4QwN4TMxoHXmaKhmw3pglSG0UhSwZEQNYgrNI5AUCYMBwKLvOB+S1nJTPzyafzMKYIo/H93bUHa9/lLmHmUOtaLFKSia5G6PH23QNL5ZtmxxjWrLDTFf4UNZPEvRKTjDxvmuam1zcMlOSYfwgwPwMR+5vx+H7sPL778Pj+/f344ea3xM62UQNoSYBNQWN0KSNaJkO84LmXgfO084M7sdVvZhJKs4OuCiMDo40uCyKlgBloZiqjkAyjQHGSg8BS5vlnP/jO8mZGb4Op+6dXBGZ+RIFEf3MPbrn035rO+Obt7YeHmzEz1o0/KjakE2zz3+qzrp34ourEaVaTZWVQV1daTSgWqQWBu2HHKrqk6ItR48Sw6K7PQqaytM7qnqdUrKVOShZxsqP0si+uJTHdNuSQpFVyJEUh8UAyUq8iTZS8IKZHT4PyUo2BdAs5Kb87dsHvPDKSIE2z1zPZx5BGLaMh8bJOVSWK2kmBHgU9ZKfZlwVqpwdhYHev//o2oJow1pQIUeTayR3e0DT+zSc+Atw15Hhnt3G5J9UUHJyqBK2mKMZ7mRB3yovVjYe1wtbo69pTHvBLvQH5PmrP251fUrHzxszY8eVMuudfB5TTj1J7VUPrPUWBM4ld1MNzqKcaZmDKMNvnBZt2d8Gq89F7ThF0qkWQXbIaB1j+o9rXicuaVMYLBzYrnzyd+jrBZBYvGZHNinGrYtzeeb3wkzjY81iTHD3/c0WA/hvDzlMleV/5JKLpO65sPmIzgVe+QHiVvEAchThHPGg4n/LInqclVxSRZdQBQYUVCV3wGDmKa4RnWlWH2Z286HB1qKmq6AQOl4H4KouXrIWuhJBTi0tffSdkCdVlbeOBVDm17OqLrYG8WE/1jumuvPrQc2wRLCI4xPOJeYTn+CjP+8d43jHK6VTSdImz5F0Wv7XO0CkmAdIauaKNyUlxttZxB7BbCmgrgHVRHPyYC6OfNU0HtgZ57RkeuosFyorlrdYxW22xVWb3Mbs7YneepywMdbnILu+cBIf8H09pr0WRLG5A6dJTztKWfSv+PXBZ4iCzqV5nSL3CzlJsjyWBLIJMX9+JEkoNO4ET1g/ihBq6tt4W7ZRp5ZH9P6BKXbyyuGJXtJVOACwrntRQ5H1EWqGUP4zhntYkbTM0U2mc9xwMffmScMRf8UG1W6k8dXE/oF/Luyn0sqwc65EpCVhVq/4V5NEKTA==
+          C0: eNrNU9FqwjAUffcrshdpaQdtLGMw3Is4GAMFqWMwRojpVQs1dWniKsN/X1qdTaRuDPZgnkJ67jnnnt6LEELpHDksV1yCCFC/j6aPo7iHycAJXRd9dtDhqJRL/SwRFQu1Ai41GAXq7jwg/A2ATwBsra7vBSzSQnspXqO3k+8FSALvimaE5TxJZZpzR9e4BkJSqQpdtpljssoTyDAlHyKVQFQPOyvLikHHz0/YBIPX+LpZEgG4+koHk4CX2sZVFUs33T9umD8ZOZxVk4ATWo1C1qdH+WR1yQfuT7qHnO2eAyHu4vwemt6DS/ba4hNs/hPZq/OmRUgleAHz60kvJBCsWpcC+TtF+wm0nZuDE3PY0vKF5CQDc0UGESzrYSiHmIJvKqPVMvAQwlM6TGXUGo7QA4bTaBcp2JrZ3bMSy+P3+xzcw2bK/at0mOUQRkEQTSbJfr/W4iu2a5O225LP1j9dFri/5fQ1yJnkNRJ0Cyzc48MsQa3p2xH7jpfU41eGw==
+          C1: eNrNU9FqwjAUffcrshdpaQdtLGMwuhdxMAYKUsdgjBDTqxZq6tLEVYb/vlSdTaRuDPZgnkJ67jnnnt6LEELZDDmsUFyCCFEco8njMOlh0ndC10WfHXQ4KuNSP0tExVwtgcsAxShQd+cB4W8AfAJgK3V9L2CeldpL+Rq9nXwvQRJ4VzQnrOBpJrOCO7rGNRCSSlXqsvUMk2WRQo4p+RCZBKJ62FlStsg4+Oj5AZNk8JJMxgPSH02GyWAc+lrLoKpj+aaLdwWjJzOPs3ICaLpTs6D1+VEeeU3ykeuj7jFni8dwuL0Ir7em1/CyvYbYNIv/ZPbqnFkBUgl+8NxKwkspFKvHtUTefsFuIm3nxtD0PLagfA4pWdNcgUE03Ugod0Msgdf1kWoZeKiAKT3mEiptB8hhowlUq0xs7MyOeenl8Zt9bq5hc8W+VXqMMqiCIIimLNT/30J0zXZ12nZb+sHqp9MS/7+EvhIFg3SXBM1zO/fIEGtwe8p25LbzBThUXe4=
+          T: eNq1VVFvmzAQfudXeC8RlqbIISQiqvKwpWytWqVTBNP2ZBFzLFYJRsZO0lb57zOBpGRr0bomljDofPd9d7a/o1CR4gytBI+RgkJRJnSmQFKdx5ECmnBpjLDJuXygEphYgYTYLv2x9WQhM1aJQ5cihtSJ0DJiC57BxWGBj4aEslwj8zxbFw9zyWNaTr/AwOZCKlS/xuiJbCtXzTPVd6hCqyjVYFaIwditTK78yY3dYKY844pHKX8Eu1NngdEHE4IrLJ4gu7Z310LeUxkt0XiMpuHtLUZVJeWQoLTMqpjtK1xryc3W6L5jH8L2nB9ReD0NTNITm2wIGQyIwwhuWHt4F4NL7u9fHHp3Uyf4bhoXH1kd52xMnmEi+lzo7LiO3vBshcTknIVAKzrsVJZH0nzYHaOOPxCIO5+PPIz/uvC1dnJhdJmYSwx7GcEGmFbwUm4VfqdSWGu5lUv3nmfx3uPq5+fZ9SUtp68+DfwfQTjz6eQunAb+jIbfLj8F/ksYh25htFkoqZniIqv6SwldVjt0TbWjHm4Pz6VgEGsJlEVpWhwFu/8cWwm7NdrsUpfne4/mUbCBh1+9FhKi+G3doLNraO33rmp5Zc87CbEZbyRutKyTZNDzvP/NgGwSMwgxPe00p+C+P5X+QZvNLIqFVrFYZ88/oQtra1m/AfeLC+s=
         run: |
           python3 - <<'PY'
-          import base64, os
+          import base64, os, zlib
           from pathlib import Path
-
-          def dec(name):
-              return base64.b64decode(os.environ[name]).decode()
+          def dec(k): return zlib.decompress(base64.b64decode(os.environ[k])).decode()
 
           p = Path('src/recovered/texture_bridge_texture.c')
           s = p.read_text()
-          anchor = 'vf2_status execute_texture_counter_update(\n'
-          if s.count(anchor) != 1:
-              raise SystemExit('counter update anchor missing')
-          s = s.replace(anchor, dec('HELPER_B64') + anchor, 1)
-          old = '''    if (counter0 == UINT32_C(1)) {
-              return VF2_ERROR_UNSUPPORTED;
-          }
-          '''
-          if s.count(old) != 1:
-              raise SystemExit('counter0 expiry anchor missing')
-          s = s.replace(old, dec('C0_B64'), 1)
-          old = '''    if (counter1 == UINT32_C(1)) {
-              return VF2_ERROR_UNSUPPORTED;
-          }
-          '''
-          if s.count(old) != 1:
-              raise SystemExit('counter1 expiry anchor missing')
-          s = s.replace(old, dec('C1_B64'), 1)
+          fn = s.index('vf2_status execute_texture_counter_update(')
+          s = s[:fn] + dec('H') + s[fn:]
+          fn = s.index('vf2_status execute_texture_counter_update(')
+          a = s.index('    if (counter0 == UINT32_C(1)) {', fn)
+          b = s.index('    if (counter0 > UINT32_C(1)) {', a)
+          s = s[:a] + dec('C0') + s[b:]
+          a = s.index('    if (counter1 == UINT32_C(1)) {', fn)
+          b = s.index('    if (counter1 > UINT32_C(1)) {', a)
+          s = s[:a] + dec('C1') + s[b:]
+          decl = '    size_t bytes_written = 0u;\n    vf2_status status = VF2_OK;\n'
+          if s.count(decl, fn) < 1: raise SystemExit('counter declarations missing')
+          s = s[:fn] + s[fn:].replace(decl, '    size_t bytes_written = 0u;\n    uint64_t procedure_calls = 0u;\n    uint64_t procedure_returns = 0u;\n    vf2_status status = VF2_OK;\n', 1)
+          # The decoded expiry blocks account four procedure calls/returns each.
+          s = s.replace('        procedure_calls += UINT64_C(4);\n        procedure_returns += UINT64_C(4);\n', '        procedure_calls += UINT64_C(4);\n        procedure_returns += UINT64_C(4);\n', 2)
+          zero = '        report->recovered_instruction_count = instructions;\n        report->cpu_poststate_applied = 1;\n'
+          zpos = s.index(zero, fn)
+          s = s[:zpos] + s[zpos:].replace(zero, '        report->recovered_instruction_count = instructions;\n        report->recovered_procedure_calls = procedure_calls;\n        report->recovered_procedure_returns = procedure_returns;\n        report->cpu_poststate_applied = 1;\n', 1)
+          s = s[:fn] + s[fn:].replace('        report->recovered_procedure_calls = UINT64_C(3);\n        report->recovered_procedure_returns = UINT64_C(3);\n', '        report->recovered_procedure_calls = UINT64_C(3) + procedure_calls;\n        report->recovered_procedure_returns = UINT64_C(3) + procedure_returns;\n', 1)
+          final = '    report->recovered_instruction_count = instructions;\n    report->cpu_poststate_applied = 1;\n    return VF2_OK;\n'
+          fpos = s.index(final, fn)
+          s = s[:fpos] + s[fpos:].replace(final, '    report->recovered_instruction_count = instructions;\n    report->recovered_procedure_calls = procedure_calls;\n    report->recovered_procedure_returns = procedure_returns;\n    report->cpu_poststate_applied = 1;\n    return VF2_OK;\n', 1)
           p.write_text(s)
 
           p = Path('src/recovered/native_runtime.c')
           s = p.read_text()
-          start = s.index('static vf2_status\nexecute_texture_counter_interpreter(')
-          end = s.index('\ntypedef struct vf2_native_wrapper_boundary_context', start)
-          s = s[:start] + s[end+1:]
-          old = '''    } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {
-              uint32_t counter0 = 0u;
-              uint32_t counter1 = 0u;
-              status = vf2_model2a_read_u32(
-                  machine, VF2_TEXTURE_COUNTER0, &counter0
-              );
-              if (status == VF2_OK) {
-                  status = vf2_model2a_read_u32(
-                      machine, VF2_TEXTURE_COUNTER1, &counter1
-                  );
-              }
-              if (status == VF2_OK &&
-                  (counter0 == UINT32_C(1) || counter1 == UINT32_C(1))) {
-                  status = execute_texture_counter_interpreter(
-                      machine, cpu, &local_report
-                  );
-              } else if (status == VF2_OK) {
-                  vf2_hybrid_bridge_report bridge_report;
-          '''
-          new = '''    } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {
-              if (status == VF2_OK) {
-                  vf2_hybrid_bridge_report bridge_report;
-          '''
-          if s.count(old) != 1:
-              raise SystemExit('native counter routing anchor missing')
-          p.write_text(s.replace(old, new, 1))
+          a = s.index('static vf2_status\nexecute_texture_counter_interpreter(')
+          b = s.index('\ntypedef struct vf2_native_wrapper_boundary_context', a)
+          s = s[:a] + s[b+1:]
+          a = s.index('    } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {')
+          b = s.index('            vf2_hybrid_bridge_report bridge_report;', a)
+          s = s[:a] + '    } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {\n        if (status == VF2_OK) {\n' + s[b:]
+          p.write_text(s)
 
           p = Path('tests/analysis/test_orchestrator_bridge.c')
           s = p.read_text()
-          anchor = 'static void test_counter_update_active_countdowns(void)\n'
-          if s.count(anchor) != 1:
-              raise SystemExit('counter test anchor missing')
-          s = s.replace(anchor, dec('TEST_B64') + anchor, 1)
-          call = '    test_counter_update_active_countdowns();\n'
-          if s.count(call) != 1:
-              raise SystemExit('counter test call anchor missing')
-          s = s.replace(
-              call,
-              '    test_counter_update_first_expiry_recovered();\n' + call,
-              1
-          )
-          p.write_text(s)
+          a = 'static void test_counter_update_active_countdowns(void)\n'
+          if s.count(a) != 1: raise SystemExit('test anchor missing')
+          s = s.replace(a, dec('T') + a, 1)
+          c = '    test_counter_update_active_countdowns();\n'
+          if s.count(c) != 1: raise SystemExit('test call missing')
+          p.write_text(s.replace(c, '    test_counter_update_first_expiry_recovered();\n' + c, 1))
           PY
           git diff --check
           ! grep -q 'execute_texture_counter_interpreter' src/recovered/native_runtime.c
