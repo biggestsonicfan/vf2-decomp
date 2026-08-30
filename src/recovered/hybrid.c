@@ -12495,6 +12495,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     bool threshold_fallback_state = false;
     bool threshold_fallback_countdown = false;
     bool negative_state8_isolated_high_path = false;
+    bool state4_pair_high_neutral_path = false;
     bool mixed_negative_state4_zero_flags = false;
     bool mixed_negative_state4_bit6_path = false;
     bool mixed_negative_state4_bit14_path = false;
@@ -16925,6 +16926,31 @@ static vf2_status hybrid_execute_game_info_bit31_native(
     }
     cpu->executed_instructions += native_instructions;
     status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status == VF2_OK && fighter0_state == 4u && fighter1_state == 4u &&
+        measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0) {
+        const uint32_t pair_high_mask =
+            (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+            (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+            (UINT32_C(1) << 31u);
+        const uint32_t low_mask =
+            (UINT32_C(1) << 6u) | (UINT32_C(1) << 14u) |
+            (UINT32_C(1) << 15u) | (UINT32_C(1) << 16u);
+        uint32_t highs = combined_matrix_flags & pair_high_mask;
+        const bool clean =
+            (combined_matrix_flags & ~(pair_high_mask | low_mask)) == 0u;
+        unsigned high_count = 0u;
+        uint32_t scan = highs;
+        while (scan != 0u) {
+            high_count += scan & 1u;
+            scan >>= 1u;
+        }
+        if (clean && high_count == 2u &&
+            (combined_matrix_flags & low_mask) == 0u) {
+            state4_pair_high_neutral_path = true;
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
+            cpu->ip = UINT32_C(0x00010dd0);
+        }
+    }
     if (status == VF2_OK && negative_state8_isolated_high_path) {
         const uint32_t bit14 = UINT32_C(1) << 14u;
         const uint32_t bit15 = UINT32_C(1) << 15u;
@@ -16945,7 +16971,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         }
     }
     if (status != VF2_OK ||
-        (!negative_state8_isolated_high_path && cpu->ip != task_return)) {
+        (!negative_state8_isolated_high_path &&
+         !state4_pair_high_neutral_path && cpu->ip != task_return)) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
     }
 
@@ -18464,7 +18491,9 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
             machine, cpu, body_instructions, nested_calls, nested_returns
         );
     }
-    if (status == VF2_OK && cpu->ip != VF2_TASK_SCHEDULER_RETURN) {
+    if (status == VF2_OK && cpu->ip != VF2_TASK_SCHEDULER_RETURN &&
+        !(local_report.kind == VF2_HYBRID_TASK_GAME_INFO &&
+          cpu->ip == UINT32_C(0x00010dd0))) {
         status = VF2_ERROR_UNSUPPORTED;
     }
     if (status == VF2_OK) {
