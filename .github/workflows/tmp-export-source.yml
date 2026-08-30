@@ -1,0 +1,38 @@
+name: temporary source export
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/tmp-export-source.yml'
+permissions:
+  contents: write
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Upload source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2-decomp-source-current
+          path: |
+            CMakeLists.txt
+            cmake
+            include
+            src
+            tools
+            tests
+            decomp/i960/tools
+            decomp/i960/notes
+            docs
+          if-no-files-found: error
+          retention-days: 1
+      - name: Remove temporary workflow
+        run: |
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git rm .github/workflows/tmp-export-source.yml
+          git commit -m 'Remove temporary source export workflow'
+          git push origin HEAD:master
