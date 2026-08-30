@@ -4181,8 +4181,7 @@ vf2_status execute_texture_counter_update(
         if (status == VF2_OK) {
             status = read_u16(machine, VF2_TEXTURE_STATUS_WORD, &status_word);
         }
-        if (status != VF2_OK || argument0 > UINT32_C(0x56) ||
-            status_word >= UINT16_C(1)) {
+        if (status != VF2_OK || status_word >= UINT16_C(1)) {
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
 
@@ -4204,6 +4203,50 @@ vf2_status execute_texture_counter_update(
         cpu->registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(1);
         cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(0x00550288);
         cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
+        if (argument0 > UINT32_C(0x56)) {
+            uint64_t diagnostic_instructions = 0u;
+
+            status = execute_texture_number_diagnostic(
+                machine, cpu, argument0, &diagnostic_instructions,
+                &changed_values, &bytes_written
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
+            cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(0x005502b8);
+            status = write_u16(
+                machine, UINT32_C(0x005502b8), UINT16_C(1)
+            );
+            if (status == VF2_OK) {
+                status = write_u16(
+                    machine, UINT32_C(0x005502bc), (uint16_t)argument1
+                );
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            account_nested_procedure(cpu, UINT64_C(2), UINT64_C(2));
+            status = vf2_i960_cpu_return_procedure(cpu, machine);
+            if (status != VF2_OK || cpu->ip != VF2_TEXTURE_COUNTER_UPDATE_EXIT) {
+                return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+            }
+            cpu->executed_instructions +=
+                UINT64_C(198) + (instructions - UINT64_C(12));
+
+            report->kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE;
+            report->entry_address = VF2_TEXTURE_COUNTER_UPDATE_ENTRY;
+            report->exit_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
+            report->iterations = UINT64_C(3);
+            report->changed_values = UINT64_C(22) + changed_values;
+            report->bytes_written = 46u + bytes_written;
+            report->recovered_instruction_count =
+                UINT64_C(198) + (instructions - UINT64_C(12));
+            report->recovered_procedure_calls = UINT64_C(5) + procedure_calls;
+            report->recovered_procedure_returns = UINT64_C(5) + procedure_returns;
+            report->cpu_poststate_applied = 1;
+            return VF2_OK;
+        }
         status = vf2_model2a_write_u32(
             machine, UINT32_C(0x00550000), UINT32_C(1)
         );
