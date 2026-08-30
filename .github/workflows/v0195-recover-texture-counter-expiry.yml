@@ -14,61 +14,8 @@ jobs:
         with:
           fetch-depth: 0
       - name: Recover counter expiry helper
-        env:
-          H: eNrNWG1v2zYQ/u5fwXwJLMdbJPkFbj13KLqsCIY0hZsMA4ZCoKWzLcyWPIpynbX+7yWpN5KWLLt22vlDnPDlnuPd8xyPiSimvovWU9uJ2K9xhGADbkzBobChMQGHgBsSz1nFk4UfzZsNxD58+TL0YGFj1Fpid+4H0M5n/Bd903FXMWqxH8lw7Ae0YzsUrfEiBm1susCzSBtLULXBFfFD4tOnYrjfZcMtP4goiV3qh0Gkz7lzHMzAcwRwOhv5/wGfmzxRiJxPzCSFoGE0Pud7rT6bDxfpNjRCZjxUJ92YEAiok/lUtoYbWAIlLMDFrBTq9GuE/vzddu7/GDbEgusWepgDYlZnfoAXaA6LFRDkhssVJhAhyian/gY8dMdTgOzXaBJi4rFjzQLMcybMoBaawDQkgGgY8wzNxM4ksD8zCD8Sf6yBMFMT7P4DgYfYIF4QwN4TMxoHXmaKhmw3pglSG0UhSwZEQNYgrNI5AUCYMBwKLvOB+S1nJTPzyafzMKYIo/H93bUHa9/lLmHmUOtaLFKSia5G6PH23QNL5ZtmxxjWrLDTFf4UNZPEvRKTjDxvmuam1zcMlOSYfwgwPwMR+5vx+H7sPL778Pj+/f344ea3xM62UQNoSYBNQWN0KSNaJkO84LmXgfO084M7sdVvZhJKs4OuCiMDo40uCyKlgBloZiqjkAyjQHGSg8BS5vlnP/jO8mZGb4Op+6dXBGZ+RIFEf3MPbrn035rO+Obt7YeHmzEz1o0/KjakE2zz3+qzrp34ourEaVaTZWVQV1daTSgWqQWBu2HHKrqk6ItR48Sw6K7PQqaytM7qnqdUrKVOShZxsqP0si+uJTHdNuSQpFVyJEUh8UAyUq8iTZS8IKZHT4PyUo2BdAs5Kb87dsHvPDKSIE2z1zPZx5BGLaMh8bJOVSWK2kmBHgU9ZKfZlwVqpwdhYHev//o2oJow1pQIUeTayR3e0DT+zSc+Atw15Hhnt3G5J9UUHJyqBK2mKMZ7mRB3yovVjYe1wtbo69pTHvBLvQH5PmrP251fUrHzxszY8eVMuudfB5TTj1J7VUPrPUWBM4ld1MNzqKcaZmDKMNvnBZt2d8Gq89F7ThF0qkWQXbIaB1j+o9rXicuaVMYLBzYrnzyd+jrBZBYvGZHNinGrYtzeeb3wkzjY81iTHD3/c0WA/hvDzlMleV/5JKLpO65sPmIzgVe+QHiVvEAchThHPGg4n/LInqclVxSRZdQBQYUVCV3wGDmKa4RnWlWH2Z286HB1qKmq6AQOl4H4KouXrIWuhJBTi0tffSdkCdVlbeOBVDm17OqLrYG8WE/1jumuvPrQc2wRLCI4xPOJeYTn+CjP+8d43jHK6VTSdImz5F0Wv7XO0CkmAdIauaKNyUlxttZxB7BbCmgrgHVRHPyYC6OfNU0HtgZ57RkeuosFyorlrdYxW22xVWb3Mbs7YneepywMdbnILu+cBIf8H09pr0WRLG5A6dJTztKWfSv+PXBZ4iCzqV5nSL3CzlJsjyWBLIJMX9+JEkoNO4ET1g/ihBq6tt4W7ZRp5ZH9P6BKXbyyuGJXtJVOACwrntRQ5H1EWqGUP4zhntYkbTM0U2mc9xwMffmScMRf8UG1W6k8dXE/oF/Luyn0sqwc65EpCVhVq/4V5NEKTA==
-          C0: eNrNU9FqwjAUffcrshdpaQdtLGMw3Is4GAMFqWMwRojpVQs1dWniKsN/X1qdTaRuDPZgnkJ67jnnnt6LEELpHDksV1yCCFC/j6aPo7iHycAJXRd9dtDhqJRL/SwRFQu1Ai41GAXq7jwg/A2ATwBsra7vBSzSQnspXqO3k+8FSALvimaE5TxJZZpzR9e4BkJSqQpdtpljssoTyDAlHyKVQFQPOyvLikHHz0/YBIPX+LpZEgG4+koHk4CX2sZVFUs33T9umD8ZOZxVk4ATWo1C1qdH+WR1yQfuT7qHnO2eAyHu4vwemt6DS/ba4hNs/hPZq/OmRUgleAHz60kvJBCsWpcC+TtF+wm0nZuDE3PY0vKF5CQDc0UGESzrYSiHmIJvKqPVMvAQwlM6TGXUGo7QA4bTaBcp2JrZ3bMSy+P3+xzcw2bK/at0mOUQRkEQTSbJfr/W4iu2a5O225LP1j9dFri/5fQ1yJnkNRJ0Cyzc48MsQa3p2xH7jpfU41eGw==
-          C1: eNrNU9FqwjAUffcrshdpaQdtLGMwuhdxMAYKUsdgjBDTqxZq6tLEVYb/vlSdTaRuDPZgnkJ67jnnnt6LEELZDDmsUFyCCFEco8njMOlh0ndC10WfHXQ4KuNSP0tExVwtgcsAxShQd+cB4W8AfAJgK3V9L2CeldpL+Rq9nXwvQRJ4VzQnrOBpJrOCO7rGNRCSSlXqsvUMk2WRQo4p+RCZBKJ62FlStsg4+Oj5AZNk8JJMxgPSH02GyWAc+lrLoKpj+aaLdwWjJzOPs3ICaLpTs6D1+VEeeU3ykeuj7jFni8dwuL0Ir7em1/CyvYbYNIv/ZPbqnFkBUgl+8NxKwkspFKvHtUTefsFuIm3nxtD0PLagfA4pWdNcgUE03Ugod0Msgdf1kWoZeKiAKT3mEiptB8hhowlUq0xs7MyOeenl8Zt9bq5hc8W+VXqMMqiCIIimLNT/30J0zXZ12nZb+sHqp9MS/7+EvhIFg3SXBM1zO/fIEGtwe8p25LbzBThUXe4=
-          T: eNq1VVFvmzAQfudXeC8RlqbIISQiqvKwpWytWqVTBNP2ZBFzLFYJRsZO0lb57zOBpGRr0bomljDofPd9d7a/o1CR4gytBI+RgkJRJnSmQFKdx5ECmnBpjLDJuXygEphYgYTYLv2x9WQhM1aJQ5cihtSJ0DJiC57BxWGBj4aEslwj8zxbFw9zyWNaTr/AwOZCKlS/xuiJbCtXzTPVd6hCqyjVYFaIwditTK78yY3dYKY844pHKX8Eu1NngdEHE4IrLJ4gu7Z310LeUxkt0XiMpuHtLUZVJeWQoLTMqpjtK1xryc3W6L5jH8L2nB9ReD0NTNITm2wIGQyIwwhuWHt4F4NL7u9fHHp3Uyf4bhoXH1kd52xMnmEi+lzo7LiO3vBshcTknIVAKzrsVJZH0nzYHaOOPxCIO5+PPIz/uvC1dnJhdJmYSwx7GcEGmFbwUm4VfqdSWGu5lUv3nmfx3uPq5+fZ9SUtp68+DfwfQTjz6eQunAb+jIbfLj8F/ksYh25htFkoqZniIqv6SwldVjt0TbWjHm4Pz6VgEGsJlEVpWhwFu/8cWwm7NdrsUpfne4/mUbCBh1+9FhKi+G3doLNraO33rmp5Zc87CbEZbyRutKyTZNDzvP/NgGwSMwgxPe00p+C+P5X+QZvNLIqFVrFYZ88/oQtra1m/AfeLC+s=
         run: |
-          python3 - <<'PY'
-          import base64, os, zlib
-          from pathlib import Path
-          def dec(k): return zlib.decompress(base64.b64decode(os.environ[k])).decode()
-
-          p = Path('src/recovered/texture_bridge_texture.c')
-          s = p.read_text()
-          fn = s.index('vf2_status execute_texture_counter_update(')
-          s = s[:fn] + dec('H') + s[fn:]
-          fn = s.index('vf2_status execute_texture_counter_update(')
-          a = s.index('    if (counter0 == UINT32_C(1)) {', fn)
-          b = s.index('    if (counter0 > UINT32_C(1)) {', a)
-          s = s[:a] + dec('C0') + s[b:]
-          a = s.index('    if (counter1 == UINT32_C(1)) {', fn)
-          b = s.index('    if (counter1 > UINT32_C(1)) {', a)
-          s = s[:a] + dec('C1') + s[b:]
-          decl = '    size_t bytes_written = 0u;\n    vf2_status status = VF2_OK;\n'
-          if decl not in s[fn:]: raise SystemExit('counter declarations missing')
-          s = s[:fn] + s[fn:].replace(decl, '    size_t bytes_written = 0u;\n    uint64_t procedure_calls = 0u;\n    uint64_t procedure_returns = 0u;\n    vf2_status status = VF2_OK;\n', 1)
-          zero = '        report->recovered_instruction_count = instructions;\n        report->cpu_poststate_applied = 1;\n'
-          zpos = s.index(zero, fn)
-          s = s[:zpos] + s[zpos:].replace(zero, '        report->recovered_instruction_count = instructions;\n        report->recovered_procedure_calls = procedure_calls;\n        report->recovered_procedure_returns = procedure_returns;\n        report->cpu_poststate_applied = 1;\n', 1)
-          fixed = '        report->recovered_procedure_calls = UINT64_C(3);\n        report->recovered_procedure_returns = UINT64_C(3);\n'
-          if fixed not in s[fn:]: raise SystemExit('counter2 report anchor missing')
-          s = s[:fn] + s[fn:].replace(fixed, '        report->recovered_procedure_calls = UINT64_C(3) + procedure_calls;\n        report->recovered_procedure_returns = UINT64_C(3) + procedure_returns;\n', 1)
-          final = '    report->recovered_instruction_count = instructions;\n    report->cpu_poststate_applied = 1;\n    return VF2_OK;\n'
-          fpos = s.index(final, fn)
-          s = s[:fpos] + s[fpos:].replace(final, '    report->recovered_instruction_count = instructions;\n    report->recovered_procedure_calls = procedure_calls;\n    report->recovered_procedure_returns = procedure_returns;\n    report->cpu_poststate_applied = 1;\n    return VF2_OK;\n', 1)
-          p.write_text(s)
-
-          p = Path('src/recovered/native_runtime.c')
-          s = p.read_text()
-          a = s.index('static vf2_status\nexecute_texture_counter_interpreter(')
-          b = s.index('\ntypedef struct vf2_native_wrapper_boundary_context', a)
-          s = s[:a] + s[b+1:]
-          a = s.index('    } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {')
-          b = s.index('            vf2_hybrid_bridge_report bridge_report;', a)
-          s = s[:a] + '    } else if (cpu->ip == VF2_TEXTURE_COUNTER_UPDATE_ENTRY) {\n        if (status == VF2_OK) {\n' + s[b:]
-          p.write_text(s)
-
-          p = Path('tests/analysis/test_orchestrator_bridge.c')
-          s = p.read_text()
-          a = 'static void test_counter_update_active_countdowns(void)\n'
-          if s.count(a) != 1: raise SystemExit('test anchor missing')
-          s = s.replace(a, dec('T') + a, 1)
-          c = '    test_counter_update_active_countdowns();\n'
-          if s.count(c) != 1: raise SystemExit('test call missing')
-          p.write_text(s.replace(c, '    test_counter_update_first_expiry_recovered();\n' + c, 1))
-          PY
+          python3 .github/v0195_apply.py
           git diff --check
           ! grep -q 'execute_texture_counter_interpreter' src/recovered/native_runtime.c
       - name: Build and test
@@ -80,7 +27,7 @@ jobs:
         run: |
           git config user.name celsowm
           git config user.email celsowm@gmail.com
-          git rm .github/workflows/v0195-recover-texture-counter-expiry.yml
-          git add src/recovered/texture_bridge_texture.c src/recovered/native_runtime.c tests/analysis/test_orchestrator_bridge.c
+          git rm .github/workflows/v0195-recover-texture-counter-expiry.yml .github/v0195_apply.py
+          git add src/recovered/texture_bridge_texture.c src/recovered/native_runtime.c
           git commit -m 'Recover texture counter expiry helper at 0x4b934'
           git push origin HEAD:master
