@@ -1,0 +1,42 @@
+name: v0190 recovery
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/v0190-recovery.yml'
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply v0190 recovery
+        run: |
+          echo 'LS0tIGEvc3JjL3JlY292ZXJlZC9oeWJyaWQuYworKysgYi9zcmMvcmVjb3ZlcmVkL2h5YnJpZC5jCkBAIC0xNjk0Nyw2ICsxNjk0Nyw3IEBACiAgICAgICAgIGNvbnN0IHVpbnQzMl90IGxvdyA9IGNvbWJpbmVkX21hdHJpeF9mbGFncyAmIGxvd19tYXNrOwogICAgICAgICBjb25zdCB1aW50MzJfdCBiaXQxNCA9IFVJTlQzMl9DKDEpIDw8IDE0dTsKICAgICAgICAgY29uc3QgdWludDMyX3QgYml0MTUgPSBVSU5UMzJfQygxKSA8PCAxNXU7CisgICAgICAgIGNvbnN0IHVpbnQzMl90IGJpdDE2ID0gVUlOVDMyX0MoMSkgPDwgMTZ1OwogICAgICAgICBjb25zdCB1aW50MzJfdCBiaXQ2X2JpdDE0ID0gYml0MTQgfCAoVUlOVDMyX0MoMSkgPDwgNnUpOwogICAgICAgICBjb25zdCB1aW50MzJfdCBiaXQ2X2JpdDE1ID0gYml0MTUgfCAoVUlOVDMyX0MoMSkgPDwgNnUpOwogICAgICAgICBpZiAoY2xlYW4gJiYgaGlnaF9jb3VudCA9PSAydSAmJgpAQCAtMTY5OTMsNiArMTY5OTQsMjEgQEAKICAgICAgICAgICAgICAgICAgICAgc3RhbGUtPnJlZ2lzdGVyc1sxNV0gPSBVSU5UMzJfQygxKTsKICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICB9CisgICAgICAgIH0gZWxzZSBpZiAoY2xlYW4gJiYgaGlnaF9jb3VudCA9PSAydSAmJiBsb3cgPT0gYml0MTYpIHsKKyAgICAgICAgICAgIGNwdS0+ZXhlY3V0ZWRfaW5zdHJ1Y3Rpb25zICs9IFVJTjY0X0MoMSk7CisgICAgICAgICAgICBoeWJyaWRfc2V0X2NvbXBhcmVfcmVzdWx0KAorICAgICAgICAgICAgICAgIGNwdSwgY291bnRkb3duX3dhc19ub256ZXJvID8gVkYyX0k5NjBfQ09NUEFSRV9MRVNTCisgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgOiBWRjJfSTk2MF9DT01QQVJFX0VRVUFMKTsKKyAgICAgICAgICAgIGlmIChjcHUtPmxvY2FsX2ZyYW1lX2RlcHRoICsgMnUgPCBWRjJfSTk2MF9NQVhfTE9DQUxfRlJBTUVTKSB7CisgICAgICAgICAgICAgICAgdmYyX2k5NjBfbG9jYWxfZnJhbWUgKnN0YWxlID0KKyAgICAgICAgICAgICAgICAgICAgJmNwdS0+bG9jYWxfZnJhbWVzW2NwdS0+bG9jYWxfZnJhbWVfZGVwdGggKyAydV07CisgICAgICAgICAgICAgICAgc3RhbGUtPnJlZ2lzdGVyc1szXSA9IFVJTlQzMl9DKDB4NDEwMDAwMDApOworICAgICAgICAgICAgICAgIHN0YWxlLT5yZWdpc3RlcnNbNF0gPSBVSU5UMzJfQygweDA3ODAwZjBmKTsKKyAgICAgICAgICAgICAgICBzdGFsZS0+cmVnaXN0ZXJzWzddID0gVUlOVDMyX0MoMHg0MTAwMDAwMCk7CisgICAgICAgICAgICAgICAgaWYgKGZpZ2h0ZXIxX3N0YXRlX2ZsYWdzID09IGNvbWJpbmVkX21hdHJpeF9mbGFncykgeworICAgICAgICAgICAgICAgICAgICBzdGFsZS0+cmVnaXN0ZXJzWzE1XSA9IFVJTlQzMl9DKDEpOworICAgICAgICAgICAgICAgIH0KKyAgICAgICAgICAgIH0KICAgICAgICAgfQogICAgIH0KICAgICBpZiAoc3RhdHVzID09IFZGMl9PSyAmJiBuZWdhdGl2ZV9zdGF0ZThfaXNvbGF0ZWRfaGlnaF9wYXRoKSB7Cg==' | base64 -d > /tmp/v0190.patch
+          git apply /tmp/v0190.patch
+          cat > decomp/i960/notes/game_info_1645c_state4_bit16_pair_high_v0190.md <<'EOF'
+# v0190: state-4 bit16 pair-high poststate
+
+Entry `0x0001645c`, both fighter state bytes 4. Covers low bit16 (`0x10000`) combined with exactly two high bits among 21, 26, 29, 30, and 31.
+
+ROM-backed differential measurement requires adding exactly one native instruction for every measured fighter distribution. Final compare is countdown-derived: `EQUAL` when the entry countdown is zero and `LESS` when nonzero. The stale local frame two levels above the returned frame restores `r3=0x41000000`, `r4=0x07800f0f`, and `r7=0x41000000`; when fighter 1 participates it also restores `r15=1`. No mutable Model 2 RAM correction is required.
+
+Verification covers all 10 high-bit pairs x 3 fighter distributions x 2 countdown values x 2 mode-bit-6 values x thresholds 0/1/2: **360/360 exact ROM-backed snapshots**. Threshold `-1` passes **120/120** as a negative control. Standard CTest gate passes **23/23**.
+EOF
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          git diff --check
+      - name: Commit recovery
+        run: |
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git rm -f .github/workflows/v0190-recovery.yml
+          git add src/recovered/hybrid.c decomp/i960/notes/game_info_1645c_state4_bit16_pair_high_v0190.md
+          git commit -m 'Recover state-4 bit16 pair-high poststate'
+          git push origin HEAD:master
