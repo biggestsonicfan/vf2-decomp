@@ -16944,8 +16944,11 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             high_count += scan & 1u;
             scan >>= 1u;
         }
+        const uint32_t low = combined_matrix_flags & low_mask;
+        const uint32_t bit14 = UINT32_C(1) << 14u;
+        const uint32_t bit6_bit14 = bit14 | (UINT32_C(1) << 6u);
         if (clean && high_count == 2u &&
-            (combined_matrix_flags & low_mask) == 0u) {
+            (low == 0u || low == bit14 || low == bit6_bit14)) {
             state4_pair_high_neutral_path = true;
             hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
             cpu->ip = UINT32_C(0x00010dd0);
