@@ -1,0 +1,29 @@
+name: temporary game-info tools export
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/tmp-export-game-info-tools.yml'
+permissions:
+  contents: write
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Upload game-info tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-info-tools-current
+          path: decomp/i960/tools
+          if-no-files-found: error
+          retention-days: 1
+      - name: Remove temporary workflow
+        run: |
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git rm .github/workflows/tmp-export-game-info-tools.yml
+          git commit -m 'Remove temporary game-info tools export workflow'
+          git push origin HEAD:master
