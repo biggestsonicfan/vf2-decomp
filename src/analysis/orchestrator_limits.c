@@ -1,32 +1,80 @@
 #include "vf2/analysis/orchestrator_limits.h"
 
+#include <stdint.h>
+
 #define VF2_ORCHESTRATOR_RUNTIME_SPECIAL_BIT (UINT32_C(1) << 16u)
-#define VF2_ORCHESTRATOR_MODE_MASK_A UINT32_C(0x000000c0)
-#define VF2_ORCHESTRATOR_MODE_MASK_B UINT32_C(0x0000c000)
-#define VF2_ORCHESTRATOR_MODE_MASK_C UINT32_C(0x0000000c)
-#define VF2_ORCHESTRATOR_DEFAULT_LOW UINT32_C(0x00003e80)
-#define VF2_ORCHESTRATOR_DEFAULT_HIGH UINT32_C(0x00004e20)
-#define VF2_ORCHESTRATOR_DEFAULT_INSTRUCTIONS UINT64_C(22)
 
-static int mode_selects_alternate_branch(uint8_t display_mode)
+static int mode_is_skip(uint8_t display_mode)
 {
-    uint32_t mode_bit = 0u;
+    uint32_t mod = (uint32_t)display_mode % UINT32_C(32);
+    return mod == UINT32_C(2) || mod == UINT32_C(3);
+}
 
-    if (display_mode >= UINT8_C(32)) {
-        return 1;
-    }
-    if (display_mode == UINT8_C(9) ||
-        display_mode == UINT8_C(12) ||
-        display_mode == UINT8_C(13)) {
-        return 1;
-    }
+static int mode_is_12a8(uint8_t display_mode)
+{
+    uint32_t mod = (uint32_t)display_mode % UINT32_C(32);
+    return mod == UINT32_C(6) || mod == UINT32_C(7);
+}
 
-    mode_bit = UINT32_C(1) << display_mode;
-    return (mode_bit & (
-        VF2_ORCHESTRATOR_MODE_MASK_A |
-        VF2_ORCHESTRATOR_MODE_MASK_B |
-        VF2_ORCHESTRATOR_MODE_MASK_C
-    )) != 0u;
+static int mode_is_32c8(uint8_t display_mode)
+{
+    uint32_t mod = (uint32_t)display_mode % UINT32_C(32);
+    return mod == UINT32_C(14) || mod == UINT32_C(15);
+}
+
+vf2_status vf2_orchestrator_select_limits(
+    uint32_t runtime_flags,
+    uint8_t display_mode,
+    uint8_t field_50064,
+    uint8_t field_50031,
+    uint32_t *lower_limit,
+    uint32_t *upper_limit
+)
+{
+    if (lower_limit == NULL || upper_limit == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if ((runtime_flags & VF2_ORCHESTRATOR_RUNTIME_SPECIAL_BIT) != 0u) {
+        *lower_limit = 0u;
+        *upper_limit = VF2_ORCHESTRATOR_LIMIT_4E20;
+        return VF2_OK;
+    }
+    if (display_mode == UINT8_C(12) || display_mode == UINT8_C(13)) {
+        *lower_limit = 0u;
+        *upper_limit = VF2_ORCHESTRATOR_LIMIT_4E20;
+        return VF2_OK;
+    }
+    if (mode_is_12a8(display_mode)) {
+        *lower_limit = VF2_ORCHESTRATOR_LIMIT_12A8;
+        *upper_limit = VF2_ORCHESTRATOR_LIMIT_4330;
+        return VF2_OK;
+    }
+    if (mode_is_32c8(display_mode)) {
+        *lower_limit = VF2_ORCHESTRATOR_LIMIT_32C8;
+        *upper_limit = VF2_ORCHESTRATOR_LIMIT_4E20;
+        return VF2_OK;
+    }
+    if (mode_is_skip(display_mode)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (display_mode == UINT8_C(9)) {
+        if (field_50064 == UINT8_C(6) || field_50064 == UINT8_C(8)) {
+            *lower_limit = VF2_ORCHESTRATOR_LIMIT_4330;
+            *upper_limit = VF2_ORCHESTRATOR_LIMIT_4E20;
+            return VF2_OK;
+        }
+        if (field_50031 < UINT8_C(8)) {
+            *lower_limit = VF2_ORCHESTRATOR_LIMIT_4330;
+            *upper_limit = 0u;
+            return VF2_OK;
+        }
+        *lower_limit = VF2_ORCHESTRATOR_LIMIT_3E80;
+        *upper_limit = VF2_ORCHESTRATOR_LIMIT_4E20;
+        return VF2_OK;
+    }
+    *lower_limit = VF2_ORCHESTRATOR_LIMIT_3E80;
+    *upper_limit = VF2_ORCHESTRATOR_LIMIT_4E20;
+    return VF2_OK;
 }
 
 vf2_status vf2_orchestrator_select_default_limits(
@@ -36,17 +84,10 @@ vf2_status vf2_orchestrator_select_default_limits(
     uint32_t *upper_limit
 )
 {
-    if (lower_limit == NULL || upper_limit == NULL) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-    if ((runtime_flags & VF2_ORCHESTRATOR_RUNTIME_SPECIAL_BIT) != 0u ||
-        mode_selects_alternate_branch(display_mode)) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-
-    *lower_limit = VF2_ORCHESTRATOR_DEFAULT_LOW;
-    *upper_limit = VF2_ORCHESTRATOR_DEFAULT_HIGH;
-    return VF2_OK;
+    /* Backwards-compatible wrapper: assume default extra fields are zero. */
+    return vf2_orchestrator_select_limits(
+        runtime_flags, display_mode, 0u, 0u, lower_limit, upper_limit
+    );
 }
 
 vf2_status vf2_orchestrator_apply_default_limits(
@@ -56,6 +97,9 @@ vf2_status vf2_orchestrator_apply_default_limits(
 {
     vf2_orchestrator_limits_report local_report = {0};
     vf2_status status = VF2_OK;
+    uint8_t field_50064 = 0u;
+    uint8_t field_50031 = 0u;
+    uint64_t instructions = 0u;
 
     if (machine == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
@@ -76,9 +120,18 @@ vf2_status vf2_orchestrator_apply_default_limits(
         );
     }
     if (status == VF2_OK) {
-        status = vf2_orchestrator_select_default_limits(
+        /* Always read the secondary fields so the sweep is deterministic. */
+        if (vf2_model2a_read(machine, VF2_ORCHESTRATOR_FIELD_50064, &field_50064, sizeof(field_50064)) != VF2_OK) {
+            field_50064 = 0u;
+        }
+        if (vf2_model2a_read(machine, VF2_ORCHESTRATOR_FIELD_50031, &field_50031, sizeof(field_50031)) != VF2_OK) {
+            field_50031 = 0u;
+        }
+        status = vf2_orchestrator_select_limits(
             local_report.runtime_flags,
             local_report.display_mode,
+            field_50064,
+            field_50031,
             &local_report.lower_limit,
             &local_report.upper_limit
         );
@@ -101,8 +154,30 @@ vf2_status vf2_orchestrator_apply_default_limits(
         return status;
     }
 
-    local_report.interpreted_instruction_equivalent =
-        VF2_ORCHESTRATOR_DEFAULT_INSTRUCTIONS;
+    /* Measured instruction equivalents for each branch (via vf2probe --until 0x4c11c) plus final ret. */
+    if ((local_report.runtime_flags & VF2_ORCHESTRATOR_RUNTIME_SPECIAL_BIT) != 0u) {
+        instructions = UINT64_C(8);
+    } else if (local_report.display_mode == UINT8_C(12)) {
+        instructions = UINT64_C(11);
+    } else if (local_report.display_mode == UINT8_C(13)) {
+        instructions = UINT64_C(13);
+    } else if (mode_is_12a8(local_report.display_mode)) {
+        instructions = UINT64_C(15);
+    } else if (mode_is_32c8(local_report.display_mode)) {
+        instructions = UINT64_C(18);
+    } else if (local_report.display_mode == UINT8_C(9)) {
+        if (field_50064 == UINT8_C(6) || field_50064 == UINT8_C(8)) {
+            instructions = UINT64_C(25);
+        } else if (field_50031 < UINT8_C(8)) {
+            instructions = UINT64_C(31);
+        } else {
+            instructions = UINT64_C(31);
+        }
+    } else {
+        instructions = UINT64_C(22);
+    }
+
+    local_report.interpreted_instruction_equivalent = instructions;
     local_report.bytes_written = 2u * sizeof(uint32_t);
     if (report != NULL) {
         *report = local_report;

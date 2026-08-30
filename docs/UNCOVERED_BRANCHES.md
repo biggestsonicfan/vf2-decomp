@@ -431,6 +431,17 @@ helper at `0x0004ba70` for 198 instructions / 5 calls / 5 returns (v0197,
   renderer behavior beyond the bounded direct/object reference executor; and
 - production rendering output.
 
+The texture orchestrator limit cluster at `0x0004bfe0` is now fully recovered:
+every `display_mode % 32` selector is decoded — `bbs` with source masks `0xc0`/`0xc000`/`0x0c`,
+fall-through `cmpobe` for 12/13, top `bbs 16` for runtime bit16 at `0x00500068`,
+plus the `0x00500064 == 6/8` and `0x00500031 < 8` matrix for `mode 9` — and all six
+limit pairs are proven ROM-backed via synthetic snapshots at `0x4bfe0`
+(`vf2probe --rom-dir D:/ia/vf2-decomp/roms/vf2 --until 0x4c11c --read-u32`)
+sweeping `display_mode 0..255 × runtime bit16` (512 cases):
+`0x3e80/0x4e20`, `0x4330/0`, `0/0x4e20`, `0x4330/0x4e20`, `0x12a8/0x4330`, `0x32c8/0x4e20`;
+write-skip `2,3 mod32` cases remain explicit `VF2_ERROR_UNSUPPORTED` with unchanged RAM
+(v0200, `vf2_orchestrator_limits_tests` locks 512 probes).
+
 The observed phase-17 dispatcher path is accepted when phase state is non-zero.
 Controlled ROM-backed differential evidence recovers both phase-navigation
 directions in `0x00058fe0`: gameplay mask `0x08001008` advances the index with

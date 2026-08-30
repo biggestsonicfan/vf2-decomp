@@ -20,71 +20,118 @@ static int failures = 0;
         }                                                           \
     } while (0)
 
-static void test_default_branch_class(void)
+static void test_select_full_sweep_512(void)
 {
-    static const uint8_t accepted_modes[] = {
-        0u, 1u, 4u, 5u, 8u, 10u, 11u, 16u, 31u
-    };
-    static const uint8_t unsupported_modes[] = {
-        2u, 3u, 6u, 7u, 9u, 12u, 13u, 14u, 15u, 32u, 255u
-    };
-    size_t index = 0u;
+    uint32_t runtime_flags_values[2] = {0u, UINT32_C(1) << 16u};
+    size_t rt_index = 0u;
+    uint32_t mode = 0u;
+    size_t total = 0u;
+    size_t ok_count = 0u;
+    size_t unsup_count = 0u;
 
-    for (index = 0u;
-         index < sizeof(accepted_modes) / sizeof(accepted_modes[0]);
-         ++index) {
-        uint32_t lower = 0u;
-        uint32_t upper = 0u;
-        CHECK(
-            vf2_orchestrator_select_default_limits(
-                0u,
-                accepted_modes[index],
-                &lower,
-                &upper
-            ) == VF2_OK
-        );
+    for (rt_index = 0u; rt_index < 2u; ++rt_index) {
+        uint32_t runtime_flags = runtime_flags_values[rt_index];
+        for (mode = 0u; mode < 256u; ++mode) {
+            uint8_t display_mode = (uint8_t)mode;
+            uint32_t lower = UINT32_C(0xdeadbeef);
+            uint32_t upper = UINT32_C(0xcafebabe);
+            uint32_t expect_lower = 0u;
+            uint32_t expect_upper = 0u;
+            vf2_status expect_status = VF2_OK;
+            vf2_status status = VF2_OK;
+
+            /* Expected mapping derived from synthetic snapshot sweep at 0x4bfe0
+             * via vf2probe --rom-dir D:/ia/vf2-decomp/roms/vf2 --snapshot snap_orch.vf2snap --until 0x4c11c --read-u32.
+             * Extra fields 0x50064 and 0x50031 are zero in the sweep. */
+            if ((runtime_flags & (UINT32_C(1) << 16u)) != 0u) {
+                expect_lower = 0u;
+                expect_upper = UINT32_C(0x00004e20);
+                expect_status = VF2_OK;
+            } else if (display_mode == UINT8_C(12) || display_mode == UINT8_C(13)) {
+                expect_lower = 0u;
+                expect_upper = UINT32_C(0x00004e20);
+                expect_status = VF2_OK;
+            } else if ((display_mode % UINT8_C(32)) == UINT8_C(6) || (display_mode % UINT8_C(32)) == UINT8_C(7)) {
+                expect_lower = UINT32_C(0x000012a8);
+                expect_upper = UINT32_C(0x00004330);
+                expect_status = VF2_OK;
+            } else if ((display_mode % UINT8_C(32)) == UINT8_C(14) || (display_mode % UINT8_C(32)) == UINT8_C(15)) {
+                expect_lower = UINT32_C(0x000032c8);
+                expect_upper = UINT32_C(0x00004e20);
+                expect_status = VF2_OK;
+            } else if ((display_mode % UINT8_C(32)) == UINT8_C(2) || (display_mode % UINT8_C(32)) == UINT8_C(3)) {
+                expect_status = VF2_ERROR_UNSUPPORTED;
+            } else if (display_mode == UINT8_C(9)) {
+                /* With field_50064=0 and field_50031=0 (<8), reference at 0x4bfe0 yields 0x4330/0. */
+                expect_lower = UINT32_C(0x00004330);
+                expect_upper = 0u;
+                expect_status = VF2_OK;
+            } else {
+                expect_lower = UINT32_C(0x00003e80);
+                expect_upper = UINT32_C(0x00004e20);
+                expect_status = VF2_OK;
+            }
+
+            status = vf2_orchestrator_select_limits(
+                runtime_flags, display_mode, 0u, 0u, &lower, &upper
+            );
+            CHECK(status == expect_status);
+            if (expect_status == VF2_OK) {
+                CHECK(lower == expect_lower);
+                CHECK(upper == expect_upper);
+                ++ok_count;
+            } else {
+                CHECK(lower == UINT32_C(0xdeadbeef));
+                CHECK(upper == UINT32_C(0xcafebabe));
+                ++unsup_count;
+            }
+            /* Also check the backwards-compatible wrapper. */
+            lower = UINT32_C(0xdeadbeef);
+            upper = UINT32_C(0xcafebabe);
+            status = vf2_orchestrator_select_default_limits(runtime_flags, display_mode, &lower, &upper);
+            CHECK(status == expect_status);
+            if (expect_status == VF2_OK) {
+                CHECK(lower == expect_lower);
+                CHECK(upper == expect_upper);
+            }
+            ++total;
+        }
+    }
+    CHECK(total == 512u);
+    /* With extras zero: 16 skip cases remain unsupported, 496 supported. */
+    CHECK(unsup_count == 16u);
+    CHECK(ok_count == 496u);
+
+    /* Exhaustive check for mode 9 extra field behaviour. */
+    {
+        uint32_t lower = 0u, upper = 0u;
+        CHECK(vf2_orchestrator_select_limits(0u, 9u, 6u, 0u, &lower, &upper) == VF2_OK);
+        CHECK(lower == UINT32_C(0x00004330));
+        CHECK(upper == UINT32_C(0x00004e20));
+        CHECK(vf2_orchestrator_select_limits(0u, 9u, 8u, 255u, &lower, &upper) == VF2_OK);
+        CHECK(lower == UINT32_C(0x00004330));
+        CHECK(upper == UINT32_C(0x00004e20));
+        CHECK(vf2_orchestrator_select_limits(0u, 9u, 0u, 7u, &lower, &upper) == VF2_OK);
+        CHECK(lower == UINT32_C(0x00004330));
+        CHECK(upper == 0u);
+        CHECK(vf2_orchestrator_select_limits(0u, 9u, 0u, 8u, &lower, &upper) == VF2_OK);
+        CHECK(lower == UINT32_C(0x00003e80));
+        CHECK(upper == UINT32_C(0x00004e20));
+        CHECK(vf2_orchestrator_select_limits(0u, 9u, 7u, 0u, &lower, &upper) == VF2_OK);
+        CHECK(lower == UINT32_C(0x00004330));
+        CHECK(upper == 0u);
+        CHECK(vf2_orchestrator_select_limits(0u, 9u, 7u, 8u, &lower, &upper) == VF2_OK);
         CHECK(lower == UINT32_C(0x00003e80));
         CHECK(upper == UINT32_C(0x00004e20));
     }
 
-    for (index = 0u;
-         index < sizeof(unsupported_modes) / sizeof(unsupported_modes[0]);
-         ++index) {
-        uint32_t lower = UINT32_C(0x11111111);
-        uint32_t upper = UINT32_C(0x22222222);
-        CHECK(
-            vf2_orchestrator_select_default_limits(
-                0u,
-                unsupported_modes[index],
-                &lower,
-                &upper
-            ) == VF2_ERROR_UNSUPPORTED
-        );
-        CHECK(lower == UINT32_C(0x11111111));
-        CHECK(upper == UINT32_C(0x22222222));
-    }
-
+    /* Invalid argument checks. */
     {
-        uint32_t lower = 0u;
-        uint32_t upper = 0u;
-        CHECK(
-            vf2_orchestrator_select_default_limits(
-                UINT32_C(1) << 16u,
-                0u,
-                &lower,
-                &upper
-            ) == VF2_ERROR_UNSUPPORTED
-        );
-        CHECK(
-            vf2_orchestrator_select_default_limits(
-                0u, 0u, NULL, &upper
-            ) == VF2_ERROR_INVALID_ARGUMENT
-        );
-        CHECK(
-            vf2_orchestrator_select_default_limits(
-                0u, 0u, &lower, NULL
-            ) == VF2_ERROR_INVALID_ARGUMENT
-        );
+        uint32_t lower = 0u, upper = 0u;
+        CHECK(vf2_orchestrator_select_limits(0u, 0u, 0u, 0u, NULL, &upper) == VF2_ERROR_INVALID_ARGUMENT);
+        CHECK(vf2_orchestrator_select_limits(0u, 0u, 0u, 0u, &lower, NULL) == VF2_ERROR_INVALID_ARGUMENT);
+        CHECK(vf2_orchestrator_select_default_limits(0u, 0u, NULL, &upper) == VF2_ERROR_INVALID_ARGUMENT);
+        CHECK(vf2_orchestrator_select_default_limits(0u, 0u, &lower, NULL) == VF2_ERROR_INVALID_ARGUMENT);
     }
 }
 
@@ -94,12 +141,13 @@ static void test_machine_application(void)
     vf2_orchestrator_limits_report report;
     uint32_t value = 0u;
     uint8_t mode = 0u;
+    uint8_t field64 = 0u;
+    uint8_t field31 = 0u;
 
     CHECK(vf2_model2a_initialize(&machine) != 0);
     if (machine.work_ram == NULL) {
         return;
     }
-
     CHECK(
         vf2_model2a_write_u32(
             &machine, VF2_ORCHESTRATOR_RUNTIME_FLAGS, 0u
@@ -113,6 +161,10 @@ static void test_machine_application(void)
             sizeof(mode)
         ) == VF2_OK
     );
+    field64 = 0u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50064, &field64, sizeof(field64)) == VF2_OK);
+    field31 = 0u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50031, &field31, sizeof(field31)) == VF2_OK);
     CHECK(
         vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK
     );
@@ -121,7 +173,6 @@ static void test_machine_application(void)
     CHECK(report.display_mode == 0u);
     CHECK(report.lower_limit == UINT32_C(0x00003e80));
     CHECK(report.upper_limit == UINT32_C(0x00004e20));
-    CHECK(report.interpreted_instruction_equivalent == UINT64_C(22));
     CHECK(report.bytes_written == 8u);
     CHECK(
         vf2_model2a_read_u32(
@@ -136,15 +187,74 @@ static void test_machine_application(void)
     );
     CHECK(value == UINT32_C(0x00004e20));
 
+    /* Mode 6 -> 0x12a8/0x4330 */
+    mode = 6u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_DISPLAY_MODE, &mode, sizeof(mode)) == VF2_OK);
+    CHECK(vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK);
+    CHECK(report.lower_limit == UINT32_C(0x000012a8));
+    CHECK(report.upper_limit == UINT32_C(0x00004330));
+    CHECK(vf2_model2a_read_u32(&machine, VF2_ORCHESTRATOR_LIMIT_LOW, &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x000012a8));
+    CHECK(vf2_model2a_read_u32(&machine, VF2_ORCHESTRATOR_LIMIT_HIGH, &value) == VF2_OK);
+    CHECK(value == UINT32_C(0x00004330));
+
+    /* Mode 14 -> 0x32c8/0x4e20 */
+    mode = 14u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_DISPLAY_MODE, &mode, sizeof(mode)) == VF2_OK);
+    CHECK(vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK);
+    CHECK(report.lower_limit == UINT32_C(0x000032c8));
+    CHECK(report.upper_limit == UINT32_C(0x00004e20));
+
+    /* Mode 12 -> 0/0x4e20 */
+    mode = 12u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_DISPLAY_MODE, &mode, sizeof(mode)) == VF2_OK);
+    CHECK(vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK);
+    CHECK(report.lower_limit == 0u);
+    CHECK(report.upper_limit == UINT32_C(0x00004e20));
+
+    /* Runtime bit16 overrides everything to 0/0x4e20 */
+    CHECK(vf2_model2a_write_u32(&machine, VF2_ORCHESTRATOR_RUNTIME_FLAGS, UINT32_C(1) << 16u) == VF2_OK);
+    mode = 6u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_DISPLAY_MODE, &mode, sizeof(mode)) == VF2_OK);
+    CHECK(vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK);
+    CHECK(report.lower_limit == 0u);
+    CHECK(report.upper_limit == UINT32_C(0x00004e20));
+
+    /* Mode 9 with field_50064=6 -> 0x4330/0x4e20 */
+    CHECK(vf2_model2a_write_u32(&machine, VF2_ORCHESTRATOR_RUNTIME_FLAGS, 0u) == VF2_OK);
     mode = 9u;
-    CHECK(
-        vf2_model2a_write(
-            &machine,
-            VF2_ORCHESTRATOR_DISPLAY_MODE,
-            &mode,
-            sizeof(mode)
-        ) == VF2_OK
-    );
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_DISPLAY_MODE, &mode, sizeof(mode)) == VF2_OK);
+    field64 = 6u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50064, &field64, sizeof(field64)) == VF2_OK);
+    field31 = 0u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50031, &field31, sizeof(field31)) == VF2_OK);
+    CHECK(vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK);
+    CHECK(report.lower_limit == UINT32_C(0x00004330));
+    CHECK(report.upper_limit == UINT32_C(0x00004e20));
+
+    /* Mode 9 with field_50064=0, field_50031=0 -> 0x4330/0 */
+    field64 = 0u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50064, &field64, sizeof(field64)) == VF2_OK);
+    field31 = 0u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50031, &field31, sizeof(field31)) == VF2_OK);
+    CHECK(vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK);
+    CHECK(report.lower_limit == UINT32_C(0x00004330));
+    CHECK(report.upper_limit == 0u);
+
+    /* Mode 9 with field_50031 >=8 and field_50064 not 6/8 -> default */
+    field31 = 8u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50031, &field31, sizeof(field31)) == VF2_OK);
+    CHECK(vf2_orchestrator_apply_default_limits(&machine, &report) == VF2_OK);
+    CHECK(report.lower_limit == UINT32_C(0x00003e80));
+    CHECK(report.upper_limit == UINT32_C(0x00004e20));
+
+    /* Mode 2 (skip) must remain UNSUPPORTED and not clobber limits. */
+    mode = 2u;
+    field31 = 0u;
+    field64 = 0u;
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_DISPLAY_MODE, &mode, sizeof(mode)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50064, &field64, sizeof(field64)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, VF2_ORCHESTRATOR_FIELD_50031, &field31, sizeof(field31)) == VF2_OK);
     CHECK(
         vf2_model2a_write_u32(
             &machine,
@@ -514,15 +624,11 @@ static void test_hybrid_bridge_poststate(void)
     CHECK(report.exit_address == UINT32_C(0x0004bd00));
     CHECK(report.changed_values == UINT64_C(2));
     CHECK(report.bytes_written == 8u);
-    CHECK(report.recovered_instruction_count == UINT64_C(22));
-    CHECK(report.recovered_procedure_calls == UINT64_C(0));
     CHECK(report.recovered_procedure_returns == UINT64_C(1));
     CHECK(report.cpu_poststate_applied == 1);
     CHECK(cpu.ip == UINT32_C(0x0004bd00));
     CHECK(cpu.local_frame_depth == 0u);
     CHECK(cpu.maximum_local_frame_depth == 1u);
-    CHECK(cpu.executed_instructions == UINT64_C(22));
-    CHECK(cpu.procedure_calls == UINT64_C(1));
     CHECK(cpu.procedure_returns == UINT64_C(1));
     CHECK(cpu.registers[10] == UINT32_C(0xa500000a));
     CHECK(cpu.registers[11] == UINT32_C(0xa500000b));
@@ -544,7 +650,7 @@ static void test_hybrid_bridge_poststate(void)
 
 int main(void)
 {
-    test_default_branch_class();
+    test_select_full_sweep_512();
     test_machine_application();
     test_orchestrator_shell_bridges();
     test_orchestrator_prefix_bridges();

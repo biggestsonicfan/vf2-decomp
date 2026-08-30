@@ -12,7 +12,17 @@ enum {
     VF2_ORCHESTRATOR_RUNTIME_FLAGS = 0x00500068u,
     VF2_ORCHESTRATOR_DISPLAY_MODE = 0x0050002bu,
     VF2_ORCHESTRATOR_LIMIT_LOW = 0x00550004u,
-    VF2_ORCHESTRATOR_LIMIT_HIGH = 0x00550008u
+    VF2_ORCHESTRATOR_LIMIT_HIGH = 0x00550008u,
+    VF2_ORCHESTRATOR_FIELD_50064 = 0x00500064u,
+    VF2_ORCHESTRATOR_FIELD_50031 = 0x00500031u
+};
+
+enum {
+    VF2_ORCHESTRATOR_LIMIT_3E80 = 0x00003e80u,
+    VF2_ORCHESTRATOR_LIMIT_4E20 = 0x00004e20u,
+    VF2_ORCHESTRATOR_LIMIT_4330 = 0x00004330u,
+    VF2_ORCHESTRATOR_LIMIT_12A8 = 0x000012a8u,
+    VF2_ORCHESTRATOR_LIMIT_32C8 = 0x000032c8u
 };
 
 typedef struct vf2_orchestrator_limits_report {
@@ -28,6 +38,15 @@ typedef struct vf2_orchestrator_limits_report {
 vf2_status vf2_orchestrator_select_default_limits(
     uint32_t runtime_flags,
     uint8_t display_mode,
+    uint32_t *lower_limit,
+    uint32_t *upper_limit
+);
+
+vf2_status vf2_orchestrator_select_limits(
+    uint32_t runtime_flags,
+    uint8_t display_mode,
+    uint8_t field_50064,
+    uint8_t field_50031,
     uint32_t *lower_limit,
     uint32_t *upper_limit
 );

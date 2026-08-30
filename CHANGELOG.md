@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- recovered the full texture-orchestrator limit cluster at `0x0004bfe0`:
+  `bbs` with source-mask `0xc0`/`0xc000`/`0x0c` tests `display_mode %32`,
+  `cmpobe` for `12`/`13`, `bbs 16` for `0x00500068` bit 16,
+  plus `0x00500064` (`6`/`8`) and `0x00500031 <8` for `mode 9` —
+  six supported limit pairs `0x3e80/0x4e20`, `0x4330/0`, `0/0x4e20`,
+  `0x4330/0x4e20`, `0x12a8/0x4330`, `0x32c8/0x4e20`
+  (skip `2,3 mod32` remains `VF2_ERROR_UNSUPPORTED` with no store);
+  synthetic snapshots at `0x4bfe0` swept `display_mode 0..255 × runtime bit16`
+  via `vf2probe --rom-dir D:/ia/vf2-decomp/roms/vf2 --until 0x0004c11c --read-u32`
+  (512 cases: 258 `0/0x4e20`, 16 `0x12a8/0x4330`, 16 `0x32c8/0x4e20`,
+  1 `0x4330/0`, 205 `0x3e80/0x4e20`, 16 unsupported skips, plus
+  `mode 9` extra-field matrix); `vf2_orchestrator_limits_tests` now locks the
+  full 512-case matrix and the secondary `0x50064`/`0x50031` branches;
+  `vf2_orchestrator_select_limits`/`apply` and the hybrid bridge at `0x4bfe0`
+  now report measured instruction equivalents (8/11/13/15/18/22/25/31) —
+  see `decomp/i960/notes/orchestrator_limits_full_v0200.md`;
+
 - removed the spurious `0x0055c2f0 >= 1` guard in the `0x0004bb98` counter2 (`0x005502e0 == 1` via `0x0004b44c`) expiry: the i960 never consults `VF2_TEXTURE_STATUS_WORD` on this corridor — reference reaches `0x0004bc58` with the same 42 instructions for `status_word` in `{0,1,0xFFFF}` and for all 27 Cartesian counter values `{0,1,2}`; out-of-range texture numbers (`>0x56`) via `0x0004b934`/`0x0004b9b8` reach `0x0004bc58` in 376 instructions (double diagnostic) — see `decomp/i960/notes/texture_counter_status_word_v0198.md`;
 - recovered the counter2 (`0x005502e0` via `0x0004b44c`) out-of-range texture diagnostic: for `argument0 > 0x56` the publisher at `0x0004b9b8` now renders the `tex num error` diagnostic (6 numeric cells at `0x01000064` + 13 literal cells at `0x01000072`), skips the `0x00550288` record publication and continues through the `0x0004ba70` queue helper for 198 instructions / 5 calls / 5 returns; 21/21 exact ROM-backed snapshots (`0x0004bb98`..`0x0004bc58`, 7 texture values × 3 `argument1` values) — see `decomp/i960/notes/texture_counter2_diagnostic_v0197.md`;
 - recovered the texture-number diagnostic at the record publisher `0x0004b9b8`: values `> 0x56` no longer fail before the helper but render the signed value plus `tex num error` into tile RAM (19 cells / 38 bytes, `g0=0x72`/`g9=0x010000e4`, stale frame `r3=0x56`/`r4=0x400ccccd`/`r14=0x0004b9e4`/`r15=0x01000064`, 160 instructions / 2 calls / 2 returns per diagnostic, second publisher still evaluated with wraparound); 10/10 focused + 42/42 counter0/counter1 matrix snapshots exact, `vf2_texture_bridge_differential` passed — see `decomp/i960/notes/texture_number_diagnostic_v0196.md`;
