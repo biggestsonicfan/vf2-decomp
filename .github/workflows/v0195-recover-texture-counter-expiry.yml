@@ -37,14 +37,14 @@ jobs:
           b = s.index('    if (counter1 > UINT32_C(1)) {', a)
           s = s[:a] + dec('C1') + s[b:]
           decl = '    size_t bytes_written = 0u;\n    vf2_status status = VF2_OK;\n'
-          if s.count(decl, fn) < 1: raise SystemExit('counter declarations missing')
+          if decl not in s[fn:]: raise SystemExit('counter declarations missing')
           s = s[:fn] + s[fn:].replace(decl, '    size_t bytes_written = 0u;\n    uint64_t procedure_calls = 0u;\n    uint64_t procedure_returns = 0u;\n    vf2_status status = VF2_OK;\n', 1)
-          # The decoded expiry blocks account four procedure calls/returns each.
-          s = s.replace('        procedure_calls += UINT64_C(4);\n        procedure_returns += UINT64_C(4);\n', '        procedure_calls += UINT64_C(4);\n        procedure_returns += UINT64_C(4);\n', 2)
           zero = '        report->recovered_instruction_count = instructions;\n        report->cpu_poststate_applied = 1;\n'
           zpos = s.index(zero, fn)
           s = s[:zpos] + s[zpos:].replace(zero, '        report->recovered_instruction_count = instructions;\n        report->recovered_procedure_calls = procedure_calls;\n        report->recovered_procedure_returns = procedure_returns;\n        report->cpu_poststate_applied = 1;\n', 1)
-          s = s[:fn] + s[fn:].replace('        report->recovered_procedure_calls = UINT64_C(3);\n        report->recovered_procedure_returns = UINT64_C(3);\n', '        report->recovered_procedure_calls = UINT64_C(3) + procedure_calls;\n        report->recovered_procedure_returns = UINT64_C(3) + procedure_returns;\n', 1)
+          fixed = '        report->recovered_procedure_calls = UINT64_C(3);\n        report->recovered_procedure_returns = UINT64_C(3);\n'
+          if fixed not in s[fn:]: raise SystemExit('counter2 report anchor missing')
+          s = s[:fn] + s[fn:].replace(fixed, '        report->recovered_procedure_calls = UINT64_C(3) + procedure_calls;\n        report->recovered_procedure_returns = UINT64_C(3) + procedure_returns;\n', 1)
           final = '    report->recovered_instruction_count = instructions;\n    report->cpu_poststate_applied = 1;\n    return VF2_OK;\n'
           fpos = s.index(final, fn)
           s = s[:fpos] + s[fpos:].replace(final, '    report->recovered_instruction_count = instructions;\n    report->recovered_procedure_calls = procedure_calls;\n    report->recovered_procedure_returns = procedure_returns;\n    report->cpu_poststate_applied = 1;\n    return VF2_OK;\n', 1)
