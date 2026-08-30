@@ -143,6 +143,10 @@ add_executable(vf2m68k tools/vf2m68k/main.c)
 target_link_libraries(vf2m68k PRIVATE vf2_core)
 vf2_set_project_warnings(vf2m68k)
 
+add_executable(make_orchestrator_snap tools/make_orchestrator_snap.c)
+target_link_libraries(make_orchestrator_snap PRIVATE vf2_core)
+vf2_set_project_warnings(make_orchestrator_snap)
+
 include(GNUInstallDirs)
 install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover vf2probe vf2m68k
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
@@ -403,6 +407,17 @@ if(VF2_BUILD_TESTS)
     add_test(
         NAME vf2_texture_counter_update
         COMMAND vf2_texture_counter_update_tests
+    )
+
+    add_executable(vf2_texture_upload_dispatch_tests
+        tests/recovered/test_texture_upload_dispatch.c
+    )
+    target_link_libraries(vf2_texture_upload_dispatch_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_texture_upload_dispatch_tests)
+
+    add_test(
+        NAME vf2_texture_upload_dispatch
+        COMMAND vf2_texture_upload_dispatch_tests
     )
 
     if(EXISTS "${VF2_ROM_DIR}")
