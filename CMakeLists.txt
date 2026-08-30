@@ -394,6 +394,17 @@ if(VF2_BUILD_TESTS)
         COMMAND vf2_texture_status_tail_tests
     )
 
+    add_executable(vf2_texture_counter_update_tests
+        tests/recovered/test_texture_counter_update.c
+    )
+    target_link_libraries(vf2_texture_counter_update_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_texture_counter_update_tests)
+
+    add_test(
+        NAME vf2_texture_counter_update
+        COMMAND vf2_texture_counter_update_tests
+    )
+
     if(EXISTS "${VF2_ROM_DIR}")
         add_test(
             NAME vf2_phase17_zero_differential
