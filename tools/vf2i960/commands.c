@@ -2965,6 +2965,7 @@ static int command_native_resume(
     vf2_native_runtime_step_report forced_step;
     uint32_t start_address = 0u;
     int forced_one_block = 0;
+    int budget_exhausted = 0;
     vf2_status status = VF2_OK;
 
     memset(&machine, 0, sizeof(machine));
@@ -3061,6 +3062,10 @@ static int command_native_resume(
     if (status == VF2_OK && !report.reached_stop) {
         status = VF2_ERROR_UNSUPPORTED;
     }
+    if (status == VF2_ERROR_UNSUPPORTED && !report.reached_stop &&
+        report.blocks_executed == max_blocks) {
+        budget_exhausted = 1;
+    }
     /* Preserve the post-failure state too: a rejected native bridge is often
      * the most useful snapshot for differential diagnosis. */
     if (output_snapshot_path != NULL &&
@@ -3092,6 +3097,19 @@ static int command_native_resume(
             (unsigned long long)report.recovered_procedure_calls,
             (unsigned long long)report.recovered_procedure_returns,
             (unsigned)fighter_flags_or
+        );
+    } else if (budget_exhausted) {
+        fprintf(
+            stderr,
+            "Native resume budget exhausted at 0x%08x after %zu blocks "
+            "entry=0x%08x "
+            "step=%s bridge=%s task=%s\n",
+            (unsigned)report.final_address,
+            report.blocks_executed,
+            (unsigned)report.last_entry_address,
+            vf2_native_runtime_step_kind_name(report.last_step_kind),
+            vf2_hybrid_bridge_kind_name(report.last_bridge_kind),
+            vf2_hybrid_task_kind_name(report.last_task_kind)
         );
     } else {
         fprintf(
