@@ -16946,12 +16946,29 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         }
         const uint32_t low = combined_matrix_flags & low_mask;
         const uint32_t bit14 = UINT32_C(1) << 14u;
+        const uint32_t bit15 = UINT32_C(1) << 15u;
         const uint32_t bit6_bit14 = bit14 | (UINT32_C(1) << 6u);
         if (clean && high_count == 2u &&
             (low == 0u || low == bit14 || low == bit6_bit14)) {
             state4_pair_high_neutral_path = true;
             hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
             cpu->ip = UINT32_C(0x00010dd0);
+        } else if (clean && high_count == 2u && low == bit15) {
+            const bool bilateral =
+                fighter0_state_flags == combined_matrix_flags &&
+                fighter1_state_flags == combined_matrix_flags;
+            cpu->executed_instructions += bilateral ? UINT64_C(2) : UINT64_C(1);
+            hybrid_set_compare_result(cpu, VF2_I960_COMPARE_LESS);
+            if (cpu->local_frame_depth + 2u < VF2_I960_MAX_LOCAL_FRAMES) {
+                vf2_i960_local_frame *stale =
+                    &cpu->local_frames[cpu->local_frame_depth + 2u];
+                stale->registers[3] = UINT32_C(0x41000000);
+                stale->registers[4] = UINT32_C(0x07800f0f);
+                stale->registers[7] = UINT32_C(0x41000000);
+                if (fighter1_state_flags == combined_matrix_flags) {
+                    stale->registers[15] = UINT32_C(0x80004400);
+                }
+            }
         }
     }
     if (status == VF2_OK && negative_state8_isolated_high_path) {
