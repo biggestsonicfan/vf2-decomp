@@ -201,6 +201,115 @@ vf2_status execute_texture_maintenance(
     return VF2_OK;
 }
 
+static vf2_status execute_pending_texture_tile_upload(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t translation_bases[3] = {
+        UINT32_C(0x00544000), UINT32_C(0x00544200), UINT32_C(0x00544400)
+    };
+    const uint32_t destination_plane_offsets[3] = {
+        UINT32_C(0x00010000), UINT32_C(0x00014000), UINT32_C(0x00018000)
+    };
+    uint32_t argument0 = cpu->registers[VF2_I960_G0_REGISTER];
+    uint32_t argument1 = cpu->registers[VF2_I960_G0_REGISTER + 1u];
+    uint32_t source_owner = 0u;
+    uint32_t source_offset = 0u;
+    uint32_t destination = UINT32_C(0x01800000);
+    uint32_t row = 0u;
+    uint64_t instructions = 0u;
+    uint8_t selector = 0u;
+    vf2_status status = VF2_OK;
+
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
+    instructions += UINT64_C(1);
+    status = vf2_model2a_read_u32(machine, UINT32_C(0x00500804), &source_owner);
+    instructions += UINT64_C(1);
+    if (status != VF2_OK) return status;
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = source_owner;
+    instructions += UINT64_C(1);
+    if (argument0 != 0u) {
+        argument0 = UINT32_C(1) << 10u;
+        cpu->registers[VF2_I960_G0_REGISTER] = argument0;
+        instructions += UINT64_C(1);
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x00500808), &source_owner);
+        instructions += UINT64_C(1);
+        if (status != VF2_OK) return status;
+        cpu->registers[VF2_I960_G0_REGISTER + 3u] = source_owner;
+    }
+    status = vf2_model2a_read(machine, source_owner + UINT32_C(0x1b0), &selector, sizeof(selector));
+    instructions += UINT64_C(1);
+    if (status != VF2_OK) return status;
+    instructions += UINT64_C(1);
+    if (selector >= UINT8_C(13)) {
+        source_offset = UINT32_C(9) << 10u;
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = source_offset;
+        argument1 -= UINT32_C(13);
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
+        instructions += UINT64_C(2);
+    }
+    destination += (UINT32_C(7) << 11u) + argument0;
+    instructions += UINT64_C(5);
+
+    for (row = 0u; row < UINT32_C(2); ++row) {
+        uint32_t source = source_offset + argument1 * UINT32_C(0x300) + row * UINT32_C(0x180);
+        uint32_t source_base = UINT32_C(0x02101000) + source;
+        uint32_t work_base = 0u;
+        uint8_t mode = 0u;
+        uint32_t column = 0u;
+        cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+        instructions += UINT64_C(7);
+        status = vf2_model2a_read_u32(machine, UINT32_C(0x0050016c), &work_base);
+        instructions += UINT64_C(1);
+        if (status != VF2_OK) return status;
+        status = vf2_model2a_read(machine, work_base + UINT32_C(0x3351), &mode, sizeof(mode));
+        instructions += UINT64_C(1);
+        if (status != VF2_OK) return status;
+        instructions += UINT64_C(1);
+        if ((mode & UINT8_C(0x08)) == 0u) {
+            instructions += UINT64_C(1);
+            if (row == 0u) {
+                instructions += UINT64_C(1);
+                if (argument1 == UINT32_C(8)) {
+                    uint8_t fighter = 0u;
+                    status = vf2_model2a_read(machine, source_owner + UINT32_C(0x69c), &fighter, sizeof(fighter));
+                    instructions += UINT64_C(1);
+                    if (status != VF2_OK) return status;
+                    instructions += UINT64_C(1);
+                    if (fighter != 0u) {
+                        source_base = UINT32_C(0x0210ba40) + ((uint32_t)fighter - UINT32_C(1)) * UINT32_C(0x180);
+                        instructions += UINT64_C(5);
+                    } else {
+                        instructions += UINT64_C(1);
+                    }
+                } else {
+                    instructions += UINT64_C(1);
+                }
+            } else {
+                instructions += UINT64_C(1);
+            }
+        } else {
+            instructions += UINT64_C(1);
+        }
+        for (column = 0u; column < UINT32_C(64); ++column) {
+            uint32_t plane = 0u;
+            for (plane = 0u; plane < UINT32_C(3); ++plane) {
+                uint16_t index = 0u, color = 0u;
+                status = read_u16(machine, source_base + plane * UINT32_C(0x80) + column * UINT32_C(2), &index);
+                if (status == VF2_OK) status = read_u16(machine, translation_bases[plane] + (uint32_t)index * UINT32_C(2), &color);
+                if (status == VF2_OK) status = write_u16(machine, destination + destination_plane_offsets[plane], color);
+                if (status != VF2_OK) return status;
+            }
+            destination += UINT32_C(2);
+            instructions += UINT64_C(13);
+        }
+        destination += UINT32_C(0x180);
+        instructions += UINT64_C(4);
+    }
+    return finish_recovered_procedure(machine, cpu, instructions + UINT64_C(1));
+}
+
 static vf2_status execute_pending_texture_palette_upload(
     vf2_model2a *machine
 )
@@ -333,27 +442,13 @@ vf2_status execute_texture_upload_dispatch(
                 vf2_i960_run_options options;
                 vf2_i960_run_result result;
 
-                /* The first two queues use the original tile upload helpers.
-                 * Keep their device-facing loops in the interpreter, but
-                 * stop at each architectural return so the surrounding
-                 * recovered procedure frame remains intact. */
                 status = vf2_i960_cpu_enter_procedure(
                     cpu, UINT32_C(0x000008e0), UINT32_C(0x0004bae4)
                 );
                 if (status == VF2_OK) {
                     cpu->registers[VF2_I960_G0_REGISTER] = argument0;
                     cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
-                    memset(&options, 0, sizeof(options));
-                    options.stop_address = UINT32_C(0x0004bae4);
-                    options.max_steps = UINT64_C(20000000);
-                    options.stop_on_self_branch = false;
-                    memset(&result, 0, sizeof(result));
-                    status = vf2_i960_run(cpu, machine, &options, &result);
-                    if (status == VF2_OK &&
-                        (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
-                         cpu->ip != UINT32_C(0x0004bae4))) {
-                        status = VF2_ERROR_UNSUPPORTED;
-                    }
+                    status = execute_pending_texture_tile_upload(machine, cpu);
                 }
                 if (status == VF2_OK) {
                     status = vf2_i960_cpu_enter_procedure(
