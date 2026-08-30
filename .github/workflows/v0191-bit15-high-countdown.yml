@@ -1,0 +1,67 @@
+name: v0191 bit15 high-countdown recovery
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/v0191-bit15-high-countdown.yml'
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact recovery
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/recovered/hybrid.c')
+          s = p.read_text()
+          old = '''                    const uint32_t bit15 = UINT32_C(1) << 15u;
+                    const bool simple_bit15 =
+                        state_flags == bit15;
+                    if (simple_bit15 && countdown_path &&
+                        (r8 & bit15) != 0u) {
+                        /* The state-15 countdown join is four instructions
+                         * earlier in each child orientation carrying the
+                         * second-order fighter's flag. */
+                        body_instructions -= UINT32_C(4);
+                    }
+'''
+          new = '''                    const uint32_t bit15 = UINT32_C(1) << 15u;
+                    const uint32_t high_bits =
+                        (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+                        (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+                        (UINT32_C(1) << 31u);
+                    const bool bit15_with_optional_highs =
+                        (state_flags & bit15) != 0u &&
+                        (state_flags & ~(bit15 | high_bits)) == 0u;
+                    if (bit15_with_optional_highs && countdown_path &&
+                        (r8 & bit15) != 0u) {
+                        /* High state bits do not change the state-15
+                         * countdown join. It is four instructions earlier
+                         * in each child orientation carrying the
+                         * second-order fighter's bit-15 flag. */
+                        body_instructions -= UINT32_C(4);
+                    }
+'''
+          if s.count(old) != 1:
+              raise SystemExit(f'v0191 anchor count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVF2_WARNINGS_AS_ERRORS=ON
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Commit recovery
+        run: |
+          git config user.name celsowm
+          git config user.email celsowm@gmail.com
+          git rm .github/workflows/v0191-bit15-high-countdown.yml
+          git add src/recovered/hybrid.c
+          git commit -m 'Recover state-4 bit15 high-bit countdown accounting'
+          git push origin HEAD:master
