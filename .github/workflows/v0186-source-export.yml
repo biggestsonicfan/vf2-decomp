@@ -1,0 +1,22 @@
+name: v0186 source export
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/v0186-source-export.yml'
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack source
+        run: |
+          git rev-parse HEAD > SOURCE_HEAD
+          zip -qr vf2-source-v0186.zip . -x '.git/*' 'vf2-source-v0186.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vf2-source-v0186
+          path: vf2-source-v0186.zip
+          retention-days: 1
