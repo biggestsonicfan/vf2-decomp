@@ -4178,13 +4178,7 @@ vf2_status execute_texture_counter_update(
                 machine, VF2_TEXTURE_COUNTER2 + UINT32_C(12), &argument2
             );
         }
-        if (status == VF2_OK) {
-            status = read_u16(machine, VF2_TEXTURE_STATUS_WORD, &status_word);
-        }
-        if (status != VF2_OK || status_word >= UINT16_C(1)) {
-            return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
-        }
-
+        (void)status_word;
         cpu->registers[VF2_I960_G0_REGISTER] = argument0;
         cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
         cpu->registers[VF2_I960_G0_REGISTER + 2u] = argument2;
