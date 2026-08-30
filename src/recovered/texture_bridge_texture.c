@@ -3718,6 +3718,74 @@ vf2_status execute_texture_post_body_call(
     return VF2_OK;
 }
 
+static vf2_status execute_texture_number_diagnostic(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t value,
+    uint64_t *instructions,
+    uint64_t *changed_values,
+    size_t *bytes_written
+)
+{
+    static const char message[] = "tex num error";
+    uint16_t field[6] = {
+        UINT16_C(0x8020), UINT16_C(0x8020), UINT16_C(0x8020),
+        UINT16_C(0x8020), UINT16_C(0x8020), UINT16_C(0x8020)
+    };
+    uint32_t magnitude = value;
+    unsigned first_digit = 0u;
+    unsigned index = 0u;
+    vf2_status status = VF2_OK;
+
+    if ((value & UINT32_C(0x80000000)) != 0u) {
+        field[0] = UINT16_C(0x802d);
+        first_digit = 1u;
+        magnitude = UINT32_C(0) - value;
+    }
+    index = 5u;
+    do {
+        field[index] = (uint16_t)(UINT16_C(0x8030) +
+                                  (uint16_t)(magnitude % UINT32_C(10)));
+        magnitude /= UINT32_C(10);
+        if (index == first_digit) {
+            break;
+        }
+        --index;
+    } while (magnitude != 0u);
+
+    for (index = 0u; status == VF2_OK && index < 6u; ++index) {
+        status = write_u16(
+            machine, UINT32_C(0x01000064) + (uint32_t)(index * 2u),
+            field[index]
+        );
+    }
+    for (index = 0u; status == VF2_OK && index < sizeof(message) - 1u; ++index) {
+        status = write_u16(
+            machine, UINT32_C(0x01000072) + (uint32_t)(index * 2u),
+            (uint16_t)(UINT16_C(0x8000) | (uint8_t)message[index])
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    *instructions += UINT64_C(160);
+    *changed_values += UINT64_C(19);
+    *bytes_written += 38u;
+    account_nested_procedure(cpu, UINT64_C(2), UINT64_C(2));
+    cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x72);
+    cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x010000e4);
+    if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
+        vf2_i960_local_frame *stale =
+            &cpu->local_frames[cpu->local_frame_depth + 1u];
+        stale->registers[3] = UINT32_C(0x56);
+        stale->registers[4] = UINT32_C(0x400ccccd);
+        stale->registers[14] = UINT32_C(0x0004b9e4);
+        stale->registers[15] = UINT32_C(0x01000064);
+    }
+    return VF2_OK;
+}
+
 static vf2_status execute_texture_record_publish(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -3742,7 +3810,9 @@ static vf2_status execute_texture_record_publish(
     *instructions += UINT64_C(3);
     *instructions += UINT64_C(2);
     if (value > UINT32_C(0x56)) {
-        return VF2_ERROR_UNSUPPORTED;
+        return execute_texture_number_diagnostic(
+            machine, cpu, value, instructions, changed_values, bytes_written
+        );
     }
 
     *instructions += UINT64_C(1);
@@ -3848,9 +3918,6 @@ static vf2_status execute_texture_counter_expiry(
     uint64_t helper_instructions = 0u;
     vf2_status status = VF2_OK;
 
-    if (argument0 > UINT32_C(0x56)) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
     status = vf2_i960_cpu_enter_procedure(
         cpu, UINT32_C(0x0004b934), return_address
     );
