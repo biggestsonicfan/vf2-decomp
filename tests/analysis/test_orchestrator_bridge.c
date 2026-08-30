@@ -2590,6 +2590,36 @@ static void test_status_dispatch_leading_inactive_records(void)
     vf2_model2a_shutdown(&machine);
 }
 
+static void test_counter_update_active_countdowns(void)
+{
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_bridge_report report = {0};
+    uint32_t value = 0u;
+
+    CHECK(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        return;
+    }
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005502c0), UINT32_C(3)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005502d0), UINT32_C(2)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005502e0), 0u) == VF2_OK);
+    enter_parent(&cpu, UINT32_C(0x0004bb98));
+
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE);
+    CHECK(report.recovered_instruction_count == UINT64_C(16));
+    CHECK(report.changed_values == UINT64_C(2));
+    CHECK(report.bytes_written == 8u);
+    CHECK(cpu.ip == UINT32_C(0x0004bc58));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x005502c0), &value) == VF2_OK);
+    CHECK(value == UINT32_C(2));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x005502d0), &value) == VF2_OK);
+    CHECK(value == UINT32_C(1));
+
+    vf2_model2a_shutdown(&machine);
+}
+
 static void test_counter_update_zero_dispatch(void)
 {
     vf2_model2a machine;
@@ -3454,6 +3484,7 @@ int main(void)
     test_record_advance_dispatch();
     test_final_status_zero_counter_return();
     test_final_status_first_counter_call();
+    test_counter_update_active_countdowns();
     test_counter_update_dispatch();
     test_counter_update_zero_dispatch();
     test_counter_update_expiry_dispatch();

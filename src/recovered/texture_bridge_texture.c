@@ -3727,6 +3727,9 @@ vf2_status execute_texture_counter_update(
     uint32_t counter0 = 0u;
     uint32_t counter1 = 0u;
     uint32_t counter2 = 0u;
+    uint64_t instructions = 0u;
+    uint64_t changed_values = 0u;
+    size_t bytes_written = 0u;
     vf2_status status = VF2_OK;
 
     if (cpu->local_frame_depth == 0u) {
@@ -3739,8 +3742,20 @@ vf2_status execute_texture_counter_update(
         return status;
     }
     cpu->registers[4] = counter0 - UINT32_C(1);
-    if (counter0 != 0u) {
+    instructions += UINT64_C(4);
+    if (counter0 == UINT32_C(1)) {
         return VF2_ERROR_UNSUPPORTED;
+    }
+    if (counter0 > UINT32_C(1)) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_COUNTER0, cpu->registers[4]
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        instructions += UINT64_C(2);
+        ++changed_values;
+        bytes_written += 4u;
     }
 
     cpu->registers[3] = VF2_TEXTURE_COUNTER1;
@@ -3749,8 +3764,20 @@ vf2_status execute_texture_counter_update(
         return status;
     }
     cpu->registers[4] = counter1 - UINT32_C(1);
-    if (counter1 != 0u) {
+    instructions += UINT64_C(4);
+    if (counter1 == UINT32_C(1)) {
         return VF2_ERROR_UNSUPPORTED;
+    }
+    if (counter1 > UINT32_C(1)) {
+        status = vf2_model2a_write_u32(
+            machine, VF2_TEXTURE_COUNTER1, cpu->registers[4]
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        instructions += UINT64_C(2);
+        ++changed_values;
+        bytes_written += 4u;
     }
 
     cpu->registers[3] = VF2_TEXTURE_COUNTER2;
@@ -3758,19 +3785,22 @@ vf2_status execute_texture_counter_update(
     if (status != VF2_OK) {
         return status;
     }
+    instructions += UINT64_C(4);
     if (counter2 == 0u) {
         cpu->registers[4] = UINT32_MAX;
         cpu->arithmetic_control =
             (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
         cpu->compare_result = VF2_I960_COMPARE_GREATER;
         cpu->ip = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
-        cpu->executed_instructions += UINT64_C(12);
+        cpu->executed_instructions += instructions;
 
         report->kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE;
         report->entry_address = VF2_TEXTURE_COUNTER_UPDATE_ENTRY;
         report->exit_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
         report->iterations = UINT64_C(3);
-        report->recovered_instruction_count = UINT64_C(12);
+        report->changed_values = changed_values;
+        report->bytes_written = bytes_written;
+        report->recovered_instruction_count = instructions;
         report->cpu_poststate_applied = 1;
         return VF2_OK;
     }
@@ -3889,15 +3919,17 @@ vf2_status execute_texture_counter_update(
         if (status != VF2_OK || cpu->ip != VF2_TEXTURE_COUNTER_UPDATE_EXIT) {
             return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
         }
-        cpu->executed_instructions += UINT64_C(55);
+        cpu->executed_instructions +=
+            UINT64_C(55) + (instructions - UINT64_C(12));
 
         report->kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE;
         report->entry_address = VF2_TEXTURE_COUNTER_UPDATE_ENTRY;
         report->exit_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
         report->iterations = UINT64_C(3);
-        report->changed_values = UINT64_C(12);
-        report->bytes_written = 38u;
-        report->recovered_instruction_count = UINT64_C(55);
+        report->changed_values = UINT64_C(12) + changed_values;
+        report->bytes_written = 38u + bytes_written;
+        report->recovered_instruction_count =
+            UINT64_C(55) + (instructions - UINT64_C(12));
         report->recovered_procedure_calls = UINT64_C(3);
         report->recovered_procedure_returns = UINT64_C(3);
         report->cpu_poststate_applied = 1;
@@ -3910,20 +3942,21 @@ vf2_status execute_texture_counter_update(
     status = vf2_model2a_write_u32(
         machine, VF2_TEXTURE_COUNTER2, cpu->registers[4]
     );
+    instructions += UINT64_C(2);
     if (status != VF2_OK) {
         return status;
     }
 
     cpu->ip = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
-    cpu->executed_instructions += UINT64_C(14);
+    cpu->executed_instructions += instructions;
 
     report->kind = VF2_HYBRID_BRIDGE_TEXTURE_COUNTER_UPDATE;
     report->entry_address = VF2_TEXTURE_COUNTER_UPDATE_ENTRY;
     report->exit_address = VF2_TEXTURE_COUNTER_UPDATE_EXIT;
     report->iterations = UINT64_C(3);
-    report->changed_values = UINT64_C(1);
-    report->bytes_written = 4u;
-    report->recovered_instruction_count = UINT64_C(14);
+    report->changed_values = changed_values + UINT64_C(1);
+    report->bytes_written = bytes_written + 4u;
+    report->recovered_instruction_count = instructions;
     report->cpu_poststate_applied = 1;
     return VF2_OK;
 }

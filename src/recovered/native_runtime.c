@@ -6928,7 +6928,8 @@ vf2_status vf2_native_runtime_step_impl(vf2_model2a *machine, vf2_i960_cpu *cpu,
                 machine, VF2_TEXTURE_COUNTER1, &counter1
             );
         }
-        if (status == VF2_OK && (counter0 != 0u || counter1 != 0u)) {
+        if (status == VF2_OK &&
+            (counter0 == UINT32_C(1) || counter1 == UINT32_C(1))) {
             status = execute_texture_counter_interpreter(
                 machine, cpu, &local_report
             );
