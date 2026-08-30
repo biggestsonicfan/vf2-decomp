@@ -412,8 +412,16 @@ remain unsupported.
 ## 4. Texture, video and geometry bridge
 
 The observed texture expiration, pending palette upload and first non-zero
-five-level stream expansion are recovered. Video-layer rejection preflights
-inputs before writes. Still uncovered:
+five-level stream expansion are recovered. The record publisher at
+`0x0004b9b8` now recovers its out-of-range diagnostic: values `> 0x56`
+render the signed value plus `tex num error` into tile RAM (19 cells,
+`0x01000064`/`0x01000072`, 160 instructions) instead of failing, and the
+second publisher (`argument0+1`) is still evaluated with wraparound
+(v0196). Counter2 (`0x005502e0` via `0x0004b44c`) now lets that publisher
+handle the range: an out-of-range first value skips the `0x00550288`
+publication, renders the diagnostic, then continues through the queue
+helper at `0x0004ba70` for 198 instructions / 5 calls / 5 returns (v0197,
+21/21 exact). Video-layer rejection preflights inputs before writes. Still uncovered:
 
 - alternate texture records, page formats, palette arguments and cache states;
 - other stream headers, dimensions, timer states and mip layouts;
