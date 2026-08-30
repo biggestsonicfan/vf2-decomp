@@ -19,23 +19,15 @@ jobs:
           from pathlib import Path
           path = Path('src/recovered/hybrid.c')
           text = path.read_text()
-          old = '''        const uint32_t bit14 = UINT32_C(1) << 14u;
-          const uint32_t bit6_bit14 = bit14 | (UINT32_C(1) << 6u);
-          if (clean && high_count == 2u &&
-              (low == 0u || low == bit14 || low == bit6_bit14)) {
-              state4_pair_high_neutral_path = true;
-              hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
-              cpu->ip = UINT32_C(0x00010dd0);
+          marker = '        const uint32_t bit6_bit14 = bit14 | (UINT32_C(1) << 6u);\n'
+          if marker not in text:
+              raise SystemExit('v0188 declaration marker not found')
+          text = text.replace(marker,
+              '        const uint32_t bit15 = UINT32_C(1) << 15u;\n' + marker, 1)
+          marker2 = '''            cpu->ip = UINT32_C(0x00010dd0);
           }
           '''
-          new = '''        const uint32_t bit14 = UINT32_C(1) << 14u;
-          const uint32_t bit15 = UINT32_C(1) << 15u;
-          const uint32_t bit6_bit14 = bit14 | (UINT32_C(1) << 6u);
-          if (clean && high_count == 2u &&
-              (low == 0u || low == bit14 || low == bit6_bit14)) {
-              state4_pair_high_neutral_path = true;
-              hybrid_set_compare_result(cpu, VF2_I960_COMPARE_NONE);
-              cpu->ip = UINT32_C(0x00010dd0);
+          branch = '''            cpu->ip = UINT32_C(0x00010dd0);
           } else if (clean && high_count == 2u && low == bit15) {
               const bool bilateral =
                   fighter0_state_flags == combined_matrix_flags &&
@@ -54,9 +46,11 @@ jobs:
               }
           }
           '''
-          if old not in text:
-              raise SystemExit('v0188 source block not found')
-          path.write_text(text.replace(old, new, 1))
+          pos = text.find(marker2, text.find('const uint32_t bit15'))
+          if pos < 0:
+              raise SystemExit('v0188 branch marker not found')
+          text = text[:pos] + branch + text[pos + len(marker2):]
+          path.write_text(text)
           PY
           echo 'IyB2MDE4ODogc3RhdGUtNCBiaXQxNSBwYWlyLWhpZ2ggcG9zdHN0YXRlCgpFbnRyeSBgMHgwMDAxNjQ1Y2AsIGJvdGggZmlnaHRlciBzdGF0ZSBieXRlcyA0LiBUaGlzIHJlY292ZXJ5IGNvdmVycyBsb3cgYml0MTUgYWxvbmUgKGAweDgwMDBgKSBjb21iaW5lZCB3aXRoIGV4YWN0bHkgdHdvIGhpZ2ggYml0cyBhbW9uZyAyMSwgMjYsIDI5LCAzMCwgYW5kIDMxLgoKUk9NLWJhY2tlZCBtZWFzdXJlbWVudCBzaG93cyB0aGUgdGFzayBhbHJlYWR5IHJldHVybnMgdGhyb3VnaCB0aGUgb3JkaW5hcnkgc2NoZWR1bGVyLXJldHVybiBhZGRyZXNzIGAweDAwMDEwZGNjYCwgYnV0IHRoZSBuYXRpdmUgcG9zdHN0YXRlIGlzIHNob3J0IGJ5IG9uZSBpbnN0cnVjdGlvbiBmb3IgdW5pbGF0ZXJhbCBkaXN0cmlidXRpb25zIGFuZCB0d28gaW5zdHJ1Y3Rpb25zIGZvciBiaWxhdGVyYWwgZGlzdHJpYnV0aW9uLiBUaGUgZmluYWwgY29tcGFyZSBzdGF0ZSBpcyBhbHdheXMgYExFU1NgLgoKVGhlIHN0YWxlIGxvY2FsIGZyYW1lIHR3byBsZXZlbHMgYWJvdmUgdGhlIHJldHVybmVkIGZyYW1lIG11c3QgcmVzdG9yZSBgcjM9MHg0MTAwMDAwMGAsIGByND0weDA3ODAwZjBmYCwgYW5kIGByNz0weDQxMDAwMDAwYC4gV2hlbiBmaWdodGVyIDEgcGFydGljaXBhdGVzLCBzdGFsZS1mcmFtZSBgcjE1PTB4ODAwMDQ0MDBgLiBObyBtdXRhYmxlIE1vZGVsIDIgUkFNIGNvcnJlY3Rpb24gaXMgcmVxdWlyZWQuCgojIyBWZXJpZmljYXRpb24KCkFsbCAxMCBoaWdoLWJpdCBwYWlycyB4IDMgZmlnaHRlciBkaXN0cmlidXRpb25zIHggMiBjb3VudGRvd24gdmFsdWVzIHggMiBtb2RlLWJpdC02IHZhbHVlcyB4IHRocmVzaG9sZHMgMC8xLzIgcGFzczogKiozNjAvMzYwIGV4YWN0IFJPTS1iYWNrZWQgc25hcHNob3RzKiouCgpUaHJlc2hvbGQgYC0xYCByZW1haW5zIG91dHNpZGUgdGhlIG5ldyBwcmVkaWNhdGUgYW5kIHBhc3NlcyBhcyBhIG5lZ2F0aXZlIGNvbnRyb2wgYWNyb3NzIHRoZSBzYW1lIHBhaXIvZGlzdHJpYnV0aW9uL2NvdW50ZG93bi9tb2RlIG1hdHJpeDogKioxMjAvMTIwIGV4YWN0IHNuYXBzaG90cyoqLgoKVGhlIHN0YW5kYXJkIGxvY2FsIENUZXN0IGdhdGUgcGFzc2VzICoqMjMvMjMqKi4K' | base64 -d > decomp/i960/notes/game_info_1645c_state4_bit15_pair_high_v0188.md
       - name: Build and test
