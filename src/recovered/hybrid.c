@@ -7903,13 +7903,19 @@ static vf2_status hybrid_execute_game_info_18644(
                 }
                 {
                     const uint32_t bit15 = UINT32_C(1) << 15u;
-                    const bool simple_bit15 =
-                        state_flags == bit15;
-                    if (simple_bit15 && countdown_path &&
+                    const uint32_t high_bits =
+                        (UINT32_C(1) << 21u) | (UINT32_C(1) << 26u) |
+                        (UINT32_C(1) << 29u) | (UINT32_C(1) << 30u) |
+                        (UINT32_C(1) << 31u);
+                    const bool bit15_with_optional_highs =
+                        (state_flags & bit15) != 0u &&
+                        (state_flags & ~(bit15 | high_bits)) == 0u;
+                    if (bit15_with_optional_highs && countdown_path &&
                         (r8 & bit15) != 0u) {
-                        /* The state-15 countdown join is four instructions
-                         * earlier in each child orientation carrying the
-                         * second-order fighter's flag. */
+                        /* High state bits do not change the state-15
+                         * countdown join. It is four instructions earlier
+                         * in each child orientation carrying the
+                         * second-order fighter's bit-15 flag. */
                         body_instructions -= UINT32_C(4);
                     }
                 }
