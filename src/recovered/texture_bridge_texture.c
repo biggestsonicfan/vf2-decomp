@@ -310,6 +310,203 @@ static vf2_status execute_pending_texture_tile_upload(
     return finish_recovered_procedure(machine, cpu, instructions + UINT64_C(1));
 }
 
+static vf2_status execute_texture_strip_upload(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t entry_address,
+    uint32_t return_address,
+    uint32_t rows,
+    uint32_t source_stride,
+    uint32_t mode
+)
+{
+    const uint32_t translation_bases[3] = {
+        UINT32_C(0x00544000), UINT32_C(0x00544200), UINT32_C(0x00544400)
+    };
+    const uint32_t destination_plane_offsets[3] = {
+        UINT32_C(0x00010000), UINT32_C(0x00014000), UINT32_C(0x00018000)
+    };
+    uint32_t destination = UINT32_C(0x01800000) +
+        cpu->registers[VF2_I960_G0_REGISTER] * UINT32_C(0x200);
+    uint32_t row = 0u;
+    uint64_t instructions = mode == UINT32_C(1)
+        ? UINT64_C(7)
+        : UINT64_C(8);
+    vf2_status status = VF2_OK;
+
+    status = vf2_i960_cpu_enter_procedure(cpu, entry_address, return_address);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    for (row = 0u; row < rows; ++row) {
+        uint32_t source = cpu->registers[VF2_I960_G0_REGISTER + 3u] +
+            source_stride * cpu->registers[VF2_I960_G0_REGISTER + 1u] +
+            row * UINT32_C(0x60);
+        uint32_t column = 0u;
+
+        destination += UINT32_C(0x60);
+        instructions += UINT64_C(7);
+        for (column = 0u; column < UINT32_C(16); ++column) {
+            uint32_t plane = 0u;
+            for (plane = 0u; plane < UINT32_C(3); ++plane) {
+                uint16_t raw = 0u;
+                uint16_t color = 0u;
+                uint32_t source_address = source +
+                    plane * (mode == UINT32_C(1)
+                        ? UINT32_C(0x20)
+                        : UINT32_C(0x80));
+                uint32_t index = 0u;
+
+                if (mode == UINT32_C(1)) {
+                    source_address += column * UINT32_C(2);
+                } else {
+                    source_address += column * UINT32_C(4);
+                }
+                status = read_u16(machine, source_address, &raw);
+                if (status != VF2_OK) {
+                    return status;
+                }
+                if (mode == UINT32_C(1)) {
+                    index = (uint32_t)raw;
+                } else {
+                    const int32_t signed_raw = (int32_t)(int16_t)raw;
+                    index = ((uint32_t)(signed_raw + INT32_C(128))) >> 1u;
+                }
+                status = read_u16(
+                    machine,
+                    translation_bases[plane] + index * UINT32_C(2),
+                    &color
+                );
+                if (status == VF2_OK) {
+                    status = write_u16(
+                        machine,
+                        destination + destination_plane_offsets[plane],
+                        color
+                    );
+                }
+                if (status != VF2_OK) {
+                    return status;
+                }
+            }
+            destination += UINT32_C(2);
+            instructions += mode == UINT32_C(1)
+                ? UINT64_C(15)
+                : UINT64_C(27);
+        }
+        destination += UINT32_C(0x180);
+        instructions += UINT64_C(4);
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(16);
+    return finish_recovered_procedure(machine, cpu, instructions + UINT64_C(1));
+}
+
+static vf2_status execute_pending_texture_secondary_upload(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t owner = 0u;
+    uint8_t selector = 0u;
+    uint64_t instructions = UINT64_C(3);
+    vf2_status status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500804), &owner
+    );
+
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = owner;
+    cpu->registers[VF2_I960_G0_REGISTER + 4u] = UINT32_C(24);
+    if (cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500808), &owner
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER + 2u] = owner;
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(7);
+        cpu->registers[VF2_I960_G0_REGISTER + 4u] = UINT32_C(26);
+        instructions += UINT64_C(3);
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(0x02105800);
+    cpu->registers[VF2_I960_G0_REGISTER + 5u] = 0u;
+    instructions += UINT64_C(3);
+    status = vf2_model2a_read(
+        machine, owner + UINT32_C(0x1b0), &selector, sizeof(selector)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    instructions += UINT64_C(1);
+    if (selector >= UINT8_C(13)) {
+        cpu->registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(0x02107780);
+        cpu->registers[VF2_I960_G0_REGISTER + 5u] = UINT32_C(9) << 10u;
+        cpu->registers[VF2_I960_G0_REGISTER + 1u] -= UINT32_C(13);
+        instructions += UINT64_C(3);
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(6);
+    instructions += UINT64_C(2);
+    cpu->executed_instructions += instructions;
+    status = execute_texture_strip_upload(
+        machine,
+        cpu,
+        UINT32_C(0x000007fc),
+        UINT32_C(0x000007a0),
+        UINT32_C(7),
+        UINT32_C(0x2a0),
+        UINT32_C(1)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER] =
+        cpu->registers[VF2_I960_G0_REGISTER + 4u];
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] =
+        UINT32_C(0x02101020) +
+        cpu->registers[VF2_I960_G0_REGISTER + 5u];
+    cpu->executed_instructions += UINT64_C(5);
+    status = execute_texture_strip_upload(
+        machine,
+        cpu,
+        UINT32_C(0x000007f0),
+        UINT32_C(0x000007b8),
+        UINT32_C(1),
+        UINT32_C(0x300),
+        UINT32_C(2)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER] =
+        cpu->registers[VF2_I960_G0_REGISTER + 4u] + UINT32_C(1);
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = 0u;
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] =
+        UINT32_C(0x021011a0) +
+        cpu->registers[VF2_I960_G0_REGISTER + 5u];
+    cpu->executed_instructions += UINT64_C(5);
+    status = execute_texture_strip_upload(
+        machine,
+        cpu,
+        UINT32_C(0x000007f0),
+        UINT32_C(0x000007d0),
+        UINT32_C(1),
+        UINT32_C(0x300),
+        UINT32_C(2)
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    return finish_recovered_procedure(machine, cpu, UINT64_C(1));
+}
+
 static vf2_status execute_pending_texture_palette_upload(
     vf2_model2a *machine
 )
@@ -439,9 +636,6 @@ vf2_status execute_texture_upload_dispatch(
             if (pending_index == UINT32_C(2)) {
                 status = execute_pending_texture_palette_upload(machine);
             } else {
-                vf2_i960_run_options options;
-                vf2_i960_run_result result;
-
                 status = vf2_i960_cpu_enter_procedure(
                     cpu, UINT32_C(0x000008e0), UINT32_C(0x0004bae4)
                 );
@@ -458,17 +652,7 @@ vf2_status execute_texture_upload_dispatch(
                 if (status == VF2_OK) {
                     cpu->registers[VF2_I960_G0_REGISTER] = argument0;
                     cpu->registers[VF2_I960_G0_REGISTER + 1u] = argument1;
-                    memset(&options, 0, sizeof(options));
-                    options.stop_address = UINT32_C(0x0004baf4);
-                    options.max_steps = UINT64_C(20000000);
-                    options.stop_on_self_branch = false;
-                    memset(&result, 0, sizeof(result));
-                    status = vf2_i960_run(cpu, machine, &options, &result);
-                    if (status == VF2_OK &&
-                        (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS ||
-                         cpu->ip != UINT32_C(0x0004baf4))) {
-                        status = VF2_ERROR_UNSUPPORTED;
-                    }
+                    status = execute_pending_texture_secondary_upload(machine, cpu);
                 }
             }
         }
