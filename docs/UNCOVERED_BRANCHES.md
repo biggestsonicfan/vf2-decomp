@@ -562,3 +562,38 @@ be introduced as new rejection cases are observed.
 ### v0161 positive state-8 bit-14 high pair
 
 The high-26+high-29 pair `0x24004140` is independently ROM-measured across all 12 fighter-distribution/countdown/mode-bit-6 cases and is now admitted with its mask-local second-call accounting correction. Other unmeasured bit-14 multi-high extensions remain fail-closed.
+
+### v0205–v0210 positive state-8 bit-6+14 high family over 26,29,30,31
+
+The 15 non-empty high subsets over bits 26,29,30,31 on base `0x00004140`
+(bit-6+14) have been expanded from single-mask admissions to full
+low-bit cubes over bits 1,2,4 (8 masks per high subset, `15×8=120` masks).
+Each mask is `36/36 exact` via `validate_game_info_full_dispatch.py`
+(3 distributions ×2 countdown ×2 mode6 ×3 thresholds `0..2`) with
+`+4 bilateral / +2 unilateral` and the same stale-frame. The high
+family was refactored in v0212 into a single compact predicate
+`(combined & ~0xE4004156)==0 && (combined & 0x4140)==0x4140 && high!=0`.
+
+### v0211 base low cubes
+
+The no-high base `0x00004140` and the high-16 variant `0x00014140`
+were expanded from 1–2 masks to 8 masks each (low 1,2,4), `16` masks
+`36/36 exact`, completing `136` masks for the `0x4140` family.
+
+### v0213–v0215 other positive bases low cubes
+
+* `0x00008140` (bits 6+14+15) `1→8` low cube with `-5/-3` (v0213)
+* `0x00010140` (bits 6+14+16) `1→8` with `+8/+4` plus bit11 write (v0214)
+* `0x0000C140`/`0x0001C140` (bits 6+14+15 and 6+14+15+16) `2→16` low cubes
+  with `+5/+2` (v0215)
+
+Each `36/36 exact`. Other positive bases (e.g. `0x8140` high combos,
+`0xC140` high combos) remain explicit boundaries until their low cubes
+are measured.
+
+### Current positive threshold scope
+
+`152` masks are now `36/36 exact` for the positive `0x1645c` corridor
+(`120` high family + `32` base/low families). All use the measured
+stale-frame and compare result. Remaining positive compositions still
+fail closed.
