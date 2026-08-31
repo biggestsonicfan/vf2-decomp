@@ -408,6 +408,101 @@ def classify_input(path: Path) -> Optional[str]:
     return None
 
 
+def export_duckdb(frontier: "Frontier", functions: Optional["FunctionTable"], path: Path) -> None:
+    """Persist frontier to DuckDB for large corpora (streaming aggregation stays in Python)."""
+    try:
+        import duckdb  # type: ignore
+    except Exception as exc:
+        raise SystemExit(f"duckdb required for --duckdb export: {exc}") from exc
+
+    ranked = frontier.rank_edges(functions, limit=1000000, exclude_recovered=False)
+    unsupported = frontier.top_unsupported(100000)
+    mem_hot = frontier.top_memory_addresses(1000)
+    call_hot = frontier.top_call_targets(1000)
+
+    conn = duckdb.connect(str(path))
+    try:
+        conn.execute("DROP TABLE IF EXISTS frontier_edges")
+        conn.execute(
+            """
+            CREATE TABLE frontier_edges (
+                from_addr TEXT, to_addr TEXT, witnesses BIGINT, snapshots TEXT,
+                unsupported_finals BIGINT, from_function TEXT, from_status TEXT,
+                to_function TEXT, to_status TEXT, boundary_distance INTEGER,
+                score BIGINT, mem_reads BIGINT, mem_writes BIGINT, mem_total BIGINT,
+                call_hits BIGINT, top_addresses TEXT
+            )
+            """
+        )
+        for item in ranked:
+            conn.execute(
+                "INSERT INTO frontier_edges VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [
+                    item["from"], item["to"], item["witnesses"],
+                    ",".join(item["snapshots"]),
+                    item["unsupported_finals"], item["from_function"] or "",
+                    item["from_status"] or "", item["to_function"] or "",
+                    item["to_status"] or "",
+                    item["boundary_distance"] if item["boundary_distance"] is not None else None,
+                    item["score"], item["mem_reads"], item["mem_writes"],
+                    item["mem_total"], item["call_hits"],
+                    ",".join(item["top_addresses"]),
+                ],
+            )
+
+        conn.execute("DROP TABLE IF EXISTS unsupported_addresses")
+        conn.execute("CREATE TABLE unsupported_addresses (address TEXT, count BIGINT)")
+        for item in unsupported:
+            conn.execute("INSERT INTO unsupported_addresses VALUES (?,?)", [item["address"], item["count"]])
+
+        conn.execute("DROP TABLE IF EXISTS hot_memory")
+        conn.execute("CREATE TABLE hot_memory (address TEXT, reads BIGINT, writes BIGINT, total BIGINT)")
+        for item in mem_hot:
+            conn.execute("INSERT INTO hot_memory VALUES (?,?,?,?)",
+                         [item["address"], item["reads"], item["writes"], item["total"]])
+
+        conn.execute("DROP TABLE IF EXISTS hot_calls")
+        conn.execute("CREATE TABLE hot_calls (address TEXT, count BIGINT)")
+        for item in call_hot:
+            conn.execute("INSERT INTO hot_calls VALUES (?,?)", [item["address"], item["count"]])
+    finally:
+        conn.close()
+
+
+def export_parquet(frontier: "Frontier", functions: Optional["FunctionTable"], path: Path) -> None:
+    """Export frontier edges to Parquet via DuckDB (requires duckdb + pyarrow)."""
+    try:
+        import duckdb  # type: ignore
+    except Exception as exc:
+        raise SystemExit(f"duckdb required for --parquet export: {exc}") from exc
+    # ensure parent exists
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Build temporary DuckDB in memory and export
+    ranked = frontier.rank_edges(functions, limit=1000000, exclude_recovered=False)
+    if not ranked:
+        raise SystemExit("no edges to export to parquet")
+
+    # Use DuckDB COPY to parquet for efficiency
+    conn = duckdb.connect()
+    try:
+        # create temp table from Python data
+        import tempfile
+        import json as _json
+        tmp_json = Path(tempfile.gettempdir()) / "_frontier_parquet.jsonl"
+        with tmp_json.open("w", encoding="utf-8") as out:
+            for item in ranked:
+                # flatten snapshots/top_addresses to string
+                flat = dict(item)
+                flat["snapshots"] = ",".join(item["snapshots"])
+                flat["top_addresses"] = ",".join(item["top_addresses"])
+                out.write(_json.dumps(flat) + "\n")
+        conn.execute(f"CREATE TABLE tmp_edges AS SELECT * FROM read_json('{tmp_json}', auto_detect=true)")
+        conn.execute(f"COPY tmp_edges TO '{path}' (FORMAT PARQUET)")
+        tmp_json.unlink(missing_ok=True)
+    finally:
+        conn.close()
+
+
 def open_output(path: Optional[str]) -> IO:
     if path is None or path == "-":
         return sys.stdout
@@ -435,6 +530,8 @@ def main() -> int:
     )
     parser.add_argument("--json", dest="as_json", action="store_true")
     parser.add_argument("--output")
+    parser.add_argument("--duckdb", help="persist ranked frontier to DuckDB file (e.g. out/frontier.duckdb)")
+    parser.add_argument("--parquet", help="export ranked edges to Parquet file (e.g. out/frontier.parquet)")
     args = parser.parse_args()
 
     if args.limit < 1:
@@ -478,6 +575,13 @@ def main() -> int:
             print(f"skipping unrecognized input: {path}", file=sys.stderr)
 
     ranked = frontier.rank_edges(functions, args.limit, args.exclude_recovered)
+
+    if args.duckdb:
+        export_duckdb(frontier, functions, Path(args.duckdb))
+        print(f"wrote DuckDB frontier: {args.duckdb}", file=sys.stderr)
+    if args.parquet:
+        export_parquet(frontier, functions, Path(args.parquet))
+        print(f"wrote Parquet frontier: {args.parquet}", file=sys.stderr)
 
     output = open_output(args.output)
     try:
