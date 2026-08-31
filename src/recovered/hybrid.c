@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "vf2/fighter_candidate.h"
 #include "vf2/recovered.h"
 
 #define VF2_CAMERA_INITIALIZE_ENTRY UINT32_C(0x0001d320)
@@ -885,7 +886,7 @@ static vf2_status hybrid_execute_player_19ef8(
     status = vf2_model2a_read_u32(machine, player, &player_flags);
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
-            machine, player + UINT32_C(0x1a4), &player_state_flags
+            machine, player + VF2_FIGHTER_OFF_01A4, &player_state_flags
         );
     }
     if (status == VF2_OK) {
@@ -1071,7 +1072,7 @@ static vf2_status hybrid_execute_player_19ef8(
     }
     if (status == VF2_OK) {
         status = vf2_model2a_write_u32(
-            machine, player + UINT32_C(0x1a4), packed_value
+            machine, player + VF2_FIGHTER_OFF_01A4, packed_value
         );
     }
     if (status == VF2_OK) {
@@ -2030,7 +2031,7 @@ static vf2_status hybrid_execute_player_14310(
     status = vf2_model2a_read_u32(machine, player, &player_flags);
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
-            machine, player + UINT32_C(0x1a4), &player_mode
+            machine, player + VF2_FIGHTER_OFF_01A4, &player_mode
         );
     }
     if (status == VF2_OK) {
@@ -2745,7 +2746,7 @@ static vf2_status hybrid_execute_player_2901c_first_to_27dcc(
     status = hybrid_read_u8(machine, player + UINT32_C(0xbdc), &bdc);
     if (status == VF2_OK) {
         status = vf2_model2a_read_u32(
-            machine, player + UINT32_C(0x1a4), &state_flags
+            machine, player + VF2_FIGHTER_OFF_01A4, &state_flags
         );
     }
     if (status == VF2_OK) {
