@@ -1,4 +1,5 @@
 #include "vf2/recovered.h"
+#include "vf2/fighter_candidate.h"
 
 #include <string.h>
 
@@ -157,11 +158,11 @@ vf2_status vf2_recovered_task_game_info_first_dispatch(
 
     if ((runtime_flags & UINT32_C(1 << 5)) == 0u) {
         status = vf2_model2a_write(
-            machine, fighter0 + UINT32_C(0x1200), &zero, sizeof(zero)
+            machine, fighter0 + VF2_FIGHTER_OFF_1200, &zero, sizeof(zero)
         );
         if (status == VF2_OK) {
             status = vf2_model2a_write(
-                machine, fighter1 + UINT32_C(0x1200), &zero, sizeof(zero)
+                machine, fighter1 + VF2_FIGHTER_OFF_1200, &zero, sizeof(zero)
             );
         }
         if (status == VF2_OK) {
@@ -643,16 +644,16 @@ static vf2_status camera_initialize_fighter_tracking(
     const uint32_t tracking = registry_address + tracking_offset;
     size_t written = 0u;
     vf2_status status = vf2_model2a_read_u32(
-        machine, fighter + UINT32_C(0x1a4), &fighter_mode
+        machine, fighter + VF2_FIGHTER_OFF_01A4, &fighter_mode
     );
 
     if (status == VF2_OK && (fighter_mode & UINT32_C(0x1f)) != 0u) {
         status = vf2_model2a_read_u32(
-            machine, fighter + UINT32_C(0x1f4), &x
+            machine, fighter + VF2_FIGHTER_OFF_01F4, &x
         );
         if (status == VF2_OK) {
             status = vf2_model2a_read_u32(
-                machine, fighter + UINT32_C(0x1fc), &z
+                machine, fighter + VF2_FIGHTER_OFF_01FC, &z
             );
         }
     } else if (status == VF2_OK) {
@@ -844,7 +845,7 @@ static vf2_status camera_apply_measured_bit7_mode2(
         uint32_t z = 0u;
         status = vf2_model2a_read_u32(machine, fighter, &flags);
         if (status == VF2_OK) {
-            status = vf2_model2a_read_u32(machine, fighter + UINT32_C(0x1a4), &mode);
+            status = vf2_model2a_read_u32(machine, fighter + VF2_FIGHTER_OFF_01A4, &mode);
         }
         if (status == VF2_OK) {
             status = vf2_model2a_read_u32(machine, fighter + UINT32_C(0x18), &x);
