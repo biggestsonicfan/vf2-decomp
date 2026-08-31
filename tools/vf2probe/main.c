@@ -319,11 +319,12 @@ static void trace_callback(
     }
     printf(
         "{\"type\":\"step\",\"step\":%" PRIu64
-        ",\"ip_before\":%u,\"ip_after\":%u,\"size\":%u}\n",
+        ",\"ip_before\":%u,\"ip_after\":%u,\"size\":%u,\"mnemonic\":\"%s\"}\n",
         event->step,
         event->ip_before,
         event->ip_after,
-        (unsigned)event->instruction.size
+        (unsigned)event->instruction.size,
+        event->instruction.mnemonic
     );
 }
 

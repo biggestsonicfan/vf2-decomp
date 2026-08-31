@@ -112,19 +112,36 @@ class FunctionTable:
         return None, None, None
 
 
+CALL_MNEMONICS = {"call", "callx", "bal", "balx"}
+
 class EdgeRecord:
-    __slots__ = ("witnesses", "snapshots", "halted_unsupported")
+    __slots__ = (
+        "witnesses",
+        "snapshots",
+        "halted_unsupported",
+        "mem_reads",
+        "mem_writes",
+        "mem_addresses",
+        "call_hits",
+    )
 
     def __init__(self) -> None:
         self.witnesses = 0
         self.snapshots: set = set()
         self.halted_unsupported = 0
+        self.mem_reads = 0
+        self.mem_writes = 0
+        self.mem_addresses: Counter = Counter()
+        self.call_hits = 0
 
 
 class Frontier:
     def __init__(self) -> None:
         self.edges: Dict[Tuple[int, int], EdgeRecord] = {}
         self.address_executions: Counter = Counter()
+        self.address_reads: Counter = Counter()
+        self.address_writes: Counter = Counter()
+        self.call_targets: Counter = Counter()
         self.unsupported_addresses: Counter = Counter()
         self.sources: Counter = Counter()
 
@@ -133,8 +150,8 @@ class Frontier:
     # ------------------------------------------------------------------
     def ingest_trace(self, path: Path, source_label: str) -> dict:
         """Ingest one vf2probe --trace/--memory-trace JSONL stream."""
-        pending_memory: Dict[int, int] = defaultdict(int)
-        stats = {"steps": 0, "memory_accesses": 0, "finals": 0}
+        pending_memory: Dict[int, List[dict]] = defaultdict(list)
+        stats = {"steps": 0, "memory_accesses": 0, "memory_reads": 0, "memory_writes": 0, "finals": 0, "call_edges": 0}
         with path.open("r", encoding="utf-8") as stream:
             for line in stream:
                 line = line.strip()
@@ -148,18 +165,42 @@ class Frontier:
                 if kind == "step":
                     ip_before = parse_int(record["ip_before"])
                     ip_after = parse_int(record.get("ip_after", ip_before))
+                    mnemonic = str(record.get("mnemonic", "")).strip()
                     record_edge = self.edges.setdefault(
                         (ip_before, ip_after), EdgeRecord()
                     )
                     record_edge.witnesses += 1
                     self.address_executions[ip_before] += 1
+                    if mnemonic in CALL_MNEMONICS:
+                        record_edge.call_hits += 1
+                        self.call_targets[ip_before] += 1
+                        stats["call_edges"] += 1
                     stats["steps"] += 1
                     hits = pending_memory.pop(parse_int(record["step"]), None)
                     if hits:
-                        stats["memory_accesses"] += hits
-                        self.address_executions[ip_before] += hits
+                        stats["memory_accesses"] += len(hits)
+                        self.address_executions[ip_before] += len(hits)
+                        for acc in hits:
+                            acc_kind = acc.get("kind", "read")
+                            acc_addr = acc.get("address", 0)
+                            try:
+                                acc_addr = parse_int(acc_addr)
+                            except Exception:
+                                acc_addr = 0
+                            if acc_kind == "write":
+                                record_edge.mem_writes += 1
+                                self.address_writes[ip_before] += 1
+                                stats["memory_writes"] += 1
+                            else:
+                                record_edge.mem_reads += 1
+                                self.address_reads[ip_before] += 1
+                                stats["memory_reads"] += 1
+                            if acc_addr:
+                                record_edge.mem_addresses[acc_addr] += 1
                 elif kind == "memory":
-                    pending_memory[parse_int(record["step"])] += 1
+                    pending_memory[parse_int(record["step"])].append(
+                        {"kind": str(record.get("kind", "read")), "address": record.get("address", 0)}
+                    )
                 elif kind == "final":
                     stats["finals"] += 1
                     status_text = str(record.get("status", ""))
@@ -169,6 +210,14 @@ class Frontier:
                         and "unsupported" in status_text
                     ) or halt_text == "unsupported instruction":
                         self.unsupported_addresses[parse_int(record["ip"])] += 1
+        # Any orphaned pending memory (no matching step) still counts as global but not edge-attributed
+        for remaining in pending_memory.values():
+            stats["memory_accesses"] += len(remaining)
+            for acc in remaining:
+                if str(acc.get("kind")) == "write":
+                    stats["memory_writes"] += 1
+                else:
+                    stats["memory_reads"] += 1
         self.sources[source_label] += 1
         return stats
 
@@ -252,6 +301,7 @@ class Frontier:
                 continue
             distance = _boundary_distance(source_fn, target_fn, source, target)
             is_boundary = source_native != target_native
+            mem_total = record.mem_reads + record.mem_writes
             score = (
                 record.witnesses * 4
                 + len(record.snapshots) * 8
@@ -259,6 +309,8 @@ class Frontier:
                 + (12 if is_boundary else 0)
                 + (4 if not source_native and not target_native else 0)
                 + (6 if distance is not None and distance <= 64 else 0)
+                + min(mem_total, 16)
+                + (8 if record.call_hits else 0)
             )
             ranked.append(
                 {
@@ -273,6 +325,11 @@ class Frontier:
                     "to_status": target_fn[2],
                     "boundary_distance": distance,
                     "score": score,
+                    "mem_reads": record.mem_reads,
+                    "mem_writes": record.mem_writes,
+                    "mem_total": mem_total,
+                    "call_hits": record.call_hits,
+                    "top_addresses": [hex32(a) for a, _ in record.mem_addresses.most_common(3)],
                 }
             )
         ranked.sort(key=lambda item: (-item["score"], item["from"], item["to"]))
@@ -281,6 +338,25 @@ class Frontier:
     def top_unsupported(self, limit: int) -> List[dict]:
         items = self.unsupported_addresses.most_common(limit)
         return [{"address": hex32(address), "count": count} for address, count in items]
+
+    def top_memory_addresses(self, limit: int) -> List[dict]:
+        combined = Counter()
+        combined.update(self.address_reads)
+        combined.update(self.address_writes)
+        items = combined.most_common(limit)
+        return [
+            {
+                "address": hex32(addr),
+                "reads": self.address_reads.get(addr, 0),
+                "writes": self.address_writes.get(addr, 0),
+                "total": count,
+            }
+            for addr, count in items
+        ]
+
+    def top_call_targets(self, limit: int) -> List[dict]:
+        items = self.call_targets.most_common(limit)
+        return [{"address": hex32(addr), "count": count} for addr, count in items]
 
 
 def _boundary_distance(
@@ -411,7 +487,7 @@ def main() -> int:
         else:
             output.write(
                 f"{'edge':<25} {'wit':>5} {'snap':>5} {'unsup':>5} "
-                f"{'dist':>6}  function(status)\n"
+                f"{'mem':>5} {'call':>4} {'dist':>6}  function(status)\n"
             )
             for item in ranked:
                 edge = f"{item['from']}->{item['to']}"
@@ -421,6 +497,8 @@ def main() -> int:
                     f"{edge:<25} {item['witnesses']:>5} "
                     f"{len(item['snapshots']):>5} "
                     f"{item['unsupported_finals']:>5} "
+                    f"{item['mem_total']:>5} "
+                    f"{item['call_hits']:>4} "
                     f"{item['boundary_distance'] if item['boundary_distance'] is not None else '-':>6}  "
                     f"{where}({status})\n"
                 )
@@ -429,6 +507,16 @@ def main() -> int:
             output.write("\nunsupported-final addresses:\n")
             for item in unsupported:
                 output.write(f"  {item['address']}  x{item['count']}\n")
+            mem_top = frontier.top_memory_addresses(8)
+            if mem_top:
+                output.write("\nhottest memory-access IPs:\n")
+                for item in mem_top:
+                    output.write(f"  {item['address']}  R:{item['reads']} W:{item['writes']} total:{item['total']}\n")
+            call_top = frontier.top_call_targets(8)
+            if call_top:
+                output.write("\ncall-source IPs:\n")
+                for item in call_top:
+                    output.write(f"  {item['address']}  x{item['count']}\n")
     finally:
         if output is not sys.stdout:
             output.close()
