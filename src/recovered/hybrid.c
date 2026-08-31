@@ -15552,7 +15552,8 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
             (int32_t)shared_fighter_threshold >= 0 &&
-            combined_positive_bit6_flags == UINT32_C(0x24004140)) {
+            (combined_positive_bit6_flags == UINT32_C(0x24004140) ||
+             combined_positive_bit6_flags == UINT32_C(0x24004144))) {
             const bool fighter0_only =
                 fighter0_state_flags == combined_positive_bit6_flags &&
                 fighter1_state_flags == 0u;
