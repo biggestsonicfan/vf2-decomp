@@ -2097,18 +2097,42 @@ static void test_frame_geometry_gate_busy_paths(void)
     CHECK(vf2_model2a_read(&machine, UINT32_C(0x005000a6), &byte, 1u) == VF2_OK);
     CHECK(byte == UINT8_C(255));
 
-    /* alt_byte == 0 forwards the unobserved deep reset sequence at
+    /* alt_byte == 0 forwards the deep reset sequence at
      * 0x0000a784 (calls to 0x00008ef0 and 0x0006116c followed by an
-     * unconditional branch to 0x000000b0). The recovered gate rejects it. */
+     * unconditional branch to 0x000000b0). Measured at 12566
+     * instructions, 2 calls, 2 returns, 6180 bytes. */
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500704), UINT32_C(0x0ff7f7ff)) == VF2_OK);
     byte = UINT8_C(17);
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050002a), &byte, 1u) == VF2_OK);
     byte = 0u;
     CHECK(vf2_model2a_write(&machine, UINT32_C(0x005000a6), &byte, 1u) == VF2_OK);
+    // ensure deep reset writes are observable
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500700), UINT32_C(0x11223344)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500708), UINT32_C(0x55667788)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050070c), UINT32_C(0x99aabbcc)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00e80004), UINT32_C(0x12345678)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0059cfe0), 0u) == VF2_OK);
     enter_parent(&cpu, UINT32_C(0x0000a748));
     memset(&report, 0, sizeof(report));
-    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_ERROR_UNSUPPORTED);
-    CHECK(report.kind == VF2_HYBRID_BRIDGE_NONE);
+    CHECK(vf2_hybrid_post_frame_bridge_execute(&machine, &cpu, &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE);
+    CHECK(report.entry_address == UINT32_C(0x0000a748));
+    CHECK(report.exit_address == UINT32_C(0x000000b0));
+    CHECK(report.recovered_instruction_count == UINT64_C(12566));
+    CHECK(report.recovered_procedure_calls == UINT64_C(2));
+    CHECK(report.recovered_procedure_returns == UINT64_C(2));
+    CHECK(report.bytes_written == 6180u);
+    CHECK(cpu.ip == UINT32_C(0x000000b0));
+    // verify zeroed state
+    {
+        uint32_t v;
+        CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500700), &v) == VF2_OK); CHECK(v==0u);
+        CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500704), &v) == VF2_OK); CHECK(v==0u);
+        CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00500708), &v) == VF2_OK); CHECK(v==0u);
+        CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x0050070c), &v) == VF2_OK); CHECK(v==0u);
+        CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00e80004), &v) == VF2_OK); CHECK(v==0u);
+        CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x0059cfe0), &v) == VF2_OK); CHECK(v==UINT32_C(0x52455320));
+    }
 
     vf2_model2a_shutdown(&machine);
 }

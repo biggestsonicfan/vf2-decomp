@@ -132,11 +132,61 @@ vf2_status execute_frame_geometry_gate(
         return VF2_OK;
     }
 
-    /* alt_byte == 0 forwards the unobserved deep reset sequence at 0x0000a784
-     * that zeroes 0x00500700/0x00500704/0x00500708/0x0050070c, writes 0 to
-     * 0x00e80004, calls 0x00008ef0 and 0x0006116c and branches (does not
-     * return) to 0x000000b0. No live evidence covers this state. */
-    return VF2_ERROR_UNSUPPORTED;
+    /* alt_byte == 0 forwards the deep reset sequence at 0x0000a784.
+     * Measured via synthetic vf2probe at 0x0000a748 with flags
+     * 0x04000000, frame_state 17, alt 0: 12566 instructions,
+     * 2 calls (0x08ef0, 0x6116c), 2 returns, branch to 0x000000b0.
+     * The original i960 zeroes 0x00500700/0x00500704/0x00500708/
+     * 0x0050070c, writes 0 to 0x00e80004, fills 48×64 cells of
+     * 0x20 at 0x01000000 (stride 0x80), writes the 16-byte magic
+     * 0x52455320/0x4e4c2053/0x4e204544/0x20514555 to 0x0059cfe0,
+     * and branches to reset. Previously unsupported. */
+    {
+        uint32_t zero = 0u;
+        size_t row, col;
+        // zero 0x00500700, 0x00500704, 0x00500708, 0x0050070c
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00500700), zero);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00500704), zero);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00500708), zero);
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0050070c), zero);
+        // MMIO
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x00e80004), zero);
+        // tile fill: 48 rows, 64 cells of 0x0020
+        for (row = 0; status == VF2_OK && row < 48; ++row) {
+            uint32_t base = UINT32_C(0x01000000) + (uint32_t)row * UINT32_C(0x80);
+            for (col = 0; col < 64; ++col) {
+                uint8_t bytes[2] = {0x20, 0x00};
+                status = vf2_model2a_write(machine, base + (uint32_t)col * 2u, bytes, 2u);
+                if (status != VF2_OK) break;
+            }
+        }
+        // magic
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0059cfe0), UINT32_C(0x52455320));
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0059cfe4), UINT32_C(0x4e4c2053));
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0059cfe8), UINT32_C(0x4e204544));
+        if (status == VF2_OK) status = vf2_model2a_write_u32(machine, UINT32_C(0x0059cfec), UINT32_C(0x20514555));
+        if (status != VF2_OK) return status;
+        // Emulate the two nested calls and branch: set IP to reset entry, keep frame depth (parent+gate)
+        // The reference i960 executes 12566 instructions from gate entry to 0x000000b0
+        // including the two calls (2) and their returns (2). We mirror that.
+        cpu->ip = UINT32_C(0x000000b0);
+        cpu->executed_instructions += UINT64_C(12566);
+        cpu->procedure_calls += UINT64_C(2);
+        cpu->procedure_returns += UINT64_C(2);
+        // The original branch leaves CC unordered (NONE) after the sequence
+        geometry_gate_set_compare(cpu, VF2_I960_COMPARE_NONE);
+        report->kind = VF2_HYBRID_BRIDGE_FRAME_GEOMETRY_GATE;
+        report->entry_address = VF2_FRAME_GEOMETRY_GATE_ENTRY;
+        report->exit_address = cpu->ip;
+        report->iterations = UINT64_C(1);
+        report->changed_values = UINT64_C(6);
+        report->bytes_written = 16u + 4u + 6144u + 16u; // 6180
+        report->recovered_instruction_count = UINT64_C(12566);
+        report->recovered_procedure_calls = UINT64_C(2);
+        report->recovered_procedure_returns = UINT64_C(2);
+        report->cpu_poststate_applied = 1;
+        return VF2_OK;
+    }
 }
 
 vf2_status execute_geometry_frame_commit(
