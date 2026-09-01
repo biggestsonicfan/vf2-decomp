@@ -585,7 +585,7 @@ were expanded from 1–2 masks to 8 masks each (low 1,2,4), `16` masks
 * `0x00008140` (bits 6+14+15) `1→8` low cube with `-5/-3` (v0213, compacted v0217)
 * `0x00010140` (bits 6+14+16) `1→8` with `+8/+4` plus bit11 write (v0214, compacted v0217 — fixes `0x10144` narrow-check outlier)
 * `0x0000C140`/`0x0001C140` (bits 6+14+15 and 6+14+15+16) `2→16` low cubes
-  with `+5/+2` (v0215)
+  with `+5/+2` (v0215, compacted v0218 to `& ~0x10016`)
 * `0x00018140` `1→8` low cube with `+9/+4` plus bit11 (v0216, compacted v0217 — fixes `0x18144` outlier)
 
 Each `36/36 exact`. Other positive bases (e.g. `0x8140` high combos,
