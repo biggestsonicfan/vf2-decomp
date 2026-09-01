@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- compacted the positive state-8 `0x8140`/`0x10140`/`0x18140` low-bit cubes from
+  twelve explicit `pair ==` blocks to three `& ~0x16 == base` predicates
+  (each covering its 8 low variations over bits 1,2,4). The generic
+  `fighter+0x1a4` bit-11 write now triggers for any low variant, fixing the
+  `0x10144`/`0x18144` single-mask `0/36` outlier. All `24` masks remain
+  `36/36 exact` with identical `+5/-3`, `+8/+4` and `+9/+4` accounting and
+  stale-frame postconditions (v0217,
+  `decomp/i960/notes/game_info_18644_positive_compact_low_v0217.md`);
 - recovered the full texture-orchestrator limit cluster at `0x0004bfe0`:
   `bbs` with source-mask `0xc0`/`0xc000`/`0x0c` tests `display_mode %32`,
   `cmpobe` for `12`/`13`, `bbs 16` for `0x00500068` bit 16,
