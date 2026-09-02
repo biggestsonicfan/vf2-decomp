@@ -14905,6 +14905,55 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             }
         }
+        /* High-29 low-cube for base 0x10140 (v0235) — measured +3/+6 vs generic. */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0 &&
+            (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x20010140)) {
+            const bool fighter0_only_h29_10140 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral_h29_10140 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            native_instructions += bilateral_h29_10140 ? UINT64_C(6) : UINT64_C(3);
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                           : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, fighter0_only_h29_10140, bilateral_h29_10140);
+            {
+                uint32_t tmp_flags_h29 = 0u;
+                if (fighter0_state_flags == combined_positive_bit6_flags &&
+                    vf2_model2a_read_u32(machine, fighter0 + UINT32_C(0x000001a4),
+                                         &tmp_flags_h29) == VF2_OK) {
+                    tmp_flags_h29 |= UINT32_C(1) << 11u;
+                    (void)vf2_model2a_write_u32(machine,
+                                                fighter0 + UINT32_C(0x000001a4),
+                                                tmp_flags_h29);
+                }
+                if (fighter1_state_flags == combined_positive_bit6_flags &&
+                    vf2_model2a_read_u32(machine, fighter1 + UINT32_C(0x000001a4),
+                                         &tmp_flags_h29) == VF2_OK) {
+                    tmp_flags_h29 |= UINT32_C(1) << 11u;
+                    (void)vf2_model2a_write_u32(machine,
+                                                fighter1 + UINT32_C(0x000001a4),
+                                                tmp_flags_h29);
+                }
+            }
+            {
+                const uint8_t fighter_byte = UINT8_C(0x1e);
+                if (fighter0_state_flags == combined_positive_bit6_flags) {
+                    (void)vf2_model2a_write(
+                        machine, fighter0 + UINT32_C(0x000006da),
+                        &fighter_byte, sizeof(fighter_byte));
+                }
+                if (fighter1_state_flags == combined_positive_bit6_flags) {
+                    (void)vf2_model2a_write(
+                        machine, fighter1 + UINT32_C(0x000006da),
+                        &fighter_byte, sizeof(fighter_byte));
+                }
+            }
+        }
                 /* High pairs/triples/quad for base 0x10140 with 0 excess (v0228). */
         if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && combined_positive_bit6_flags == UINT32_C(0x24010140)) { const bool f0=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==0u; const bool bl=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==combined_positive_bit6_flags; hybrid_set_compare_result(cpu, countdown_was_nonzero?VF2_I960_COMPARE_LESS:VF2_I960_COMPARE_EQUAL); hybrid_set_stale_low(cpu,f0,bl); {uint32_t tmp=0u; if (fighter0_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter0+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter0+0x1a4u,tmp);} if (fighter1_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter1+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter1+0x1a4u,tmp);} } }
         if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && combined_positive_bit6_flags == UINT32_C(0x44010140)) { const bool f0=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==0u; const bool bl=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==combined_positive_bit6_flags; hybrid_set_compare_result(cpu, countdown_was_nonzero?VF2_I960_COMPARE_LESS:VF2_I960_COMPARE_EQUAL); hybrid_set_stale_low(cpu,f0,bl); {uint32_t tmp=0u; if (fighter0_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter0+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter0+0x1a4u,tmp);} if (fighter1_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter1+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter1+0x1a4u,tmp);} } }
@@ -14917,6 +14966,25 @@ static vf2_status hybrid_execute_game_info_bit31_native(
         if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && combined_positive_bit6_flags == UINT32_C(0xC4010140)) { const bool f0=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==0u; const bool bl=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==combined_positive_bit6_flags; hybrid_set_compare_result(cpu, countdown_was_nonzero?VF2_I960_COMPARE_LESS:VF2_I960_COMPARE_EQUAL); hybrid_set_stale_low(cpu,f0,bl); {uint32_t tmp=0u; if (fighter0_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter0+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter0+0x1a4u,tmp);} if (fighter1_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter1+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter1+0x1a4u,tmp);} } }
         if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && combined_positive_bit6_flags == UINT32_C(0xE0010140)) { const bool f0=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==0u; const bool bl=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==combined_positive_bit6_flags; hybrid_set_compare_result(cpu, countdown_was_nonzero?VF2_I960_COMPARE_LESS:VF2_I960_COMPARE_EQUAL); hybrid_set_stale_low(cpu,f0,bl); {uint32_t tmp=0u; if (fighter0_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter0+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter0+0x1a4u,tmp);} if (fighter1_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter1+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter1+0x1a4u,tmp);} } }
         if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && combined_positive_bit6_flags == UINT32_C(0xE4010140)) { const bool f0=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==0u; const bool bl=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==combined_positive_bit6_flags; hybrid_set_compare_result(cpu, countdown_was_nonzero?VF2_I960_COMPARE_LESS:VF2_I960_COMPARE_EQUAL); hybrid_set_stale_low(cpu,f0,bl); {uint32_t tmp=0u; if (fighter0_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter0+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter0+0x1a4u,tmp);} if (fighter1_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter1+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter1+0x1a4u,tmp);} } }
+        /* High pairs low variants for base 0x10140 with bit29 (v0236) — 7 bases ×7 low =49 masks +3/+6 +0x1e. */
+        if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && (combined_positive_bit6_flags & UINT32_C(0x00000016)) != 0 && ((combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x24010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x60010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xA0010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x64010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xA4010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xE0010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xE4010140))) {
+            const bool f0 = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == 0u;
+            const bool bl = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == combined_positive_bit6_flags;
+            native_instructions += bl ? UINT64_C(6) : UINT64_C(3);
+            hybrid_set_compare_result(cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, f0, bl);
+            { uint32_t tmp=0u; if (fighter0_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter0+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter0+0x1a4u,tmp);} if (fighter1_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter1+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter1+0x1a4u,tmp);} }
+            { const uint8_t fb=UINT8_C(0x1e); if (fighter0_state_flags==combined_positive_bit6_flags) (void)vf2_model2a_write(machine, fighter0 + UINT32_C(0x000006da), &fb, sizeof(fb)); if (fighter1_state_flags==combined_positive_bit6_flags) (void)vf2_model2a_write(machine, fighter1 + UINT32_C(0x000006da), &fb, sizeof(fb)); }
+        }
+        /* High pairs low variants for base 0x10140 without bit29 (v0236) — 4 bases ×7 low =28 masks +4/+8. */
+        if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && (combined_positive_bit6_flags & UINT32_C(0x00000016)) != 0 && ((combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x44010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x84010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xC0010140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xC4010140))) {
+            const bool f0 = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == 0u;
+            const bool bl = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == combined_positive_bit6_flags;
+            native_instructions += bl ? UINT64_C(8) : UINT64_C(4);
+            hybrid_set_compare_result(cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, f0, bl);
+            { uint32_t tmp=0u; if (fighter0_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter0+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter0+0x1a4u,tmp);} if (fighter1_state_flags==combined_positive_bit6_flags&&vf2_model2a_read_u32(machine,fighter1+0x1a4u,&tmp)==VF2_OK){tmp|=1u<<11;(void)vf2_model2a_write_u32(machine,fighter1+0x1a4u,tmp);} }
+        }
         /* High-30 low-cube for base 0x10140 (v0225). */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
