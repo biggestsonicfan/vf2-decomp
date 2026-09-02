@@ -14742,6 +14742,86 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                                            : VF2_I960_COMPARE_EQUAL);
             hybrid_set_stale_low(cpu, fighter0_only_p6, bilateral_p6);
         }
+        /* High-26+29+30 for base 0x8140 (v0227 trial). */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0 &&
+            combined_positive_bit6_flags == UINT32_C(0x64008140)) {
+            const bool fighter0_only_t =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral_t =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                           : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, fighter0_only_t, bilateral_t);
+        }
+        /* High-26+29+31 for base 0x8140 (v0227). */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0 &&
+            combined_positive_bit6_flags == UINT32_C(0xA4008140)) {
+            const bool fighter0_only_t2 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral_t2 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                           : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, fighter0_only_t2, bilateral_t2);
+        }
+        /* High-26+30+31 for base 0x8140 (v0227). */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0 &&
+            combined_positive_bit6_flags == UINT32_C(0xC4008140)) {
+            const bool fighter0_only_t3 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral_t3 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                           : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, fighter0_only_t3, bilateral_t3);
+        }
+        /* High-29+30+31 for base 0x8140 (v0227). */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0 &&
+            combined_positive_bit6_flags == UINT32_C(0xE0008140)) {
+            const bool fighter0_only_t4 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral_t4 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                           : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, fighter0_only_t4, bilateral_t4);
+        }
+        /* High-26+29+30+31 for base 0x8140 (v0227). */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0 &&
+            combined_positive_bit6_flags == UINT32_C(0xE4008140)) {
+            const bool fighter0_only_q =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral_q =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                           : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, fighter0_only_q, bilateral_q);
+        }
         /* Compact low-cube for base 0x10140 (bits 6+14+16) over low bits 1,2,4 (v0217). */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
