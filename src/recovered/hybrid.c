@@ -14588,6 +14588,27 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                                            : VF2_I960_COMPARE_EQUAL);
             hybrid_set_stale_low(cpu, fighter0_only_h26, bilateral_h26);
         }
+        /* High-29 low-cube for base 0x8140 (v0222 candidate). */
+        if (fighter0_state == 8u && fighter1_state == 8u &&
+            measured_matrix_distribution &&
+            (int32_t)shared_fighter_threshold >= 0 &&
+            (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x20008140)) {
+            const bool fighter0_only_h29 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == 0u;
+            const bool bilateral_h29 =
+                fighter0_state_flags == combined_positive_bit6_flags &&
+                fighter1_state_flags == combined_positive_bit6_flags;
+            const uint64_t excess_h29 = bilateral_h29 ? UINT64_C(5) : UINT64_C(3);
+            if (native_instructions < excess_h29) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            native_instructions -= excess_h29;
+            hybrid_set_compare_result(
+                cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
+                                           : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, fighter0_only_h29, bilateral_h29);
+        }
         /* Compact low-cube for base 0x10140 (bits 6+14+16) over low bits 1,2,4 (v0217). */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&

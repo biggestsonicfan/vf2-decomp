@@ -28,6 +28,10 @@
   cube over bits 1,2,4 — 8 masks `0x04008140|low` each `36/36 exact` with
   `-5/-3` accounting and `hybrid_set_stale_low` (v0221,
   `decomp/i960/notes/game_info_18644_positive_high26_8140_low_v0221.md`);
+- admitted the positive state-8 `0x20008140` (high-29 + bits 6+14+15) low
+  cube over bits 1,2,4 — 8 masks `0x20008140|low` each `36/36 exact` with
+  `-5/-3` (v0222,
+  `decomp/i960/notes/game_info_18644_positive_high29_8140_low_v0222.md`);
 - recovered the full texture-orchestrator limit cluster at `0x0004bfe0`:
   `bbs` with source-mask `0xc0`/`0xc000`/`0x0c` tests `display_mode %32`,
   `cmpobe` for `12`/`13`, `bbs 16` for `0x00500068` bit 16,
