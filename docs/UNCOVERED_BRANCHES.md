@@ -582,15 +582,17 @@ were expanded from 1–2 masks to 8 masks each (low 1,2,4), `16` masks
 
 ### v0213–v0215 other positive bases low cubes
 
-* `0x00008140` (bits 6+14+15) `1→8` low cube with `-5/-3` (v0213, compacted v0217)
+* `0x00008140` (bits 6+14+15) `1→8` low cube with `-5/-3` (v0213, compacted v0217 to `& ~0x16`)
 * `0x00010140` (bits 6+14+16) `1→8` with `+8/+4` plus bit11 write (v0214, compacted v0217 — fixes `0x10144` narrow-check outlier)
 * `0x0000C140`/`0x0001C140` (bits 6+14+15 and 6+14+15+16) `2→16` low cubes
   with `+5/+2` (v0215, compacted v0218 to `& ~0x10016`)
 * `0x00018140` `1→8` low cube with `+9/+4` plus bit11 (v0216, compacted v0217 — fixes `0x18144` outlier)
+* `0x00004140`/`0x00014140` (bits 6+14 with/without 16) `2→16` low cubes
+  with `+4/+2` (v0211, compacted v0219 to `& ~0x10016`)
 
 Each `36/36 exact`. Other positive bases (e.g. `0x8140` high combos,
 `0xC140` high combos) remain explicit boundaries until their low cubes
-are measured. Compact forms now use `& ~0x16 == base`.
+are measured. Compact forms now use `& ~0x16` or `& ~0x10016`.
 
 ### Current positive threshold scope
 

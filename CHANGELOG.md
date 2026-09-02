@@ -15,6 +15,11 @@
   covering all 16 low variations (both bases with/without bit 16, each with
   8 low combos). All `16` masks remain `36/36 exact` with `+5/+2` accounting
   (v0218, `decomp/i960/notes/game_info_18644_positive_compact_low_v0218.md`);
+- compacted the positive state-8 `0x4140`/`0x14140` low-bit cubes from eight
+  explicit `pair ==` blocks to one `& ~0x10016 == 0x4140` predicate
+  covering all 16 low variations (both bases with/without bit 16). All
+  `16` masks remain `36/36 exact` with `+4/+2` accounting (v0219,
+  `decomp/i960/notes/game_info_18644_positive_compact_low_v0219.md`);
 - recovered the full texture-orchestrator limit cluster at `0x0004bfe0`:
   `bbs` with source-mask `0xc0`/`0xc000`/`0x0c` tests `display_mode %32`,
   `cmpobe` for `12`/`13`, `bbs 16` for `0x00500068` bit 16,
