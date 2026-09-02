@@ -112,6 +112,35 @@ static void hybrid_set_compare_result(
         (cpu->arithmetic_control & ~UINT32_C(7)) | condition_bits;
 }
 
+static void hybrid_set_stale_low(
+    vf2_i960_cpu *cpu,
+    bool fighter0_only,
+    bool bilateral
+)
+{
+    if (cpu->local_frame_depth + 1u >= VF2_I960_MAX_LOCAL_FRAMES) {
+        return;
+    }
+    vf2_i960_local_frame *stale =
+        &cpu->local_frames[cpu->local_frame_depth + 1u];
+    stale->registers[3] = UINT32_C(0x41000000);
+    stale->registers[4] = UINT32_C(0x07800f0f);
+    stale->registers[7] = UINT32_C(0x41000000);
+    if (bilateral || !fighter0_only) {
+        stale->registers[8] = UINT32_C(0x07800f0f);
+        stale->registers[12] = UINT32_C(0x07800f0f);
+        stale->registers[13] = UINT32_C(0x3f6b871d);
+        stale->registers[14] = 0u;
+        stale->registers[15] = UINT32_C(1);
+    } else {
+        stale->registers[8] = 0u;
+        stale->registers[12] = 0u;
+        stale->registers[13] = 0u;
+        stale->registers[14] = UINT32_C(8);
+        stale->registers[15] = 0u;
+    }
+}
+
 static float hybrid_float_from_bits(uint32_t bits)
 {
     float value = 0.0f;
@@ -14499,26 +14528,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
         }
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
@@ -14535,26 +14545,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
         }
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
@@ -14574,26 +14565,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
         }
         /* Compact low-cube for base 0x10140 (bits 6+14+16) over low bits 1,2,4 (v0217). */
         if (fighter0_state == 8u && fighter1_state == 8u &&
@@ -14610,26 +14582,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
             {
                 uint32_t tmp_flags = 0u;
                 if (fighter0_state_flags == combined_positive_bit6_flags &&
@@ -14665,26 +14618,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
             {
                 uint32_t tmp_flags = 0u;
                 if (fighter0_state_flags == combined_positive_bit6_flags &&
@@ -14719,26 +14653,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
         }
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
@@ -14758,26 +14673,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
         }
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
@@ -14793,26 +14689,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
             {
                 uint32_t tmp_flags2 = 0u;
                 if (fighter0_state_flags == UINT32_C(0x00210140) &&
@@ -14847,26 +14724,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
         }
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
@@ -14882,26 +14740,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
             {
                 uint32_t tmp_flags2 = 0u;
                 if (fighter0_state_flags == UINT32_C(0x00214140) &&
@@ -14936,26 +14775,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
             {
                 uint32_t tmp_flags2 = 0u;
                 if (fighter0_state_flags == UINT32_C(0x00218140) &&
@@ -14990,26 +14810,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
             {
                 uint32_t tmp_flags2 = 0u;
                 if (fighter0_state_flags == UINT32_C(0x0021c140) &&
@@ -15047,26 +14848,7 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(
                 cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS
                                            : VF2_I960_COMPARE_EQUAL);
-            if (cpu->local_frame_depth + 1u < VF2_I960_MAX_LOCAL_FRAMES) {
-                vf2_i960_local_frame *stale =
-                    &cpu->local_frames[cpu->local_frame_depth + 1u];
-                stale->registers[3] = UINT32_C(0x41000000);
-                stale->registers[4] = UINT32_C(0x07800f0f);
-                stale->registers[7] = UINT32_C(0x41000000);
-                if (bilateral || !fighter0_only) {
-                    stale->registers[8] = UINT32_C(0x07800f0f);
-                    stale->registers[12] = UINT32_C(0x07800f0f);
-                    stale->registers[13] = UINT32_C(0x3f6b871d);
-                    stale->registers[14] = 0u;
-                    stale->registers[15] = UINT32_C(1);
-                } else {
-                    stale->registers[8] = 0u;
-                    stale->registers[12] = 0u;
-                    stale->registers[13] = 0u;
-                    stale->registers[14] = UINT32_C(8);
-                    stale->registers[15] = 0u;
-                }
-            }
+            hybrid_set_stale_low(cpu, fighter0_only, bilateral);
         }
                 /* ROM-backed v0174 state-8/positive-threshold composites. */
         if (fighter0_state == 8u && fighter1_state == 8u &&

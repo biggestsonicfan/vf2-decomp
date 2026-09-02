@@ -592,7 +592,8 @@ were expanded from 1–2 masks to 8 masks each (low 1,2,4), `16` masks
 
 Each `36/36 exact`. Other positive bases (e.g. `0x8140` high combos,
 `0xC140` high combos) remain explicit boundaries until their low cubes
-are measured. Compact forms now use `& ~0x16` or `& ~0x10016`.
+are measured. Compact forms now use `& ~0x16` or `& ~0x10016` and share
+`hybrid_set_stale_low()` (v0220).
 
 ### Current positive threshold scope
 
