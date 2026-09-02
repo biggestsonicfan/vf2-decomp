@@ -61,6 +61,9 @@
 - admitted eleven high-pair/triple/quad masks for base `0xC140`
   (6 pairs +4 triples +1 quad, `0` excess, v0229,
   `decomp/i960/notes/game_info_18644_positive_high_pairs_triples_C140_v0229.md`);
+- admitted 32 high masks for bases `0x18140`/`0x1C140`/`0x14140`
+  (11+11+10, `0` excess, v0230,
+  `decomp/i960/notes/game_info_18644_positive_high_bulk_v0230.md`);
 - admitted the positive state-8 `0x40010140`/`0x80010140` (high-30/31 + bits
   6+14+16) low cubes over bits 1,2,4 — 16 masks each `36/36 exact` with
   `+8/+4` plus bit11 (v0225,
