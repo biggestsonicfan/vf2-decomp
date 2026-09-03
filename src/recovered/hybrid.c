@@ -15332,6 +15332,35 @@ static vf2_status hybrid_execute_game_info_bit31_native(
             hybrid_set_compare_result(cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL);
             hybrid_set_stale_low(cpu, f0, bl);
         }
+        /* Base 0x140 high-family without low (v0245) — 30 highs ×1 =30 masks with cd0/mode6 split: f0 +8 else +3, f1 +4 else +3, bi +7 else +6. */
+        if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && (combined_positive_bit6_flags & UINT32_C(0x00000016)) == 0 && ((combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x00200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x04000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x20000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x40000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x80000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x04200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x20200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x40200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x80200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x24000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x44000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x84000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x60000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xA0000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xC0000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x24200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x44200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x84200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x60200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xA0200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xC0200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x64000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xA4000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xC4000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xE0000140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0x64200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xA4200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xC4200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xE0200140) || (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xE4200140))) {
+            const bool f0 = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == 0u;
+            const bool f1 = fighter0_state_flags == 0u && fighter1_state_flags == combined_positive_bit6_flags;
+            const bool bl = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == combined_positive_bit6_flags;
+            const bool mode6 = (mode_value & (UINT8_C(1) << 6u)) != 0u;
+            const bool cd0m1 = !countdown_was_nonzero && mode6;
+            uint64_t excess = 0u;
+            if (bl) excess = cd0m1 ? UINT64_C(7) : UINT64_C(6);
+            else if (f0) excess = cd0m1 ? UINT64_C(8) : UINT64_C(3);
+            else if (f1) excess = cd0m1 ? UINT64_C(4) : UINT64_C(3);
+            else excess = UINT64_C(3);
+            if (native_instructions < excess) return VF2_ERROR_UNSUPPORTED;
+            native_instructions -= excess;
+            hybrid_set_compare_result(cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, f0, bl);
+        }
+        /* Quint low variants for base 0x140 (v0246) — 7 masks with cd split: cd0 +8/+11, cd1 +3/+6. */
+        if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && (combined_positive_bit6_flags & UINT32_C(0x00000016)) != 0 && (combined_positive_bit6_flags & ~UINT32_C(0x00000016)) == UINT32_C(0xE4200140)) {
+            const bool f0 = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == 0u;
+            const bool bl = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == combined_positive_bit6_flags;
+            uint64_t excess = 0u;
+            if (bl) excess = countdown_was_nonzero ? UINT64_C(6) : UINT64_C(11);
+            else excess = countdown_was_nonzero ? UINT64_C(3) : UINT64_C(8);
+            if (native_instructions < excess) return VF2_ERROR_UNSUPPORTED;
+            native_instructions -= excess;
+            hybrid_set_compare_result(cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, f0, bl);
+        }
         /* High pairs/triples/quad for base 0xC140 with 0 excess (v0229). */
         if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && combined_positive_bit6_flags == UINT32_C(0x2400C140)) { const bool f0=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==0u; const bool bl=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==combined_positive_bit6_flags; hybrid_set_compare_result(cpu, countdown_was_nonzero?VF2_I960_COMPARE_LESS:VF2_I960_COMPARE_EQUAL); hybrid_set_stale_low(cpu,f0,bl); }
         if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && combined_positive_bit6_flags == UINT32_C(0x4400C140)) { const bool f0=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==0u; const bool bl=fighter0_state_flags==combined_positive_bit6_flags&&fighter1_state_flags==combined_positive_bit6_flags; hybrid_set_compare_result(cpu, countdown_was_nonzero?VF2_I960_COMPARE_LESS:VF2_I960_COMPARE_EQUAL); hybrid_set_stale_low(cpu,f0,bl); }
