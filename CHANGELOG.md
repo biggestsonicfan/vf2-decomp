@@ -94,6 +94,8 @@
   `decomp/i960/notes/game_info_18644_positive_high_singles_C140_low_v0239.md`) — `+5/+2`;
 - admitted 7 low-variant masks for the `0x14140` quad `0xE4014140`
   (`+4/+2`, v0240, `decomp/i960/notes/game_info_18644_positive_14140_quad_low_v0240.md`) — `0x14140` now `11×7=77`;
+- admitted 8 masks for high quad `0xE4000140` (`+0` base / `-3/-6` low, v0241,
+  `decomp/i960/notes/game_info_18644_positive_E400_140_low_v0241.md`);
 - admitted the positive state-8 `0x40010140`/`0x80010140` (high-30/31 + bits
   6+14+16) low cubes over bits 1,2,4 — 16 masks each `36/36 exact` with
   `+8/+4` plus bit11 (v0225,
