@@ -86,6 +86,9 @@
 - admitted 77 low-variant masks for high `0x18140` family
   (11 bases ×7 low, v0237,
   `decomp/i960/notes/game_info_18644_positive_high_pairs_18140_low_v0237.md`) — 7 bases with bit29 `+7/+3` +`0x1e`, 4 bases `+9/+4`;
+- admitted 147 low-variant masks for high `0x1C140`/`0x14140` families
+  (11×7 + 10×7, v0238,
+  `decomp/i960/notes/game_info_18644_positive_high_pairs_1C140_14140_low_v0238.md`) — `+5/+2` and `+4/+2`;
 - admitted the positive state-8 `0x40010140`/`0x80010140` (high-30/31 + bits
   6+14+16) low cubes over bits 1,2,4 — 16 masks each `36/36 exact` with
   `+8/+4` plus bit11 (v0225,
