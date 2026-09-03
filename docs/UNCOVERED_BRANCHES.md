@@ -659,9 +659,13 @@ are measured. Compact forms now use `& ~0x16` or `& ~0x10016` and share
 
 * 11 high bases ×7 low variants (77 masks) — 7 with bit29 `+6/+3` +`0x1e`, 4 without `+8/+4` (v0236)
 
+### v0237 high pairs 18140 low variants
+
+* 11 high bases ×7 low variants (77 masks) — 7 with bit29 `+7/+3` +`0x1e`, 4 without `+9/+4` (v0237)
+
 ### Current positive threshold scope
 
-`604` masks are now `36/36 exact` for the positive `0x1645c` corridor
-(`120` high family + `484` base/low/high families). All use the measured
+`681` masks are now `36/36 exact` for the positive `0x1645c` corridor
+(`120` high family + `561` base/low/high families). All use the measured
 stale-frame and compare result. Remaining positive compositions still
 fail closed.
