@@ -16240,6 +16240,26 @@ static vf2_status hybrid_execute_game_info_bit31_native(
                 }
             }
         }
+        /* ROM-backed v0247: base 0x8140 bit-21 low variants — 16 highs x7 low
+         * =112 masks share one measured rule (4032 ROM-backed cases, 36 per
+         * mask: 3 distributions x countdown 0/1 x mode-bit-6 0/1 x thresholds
+         * 0..2, all uniform): the native dispatcher overcounts by 3
+         * unilateral / 5 bilateral, and the reference leaves EQUAL for
+         * countdown 0 / LESS for countdown 1. No stale-frame or memory
+         * effect: every pre-fix pair differs only in that one condition
+         * byte plus the instruction delta. Bare masks stay on their
+         * existing v0176/exact admissions (has_low == 0 disjoint). */
+        if (fighter0_state == 8u && fighter1_state == 8u && measured_matrix_distribution && (int32_t)shared_fighter_threshold >= 0 && (combined_positive_bit6_flags & UINT32_C(0x00200000)) != 0 && (combined_positive_bit6_flags & UINT32_C(0x00000016)) != 0 && (combined_positive_bit6_flags & ~UINT32_C(0xE4200016)) == UINT32_C(0x00008140)) {
+            const bool f0 = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == 0u;
+            const bool bl = fighter0_state_flags == combined_positive_bit6_flags && fighter1_state_flags == combined_positive_bit6_flags;
+            const uint64_t ex = bl ? UINT64_C(5) : UINT64_C(3);
+            if (native_instructions < ex) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            native_instructions -= ex;
+            hybrid_set_compare_result(cpu, countdown_was_nonzero ? VF2_I960_COMPARE_LESS : VF2_I960_COMPARE_EQUAL);
+            hybrid_set_stale_low(cpu, f0, bl);
+        }
         /* ROM-backed v0175: remaining positive bit-6 cross-family high extensions. */
         if (fighter0_state == 8u && fighter1_state == 8u &&
             measured_matrix_distribution &&
