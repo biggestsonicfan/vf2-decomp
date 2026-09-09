@@ -950,7 +950,8 @@ static vf2_status execute_instruction(
     }
     if (strcmp(mnemonic, "scanbit") == 0 || strcmp(mnemonic, "spanbit") == 0) {
         int bit = 31;
-        uint32_t result = UINT32_MAX;
+        uint32_t result = UINT32_C(31);
+        bool found = false;
         status = operand_value(cpu, &instruction->operands[0], &first);
         if (status != VF2_OK) {
             return status;
@@ -961,12 +962,16 @@ static vf2_status execute_instruction(
                 : (first & (UINT32_C(1) << (uint32_t)bit)) == 0u;
             if (selected) {
                 result = (uint32_t)bit;
+                found = true;
                 break;
             }
         }
-        cpu->compare_result = result == UINT32_MAX
-            ? VF2_I960_COMPARE_NONE
-            : VF2_I960_COMPARE_EQUAL;
+        /* Bno after scanbit/spanbit tests NoBit: taken only on a miss.
+         * OVERFLOW keeps bno from firing on a hit; NONE fires on miss.
+         * Architectural dest on miss is 31. */
+        cpu->compare_result = found
+            ? VF2_I960_COMPARE_OVERFLOW
+            : VF2_I960_COMPARE_NONE;
         return set_register(cpu, &instruction->operands[1], result);
     }
     if (strcmp(mnemonic, "cmpo") == 0 || strcmp(mnemonic, "cmpi") == 0) {

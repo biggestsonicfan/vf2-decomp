@@ -443,5 +443,39 @@ int vf2_test_i960_executor(void)
         return 49;
     }
     vf2_model2a_shutdown(&machine);
+
+    /* scanbit/bno: a hit must keep bno from firing; a miss sets dest=31
+     * and NoBit (NONE). Found is recorded as OVERFLOW so bno
+     * (!= OVERFLOW) does not take. */
+    memset(image, 0xff, sizeof(image));
+    write_le32(image + 0u, UINT32_C(0x64281083)); /* scanbit r3, r5 */
+    write_le32(image + 4u, UINT32_C(0x64281083)); /* scanbit r3, r5 */
+    if (!vf2_model2a_initialize(&machine)) {
+        return 50;
+    }
+    if (vf2_model2a_attach_main_rom(&machine, image, sizeof(image)) != VF2_OK) {
+        vf2_model2a_shutdown(&machine);
+        return 51;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, 0u);
+    cpu.registers[3] = UINT32_C(0x00000008); /* bit 3 */
+    cpu.registers[5] = UINT32_C(0xdeadbeef);
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.ip != 4u ||
+        cpu.registers[5] != 3u ||
+        cpu.compare_result != VF2_I960_COMPARE_OVERFLOW) {
+        vf2_model2a_shutdown(&machine);
+        return 52;
+    }
+    cpu.registers[3] = 0u;
+    cpu.registers[5] = UINT32_C(0xdeadbeef);
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.ip != 8u ||
+        cpu.registers[5] != UINT32_C(31) ||
+        cpu.compare_result != VF2_I960_COMPARE_NONE) {
+        vf2_model2a_shutdown(&machine);
+        return 53;
+    }
+    vf2_model2a_shutdown(&machine);
     return 0;
 }

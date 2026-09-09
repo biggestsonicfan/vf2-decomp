@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- i960 + coli frontier: fix `bno` after `scanbit` (a hit must not fire NoBit; miss sets dest=31 and NONE) and record a measured drive to the previously unreachable `0x225cc` resolver — three-field mutation (`g7+0x1a4` bit 8, `g7+0x820=1`, dest `0x5149cc=0xffff`) makes the first contact query return `g0=1` in **73 instructions** and the caller reach `0x225cc` in **96**; PUNCH corridor unchanged `320/320` MATCH; executor unit test pins scanbit hit/miss (v0282, `decomp/i960/notes/fa_coli_225cc_drive_v0282.md`);
+
 - coli poly child: recover the `0x238f8` nested bit-scan as native C — 30×30 loop over buffer-RAM source masks at `0x91f880`, remap bytes at ROM `0x23284`, stores into `g13+0x40`; warm PUNCH source is all-zero (**2855 instructions**, **0** stores); non-zero source executes the measured `setbit`/`st` path; `hybrid_execute_coli_body` stops at `0x238f8` after the `0x238a4` pair and resumes at `0x23644`; whole-task pin stays `9214/18/19` and the PUNCH corridor `320/320` MATCH; unit test `test_coli_238f8_warm_noop` (v0281);
 
 - coli poly child: recover the `0x23878` bit-remap helper as native C — six PUNCH-driven invocations remap bits `0..29` of `g3` through the main-data table at `0x02007b76` (30 words); empty source **95 instructions**, full source **155**, single-bit **97**; no memory writes; table entries `>= 32` fail closed; `hybrid_execute_coli_body` walks the six call sites inside both `0x2396c` invocations before the `0x238a4` pair; whole-task pin stays `9214/18/19` and the PUNCH corridor `320/320` MATCH; unit test `test_coli_23878_bit_remap` (v0280);

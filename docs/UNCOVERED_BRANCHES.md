@@ -942,3 +942,18 @@ pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH corridor remains
 Remaining interpreted inside `0x23524`: `0x2396c` (5236), `0x233d0`
 (44), `0x2364c` (17), and the 179-insn shell.
 
+### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
+
+`bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=
+OVERFLOW`). A hit now records OVERFLOW (bno not taken); a miss records
+NONE (`dest = 31`) so bno fires. Warm PUNCH is unchanged (no scanbit
+on that path).
+
+A three-field mutation of `out/coli-22404-e1` (`g7+0x1a4` bit 8,
+`g7+0x820 = 1`, dest slot `0x5149cc = 0xffff`) makes the first contact
+query return `g0 = 1` in **73 instructions**. The caller then reaches
+`0x225cc` after **96 instructions** (second query still warm-zero).
+`0x225cc` remains unmeasured beyond its prefix (`g7+0x1234` counter++,
+optional `call 0x18bd4` when `g8+0x19f == 22`).
+See `decomp/i960/notes/fa_coli_225cc_drive_v0282.md`.
+
