@@ -2586,6 +2586,68 @@ static void test_coli_23878_bit_remap(void) {
     free(main_data);
 }
 
+static void test_coli_238f8_warm_noop(void) {
+    static const uint8_t rom_table[30] = {
+        1u, 1u, 2u, 3u, 3u, 4u, 4u, 5u, 6u, 6u,
+        7u, 7u, 8u, 9u, 10u, 10u, 10u, 11u, 11u, 11u,
+        12u, 12u, 13u, 13u, 13u, 14u, 14u, 14u, 15u, 15u
+    };
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const uint32_t registry = UINT32_C(0x00514b80);
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+    uint8_t poison[4] = {UINT8_C(0xef), UINT8_C(0xbe), UINT8_C(0xad),
+                         UINT8_C(0xde)};
+    size_t index = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+    for (index = 0u; index < 30u; ++index) {
+        rom[0x23284u + index] = rom_table[index];
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    /* Warm source is all-zero; poison the dest cluster. */
+    for (index = 0u; index < 30u; ++index) {
+        CHECK(vf2_model2a_write(&machine,
+                                registry + UINT32_C(0x40) +
+                                    (uint32_t)index * 4u,
+                                poison, sizeof(poison)) == VF2_OK);
+    }
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000238f8));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000238f8),
+                                       UINT32_C(0x00023644)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_238f8_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00023644));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(2855));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(0));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    /* All-zero source must not touch the poisoned dest cluster. */
+    for (index = 0u; index < 30u; ++index) {
+        CHECK(read_test_u16(&machine,
+                            registry + UINT32_C(0x40) +
+                                (uint32_t)index * 4u) ==
+              UINT16_C(0xbeef));
+    }
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 static void test_recurring_kill_osage_order_accounting(void) {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
@@ -2747,6 +2809,7 @@ int main(void) {
     test_coli_contact_query_22404_early_path();
     test_coli_238a4_early_path();
     test_coli_23878_bit_remap();
+    test_coli_238f8_warm_noop();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 

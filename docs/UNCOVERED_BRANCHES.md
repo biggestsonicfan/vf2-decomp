@@ -927,3 +927,18 @@ whole-task pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH
 corridor remains `320/320` MATCH. Unit test `test_coli_23878_bit_remap`.
 Remaining interpreted: `0x2396c`, `0x238f8`, `0x233d0`, `0x2364c`.
 
+### v0281 fa_coli `0x238f8` nested bit-scan leaf
+
+The third `0x23524` callee is now native. The 30×30 nested scan reads
+source masks from buffer RAM `0x91f880` and remaps through ROM bytes at
+`0x23284` into `g13+0x40`. Warm PUNCH source is all-zero: **2855
+instructions**, **0** stores. Non-zero source executes the measured
+`setbit`/`st` path.
+
+`hybrid_execute_coli_body` now stops at `0x238f8` after the `0x238a4`
+pair and resumes at `0x23644` (before `bal 0x23694`). The whole-task
+pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH corridor remains
+`320/320` MATCH. Unit test `test_coli_238f8_warm_noop`.
+Remaining interpreted inside `0x23524`: `0x2396c` (5236), `0x233d0`
+(44), `0x2364c` (17), and the 179-insn shell.
+

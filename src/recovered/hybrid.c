@@ -48,6 +48,12 @@
 #define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
 #define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
 #define VF2_COLI_BITREMAP_TRIPS 30u
+#define VF2_COLI_NESTED_ENTRY UINT32_C(0x000238f8)
+#define VF2_COLI_NESTED_RETURN UINT32_C(0x00023644)
+#define VF2_COLI_NESTED_SRC UINT32_C(0x0091f880)
+#define VF2_COLI_NESTED_ROM UINT32_C(0x00023284)
+#define VF2_COLI_NESTED_DEST_BASE UINT32_C(0x00000040)
+#define VF2_COLI_NESTED_TRIPS 30u
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -18091,6 +18097,72 @@ vf2_status vf2_hybrid_coli_23878_execute(
         machine, cpu, UINT64_C(94) + (uint64_t)set_bits * 2u, 0u, 0u);
 }
 
+/* Measured warm-path recovery of the fa_coli nested bit-scan at 0x238f8.
+ * 30x30 loop: for each source bit set in buffer-RAM word 0x91f880[i],
+ * set bit ROM[0x23284+i] into g13+0x40 indexed by ROM[0x23284+bit].
+ * Warm PUNCH source is all-zero (2855 instructions, no stores). */
+vf2_status vf2_hybrid_coli_238f8_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+    uint64_t body = UINT64_C(4);
+    uint32_t outer = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_NESTED_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    for (outer = 0u; outer < VF2_COLI_NESTED_TRIPS; ++outer) {
+        uint8_t bit_from_outer = 0u;
+        uint32_t source = 0u;
+        uint32_t inner = 0u;
+
+        if (hybrid_read_u8(
+                machine, VF2_COLI_NESTED_ROM + outer, &bit_from_outer) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (vf2_model2a_read_u32(
+                machine, VF2_COLI_NESTED_SRC + outer * 4u, &source) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(3);
+        for (inner = 0u; inner < VF2_COLI_NESTED_TRIPS; ++inner) {
+            body += UINT64_C(3);
+            if ((source & (UINT32_C(1) << inner)) != 0u) {
+                uint8_t dest_index = 0u;
+                uint32_t dest = 0u;
+
+                body += UINT64_C(4);
+                if (hybrid_read_u8(
+                        machine, VF2_COLI_NESTED_ROM + inner,
+                        &dest_index) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                if (vf2_model2a_read_u32(
+                        machine,
+                        g13 + VF2_COLI_NESTED_DEST_BASE +
+                            (uint32_t)dest_index * 4u,
+                        &dest) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                dest |= (UINT32_C(1) << bit_from_outer);
+                if (vf2_model2a_write_u32(
+                        machine,
+                        g13 + VF2_COLI_NESTED_DEST_BASE +
+                            (uint32_t)dest_index * 4u,
+                        dest) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+            }
+        }
+        body += UINT64_C(2);
+    }
+    return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
+}
+
 /* Segment the measured warm body: interpret the entry prefix and the
  * unmeasured 0x23524 shell callees, recover each 0x23878 / 0x238a4 /
  * 0x22298 / 0x22404 call natively, then interpret the remainder through
@@ -18149,7 +18221,15 @@ static vf2_status hybrid_execute_coli_body(
     }
     if (status == VF2_OK) {
         status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_G3SCAN_RETURN_SECOND, VF2_COLI_POLY_RETURN
+            machine, cpu, VF2_COLI_G3SCAN_RETURN_SECOND, VF2_COLI_NESTED_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_238f8_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_NESTED_RETURN, VF2_COLI_POLY_RETURN
         );
     }
     if (status == VF2_OK) {
