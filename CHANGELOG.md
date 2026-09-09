@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- coli poly shell: recover the full `0x23524` warm shell as one native
+  procedure — 179-insn shell plus `bal 0x23694` body, with `0x2396c`×2 /
+  `0x233d0` / `0x238a4`×2 / `0x238f8` / `0x2364c` inlined for
+  accounting; `hybrid_execute_coli_body` collapses to a single native
+  entry; PUNCH corridor stays `320/320` MATCH / `14,962,620`
+  instructions; unit test `test_coli_23524_shell` (v0287,
+  `decomp/i960/notes/fa_coli_23524_shell_v0287.md`);
+
 - coli poly shell: measure the remaining 179-insn `0x23524` warm shell
   glue-by-glue (prologue FIFO `0x1f003e3e`, 16-word `g13+0x40` clear,
   call sequence, `bal 0x23694` body with `0x2364c`, FIFO `0x1e803d3d`

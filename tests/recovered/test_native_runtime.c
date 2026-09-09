@@ -2948,6 +2948,175 @@ static void test_coli_2396c_poly_cluster(void) {
     free(main_data);
 }
 
+static void test_coli_23524_shell(void) {
+    static const uint32_t remap_table[30] = {
+        1u, 1u, 2u, 9u, 3u, 3u, 4u, 4u, 5u, 6u,
+        6u, 7u, 7u, 8u, 10u, 10u, 10u, 11u, 11u, 11u,
+        12u, 12u, 13u, 13u, 13u, 14u, 14u, 14u, 15u, 15u
+    };
+    static const uint8_t nested_rom[30] = {
+        1u, 1u, 2u, 3u, 3u, 4u, 4u, 5u, 6u, 6u,
+        7u, 7u, 8u, 9u, 10u, 10u, 10u, 11u, 11u, 11u,
+        12u, 12u, 13u, 13u, 13u, 14u, 14u, 14u, 15u, 15u
+    };
+    static const uint8_t flag_table[24] = {
+        0x00u, 0x00u, 0x00u, 0x00u,
+        0x00u, 0x00u, 0x00u, 0x00u,
+        0x3fu, 0x00u, 0x00u, 0x00u,
+        0x3fu, 0x00u, 0x00u, 0x00u,
+        0x6cu, 0x33u, 0x02u, 0x00u,
+        0x00u, 0x00u, 0x00u, 0x00u,
+    };
+    uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const size_t data_size = UINT32_C(0x00008000);
+    const uint32_t fighter0 = UINT32_C(0x00510980);
+    const uint32_t fighter1 = UINT32_C(0x00512980);
+    const uint32_t registry = UINT32_C(0x00514980);
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+    size_t index = 0u;
+    uint32_t remap_bodies = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK((main_data = (uint8_t *)calloc(1u, data_size)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || main_data == NULL || machine.work_ram == NULL) {
+        free(rom);
+        free(main_data);
+        return;
+    }
+    for (index = 0u; index < 30u; ++index) {
+        write_u32_bytes(main_data, 0x7b76u + index * 4u, remap_table[index]);
+        rom[0x2394cu + index] = (uint8_t)index;
+        rom[0x23284u + index] = nested_rom[index];
+    }
+    for (index = 0u; index < sizeof(flag_table); ++index) {
+        rom[0x232c4u + index] = flag_table[index];
+    }
+    rom[0x23944u + 0] = 0x00u;
+    rom[0x23944u + 1] = 0xfau;
+    rom[0x23944u + 2] = 0x90u;
+    rom[0x23944u + 3] = 0x00u;
+    rom[0x23bb8u] = 0x04u;
+    rom[0x23bb8u + 1] = 0x00u;
+    rom[0x23bb8u + 2] = 0x00u;
+    rom[0x23bb8u + 3] = 0x00u;
+    {
+        static const uint32_t dirs[12] = {
+            UINT32_C(0x3f800000), 0u, UINT32_C(0xc0c00000),
+            UINT32_C(0xbf800000), 0u, UINT32_C(0xc0c00000),
+            0u, UINT32_C(0x3f800000), UINT32_C(0xc0c00000),
+            0u, UINT32_C(0xbf800000), UINT32_C(0xc0c00000),
+        };
+        for (index = 0u; index < 12u; ++index) {
+            rom[0x23bbcu + index * 4u + 0] = (uint8_t)dirs[index];
+            rom[0x23bbcu + index * 4u + 1] =
+                (uint8_t)(dirs[index] >> 8);
+            rom[0x23bbcu + index * 4u + 2] =
+                (uint8_t)(dirs[index] >> 16);
+            rom[0x23bbcu + index * 4u + 3] =
+                (uint8_t)(dirs[index] >> 24);
+        }
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(&machine, main_data, data_size) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050a00c),
+                                UINT32_C(0x41000000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050a010),
+                                UINT32_C(0xbf000000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500804), fighter0) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500808), fighter1) ==
+          VF2_OK);
+    for (index = 0u; index < 3u; ++index) {
+        CHECK(vf2_model2a_write_u32(
+                  &machine,
+                  fighter0 + UINT32_C(0x1f4) + (uint32_t)index * 4u,
+                  0u) == VF2_OK);
+        CHECK(vf2_model2a_write_u32(
+                  &machine,
+                  fighter1 + UINT32_C(0x1f4) + (uint32_t)index * 4u,
+                  0u) == VF2_OK);
+    }
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a4), 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4), 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8), 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a8), 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1c), 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1c), 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1, 0u) == VF2_OK);
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00023524));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00023524),
+                                       UINT32_C(0x00022210)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+
+    CHECK(vf2_hybrid_coli_23524_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022210));
+    /* Shell 178 + two full 0x2396c (2618+405 each) + remaining children
+     * + shell ret = 9151. */
+    remap_bodies = 95u + 155u + 155u;
+    CHECK(cpu.executed_instructions - start_instructions ==
+          UINT64_C(178) + (UINT64_C(2618) + (uint64_t)remap_bodies) * 2u +
+              UINT64_C(44) + UINT64_C(10) + UINT64_C(2855) + UINT64_C(17) +
+              UINT64_C(1));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(13));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(14));
+    /* g13+0x40 cluster cleared. */
+    for (index = 0u; index < 16u; ++index) {
+        CHECK(read_test_u32(&machine,
+                            registry + UINT32_C(0x40) +
+                                (uint32_t)index * 4u) == 0u);
+    }
+    /* Flag builder row. */
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xb4)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xb8)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0x88)) == 0u);
+    /* Shell cluster/rolling stores. */
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0x144)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0x148)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xec)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xf0)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xf4)) == 0u);
+    /* 0x2364c replies. */
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xc8)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xcc)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0xd0)) == 0u);
+    /* Six-word out cluster. */
+    for (index = 0u; index < 6u; ++index) {
+        CHECK(read_test_u32(&machine,
+                            registry + UINT32_C(0xd4) +
+                                (uint32_t)index * 4u) == 0u);
+    }
+    /* g6 cleared, g4 from FIFO replies (0). */
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 6u] == 0u);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 4u] == 0u);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+    free(main_data);
+}
+
 static void test_recurring_kill_osage_order_accounting(void) {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
@@ -3113,6 +3282,7 @@ int main(void) {
     test_coli_233d0_flag_builder();
     test_coli_2364c_fifo_delta();
     test_coli_2396c_poly_cluster();
+    test_coli_23524_shell();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 

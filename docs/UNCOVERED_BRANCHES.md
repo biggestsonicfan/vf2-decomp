@@ -1023,6 +1023,28 @@ shell. See `decomp/i960/notes/fa_coli_23524_shell_measure_v0286.md`.
 Remaining interpreted inside `0x23524`: the **179-insn shell** only
 (native recovery planned as v0287).
 
+### v0287 recover `0x23524` shell as one native procedure
+
+`vf2_hybrid_coli_23524_execute` is now native C. The 179-insn shell
+plus the `bal 0x23694` body run as a single procedure, with every
+recovered callee (`0x2396c`×2, `0x233d0`, `0x238a4`×2, `0x238f8`,
+`0x2364c`) inlined for accounting only — calling the standalone
+exports would pop the wrong frame. `coli_2396c_body` was extracted
+from the v0285 export (wrapper unchanged). `hybrid_execute_coli_body`
+now stops at `0x23524` once and resumes at `0x22210`.
+
+Accounting: **9151** instructions / **13** calls / **14** returns for
+the procedure; caller prefix adds 7+1 → path **9158 / 14 / 14**.
+Unmeasured shell siblings (`bbc 0,g6` taken, `bbc 3,g6` taken,
+`cmpobl 0,g13+0x148` taken) fail closed.
+
+PUNCH remains `320/320` MATCH / `14,962,620` instructions.
+Unit test `test_coli_23524_shell`.
+See `decomp/i960/notes/fa_coli_23524_shell_v0287.md`.
+
+Remaining interpreted in the coli warm task: mid-body/tail only
+(`0x22210`→`0x22298`→`0x22404`→`0x10dcc`).
+
 ### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
 
 `bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=
