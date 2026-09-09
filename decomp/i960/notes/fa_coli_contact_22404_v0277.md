@@ -11,8 +11,8 @@ are zero, so the caller jumps straight to `ret`.
 ## Warm-path measurement
 
 From `out/coli-22298-r2.vf2snap` (parked at `0x22220`, after both
-`0x22298` returns; fighters `g7=0x510800` / swapped `0x512800`;
-registry `g13=0x514b80`):
+`0x22298` returns; fighter `g7=0x510980` (from `0x500804`); registry
+`g13=0x514b80`):
 
 ```text
 # First entry
@@ -135,3 +135,18 @@ would (7+7+14+14 instructions, +2+2 returns), so the pin is unchanged.
   the `cmpobe` at `0x2223c`/`0x22240` fall through to `0x22290`)
 - unmeasured siblings of `0x22298` (bit 8 set, 16-trip loops)
 - unmeasured siblings of `0x22404` (bit 8 set: polygon FIFO / hit path)
+
+## `0x225cc` reachability probe
+
+Forcing only `g7+0x1a4` bit 8 (`--set-u32 0x00510b24=256` on
+`out/coli-22404-e1.vf2snap`) takes the sibling through `0x2242c`, but
+still returns `g0 = 0` in **30 instructions** (`bbs` taken → `cmpobe` →
+threshold check → `bal 0x223bc` → `scanbit`/`bno` → `andnot`/`stos` →
+`mov 0, g0` / `ret`). The caller still skips `0x22290`.
+
+Reaching `0x225cc` requires a contact-query result of `g0 != 0` (the
+`mov 1, g0` / polygon-FIFO path at `0x224b4`+), which needs a richer
+multi-field fighter mutation (pending bit clear in `g13+0x90`, threshold
+pair `g7+0x1aa` / `g7+0x808`, non-empty scan mask after `andnot` with
+`g8+0x6dc`). That is a separate measured-drive task, not a warm-path
+recovery.
