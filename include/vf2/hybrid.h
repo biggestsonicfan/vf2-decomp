@@ -332,6 +332,15 @@ vf2_status vf2_hybrid_coli_bitmask_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured warm-path fa_coli contact query at 0x22404.
+ * The CPU must already be inside the callee (IP == entry, frame pushed).
+ * Bit 8 of g7+0x1a4 clear snapshots g7+0x1a8 into g13+0x8c[slot], clears
+ * the slot bit in g13+0x90 and returns g0 = 0; siblings fail closed. */
+vf2_status vf2_hybrid_coli_contact_query_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Advance the accepted first-dispatch scheduler path from the return checkpoint
  * of one task to the architectural entry of the next task. This replaces the
  * descriptor scan, timing-accounting and diagnostic-name helper calls with C. */

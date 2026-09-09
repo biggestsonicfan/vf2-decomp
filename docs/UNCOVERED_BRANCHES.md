@@ -875,3 +875,17 @@ unchanged (`9214 / 18 / 19`). ROM-backed PUNCH corridor remains
 `0x225cc` remain open. See
 `decomp/i960/notes/fa_coli_bitmask_22298_v0276.md`.
 
+### v0277 fa_coli contact query `0x22404` + warm-path skip of `0x225cc`
+
+The second mid-body callee is now native. Both PUNCH-driven invocations
+of `0x22404` take the measured early exit (bit 8 of `g7+0x1a4` clear):
+snapshot `g7+0x1a8` into `g13+0x8c[slot]`, clear the slot bit in
+`g13+0x90`, `g0 = 0`, **14 instructions**, `0` counted calls /
+`1` return. Bit 8 set and slot `> 1` fail closed.
+
+The warm tail does **not** reach `0x225cc`: both contact-query results
+are zero, so `cmpobe` at `0x2223c`/`0x22284` skip `0x22290`. `0x225cc`
+needs a drive where a contact query returns non-zero. `0x23524` remains
+the dominant interpreted cost (~9,151 of 9,214 warm instructions).
+See `decomp/i960/notes/fa_coli_contact_22404_v0277.md`.
+

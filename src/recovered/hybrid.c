@@ -33,6 +33,13 @@
 #define VF2_COLI_BITMASK_RETURN_SECOND UINT32_C(0x00022220)
 #define VF2_COLI_BITMASK_RESULT_OFFSET UINT32_C(0x000006dc)
 #define VF2_COLI_BITMASK_FLAGS_OFFSET UINT32_C(0x000001a4)
+#define VF2_COLI_CONTACT_ENTRY UINT32_C(0x00022404)
+#define VF2_COLI_CONTACT_RETURN_FIRST UINT32_C(0x0002222c)
+#define VF2_COLI_CONTACT_RETURN_SECOND UINT32_C(0x0002223c)
+#define VF2_COLI_CONTACT_SLOT_OFFSET UINT32_C(0x00000004)
+#define VF2_COLI_CONTACT_SNAP_OFFSET UINT32_C(0x000001a8)
+#define VF2_COLI_CONTACT_SNAPSHOT_BASE UINT32_C(0x0000008c)
+#define VF2_COLI_CONTACT_PENDING_MASK UINT32_C(0x00000090)
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -17943,10 +17950,74 @@ vf2_status vf2_hybrid_coli_bitmask_execute(
     return hybrid_complete_procedure(machine, cpu, UINT64_C(6), 0u, 0u);
 }
 
+/* Measured warm-path recovery of the fa_coli contact query (v0277).
+ * Both PUNCH-driven invocations take the early exit: g7+0x1a4 bit 8
+ * clear -> snapshot g7+0x1a8 into g13+0x8c[slot], clear slot bit in
+ * g13+0x90, g0 = 0. Fourteen instructions, no nested calls (bal/bx are
+ * not counted), one return. Sibling paths remain explicit boundaries. */
+vf2_status vf2_hybrid_coli_contact_query_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    const uint32_t g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+    uint8_t slot = 0u;
+    uint16_t snap = 0u;
+    uint16_t pending = 0u;
+    uint32_t flags_g7 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_CONTACT_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (hybrid_read_u8(
+            machine, g7 + VF2_COLI_CONTACT_SLOT_OFFSET, &slot) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (slot > 1u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g7 & (UINT32_C(1) << 8u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u16(
+            machine, g7 + VF2_COLI_CONTACT_SNAP_OFFSET, &snap) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_write_u16(
+            machine,
+            g13 + VF2_COLI_CONTACT_SNAPSHOT_BASE + (uint32_t)slot * 2u,
+            snap) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u16(
+            machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, &pending) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    pending = (uint16_t)(pending &
+                         (uint16_t)~(uint16_t)((uint16_t)1u << slot));
+    if (hybrid_write_u16(
+            machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, pending) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+    /* bal 0x225bc links g14 to the fall-through address; bx does not
+     * clear it and ret does not restore globals. */
+    cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x00022428);
+    return hybrid_complete_procedure(machine, cpu, UINT64_C(13), 0u, 0u);
+}
+
 /* Segment the measured warm body: interpret the entry prefix and 0x23524
- * subtree, recover each 0x22298 call natively, then interpret the
- * remainder through the scheduler return. Whole-task counters remain
- * the v0274 pin (9214 / 18 / 19). */
+ * subtree, recover each 0x22298 and 0x22404 call natively, then interpret
+ * the remainder through the scheduler return. Whole-task counters remain
+ * the v0274 pin (9214 / 18 / 19). The warm tail skips 0x225cc because both
+ * contact-query results are zero. */
 static vf2_status hybrid_execute_coli_body(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
@@ -17973,7 +18044,23 @@ static vf2_status hybrid_execute_coli_body(
     }
     if (status == VF2_OK) {
         status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_BITMASK_RETURN_SECOND, VF2_SCHEDULER_RETURN
+            machine, cpu, VF2_COLI_BITMASK_RETURN_SECOND, VF2_COLI_CONTACT_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_contact_query_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_CONTACT_RETURN_FIRST, VF2_COLI_CONTACT_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_contact_query_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_CONTACT_RETURN_SECOND, VF2_SCHEDULER_RETURN
         );
     }
     return status;
@@ -18467,9 +18554,10 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
 
     case VF2_TASK_COLI_ENTRY: {
         /* Measured gate (v0275): bit 5 set -> ld/bbs/ret, 3 instructions,
-         * 0 calls / 1 return, no stores. Warm body (v0274+v0276): bit 5
-         * clear, segmented bridge (interpret 0x23524 subtree, native
-         * 0x22298 bitmask child x2, interpret tail), 9,214 instructions,
+         * 0 calls / 1 return, no stores. Warm body (v0274+v0276+v0277):
+         * bit 5 clear, segmented bridge (interpret 0x23524 subtree, native
+         * 0x22298 bitmask child x2, native 0x22404 contact query x2,
+         * interpret tail that skips 0x225cc), 9,214 instructions,
          * 18 calls / 19 returns through 0x10dcc. */
         uint32_t runtime_flags = 0u;
         const uint64_t coli_start_instructions = cpu->executed_instructions;
