@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- coli measure: reconfirm the warm PUNCH corridor (`320/320` MATCH,
+  `12946` blocks, `14,962,620` instructions) and attribute every remaining
+  interpreted block inside `0x23524` — `0x2396c` warm path is fixed
+  (six never-taken blocks; own cost **2618** ×2 plus three `0x23878`
+  bodies per invocation), `0x233d0` is a 44-insn single-path ROM-table
+  copy into `g13`, `0x2364c` is a 17-insn FIFO delta push to `0x884000`;
+  all three are **GO** for native recovery; no C in this slice
+  (v0283, `decomp/i960/notes/fa_coli_2396c_measure_v0283.md`);
+
 - i960 + coli frontier: fix `bno` after `scanbit` (a hit must not fire NoBit; miss sets dest=31 and NONE) and record a measured drive to the previously unreachable `0x225cc` resolver — three-field mutation (`g7+0x1a4` bit 8, `g7+0x820=1`, dest `0x5149cc=0xffff`) makes the first contact query return `g0=1` in **73 instructions** and the caller reach `0x225cc` in **96**; PUNCH corridor unchanged `320/320` MATCH; executor unit test pins scanbit hit/miss (v0282, `decomp/i960/notes/fa_coli_225cc_drive_v0282.md`);
 
 - coli poly child: recover the `0x238f8` nested bit-scan as native C — 30×30 loop over buffer-RAM source masks at `0x91f880`, remap bytes at ROM `0x23284`, stores into `g13+0x40`; warm PUNCH source is all-zero (**2855 instructions**, **0** stores); non-zero source executes the measured `setbit`/`st` path; `hybrid_execute_coli_body` stops at `0x238f8` after the `0x238a4` pair and resumes at `0x23644`; whole-task pin stays `9214/18/19` and the PUNCH corridor `320/320` MATCH; unit test `test_coli_238f8_warm_noop` (v0281);

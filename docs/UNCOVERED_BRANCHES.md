@@ -942,6 +942,32 @@ pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH corridor remains
 Remaining interpreted inside `0x23524`: `0x2396c` (5236), `0x233d0`
 (44), `0x2364c` (17), and the 179-insn shell.
 
+### v0283 remaining-leaf measure (`0x2396c` / `0x233d0` / `0x2364c`)
+
+Measurement-only. Reconfirms PUNCH `320/320` MATCH / `12946` blocks /
+`14,962,620` instructions and the warm `0x221e8 → 0x22210` path at
+**9158** instructions. Attributes every remaining interpreted block.
+
+- `0x2396c`: **GO** (large). 30 blocks, warm path is fixed; six blocks
+  never taken (`0x23a70`, `0x23a88`, `0x23af0`, `0x23b14`, `0x23b24`,
+  `0x23b88`). Own cost **2618** per invocation (×2) plus three nested
+  `0x23878` bodies. Stores: fighter `stq` cluster `g7+0xd00[0..29]`,
+  `stos` `+0x624/+0x614/+0x618`, final `+0x644/+0x64c`, and the `g13`
+  `+0xfc..+0x12c` accumulator words. Prefer split prototype then wire-up;
+  inline the bit-remap (calling `vf2_hybrid_coli_23878_execute` from
+  inside a native parent would pop the wrong frame).
+- `0x233d0`: **GO**. Late entry at `0x233d0` jumps back into the shared
+  body at `0x23398`. 44 instructions, single warm path, copies the ROM
+  row at `0x232c4` into `g13+0xb4/+0xb8/+0xc0/+0xc4/+0xbc/+0x88`,
+  leaves `g6 = 0`. Magic `+0x1a8` compares (`0x242`, `0x241`,
+  `shlo 2,27 = 108`) and every other sibling fail closed.
+- `0x2364c`: **GO**. 17 instructions. Diffs both fighters' `+0x1f4`,
+  writes command `0x18003030` plus three delta words to FIFO `0x884000`,
+  reads three words back, stores them at `g13+0xc8/+0xcc/+0xd0`.
+
+See `decomp/i960/notes/fa_coli_2396c_measure_v0283.md`.
+Next recovery slice is `0x233d0` + `0x2364c` (v0284).
+
 ### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
 
 `bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=
