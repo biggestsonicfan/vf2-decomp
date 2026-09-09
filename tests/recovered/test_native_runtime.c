@@ -2509,6 +2509,83 @@ static void test_coli_238a4_early_path(void) {
     free(rom);
 }
 
+static void test_coli_23878_bit_remap(void) {
+    static const uint32_t table[30] = {
+        1u, 1u, 2u, 9u, 3u, 3u, 4u, 4u, 5u, 6u,
+        6u, 7u, 7u, 8u, 10u, 10u, 10u, 11u, 11u, 11u,
+        12u, 12u, 13u, 13u, 13u, 14u, 14u, 14u, 15u, 15u
+    };
+    uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const size_t data_size = UINT32_C(0x00008000);
+    uint64_t start_instructions = 0u;
+    size_t index = 0u;
+    uint32_t expected = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK((main_data = (uint8_t *)calloc(1u, data_size)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || main_data == NULL || machine.work_ram == NULL) {
+        free(rom);
+        free(main_data);
+        return;
+    }
+    for (index = 0u; index < 30u; ++index) {
+        write_u32_bytes(main_data, 0x7b76u + index * 4u, table[index]);
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(&machine, main_data, data_size) ==
+          VF2_OK);
+
+    /* Empty source: 95 instructions, g3 stays 0. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00023878));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 3u] = 0u;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00023878),
+                                       UINT32_C(0x00023b44)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_23878_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00023b44));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(95));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 3u] == 0u);
+
+    /* Full bits 0..29: remap every entry, 155 instructions. */
+    expected = 0u;
+    for (index = 0u; index < 30u; ++index) {
+        expected |= (UINT32_C(1) << table[index]);
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00023878));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(0x3fffffff);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00023878),
+                                       UINT32_C(0x00023b44)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_23878_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(155));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 3u] == expected);
+
+    /* Single bit 0 -> mapped bit 1, 97 instructions. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00023878));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 3u] = UINT32_C(1);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00023878),
+                                       UINT32_C(0x00023b44)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_23878_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(97));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 3u] == UINT32_C(2));
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+    free(main_data);
+}
+
 static void test_recurring_kill_osage_order_accounting(void) {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
@@ -2669,6 +2746,7 @@ int main(void) {
     test_coli_bitmask_22298_early_path();
     test_coli_contact_query_22404_early_path();
     test_coli_238a4_early_path();
+    test_coli_23878_bit_remap();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 

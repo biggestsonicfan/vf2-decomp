@@ -45,6 +45,9 @@
 #define VF2_COLI_G3SCAN_ENTRY UINT32_C(0x000238a4)
 #define VF2_COLI_G3SCAN_RETURN_FIRST UINT32_C(0x000235b8)
 #define VF2_COLI_G3SCAN_RETURN_SECOND UINT32_C(0x000235c8)
+#define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
+#define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
+#define VF2_COLI_BITREMAP_TRIPS 30u
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -18046,10 +18049,52 @@ vf2_status vf2_hybrid_coli_238a4_execute(
     return hybrid_complete_procedure(machine, cpu, UINT64_C(4), 0u, 0u);
 }
 
+/* Measured warm-path recovery of the fa_coli bit-remap helper at 0x23878.
+ * For each bit i in 0..29 of g3, set bit ROM[0x02007b76 + i*4] in the
+ * result, then g3 = result. No memory writes. Both empty and full source
+ * shapes were measured on the PUNCH path (95 / 155 instructions). */
+vf2_status vf2_hybrid_coli_23878_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t g3 = 0u;
+    uint32_t result = 0u;
+    uint32_t set_bits = 0u;
+    uint32_t index = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_BITREMAP_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    g3 = cpu->registers[VF2_I960_G0_REGISTER + 3u];
+    for (index = 0u; index < VF2_COLI_BITREMAP_TRIPS; ++index) {
+        if ((g3 & (UINT32_C(1) << index)) != 0u) {
+            uint32_t mapped = 0u;
+            if (vf2_model2a_read_u32(
+                    machine,
+                    VF2_COLI_BITREMAP_TABLE + index * 4u,
+                    &mapped) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if (mapped >= 32u) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            result |= (UINT32_C(1) << mapped);
+            ++set_bits;
+        }
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = result;
+    /* body = prologue 3 + 30*(bbc+cmpinco+bne) + 2/setbit + mov r6,g3 */
+    return hybrid_complete_procedure(
+        machine, cpu, UINT64_C(94) + (uint64_t)set_bits * 2u, 0u, 0u);
+}
+
 /* Segment the measured warm body: interpret the entry prefix and the
- * unmeasured 0x23524 shell callees, recover each 0x238a4 / 0x22298 /
- * 0x22404 call natively, then interpret the remainder through the
- * scheduler return. Whole-task counters remain the v0274 pin
+ * unmeasured 0x23524 shell callees, recover each 0x23878 / 0x238a4 /
+ * 0x22298 / 0x22404 call natively, then interpret the remainder through
+ * the scheduler return. Whole-task counters remain the v0274 pin
  * (9214 / 18 / 19). The warm tail skips 0x225cc because both
  * contact-query results are zero. */
 static vf2_status hybrid_execute_coli_body(
@@ -18057,7 +18102,17 @@ static vf2_status hybrid_execute_coli_body(
     vf2_i960_cpu *cpu
 )
 {
+    static const uint32_t bitremap_returns[6] = {
+        UINT32_C(0x00023b44),
+        UINT32_C(0x00023b58),
+        UINT32_C(0x00023b64),
+        UINT32_C(0x00023b44),
+        UINT32_C(0x00023b58),
+        UINT32_C(0x00023b64),
+    };
     vf2_status status = VF2_OK;
+    uint32_t window_entry = VF2_COLI_POLY_ENTRY;
+    size_t bitremap_index = 0u;
 
     if (machine == NULL || cpu == NULL || cpu->ip != VF2_TASK_COLI_ENTRY) {
         return VF2_ERROR_INVALID_ARGUMENT;
@@ -18065,9 +18120,20 @@ static vf2_status hybrid_execute_coli_body(
     status = hybrid_execute_interpreted_until(
         machine, cpu, VF2_TASK_COLI_ENTRY, VF2_COLI_POLY_ENTRY
     );
+    for (bitremap_index = 0u;
+         status == VF2_OK && bitremap_index < 6u;
+         ++bitremap_index) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, window_entry, VF2_COLI_BITREMAP_ENTRY
+        );
+        if (status == VF2_OK) {
+            status = vf2_hybrid_coli_23878_execute(machine, cpu);
+        }
+        window_entry = bitremap_returns[bitremap_index];
+    }
     if (status == VF2_OK) {
         status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_POLY_ENTRY, VF2_COLI_G3SCAN_ENTRY
+            machine, cpu, window_entry, VF2_COLI_G3SCAN_ENTRY
         );
     }
     if (status == VF2_OK) {

@@ -913,3 +913,17 @@ corridor remains `320/320` MATCH. Remaining `0x23524` callees stay
 interpreted: `0x2396c`, `0x238f8`, `0x23878`, `0x233d0`, `0x2364c`.
 See `decomp/i960/notes/fa_coli_23524_attribution_v0278.md`.
 
+### v0280 fa_coli `0x23878` bit-remap leaf
+
+The second `0x23524` callee is now native. All six PUNCH-driven
+invocations remap bits `0..29` of `g3` through the main-data table at
+`0x02007b76` (30 words). Empty source is **95 instructions**; full
+source is **155**; single-bit is **97**. No memory writes. Table
+entries `>= 32` fail closed.
+
+`hybrid_execute_coli_body` now walks the six `0x23878` call sites
+inside both `0x2396c` invocations before the `0x238a4` pair. The
+whole-task pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH
+corridor remains `320/320` MATCH. Unit test `test_coli_23878_bit_remap`.
+Remaining interpreted: `0x2396c`, `0x238f8`, `0x233d0`, `0x2364c`.
+
