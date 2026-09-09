@@ -990,6 +990,23 @@ See `decomp/i960/notes/fa_coli_small_leaves_v0284.md`.
 Remaining interpreted inside `0x23524`: `0x2396c` (5236, ×2) and the
 179-insn shell.
 
+### v0285 recover `0x2396c` warm poly-cluster builder
+
+`vf2_hybrid_coli_2396c_execute` is now native C. Two PUNCH-driven
+invocations replace the six-step `0x23878` bitremap walk. The leaf
+inlines three bit-remaps (calling `vf2_hybrid_coli_23878_execute` from
+inside a native parent would pop the wrong frame), copies the 30-trip
+`stq` cluster, runs the threshold/inner/max scans, and stores the
+measured `stos`/`st` results. Own cost **2618**/invocation plus three
+remap bodies (warm sum 405). Unmeasured threshold/min/max/positive
+siblings fail closed.
+
+PUNCH remains `320/320` MATCH / `14,962,620` instructions.
+Unit test `test_coli_2396c_poly_cluster`.
+See `decomp/i960/notes/fa_coli_2396c_v0285.md`.
+
+Remaining interpreted inside `0x23524`: the **179-insn shell** only.
+
 ### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
 
 `bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=

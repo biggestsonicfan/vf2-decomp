@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- coli poly child: recover the dominant `0x2396c` warm poly-cluster
+  builder as native C — two invocations copy 30 remapped `stq` triples
+  into `g7+0xd00`, run the threshold/inner/max scans, and inline three
+  `0x23878` bit-remaps into `+0x624/+0x614/+0x618` (**2618** own +
+  **405** nested per invocation); warm never takes `+0x110`/`+0x114`
+  setbits, the inner positive/min paths, or the max-update path (those
+  fail closed); `hybrid_execute_coli_body` replaces the six-step
+  bitremap walk with two native `0x2396c` entries; PUNCH corridor stays
+  `320/320` MATCH / `14,962,620` instructions; unit test
+  `test_coli_2396c_poly_cluster` (v0285,
+  `decomp/i960/notes/fa_coli_2396c_v0285.md`);
+
 - coli poly children: recover the remaining small `0x23524` callees
   `0x233d0` and `0x2364c` as native C — flag builder copies the ROM row
   at `0x232c4` into `g13+0xb4..` and leaves `g6 = 0` (**44 instructions**);

@@ -384,6 +384,15 @@ vf2_status vf2_hybrid_coli_2364c_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured warm-path fa_coli poly cluster builder at 0x2396c.
+ * The CPU must already be inside the callee (IP == entry, frame pushed).
+ * Two PUNCH-driven invocations; inlines three 0x23878 bit-remaps.
+ * Unmeasured threshold/min/max siblings fail closed. */
+vf2_status vf2_hybrid_coli_2396c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Advance the accepted first-dispatch scheduler path from the return checkpoint
  * of one task to the architectural entry of the next task. This replaces the
  * descriptor scan, timing-accounting and diagnostic-name helper calls with C. */

@@ -2822,6 +2822,132 @@ static void test_coli_2364c_fifo_delta(void) {
     free(rom);
 }
 
+static void test_coli_2396c_poly_cluster(void) {
+    static const uint32_t remap_table[30] = {
+        1u, 1u, 2u, 9u, 3u, 3u, 4u, 4u, 5u, 6u,
+        6u, 7u, 7u, 8u, 10u, 10u, 10u, 11u, 11u, 11u,
+        12u, 12u, 13u, 13u, 13u, 14u, 14u, 14u, 15u, 15u
+    };
+    uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const size_t data_size = UINT32_C(0x00008000);
+    const uint32_t fighter0 = UINT32_C(0x00510980);
+    const uint32_t registry = UINT32_C(0x00514980);
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+    size_t index = 0u;
+    uint32_t remap_bodies = 0u;
+    uint32_t expected_remap2 = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK((main_data = (uint8_t *)calloc(1u, data_size)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || main_data == NULL || machine.work_ram == NULL) {
+        free(rom);
+        free(main_data);
+        return;
+    }
+    for (index = 0u; index < 30u; ++index) {
+        write_u32_bytes(main_data, 0x7b76u + index * 4u, remap_table[index]);
+        expected_remap2 |= (UINT32_C(1) << remap_table[index]);
+    }
+    /* Index table: dest_index[i] = i (identity remap into cluster). */
+    for (index = 0u; index < 30u; ++index) {
+        rom[0x2394cu + index] = (uint8_t)index;
+    }
+    /* src table slot 0 -> 0x0090fa00 (test ROM buffer is LE). */
+    rom[0x23944u + 0] = 0x00u;
+    rom[0x23944u + 1] = 0xfau;
+    rom[0x23944u + 2] = 0x90u;
+    rom[0x23944u + 3] = 0x00u;
+    /* dir count = 4 (LE). */
+    rom[0x23bb8u] = 0x04u;
+    rom[0x23bb8u + 1] = 0x00u;
+    rom[0x23bb8u + 2] = 0x00u;
+    rom[0x23bb8u + 3] = 0x00u;
+    /* Direction table: four triples (LE). */
+    {
+        static const uint32_t dirs[12] = {
+            UINT32_C(0x3f800000), 0u, UINT32_C(0xc0c00000),
+            UINT32_C(0xbf800000), 0u, UINT32_C(0xc0c00000),
+            0u, UINT32_C(0x3f800000), UINT32_C(0xc0c00000),
+            0u, UINT32_C(0xbf800000), UINT32_C(0xc0c00000),
+        };
+        for (index = 0u; index < 12u; ++index) {
+            rom[0x23bbcu + index * 4u + 0] = (uint8_t)dirs[index];
+            rom[0x23bbcu + index * 4u + 1] =
+                (uint8_t)(dirs[index] >> 8);
+            rom[0x23bbcu + index * 4u + 2] =
+                (uint8_t)(dirs[index] >> 16);
+            rom[0x23bbcu + index * 4u + 3] =
+                (uint8_t)(dirs[index] >> 24);
+        }
+    }
+    /* scale_a / scale_b in Work RAM. */
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(&machine, main_data, data_size) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050a00c),
+                                UINT32_C(0x41000000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050a010),
+                                UINT32_C(0xbf000000)) == VF2_OK);
+    /* g7+0x1c float field used by +0x108 threshold. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1c), 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0, 0u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a4), 0u) ==
+          VF2_OK);
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x0002396c));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x0002396c),
+                                       UINT32_C(0x00023590)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+
+    /* Zero cluster means all threshold compares fall on the warm side
+     * only if the thresholds admit r7=r5=0. Warm +0xfc=+0.05, so
+     * r7=0 > 0.05 is false -> setbit +0x10c fires. r5=0 > -0.1 is
+     * true -> skip +0x110. r7=0 > -0.45 is true -> skip +0x114.
+     * flags bit2/bit23 clear -> check +0x108. r7=0 > (0+0.05) is
+     * false -> setbit +0x118. Inner loop: r10 = -8 + 0 + 0 = -8,
+     * 0 > -8 is true -> skip positive. Matches warm. */
+    CHECK(vf2_hybrid_coli_2396c_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00023590));
+    /* remap1 empty (95); remap2/3 full 30-bit (155 each). Own 2618
+     * includes the final ret, so complete adds 2617 + 405 + 1 ret. */
+    remap_bodies = 95u + 155u + 155u;
+    CHECK(cpu.executed_instructions - start_instructions ==
+          UINT64_C(2618) + remap_bodies);
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(3));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(4));
+    /* +0x10c and +0x118 have bits 0..29 set. */
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0x10c)) ==
+          UINT32_C(0x3fffffff));
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0x118)) ==
+          UINT32_C(0x3fffffff));
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0x110)) == 0u);
+    CHECK(read_test_u32(&machine, registry + UINT32_C(0x114)) == 0u);
+    /* remap1 empty -> +0x624 = 0; remap2/3 remapped through the table. */
+    CHECK(read_test_u16(&machine, fighter0 + UINT32_C(0x624)) == 0u);
+    CHECK(read_test_u16(&machine, fighter0 + UINT32_C(0x614)) ==
+          (uint16_t)expected_remap2);
+    CHECK(read_test_u16(&machine, fighter0 + UINT32_C(0x618)) ==
+          (uint16_t)expected_remap2);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+    free(main_data);
+}
+
 static void test_recurring_kill_osage_order_accounting(void) {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
@@ -2986,6 +3112,7 @@ int main(void) {
     test_coli_238f8_warm_noop();
     test_coli_233d0_flag_builder();
     test_coli_2364c_fifo_delta();
+    test_coli_2396c_poly_cluster();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 
