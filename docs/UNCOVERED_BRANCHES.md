@@ -889,3 +889,27 @@ needs a drive where a contact query returns non-zero. `0x23524` remains
 the dominant interpreted cost (~9,151 of 9,214 warm instructions).
 See `decomp/i960/notes/fa_coli_contact_22404_v0277.md`.
 
+### v0278 fa_coli `0x23524` callee cost attribution
+
+Measurement-only. The 9,158-instruction warm `0x23524` path is
+attributed by call-stack walk: `0x2396c` **5236** (×2, 402 stores),
+`0x238f8` **2855** (×1, 0 writes; source mask `0x91f880` all-zero),
+`0x23878` **810** (×6, pure bit-remap via ROM `0x2007b76`),
+shell 179, `0x233d0` 44, `0x2364c` 17, `0x238a4` **10** (×2, bit-8
+clear → `g3=0`). First native leaf chosen: `0x238a4`.
+See `decomp/i960/notes/fa_coli_23524_attribution_v0278.md`.
+
+### v0279 fa_coli `0x238a4` g3-scan leaf + `0x23524` hybrid parent
+
+The first `0x23524` callee is now native. Both PUNCH-driven invocations
+of `0x238a4` take the measured early exit (`g7+0x1a4` bit 8 clear):
+`g3 = 0`, **5 instructions**, `0` counted calls / `1` return. Bit 8
+set fails closed and leaves `g3` untouched.
+
+`hybrid_execute_coli_body` now stops at `0x23524` and `0x238a4`,
+native-recovers the pair, then continues into the v0276/v0277 children.
+The whole-task pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH
+corridor remains `320/320` MATCH. Remaining `0x23524` callees stay
+interpreted: `0x2396c`, `0x238f8`, `0x23878`, `0x233d0`, `0x2364c`.
+See `decomp/i960/notes/fa_coli_23524_attribution_v0278.md`.
+

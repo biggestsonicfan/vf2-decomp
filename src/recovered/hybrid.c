@@ -40,6 +40,11 @@
 #define VF2_COLI_CONTACT_SNAP_OFFSET UINT32_C(0x000001a8)
 #define VF2_COLI_CONTACT_SNAPSHOT_BASE UINT32_C(0x0000008c)
 #define VF2_COLI_CONTACT_PENDING_MASK UINT32_C(0x00000090)
+#define VF2_COLI_POLY_ENTRY UINT32_C(0x00023524)
+#define VF2_COLI_POLY_RETURN UINT32_C(0x00022210)
+#define VF2_COLI_G3SCAN_ENTRY UINT32_C(0x000238a4)
+#define VF2_COLI_G3SCAN_RETURN_FIRST UINT32_C(0x000235b8)
+#define VF2_COLI_G3SCAN_RETURN_SECOND UINT32_C(0x000235c8)
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -18013,10 +18018,39 @@ vf2_status vf2_hybrid_coli_contact_query_execute(
     return hybrid_complete_procedure(machine, cpu, UINT64_C(13), 0u, 0u);
 }
 
-/* Segment the measured warm body: interpret the entry prefix and 0x23524
- * subtree, recover each 0x22298 and 0x22404 call natively, then interpret
- * the remainder through the scheduler return. Whole-task counters remain
- * the v0274 pin (9214 / 18 / 19). The warm tail skips 0x225cc because both
+/* Measured warm-path recovery of the fa_coli g3-scan helper at 0x238a4.
+ * Both PUNCH-driven invocations take the early exit: g7+0x1a4 bit 8
+ * clear -> g3 = 0. Five instructions, no nested calls, one return.
+ * Sibling paths remain explicit boundaries. */
+vf2_status vf2_hybrid_coli_238a4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    uint32_t flags_g7 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_G3SCAN_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g7 & (UINT32_C(1) << 8u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = 0u;
+    return hybrid_complete_procedure(machine, cpu, UINT64_C(4), 0u, 0u);
+}
+
+/* Segment the measured warm body: interpret the entry prefix and the
+ * unmeasured 0x23524 shell callees, recover each 0x238a4 / 0x22298 /
+ * 0x22404 call natively, then interpret the remainder through the
+ * scheduler return. Whole-task counters remain the v0274 pin
+ * (9214 / 18 / 19). The warm tail skips 0x225cc because both
  * contact-query results are zero. */
 static vf2_status hybrid_execute_coli_body(
     vf2_model2a *machine,
@@ -18029,8 +18063,34 @@ static vf2_status hybrid_execute_coli_body(
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     status = hybrid_execute_interpreted_until(
-        machine, cpu, VF2_TASK_COLI_ENTRY, VF2_COLI_BITMASK_ENTRY
+        machine, cpu, VF2_TASK_COLI_ENTRY, VF2_COLI_POLY_ENTRY
     );
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_POLY_ENTRY, VF2_COLI_G3SCAN_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_238a4_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_G3SCAN_RETURN_FIRST, VF2_COLI_G3SCAN_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_238a4_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_G3SCAN_RETURN_SECOND, VF2_COLI_POLY_RETURN
+        );
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_POLY_RETURN, VF2_COLI_BITMASK_ENTRY
+        );
+    }
     if (status == VF2_OK) {
         status = vf2_hybrid_coli_bitmask_execute(machine, cpu);
     }
