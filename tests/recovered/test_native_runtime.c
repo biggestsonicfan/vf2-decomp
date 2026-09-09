@@ -2261,6 +2261,66 @@ static void test_scheduler_selects_coli_entry_at_index10(void) {
     free(rom);
 }
 
+static void test_coli_bit5_set_early_ret(void) {
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_task_report report;
+    const uint32_t registry = UINT32_C(0x00514980);
+    uint32_t flags = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    /* Measured warm flags with bit 5 forced set (0x8a00 | 0x20). */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000),
+                                UINT32_C(0x00008a20)) == VF2_OK);
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000221e8));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[29] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000221e8),
+                                       UINT32_C(0x00010dcc)) == VF2_OK);
+
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_first_dispatch_task_execute(&machine, &cpu, registry,
+                                                 &report) == VF2_OK);
+    CHECK(report.kind == VF2_HYBRID_TASK_COLI);
+    CHECK(report.exit_address == UINT32_C(0x00010dcc));
+    CHECK(report.recovered_instruction_count == UINT64_C(3));
+    CHECK(report.recovered_procedure_calls == UINT64_C(0));
+    CHECK(report.recovered_procedure_returns == UINT64_C(1));
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+    CHECK(cpu.local_frame_depth == 0u);
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00508000), &flags) ==
+          VF2_OK);
+    CHECK(flags == UINT32_C(0x00008a20));
+
+    /* Bit 5 clear remains the measured warm-body bridge; a synthetic
+     * zeroed machine has no fighters and must still fail closed. */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000),
+                                UINT32_C(0x00008a00)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000221e8));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[29] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000221e8),
+                                       UINT32_C(0x00010dcc)) == VF2_OK);
+    memset(&report, 0, sizeof(report));
+    CHECK(vf2_hybrid_first_dispatch_task_execute(&machine, &cpu, registry,
+                                                 &report) ==
+          VF2_ERROR_UNSUPPORTED);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 static void test_recurring_kill_osage_order_accounting(void) {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
@@ -2417,6 +2477,7 @@ int main(void) {
     test_repeated_scheduler_entry_dispatches_recovery();
     test_scheduler_selects_later_player_entry();
     test_scheduler_selects_coli_entry_at_index10();
+    test_coli_bit5_set_early_ret();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 

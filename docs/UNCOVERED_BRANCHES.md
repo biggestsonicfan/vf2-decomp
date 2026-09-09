@@ -846,6 +846,18 @@ original-i960 bridge: runtime bit 5 clear, `9,214` instructions,
 `0x500804`/`0x500808`. Literal `movt 0, r8` (`0x236b8`) is handled in
 the executor step used by `vf2probe`/`vf2_i960_run`. The PUNCH corridor
 now completes `320/320` cycles (`14,962,620` instructions) MATCH back
-to `0x1645c`. Native C for the gate and the `0x23524`/`0x22298`/
-`0x22404`/`0x225cc` callees remains open; bit-5-set stays unsupported.
-See `decomp/i960/notes/fa_coli_body_v0274.md`.
+to `0x1645c`. See `decomp/i960/notes/fa_coli_body_v0274.md`.
+
+### v0275 fa_coli bit-5-set gate and `0x23524` boundary
+
+Runtime bit 5 set is now a measured native early return: `ld`/`bbs`/
+`ret`, **3 instructions**, `0` calls / `1` return, no stores, through
+`0x10dcc`. Bit 5 clear remains the v0274 warm-body bridge.
+
+The warm-call boundary of `0x23524` is recorded (not yet native):
+**9,158 instructions**, **14** nested calls, `bbc 0, g6` not taken,
+468 stores including the `g13+0x40` clear and both-fighter
+`+0xe80..+0xf04` clusters. `0x23524` accounts for ~99% of the warm
+body; native callees `0x23524`/`0x22298`/`0x22404`/`0x225cc` remain
+open. See `decomp/i960/notes/fa_coli_gate_23524_v0275.md`.
+
