@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- coli poly shell: measure the remaining 179-insn `0x23524` warm shell
+  glue-by-glue (prologue FIFO `0x1f003e3e`, 16-word `g13+0x40` clear,
+  call sequence, `bal 0x23694` body with `0x2364c`, FIFO `0x1e803d3d`
+  push, fighter `+0x18/+0x20` update, `+0x650` clamp); verdict GO for
+  native recovery (v0286,
+  `decomp/i960/notes/fa_coli_23524_shell_measure_v0286.md`);
+
 - coli poly child: recover the dominant `0x2396c` warm poly-cluster
   builder as native C — two invocations copy 30 remapped `stq` triples
   into `g7+0xd00`, run the threshold/inner/max scans, and inline three

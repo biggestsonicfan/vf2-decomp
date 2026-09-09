@@ -1007,6 +1007,22 @@ See `decomp/i960/notes/fa_coli_2396c_v0285.md`.
 
 Remaining interpreted inside `0x23524`: the **179-insn shell** only.
 
+### v0286 measure `0x23524` shell warm path
+
+Measurement-only. The 179-insn shell plus the `bal 0x23694` body are
+attributed glue-by-glue from the warm trace. Prologue pushes FIFO
+command `0x1f003e3e` and clears 16 words at `g13+0x40`; call glue runs
+`0x2396c`×2 / `0x233d0` / `0x238a4`×2 / `0x238f8`; `bal 0x23694`
+reloads fighters, takes `bbc 3,g6` and `cmpobl 0,g13+0x148` on the warm
+side, calls `0x2364c`, stores the six-word cluster at `g13+0xd4..0xe8`,
+pushes FIFO `0x1e803d3d`, updates fighter `+0x18/+0x20`, and clamps
+`+0x650` with constant `0x3cf5c28f`. All warm payload/store values are
+zero except the four FIFO command words. Verdict **GO** for the native
+shell. See `decomp/i960/notes/fa_coli_23524_shell_measure_v0286.md`.
+
+Remaining interpreted inside `0x23524`: the **179-insn shell** only
+(native recovery planned as v0287).
+
 ### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
 
 `bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=
