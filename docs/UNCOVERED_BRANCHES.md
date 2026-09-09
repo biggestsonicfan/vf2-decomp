@@ -1045,6 +1045,15 @@ See `decomp/i960/notes/fa_coli_23524_shell_v0287.md`.
 Remaining interpreted in the coli warm task: mid-body/tail only
 (`0x22210`→`0x22298`→`0x22404`→`0x10dcc`).
 
+### v0288 measure `0x225cc` reachability path (defer)
+
+Re-runs the v0282 mutated drive to `0x225cc`. The `0x18bd4` shortcut
+is not taken (`g8+0x19f != 22`); the measured path is a 248-instruction
+multi-branch body with four nested calls (`0x230d4`, `0x23238` ×2,
+`0x1ab34`) through `0x230b8`. Not a compact prefix — **defer**. Does
+not affect the warm PUNCH pin.
+See `decomp/i960/notes/fa_coli_225cc_prefix_v0288.md`.
+
 ### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
 
 `bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=

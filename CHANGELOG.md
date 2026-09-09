@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- coli `0x225cc`: measure the v0282 reachability drive — the `0x18bd4`
+  shortcut is not taken; the path is a 248-instruction multi-branch
+  body with four nested calls through `0x230b8` (not a compact
+  prefix); verdict defer (v0288,
+  `decomp/i960/notes/fa_coli_225cc_prefix_v0288.md`);
+
 - coli poly shell: recover the full `0x23524` warm shell as one native
   procedure — 179-insn shell plus `bal 0x23694` body, with `0x2396c`×2 /
   `0x233d0` / `0x238a4`×2 / `0x238f8` / `0x2364c` inlined for
