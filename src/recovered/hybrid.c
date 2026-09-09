@@ -54,6 +54,21 @@
 #define VF2_COLI_NESTED_ROM UINT32_C(0x00023284)
 #define VF2_COLI_NESTED_DEST_BASE UINT32_C(0x00000040)
 #define VF2_COLI_NESTED_TRIPS 30u
+#define VF2_COLI_FLAGBUILDER_ENTRY UINT32_C(0x000233d0)
+#define VF2_COLI_FLAGBUILDER_RETURN UINT32_C(0x000235a0)
+#define VF2_COLI_FLAGBUILDER_TABLE UINT32_C(0x000232c4)
+#define VF2_COLI_FLAGBUILDER_FIGHTER_PTR0 UINT32_C(0x00500804)
+#define VF2_COLI_FLAGBUILDER_FIGHTER_PTR1 UINT32_C(0x00500808)
+#define VF2_COLI_FLAGBUILDER_FLAGS_OFFSET UINT32_C(0x000001a4)
+#define VF2_COLI_FLAGBUILDER_STATE_OFFSET UINT32_C(0x000001a8)
+#define VF2_COLI_FLAGBUILDER_MAGIC_A UINT32_C(0x00000242)
+#define VF2_COLI_FLAGBUILDER_MAGIC_B UINT32_C(0x00000241)
+#define VF2_COLI_FLAGBUILDER_MAGIC_C (UINT32_C(27) << 2u)
+#define VF2_COLI_FIFODELTA_ENTRY UINT32_C(0x0002364c)
+#define VF2_COLI_FIFODELTA_RETURN UINT32_C(0x000236b8)
+#define VF2_COLI_FIFODELTA_POS_OFFSET UINT32_C(0x000001f4)
+#define VF2_COLI_FIFODELTA_FIFO UINT32_C(0x00884000)
+#define VF2_COLI_FIFODELTA_CMD UINT32_C(0x18003030)
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -18163,6 +18178,187 @@ vf2_status vf2_hybrid_coli_238f8_execute(
     return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
 }
 
+/* Measured warm-path recovery of the fa_coli flag builder at 0x233d0 (v0284).
+ * Late entry reloads both fighter pointers from 0x500804/0x500808, builds
+ * or/and/xor of +0x1a4, clears g6, and jumps into the shared body at
+ * 0x23398. Warm PUNCH: neither +0x1a8 matches the magic values
+ * {0x242, 0x241, 108}, every bbc/bbs falls through, and the ROM row at
+ * 0x232c4 is copied into g13+0xb4/+0xb8/+0xc0/+0xc4/+0xbc/+0x88.
+ * g6 leaves as 0. All sibling branches fail closed.
+ * 44 instructions / 0 nested calls / 1 return. */
+vf2_status vf2_hybrid_coli_233d0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t fighter0 = 0u;
+    uint32_t fighter1 = 0u;
+    uint32_t flags0 = 0u;
+    uint32_t flags1 = 0u;
+    uint32_t flags_or = 0u;
+    uint32_t flags_and = 0u;
+    uint32_t flags_xor = 0u;
+    uint16_t state0_raw = 0u;
+    uint16_t state1_raw = 0u;
+    int32_t state0 = 0;
+    int32_t state1 = 0;
+    uint32_t g13 = 0u;
+    uint32_t g6 = 0u;
+    size_t index = 0u;
+    static const uint32_t dest_offsets[6] = {
+        UINT32_C(0x000000b4),
+        UINT32_C(0x000000b8),
+        UINT32_C(0x000000c0),
+        UINT32_C(0x000000c4),
+        UINT32_C(0x000000bc),
+        UINT32_C(0x00000088),
+    };
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_FLAGBUILDER_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(
+            machine, VF2_COLI_FLAGBUILDER_FIGHTER_PTR0, &fighter0) != VF2_OK ||
+        vf2_model2a_read_u32(
+            machine, VF2_COLI_FLAGBUILDER_FIGHTER_PTR1, &fighter1) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (vf2_model2a_read_u32(
+            machine,
+            fighter0 + VF2_COLI_FLAGBUILDER_FLAGS_OFFSET,
+            &flags0) != VF2_OK ||
+        vf2_model2a_read_u32(
+            machine,
+            fighter1 + VF2_COLI_FLAGBUILDER_FLAGS_OFFSET,
+            &flags1) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    flags_or = flags0 | flags1;
+    flags_and = flags0 & flags1;
+    flags_xor = flags0 ^ flags1;
+    g6 = 0u;
+
+    if (hybrid_read_u16(
+            machine,
+            fighter0 + VF2_COLI_FLAGBUILDER_STATE_OFFSET,
+            &state0_raw) != VF2_OK ||
+        hybrid_read_u16(
+            machine,
+            fighter1 + VF2_COLI_FLAGBUILDER_STATE_OFFSET,
+            &state1_raw) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    state0 = (int32_t)(int16_t)state0_raw;
+    state1 = (int32_t)(int16_t)state1_raw;
+    if (state0 == (int32_t)VF2_COLI_FLAGBUILDER_MAGIC_A ||
+        state1 == (int32_t)VF2_COLI_FLAGBUILDER_MAGIC_A ||
+        state0 == (int32_t)VF2_COLI_FLAGBUILDER_MAGIC_B ||
+        state1 == (int32_t)VF2_COLI_FLAGBUILDER_MAGIC_B ||
+        state0 == (int32_t)VF2_COLI_FLAGBUILDER_MAGIC_C ||
+        state1 == (int32_t)VF2_COLI_FLAGBUILDER_MAGIC_C) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_or & (UINT32_C(1) << 18u)) != 0u ||
+        (flags_xor & (UINT32_C(1) << 8u)) != 0u ||
+        (flags_and & (UINT32_C(1) << 8u)) != 0u ||
+        (flags_or & (UINT32_C(1) << 14u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags0 & (UINT32_C(1) << 16u)) != 0u ||
+        (flags1 & (UINT32_C(1) << 16u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+    for (index = 0u; index < 6u; ++index) {
+        uint32_t word = 0u;
+        if (vf2_model2a_read_u32(
+                machine,
+                VF2_COLI_FLAGBUILDER_TABLE + (uint32_t)index * 4u,
+                &word) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (vf2_model2a_write_u32(
+                machine, g13 + dest_offsets[index], word) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 6u] = g6;
+    return hybrid_complete_procedure(machine, cpu, UINT64_C(43), 0u, 0u);
+}
+
+/* Measured warm-path recovery of the fa_coli FIFO delta push at 0x2364c
+ * (v0284). Caller 0x23694 already reloaded g7/g8 from 0x500804/0x500808.
+ * Warm PUNCH: both fighters' +0x1f4 triples are zero, so the float subr
+ * deltas are zero. Writes command 0x18003030 plus three delta words to
+ * FIFO 0x884000, reads three words back, stores them at
+ * g13+0xc8/+0xcc/+0xd0. Non-zero +0x1f4 fails closed (unmeasured).
+ * 17 instructions / 0 nested calls / 1 return. */
+vf2_status vf2_hybrid_coli_2364c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    const uint32_t g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
+    const uint32_t g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+    uint32_t pos0[3] = {0u, 0u, 0u};
+    uint32_t pos1[3] = {0u, 0u, 0u};
+    uint32_t delta[3] = {0u, 0u, 0u};
+    uint32_t reply = 0u;
+    size_t index = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_FIFODELTA_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    for (index = 0u; index < 3u; ++index) {
+        if (vf2_model2a_read_u32(
+                machine,
+                g7 + VF2_COLI_FIFODELTA_POS_OFFSET + (uint32_t)index * 4u,
+                &pos0[index]) != VF2_OK ||
+            vf2_model2a_read_u32(
+                machine,
+                g8 + VF2_COLI_FIFODELTA_POS_OFFSET + (uint32_t)index * 4u,
+                &pos1[index]) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (pos0[index] != 0u || pos1[index] != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    /* Warm measured deltas are 0, 0, 0 (float subr of zeros). */
+    delta[0] = 0u;
+    delta[1] = 0u;
+    delta[2] = 0u;
+    if (vf2_model2a_write_u32(
+            machine, VF2_COLI_FIFODELTA_FIFO, VF2_COLI_FIFODELTA_CMD) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    for (index = 0u; index < 3u; ++index) {
+        if (vf2_model2a_write_u32(
+                machine, VF2_COLI_FIFODELTA_FIFO, delta[index]) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    for (index = 0u; index < 3u; ++index) {
+        if (vf2_model2a_read_u32(
+                machine, VF2_COLI_FIFODELTA_FIFO, &reply) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (vf2_model2a_write_u32(
+                machine,
+                g13 + UINT32_C(0x000000c8) + (uint32_t)index * 4u,
+                reply) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    return hybrid_complete_procedure(machine, cpu, UINT64_C(16), 0u, 0u);
+}
+
 /* Segment the measured warm body: interpret the entry prefix and the
  * unmeasured 0x23524 shell callees, recover each 0x23878 / 0x238a4 /
  * 0x22298 / 0x22404 call natively, then interpret the remainder through
@@ -18205,7 +18401,15 @@ static vf2_status hybrid_execute_coli_body(
     }
     if (status == VF2_OK) {
         status = hybrid_execute_interpreted_until(
-            machine, cpu, window_entry, VF2_COLI_G3SCAN_ENTRY
+            machine, cpu, window_entry, VF2_COLI_FLAGBUILDER_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_233d0_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_FLAGBUILDER_RETURN, VF2_COLI_G3SCAN_ENTRY
         );
     }
     if (status == VF2_OK) {
@@ -18229,7 +18433,15 @@ static vf2_status hybrid_execute_coli_body(
     }
     if (status == VF2_OK) {
         status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_NESTED_RETURN, VF2_COLI_POLY_RETURN
+            machine, cpu, VF2_COLI_NESTED_RETURN, VF2_COLI_FIFODELTA_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_2364c_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_FIFODELTA_RETURN, VF2_COLI_POLY_RETURN
         );
     }
     if (status == VF2_OK) {

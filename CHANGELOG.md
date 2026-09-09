@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- coli poly children: recover the remaining small `0x23524` callees
+  `0x233d0` and `0x2364c` as native C — flag builder copies the ROM row
+  at `0x232c4` into `g13+0xb4..` and leaves `g6 = 0` (**44 instructions**);
+  FIFO delta push writes command `0x18003030` plus three zero deltas to
+  `0x884000` and stores the three replies at `g13+0xc8` (**17 instructions**);
+  magic `+0x1a8` states, unmeasured bit tests and non-zero `+0x1f4` fail
+  closed; `hybrid_execute_coli_body` stops at `0x233d0` / `0x2364c`;
+  PUNCH corridor stays `320/320` MATCH / `14,962,620` instructions; unit
+  tests `test_coli_233d0_flag_builder` and `test_coli_2364c_fifo_delta`
+  (v0284, `decomp/i960/notes/fa_coli_small_leaves_v0284.md`);
+
 - coli measure: reconfirm the warm PUNCH corridor (`320/320` MATCH,
   `12946` blocks, `14,962,620` instructions) and attribute every remaining
   interpreted block inside `0x23524` — `0x2396c` warm path is fixed

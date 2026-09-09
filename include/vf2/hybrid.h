@@ -365,6 +365,25 @@ vf2_status vf2_hybrid_coli_238f8_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured warm-path fa_coli flag builder at 0x233d0.
+ * The CPU must already be inside the callee (IP == entry, frame pushed).
+ * Warm PUNCH copies the ROM row at 0x232c4 into g13+0xb4.. and leaves
+ * g6 = 0; unmeasured siblings fail closed. */
+vf2_status vf2_hybrid_coli_233d0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
+/* Recover the measured warm-path fa_coli FIFO delta push at 0x2364c.
+ * The CPU must already be inside the callee (IP == entry, frame pushed).
+ * Warm PUNCH has both fighters' +0x1f4 triples zero; the leaf writes
+ * command 0x18003030 plus three zero deltas to FIFO 0x884000 and stores
+ * the three FIFO replies at g13+0xc8. Non-zero positions fail closed. */
+vf2_status vf2_hybrid_coli_2364c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Advance the accepted first-dispatch scheduler path from the return checkpoint
  * of one task to the architectural entry of the next task. This replaces the
  * descriptor scan, timing-accounting and diagnostic-name helper calls with C. */

@@ -968,6 +968,28 @@ Measurement-only. Reconfirms PUNCH `320/320` MATCH / `12946` blocks /
 See `decomp/i960/notes/fa_coli_2396c_measure_v0283.md`.
 Next recovery slice is `0x233d0` + `0x2364c` (v0284).
 
+### v0284 recover `0x233d0` + `0x2364c` warm leaves
+
+Both small callees are now native C.
+
+- `vf2_hybrid_coli_233d0_execute` — 44 insns / 0 calls / 1 return.
+  Copies the ROM row at `0x232c4` into `g13+0xb4/+0xb8/+0xc0/+0xc4/
+  +0xbc/+0x88`, leaves `g6 = 0`. Magic `+0x1a8` states and every
+  unmeasured `bbc`/`bbs` fail closed.
+- `vf2_hybrid_coli_2364c_execute` — 17 insns / 0 calls / 1 return.
+  Both fighters' `+0x1f4` triples zero → writes command `0x18003030`
+  plus three zero deltas to FIFO `0x884000`, stores the three hardware
+  replies at `g13+0xc8/+0xcc/+0xd0`. Non-zero positions fail closed.
+
+`hybrid_execute_coli_body` stops at `0x233d0` (after the six `0x23878`
+walk) and at `0x2364c` (after `0x238f8`). PUNCH remains `320/320`
+MATCH / `14,962,620` instructions. Unit tests
+`test_coli_233d0_flag_builder` and `test_coli_2364c_fifo_delta`.
+See `decomp/i960/notes/fa_coli_small_leaves_v0284.md`.
+
+Remaining interpreted inside `0x23524`: `0x2396c` (5236, ×2) and the
+179-insn shell.
+
 ### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
 
 `bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=
