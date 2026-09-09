@@ -861,3 +861,17 @@ The warm-call boundary of `0x23524` is recorded (not yet native):
 body; native callees `0x23524`/`0x22298`/`0x22404`/`0x225cc` remain
 open. See `decomp/i960/notes/fa_coli_gate_23524_v0275.md`.
 
+### v0276 fa_coli mid-body child `0x22298` + hybrid segmentation
+
+The first mid-body callee is now native. Both PUNCH-driven invocations
+of `0x22298` take the measured early exit (bit 8 of `g8+0x1a4` clear):
+`stos 0` into `g7+0x6dc`, **7 instructions**, `0` calls / `1` return.
+Bit 8 set remains an explicit `VF2_ERROR_UNSUPPORTED` boundary.
+
+`hybrid_execute_coli_body` segments the warm path (interpret `0x23524`
+subtree → native `0x22298` ×2 → interpret tail). The whole-task pin is
+unchanged (`9214 / 18 / 19`). ROM-backed PUNCH corridor remains
+`320/320` MATCH. `0x23524` (still interpreted), `0x22404` and
+`0x225cc` remain open. See
+`decomp/i960/notes/fa_coli_bitmask_22298_v0276.md`.
+

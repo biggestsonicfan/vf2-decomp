@@ -28,6 +28,11 @@
 #define VF2_TASK_OBJECT_HANDLER2_ENTRY UINT32_C(0x0006cb08)
 #define VF2_TASK_GAME_DISP_ENTRY UINT32_C(0x0002b1bc)
 #define VF2_TASK_COLI_ENTRY UINT32_C(0x000221e8)
+#define VF2_COLI_BITMASK_ENTRY UINT32_C(0x00022298)
+#define VF2_COLI_BITMASK_RETURN_FIRST UINT32_C(0x00022214)
+#define VF2_COLI_BITMASK_RETURN_SECOND UINT32_C(0x00022220)
+#define VF2_COLI_BITMASK_RESULT_OFFSET UINT32_C(0x000006dc)
+#define VF2_COLI_BITMASK_FLAGS_OFFSET UINT32_C(0x000001a4)
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -17906,6 +17911,74 @@ static vf2_status hybrid_complete_procedure(
     return status;
 }
 
+/* Measured warm-path recovery of the fa_coli bit-mask helper (v0276).
+ * Both PUNCH-driven invocations take the early exit: g8+0x1a4 bit 8
+ * clear -> stos 0 into g7+0x6dc. Seven instructions, no nested calls,
+ * one return. Sibling paths remain explicit boundaries. */
+vf2_status vf2_hybrid_coli_bitmask_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    const uint32_t g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
+    uint32_t flags_g8 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_BITMASK_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g8) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g8 & (UINT32_C(1) << 8u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_write_u16(
+            machine, g7 + VF2_COLI_BITMASK_RESULT_OFFSET, 0u) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    return hybrid_complete_procedure(machine, cpu, UINT64_C(6), 0u, 0u);
+}
+
+/* Segment the measured warm body: interpret the entry prefix and 0x23524
+ * subtree, recover each 0x22298 call natively, then interpret the
+ * remainder through the scheduler return. Whole-task counters remain
+ * the v0274 pin (9214 / 18 / 19). */
+static vf2_status hybrid_execute_coli_body(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != VF2_TASK_COLI_ENTRY) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    status = hybrid_execute_interpreted_until(
+        machine, cpu, VF2_TASK_COLI_ENTRY, VF2_COLI_BITMASK_ENTRY
+    );
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_bitmask_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_BITMASK_RETURN_FIRST, VF2_COLI_BITMASK_ENTRY
+        );
+    }
+    if (status == VF2_OK) {
+        status = vf2_hybrid_coli_bitmask_execute(machine, cpu);
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_interpreted_until(
+            machine, cpu, VF2_COLI_BITMASK_RETURN_SECOND, VF2_SCHEDULER_RETURN
+        );
+    }
+    return status;
+}
+
 static vf2_status hybrid_execute_camera_task(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -18394,9 +18467,10 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
 
     case VF2_TASK_COLI_ENTRY: {
         /* Measured gate (v0275): bit 5 set -> ld/bbs/ret, 3 instructions,
-         * 0 calls / 1 return, no stores. Warm body (v0274): bit 5 clear,
-         * fighters at 0x500804/0x500808, 9,214 instructions, 18 calls /
-         * 19 returns through 0x10dcc. Callees remain original-i960. */
+         * 0 calls / 1 return, no stores. Warm body (v0274+v0276): bit 5
+         * clear, segmented bridge (interpret 0x23524 subtree, native
+         * 0x22298 bitmask child x2, interpret tail), 9,214 instructions,
+         * 18 calls / 19 returns through 0x10dcc. */
         uint32_t runtime_flags = 0u;
         const uint64_t coli_start_instructions = cpu->executed_instructions;
         const uint64_t coli_start_calls = cpu->procedure_calls;
@@ -18410,10 +18484,7 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
             body_instructions = UINT64_C(2);
         } else if (status == VF2_OK) {
             interpreted_task = 1;
-            status = hybrid_execute_interpreted_task(
-                machine, cpu, registry_address, VF2_TASK_COLI_ENTRY,
-                &task_report
-            );
+            status = hybrid_execute_coli_body(machine, cpu);
         }
         if (status == VF2_OK && interpreted_task) {
             const uint64_t coli_instructions =

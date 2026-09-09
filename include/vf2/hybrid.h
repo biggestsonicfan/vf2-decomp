@@ -324,6 +324,14 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
 
 const char *vf2_hybrid_task_kind_name(vf2_hybrid_task_kind kind);
 
+/* Recover the measured warm-path fa_coli bit-mask helper at 0x22298.
+ * The CPU must already be inside the callee (IP == entry, frame pushed).
+ * Bit 8 of g8+0x1a4 clear stores 0 into g7+0x6dc; siblings fail closed. */
+vf2_status vf2_hybrid_coli_bitmask_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Advance the accepted first-dispatch scheduler path from the return checkpoint
  * of one task to the architectural entry of the next task. This replaces the
  * descriptor scan, timing-accounting and diagnostic-name helper calls with C. */

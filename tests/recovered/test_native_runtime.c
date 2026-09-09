@@ -2321,6 +2321,64 @@ static void test_coli_bit5_set_early_ret(void) {
     free(rom);
 }
 
+static void test_coli_bitmask_22298_early_path(void) {
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const uint32_t fighter0 = UINT32_C(0x00510800);
+    const uint32_t fighter1 = UINT32_C(0x00512800);
+    const uint8_t poison[2] = {UINT8_C(0xef), UINT8_C(0xbe)};
+    uint64_t start_instructions = 0u;
+    uint64_t start_returns = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(0)) == VF2_OK);
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022298));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022298),
+                                       UINT32_C(0x00022214)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_returns = cpu.procedure_returns;
+
+    CHECK(vf2_hybrid_coli_bitmask_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022214));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(7));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(read_test_u16(&machine, fighter0 + UINT32_C(0x6dc)) == UINT16_C(0));
+
+    /* Bit 8 set is an unmeasured sibling: fail closed without stores. */
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x6dc), poison,
+                            sizeof(poison)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(1) << 8u) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022298));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022298),
+                                       UINT32_C(0x00022214)) == VF2_OK);
+    CHECK(vf2_hybrid_coli_bitmask_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+    CHECK(read_test_u16(&machine, fighter0 + UINT32_C(0x6dc)) ==
+          UINT16_C(0xbeef));
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 static void test_recurring_kill_osage_order_accounting(void) {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
@@ -2478,6 +2536,7 @@ int main(void) {
     test_scheduler_selects_later_player_entry();
     test_scheduler_selects_coli_entry_at_index10();
     test_coli_bit5_set_early_ret();
+    test_coli_bitmask_22298_early_path();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 
