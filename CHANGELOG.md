@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fase 6 scouting: holding input 17 or 18 from `sixth-regen` opens a
+  corridor distinct from PUNCH. Cycle 1 MATCHes; cycle 2 fails closed
+  at the `frame_dispatch_tick` `callx` (`0xa6c0` table `0xa6f8[r3*4]`)
+  with reference at `0x9ff8`. Parks and the measured split are recorded
+  in `decomp/i960/notes/fa_player_input17_fase6_v0298.md`. No C recovery
+  and no second pin yet; PUNCH stays `320/320` MATCH.
+
 - fa_player `0x180bc` flag tail and `0x1441c` epilogue: recover the
   measured warm/sibling paths so the first-dispatch player task no
   longer uses `hybrid_execute_interpreted_task` from `0x180bc`.
@@ -13,6 +20,7 @@
   `hybrid_execute_interpreted_until`. PUNCH stays `320/320` MATCH /
   `14,962,620` insns and ctest `56/56` (v0298,
   `decomp/i960/notes/fa_player_180bc_v0298.md`);
+
 
 - fa_player `0x29414`: recover the measured type-6/8/10 bit-19-set
   siblings. The `+0x1aa` halfword is compared **unsigned** and the
