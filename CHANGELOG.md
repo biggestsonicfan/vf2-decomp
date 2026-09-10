@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- fa_player `0x19ef8` siblings and `0x29414` non-zero: defer after
+  measurement blockers — interpretive replay from `player-14288-rt`
+  faults at `0x2704c` even on baseline (980 insns), and `vf2probe`
+  cannot exit the `0x10FA0` vblank wait loop without the IRQ path
+  `vf2cycles` uses; guards and the `0x29414` zero-path C stay
+  fail-closed (v0295,
+  `decomp/i960/notes/fa_player_19ef8_29414_defer_v0295.md`);
+
 - fa_player `0x19ef8`: replace the manual `0x1a1e4` selector-setup
   block inside `hybrid_execute_player_19ef8` with the recovered
   semantic interpreter `player_selector_execute_setup`; keep the
