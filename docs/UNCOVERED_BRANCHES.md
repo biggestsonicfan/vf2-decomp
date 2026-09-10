@@ -413,7 +413,7 @@ the post-interpreter `+0x1a8`/`+0x1aa` stores remain (v0294). Measured
 next player targets after the coli closure are recorded in
 `decomp/i960/notes/fa_player_next_targets_v0292.md`.
 
-Status (v0297): `0x29414` types 6/8/10 are now native for both the
+Status (v0298): `0x29414` types 6/8/10 are now native for both the
 bit-19-clear float tail and the measured bit-19-set siblings. The
 `+0x1aa` window uses unsigned compares (`r12 > 20` → path B at
 `0x294f8`, `r12 <= 10` → float tail, else path A at `0x294ac..0x294f4`
@@ -428,11 +428,18 @@ enable the next live-context drive (see
 `decomp/i960/notes/fa_player_29414_bit19_v0297.md`,
 `decomp/i960/notes/fa_player_29414_types_v0296.md`,
 `decomp/i960/notes/fa_player_19ef8_29414_defer_v0295.md` and
-`decomp/i960/notes/fa_player_drive_base_v0293.md`). The already-recovered
-`player_execute_28178_stream` is still not wired into
-`hybrid_execute_player_post_29414` (that segment remains
-`hybrid_execute_interpreted_until`). Post-`0x28780` geometry helpers and
-physics/hitboxes remain later dedicated pins.
+`decomp/i960/notes/fa_player_drive_base_v0293.md`).
+
+Status (v0298): the `0x180bc` player flag tail and the `0x1441c`
+epilogue are native. On the measured warm shape the first-dispatch
+player task therefore finishes without `hybrid_execute_interpreted_task`
+from `0x180bc`. `hybrid_execute_interpreted_until` already routes
+`0x28178`/`0x17710`/`0x1791c`/`0x4b640` through
+`vf2_hybrid_i960_run_tail` semantic layers (see
+`decomp/i960/notes/fa_player_180bc_v0298.md`). Post-`0x28780`
+geometry through `0x2826c`/`0x27d90` remains native; physics/hitboxes
+and an input-driven pin distinct from PUNCH remain later dedicated
+work.
 
 ## 3. Camera
 

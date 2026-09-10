@@ -423,6 +423,12 @@ static uint16_t read_test_u16(const vf2_model2a *machine, uint32_t address) {
     return (uint16_t)bytes[0] | (uint16_t)((uint16_t)bytes[1] << 8u);
 }
 
+static uint8_t read_test_u8(const vf2_model2a *machine, uint32_t address) {
+    uint8_t value = 0u;
+    CHECK(vf2_model2a_read(machine, address, &value, sizeof(value)) == VF2_OK);
+    return value;
+}
+
 static uint32_t read_test_u32(const vf2_model2a *machine, uint32_t address) {
     uint8_t bytes[4] = {0u, 0u, 0u, 0u};
     CHECK(vf2_model2a_read(machine, address, bytes, sizeof(bytes)) == VF2_OK);
@@ -3655,6 +3661,102 @@ static void test_player_29414_type_paths(void) {
     free(rom);
 }
 
+static void test_player_180bc_flag_tail(void) {
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const uint32_t player = UINT32_C(0x00510980);
+    const uint32_t return_address = UINT32_C(0x0001441c);
+    uint64_t start_instructions = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+
+    /* Warm: clear +0x1a4, clear +0x810 bit7 -> clear flag bit8, +0x6d8=0. */
+    CHECK(vf2_model2a_write_u32(&machine, player + VF2_FIGHTER_OFF_01A4, 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, player, 0u) == VF2_OK);
+    write_test_u16(&machine, player + UINT32_C(0x26), 0u);
+    write_test_u16(&machine, player + UINT32_C(0x810), 0u);
+    write_test_u16(&machine, player + UINT32_C(0x5b4), 0xffffu);
+    write_test_u8(&machine, player + UINT32_C(0x6d8), 0xffu);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000180bc));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000180bc),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_180bc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == return_address);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(19));
+    CHECK(read_test_u16(&machine, player + UINT32_C(0x5b4)) == 0u);
+    CHECK(read_test_u32(&machine, player) == 0u);
+    CHECK(read_test_u8(&machine, player + UINT32_C(0x6d8)) == 0u);
+
+    /* Bit6 set: +0x5b4 = +0x26 + +0x812 (20 body + 1 ret). */
+    CHECK(vf2_model2a_write_u32(&machine, player + VF2_FIGHTER_OFF_01A4,
+                                UINT32_C(0x40)) == VF2_OK);
+    write_test_u16(&machine, player + UINT32_C(0x26), 0x10u);
+    write_test_u16(&machine, player + UINT32_C(0x812), 0x20u);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000180bc));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000180bc),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_180bc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(21));
+    CHECK(read_test_u16(&machine, player + UINT32_C(0x5b4)) == 0x30u);
+
+    /* Bit3 set + +0x810 bit7: set flag bit8 (17 body + 1 ret). */
+    CHECK(vf2_model2a_write_u32(&machine, player + VF2_FIGHTER_OFF_01A4,
+                                UINT32_C(0x08)) == VF2_OK);
+    write_test_u16(&machine, player + UINT32_C(0x810), 0x80u);
+    CHECK(vf2_model2a_write_u32(&machine, player, 0u) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000180bc));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000180bc),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_180bc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(18));
+    CHECK(read_test_u32(&machine, player) == UINT32_C(0x100));
+
+    /* +0x1a4 bit0 set: skip the +0x6d8 store (14 body + 1 ret). */
+    CHECK(vf2_model2a_write_u32(&machine, player + VF2_FIGHTER_OFF_01A4,
+                                UINT32_C(1)) == VF2_OK);
+    write_test_u16(&machine, player + UINT32_C(0x810), 0u);
+    CHECK(vf2_model2a_write_u32(&machine, player, 0u) == VF2_OK);
+    write_test_u8(&machine, player + UINT32_C(0x6d8), 0xaa);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000180bc));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000180bc),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_180bc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(15));
+    CHECK(read_test_u8(&machine, player + UINT32_C(0x6d8)) == 0xaa);
+
+    /* 0x1441c tail sets flag bit7 and rets. */
+    CHECK(vf2_model2a_write_u32(&machine, player, 0u) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x0001441c));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x0001441c),
+                                       UINT32_C(0x00010dcc)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_1441c_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(4));
+    CHECK(read_test_u32(&machine, player) == UINT32_C(0x80));
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 int main(void) {
     test_initialize_and_names();
     test_post_boot_delay();
@@ -3685,6 +3787,7 @@ int main(void) {
     test_coli_23524_shell();
     test_coli_midbody_tail_warm();
     test_player_29414_type_paths();
+    test_player_180bc_flag_tail();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 

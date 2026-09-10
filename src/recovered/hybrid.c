@@ -175,6 +175,15 @@ static vf2_status hybrid_write_u16(
     return vf2_model2a_write(machine, address, bytes, sizeof(bytes));
 }
 
+static vf2_status hybrid_write_u8(
+    vf2_model2a *machine,
+    uint32_t address,
+    uint8_t value
+)
+{
+    return vf2_model2a_write(machine, address, &value, sizeof(value));
+}
+
 static vf2_status hybrid_read_u32_triple(
     const vf2_model2a *machine,
     uint32_t address,
@@ -4022,6 +4031,16 @@ static vf2_status hybrid_execute_player_repeated_call(
     return VF2_OK;
 }
 
+static vf2_status hybrid_execute_player_180bc(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
+static vf2_status hybrid_execute_player_1441c_tail(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 static vf2_status hybrid_execute_player_post_29414(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -4085,9 +4104,24 @@ static vf2_status hybrid_execute_player_post_29414(
         );
     }
     if (status == VF2_OK) {
-        status = hybrid_execute_interpreted_task(
-            machine, cpu, registry_address, UINT32_C(0x000180bc), report
-        );
+        status = hybrid_execute_player_180bc(machine, cpu);
+        if (status == VF2_ERROR_UNSUPPORTED) {
+            return hybrid_execute_interpreted_task(
+                machine, cpu, registry_address, UINT32_C(0x000180bc), report
+            );
+        }
+    }
+    if (status == VF2_OK) {
+        status = hybrid_execute_player_1441c_tail(machine, cpu);
+        if (status == VF2_ERROR_UNSUPPORTED) {
+            return hybrid_execute_interpreted_task(
+                machine, cpu, registry_address, UINT32_C(0x0001441c), report
+            );
+        }
+    }
+    if (status == VF2_OK && report != NULL) {
+        /* 0x14428 ret ends the player task at the scheduler return. */
+        report->continuation = cpu->ip;
     }
     return status;
 }
@@ -4106,6 +4140,199 @@ static vf2_status hybrid_player_29414_add_half(
         status = hybrid_write_u16(machine, address, (uint16_t)(uint32_t)sum);
     }
     return status;
+}
+
+/* Measured warm/sibling paths for the player flag tail at 0x180bc.
+ * The function rets at 0x18140; callers continue at their saved return. */
+static vf2_status hybrid_execute_player_180bc(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    uint32_t state_flags = 0u;
+    uint32_t player_flags = 0u;
+    int32_t r4 = 0;
+    int32_t r3 = 0;
+    int32_t r13 = 0;
+    uint16_t half = 0u;
+    uint16_t mask_810 = 0u;
+    int set_bit8 = 0;
+    int used_clear_branch = 0;
+    uint64_t body = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x000180bc) ||
+        player == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = hybrid_read_u16(machine, player + UINT32_C(0x26), &half);
+    if (status == VF2_OK) {
+        r4 = (int32_t)(int16_t)half;
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read_u32(
+            machine, player + VF2_FIGHTER_OFF_01A4, &state_flags
+        );
+    }
+    if (status != VF2_OK) {
+        return status;
+    }
+    body = UINT64_C(3);
+    if ((state_flags & (UINT32_C(1) << 6u)) != 0u) {
+        status = hybrid_read_u16(machine, player + UINT32_C(0x812), &half);
+        if (status != VF2_OK) {
+            return status;
+        }
+        r4 += (int32_t)(int16_t)half;
+        body += UINT64_C(2);
+    }
+    status = hybrid_write_u16(
+        machine, player + UINT32_C(0x5b4), (uint16_t)(uint32_t)r4
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+    body += UINT64_C(3);
+
+    if ((state_flags & (UINT32_C(1) << 3u)) != 0u) {
+        status = hybrid_read_u16(machine, player + UINT32_C(0x810), &mask_810);
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(2);
+        if ((mask_810 & UINT16_C(0x80)) != 0u) {
+            set_bit8 = 1;
+        } else {
+            status = hybrid_read_u16(machine, player + UINT32_C(0x800), &half);
+            if (status == VF2_OK) {
+                r3 = (int32_t)((uint32_t)(int32_t)(int16_t)half >> 1u);
+                status = hybrid_read_u16(
+                    machine, player + UINT32_C(0x1aa), &half
+                );
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            r13 = (int32_t)(int16_t)half;
+            set_bit8 = (r13 <= r3) ? 1 : 0;
+            used_clear_branch = !set_bit8;
+            body += UINT64_C(4);
+        }
+    } else {
+        status = hybrid_read_u16(machine, player + UINT32_C(0x810), &mask_810);
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(2);
+        if ((mask_810 & UINT16_C(0x80)) == 0u) {
+            set_bit8 = 0;
+            used_clear_branch = 1;
+        } else {
+            status = hybrid_read_u16(machine, player + UINT32_C(0x800), &half);
+            if (status == VF2_OK) {
+                r3 = (int32_t)((uint32_t)(int32_t)(int16_t)half >> 1u);
+                status = hybrid_read_u16(
+                    machine, player + UINT32_C(0x1aa), &half
+                );
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            r13 = (int32_t)(int16_t)half;
+            set_bit8 = (r13 <= r3) ? 1 : 0;
+            used_clear_branch = !set_bit8;
+            body += UINT64_C(4);
+        }
+    }
+
+    status = vf2_model2a_read_u32(machine, player, &player_flags);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (set_bit8) {
+        player_flags |= (UINT32_C(1) << 8u);
+    } else {
+        player_flags &= ~(UINT32_C(1) << 8u);
+    }
+    status = vf2_model2a_write_u32(machine, player, player_flags);
+    if (status != VF2_OK) {
+        return status;
+    }
+    body += used_clear_branch ? UINT64_C(4) : UINT64_C(3);
+    body += UINT64_C(2);
+
+    if ((state_flags & UINT32_C(1)) == 0u) {
+        body += UINT64_C(2);
+        if ((player_flags & (UINT32_C(1) << 4u)) == 0u) {
+            status = hybrid_write_u8(machine, player + UINT32_C(0x6d8), 0u);
+            if (status != VF2_OK) {
+                return status;
+            }
+            body += UINT64_C(2);
+        }
+    }
+
+    cpu->registers[14u] = player_flags;
+    cpu->registers[15u] = state_flags;
+    cpu->ip = UINT32_C(0x00018140);
+    cpu->executed_instructions += body;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status == VF2_OK) {
+        ++cpu->executed_instructions;
+    }
+    return status;
+}
+
+/* 0x1441c..0x14428: set player-flags bit 7 and ret (ends the player task). */
+static vf2_status hybrid_execute_player_1441c_tail(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t player = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    uint32_t player_flags = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x0001441c) ||
+        player == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = vf2_model2a_read_u32(machine, player, &player_flags);
+    if (status != VF2_OK) {
+        return status;
+    }
+    player_flags |= (UINT32_C(1) << 7u);
+    status = vf2_model2a_write_u32(machine, player, player_flags);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[15u] = player_flags;
+    cpu->ip = UINT32_C(0x00014428);
+    cpu->executed_instructions += UINT64_C(3);
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status == VF2_OK) {
+        ++cpu->executed_instructions;
+    }
+    return status;
+}
+
+vf2_status vf2_hybrid_player_180bc_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    return hybrid_execute_player_180bc(machine, cpu);
+}
+
+vf2_status vf2_hybrid_player_1441c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    return hybrid_execute_player_1441c_tail(machine, cpu);
 }
 
 static vf2_status hybrid_player_29414_finish(

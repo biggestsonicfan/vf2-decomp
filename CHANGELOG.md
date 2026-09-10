@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- fa_player `0x180bc` flag tail and `0x1441c` epilogue: recover the
+  measured warm/sibling paths so the first-dispatch player task no
+  longer uses `hybrid_execute_interpreted_task` from `0x180bc`.
+  `0x180bc` writes `+0x5b4`, player-flags bit 8 (via `+0x1a4` bits 3/6,
+  `+0x810` bit 7 and the signed `cmpoble` on `+0x1aa` vs `+0x800>>1`)
+  and optionally `+0x6d8`. `0x1441c` sets flags bit 7 and `ret`s the
+  player task. Also record that `vf2_i960_run=vf2_hybrid_i960_run_tail`
+  already owns `0x28178`/`0x17710`/`0x1791c`/`0x4b640` inside
+  `hybrid_execute_interpreted_until`. PUNCH stays `320/320` MATCH /
+  `14,962,620` insns and ctest `56/56` (v0298,
+  `decomp/i960/notes/fa_player_180bc_v0298.md`);
+
 - fa_player `0x29414`: recover the measured type-6/8/10 bit-19-set
   siblings. The `+0x1aa` halfword is compared **unsigned** and the
   disassembly operand order makes `cmpobl 20,r12` mean `r12 > 20`, so
@@ -14,6 +26,7 @@
   versus type 6. PUNCH stays `320/320` MATCH / `14,962,620` insns and
   ctest `56/56` (v0297,
   `decomp/i960/notes/fa_player_29414_bit19_v0297.md`);
+
 
 - fa_player `0x29414`: recover the measured type-6/8/10 compact path
   with state-flag bit 19 clear — store `(r9 * scale - scale)` at

@@ -397,6 +397,20 @@ vf2_status vf2_hybrid_player_29414_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured player flag tail at 0x180bc (warm + siblings).
+ * IP must be 0x180bc with a pushed frame. Writes +0x5b4, player-flags
+ * bit 8 and optionally +0x6d8; rets to the saved return. */
+vf2_status vf2_hybrid_player_180bc_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
+/* Recover 0x1441c..0x14428: set player-flags bit 7 and ret the player task. */
+vf2_status vf2_hybrid_player_1441c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover the measured warm-path fa_coli poly cluster builder at 0x2396c.
  * The CPU must already be inside the callee (IP == entry, frame pushed).
  * Two PUNCH-driven invocations; inlines three 0x23878 bit-remaps.
