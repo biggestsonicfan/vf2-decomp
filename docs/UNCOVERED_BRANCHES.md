@@ -406,6 +406,11 @@ retaining clearly marked ROM-backed boundaries.
 - CPU opponent decision logic; and
 - evidence-backed portable fighter/object structures above raw addresses.
 
+Measured next player targets after the coli closure are recorded in
+`decomp/i960/notes/fa_player_next_targets_v0292.md`: `0x19ef8` flag-bit
+siblings, the `0x29414` non-zero path, post-`0x28780` geometry helpers,
+then physics/hitboxes as a later dedicated pin.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

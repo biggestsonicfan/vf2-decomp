@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_player frontier: record the measured next targets after the coli
+  closure — `0x19ef8` flag-bit siblings, `0x29414` non-zero path,
+  post-`0x28780` geometry helpers, then physics/hitboxes; tooling
+  (`frontier.py` R/W + call targets, `taint.py`, `infer_structs.py`)
+  validated on the coli mid-body trace (v0292,
+  `decomp/i960/notes/fa_player_next_targets_v0292.md`);
+
 - coli `0x225cc` shortcut: measure the `g8+0x19f==22` path — it does
   `call 0x18bd4`, which itself calls `0x1ab34` (ROM table walk) and
   `0x18b58`; not a compact leaf; verdict defer (v0291,
