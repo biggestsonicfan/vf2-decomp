@@ -1081,6 +1081,14 @@ float loops in `0x22298`, the non-empty scan / `g0 = 1` path in
 `0x22404`) remain explicit boundaries. PUNCH remains `320/320` MATCH.
 See `decomp/i960/notes/fa_coli_bit8_siblings_v0290.md`.
 
+### v0291 measure `0x225cc` `g8+0x19f==22` shortcut (defer)
+
+Forcing `g8+0x19f = 22` takes the `call 0x18bd4` shortcut. That helper
+itself calls `0x1ab34` (ROM table walk) and `0x18b58` — still a
+multi-block subtree, not a compact leaf. **Defer.** Does not affect the
+warm PUNCH pin.
+See `decomp/i960/notes/fa_coli_225cc_shortcut_v0291.md`.
+
 ### v0288 measure `0x225cc` reachability path (defer)
 
 Re-runs the v0282 mutated drive to `0x225cc`. The `0x18bd4` shortcut

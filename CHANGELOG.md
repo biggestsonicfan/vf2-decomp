@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- coli `0x225cc` shortcut: measure the `g8+0x19f==22` path — it does
+  `call 0x18bd4`, which itself calls `0x1ab34` (ROM table walk) and
+  `0x18b58`; not a compact leaf; verdict defer (v0291,
+  `decomp/i960/notes/fa_coli_225cc_shortcut_v0291.md`);
+
 - coli bit-8-set siblings: admit two measured compact shapes —
   `0x22298` bits 8+1 set (8 insns, same store 0) and `0x22404` bit 8
   set with equal snapshots / empty scan mask (30 insns, store 0 into
