@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- coli bit-8-set siblings: admit two measured compact shapes —
+  `0x22298` bits 8+1 set (8 insns, same store 0) and `0x22404` bit 8
+  set with equal snapshots / empty scan mask (30 insns, store 0 into
+  `g8+0x6d4`, `g0 = 0`); body-only statics return dynamic instruction
+  counts; other bit-8 sub-branches remain boundaries; PUNCH stays
+  `320/320` MATCH (v0290,
+  `decomp/i960/notes/fa_coli_bit8_siblings_v0290.md`);
+
 - coli mid-body/tail: recover the remaining warm-path glue from
   `0x22210` through the both-zero exit to `0x10dcc` as one native
   procedure — two `0x22298` bitmask calls, two `0x22404` contact-query

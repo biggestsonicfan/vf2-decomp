@@ -324,18 +324,21 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
 
 const char *vf2_hybrid_task_kind_name(vf2_hybrid_task_kind kind);
 
-/* Recover the measured warm-path fa_coli bit-mask helper at 0x22298.
+/* Recover the measured fa_coli bit-mask helper at 0x22298.
  * The CPU must already be inside the callee (IP == entry, frame pushed).
- * Bit 8 of g8+0x1a4 clear stores 0 into g7+0x6dc; siblings fail closed. */
+ * Warm (bit 8 clear): 7 insns, store 0 into g7+0x6dc. Sibling (bits 8
+ * and 1 set): 8 insns, same store. Other siblings fail closed. */
 vf2_status vf2_hybrid_coli_bitmask_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
 );
 
-/* Recover the measured warm-path fa_coli contact query at 0x22404.
+/* Recover the measured fa_coli contact query at 0x22404.
  * The CPU must already be inside the callee (IP == entry, frame pushed).
- * Bit 8 of g7+0x1a4 clear snapshots g7+0x1a8 into g13+0x8c[slot], clears
- * the slot bit in g13+0x90 and returns g0 = 0; siblings fail closed. */
+ * Warm (bit 8 clear): 14 insns, snapshot store, clear pending bit,
+ * g0 = 0. Sibling (bit 8 set, equal snapshots, pending clear, helper
+ * r3 = 0, empty scan mask): 30 insns, store 0 into g8+0x6d4, g0 = 0.
+ * Other siblings fail closed. */
 vf2_status vf2_hybrid_coli_contact_query_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu

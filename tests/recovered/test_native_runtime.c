@@ -2430,11 +2430,14 @@ static void test_coli_contact_query_22404_early_path(void) {
     CHECK(read_test_u16(&machine, registry + UINT32_C(0x90)) ==
           UINT16_C(0x0004));
 
-    /* Bit 8 set is an unmeasured sibling: fail closed without stores. */
+    /* Bit 8 set with unequal snapshots fails closed after the common
+     * snapshot store (the original always stores before the bit-8 check). */
     CHECK(vf2_model2a_write(&machine, registry + UINT32_C(0x8c), poison,
                             sizeof(poison)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a4),
                                 UINT32_C(1) << 8u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8),
+                                UINT32_C(0x1234)) == VF2_OK);
     vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022404));
     cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
     cpu.registers[1] = UINT32_C(0x005ff580);
@@ -2445,9 +2448,51 @@ static void test_coli_contact_query_22404_early_path(void) {
     CHECK(vf2_hybrid_coli_contact_query_execute(&machine, &cpu) ==
           VF2_ERROR_UNSUPPORTED);
     CHECK(read_test_u16(&machine, registry + UINT32_C(0x8c)) ==
-          UINT16_C(0xbeef));
+          UINT16_C(0x1234));
     CHECK(read_test_u16(&machine, registry + UINT32_C(0x90)) ==
           UINT16_C(0x0004));
+
+    /* Bit 8 set with equal snapshots, pending clear, helper r3 = 0,
+     * empty scan mask is a measured sibling (v0290): 30 insns, g0 = 0. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a4),
+                                UINT32_C(1) << 8u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8),
+                                UINT32_C(0x1234)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x8c),
+                                UINT32_C(0x1234)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1aa),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x808),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x5b8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x820),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500808),
+                                UINT32_C(0x00512800)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00512800) +
+                                            UINT32_C(0x6d4),
+                                UINT32_C(0xffffffff)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022404));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = UINT32_C(0x00512800);
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022404),
+                                       UINT32_C(0x0002222c)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_contact_query_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x0002222c));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(30));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == 0u);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 14u] == UINT32_C(0x0002244c));
+    CHECK(read_test_u16(&machine, UINT32_C(0x00512800) + UINT32_C(0x6d4)) ==
+          UINT16_C(0));
 
     vf2_model2a_shutdown(&machine);
     free(rom);
@@ -3197,6 +3242,27 @@ static void test_coli_midbody_tail_warm(void) {
                                        UINT32_C(0x00010dcc)) == VF2_OK);
     CHECK(vf2_hybrid_coli_midbody_tail_execute(&machine, &cpu) ==
           VF2_ERROR_UNSUPPORTED);
+
+    /* Bits 8 and 1 set is a measured sibling (v0290): admit it. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                (UINT32_C(1) << 8u) | (UINT32_C(1) << 1u)) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a4),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022298));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022298),
+                                       UINT32_C(0x00022214)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_bitmask_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022214));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(8));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(read_test_u16(&machine, fighter0 + UINT32_C(0x6dc)) == UINT16_C(0));
 
     vf2_model2a_shutdown(&machine);
     free(rom);

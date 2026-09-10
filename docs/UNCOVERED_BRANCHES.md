@@ -1065,6 +1065,22 @@ PUNCH remains `320/320` MATCH / `14,962,620` instructions.
 Unit test `test_coli_midbody_tail_warm`.
 See `decomp/i960/notes/fa_coli_midbody_v0289.md`.
 
+### v0290 coli bit-8-set compact siblings
+
+Two measured compact siblings are now native:
+
+- `0x22298` bits 8 and 1 set — 8 instructions, same `stos 0` into
+  `g7+0x6dc` as the warm path.
+- `0x22404` bit 8 set with equal snapshots, pending bit clear,
+  threshold `a >= b`, helper `r3 = 0` and empty scan mask — 30
+  instructions, store 0 into `g8+0x6d4`, `g0 = 0`, `g14 = 0x2244c`.
+
+Body-only statics return dynamic instruction counts so the mid-body
+parent accounts correctly. Other bit-8 sub-branches (the 16-trip
+float loops in `0x22298`, the non-empty scan / `g0 = 1` path in
+`0x22404`) remain explicit boundaries. PUNCH remains `320/320` MATCH.
+See `decomp/i960/notes/fa_coli_bit8_siblings_v0290.md`.
+
 ### v0288 measure `0x225cc` reachability path (defer)
 
 Re-runs the v0282 mutated drive to `0x225cc`. The `0x18bd4` shortcut

@@ -111,6 +111,20 @@
 #define VF2_COLI_SHELL_FIGHTER_PTR1 UINT32_C(0x00500808)
 #define VF2_COLI_MIDBODY_ENTRY UINT32_C(0x00022210)
 #define VF2_COLI_MIDBODY_RETURN UINT32_C(0x00010dcc)
+
+static vf2_status coli_22298_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8,
+    uint64_t *body_out
+);
+static vf2_status coli_22404_body(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t g7,
+    uint32_t g13,
+    uint64_t *body_out
+);
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -17989,36 +18003,30 @@ static vf2_status hybrid_complete_procedure(
     return status;
 }
 
-/* Measured warm-path recovery of the fa_coli bit-mask helper (v0276).
- * Both PUNCH-driven invocations take the early exit: g8+0x1a4 bit 8
- * clear -> stos 0 into g7+0x6dc. Seven instructions, no nested calls,
- * one return. Sibling paths remain explicit boundaries. */
+/* Measured recovery of the fa_coli bit-mask helper (v0276 warm,
+ * v0290 bit-8+bit-1 sibling). Both take the same stos 0 into g7+0x6dc.
+ * Warm (bit 8 clear): 7 instructions. Sibling (bit 8 and bit 1 set):
+ * 8 instructions. Other siblings fail closed. */
 vf2_status vf2_hybrid_coli_bitmask_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
 )
 {
-    const uint32_t g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
-    const uint32_t g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
-    uint32_t flags_g8 = 0u;
+    uint64_t body = 0u;
 
     if (machine == NULL || cpu == NULL ||
         cpu->ip != VF2_COLI_BITMASK_ENTRY ||
         cpu->local_frame_depth == 0u) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (vf2_model2a_read_u32(
-            machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g8) != VF2_OK) {
+    if (coli_22298_body(
+            machine,
+            cpu->registers[VF2_I960_G0_REGISTER + 7u],
+            cpu->registers[VF2_I960_G0_REGISTER + 8u],
+            &body) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((flags_g8 & (UINT32_C(1) << 8u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (hybrid_write_u16(
-            machine, g7 + VF2_COLI_BITMASK_RESULT_OFFSET, 0u) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    return hybrid_complete_procedure(machine, cpu, UINT64_C(6), 0u, 0u);
+    return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
 }
 
 /* Measured warm-path recovery of the fa_coli contact query (v0277).
@@ -18031,77 +18039,50 @@ vf2_status vf2_hybrid_coli_contact_query_execute(
     vf2_i960_cpu *cpu
 )
 {
-    const uint32_t g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
-    const uint32_t g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
-    uint8_t slot = 0u;
-    uint16_t snap = 0u;
-    uint16_t pending = 0u;
-    uint32_t flags_g7 = 0u;
+    uint64_t body = 0u;
 
     if (machine == NULL || cpu == NULL ||
         cpu->ip != VF2_COLI_CONTACT_ENTRY ||
         cpu->local_frame_depth == 0u) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (hybrid_read_u8(
-            machine, g7 + VF2_COLI_CONTACT_SLOT_OFFSET, &slot) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (slot > 1u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (vf2_model2a_read_u32(
-            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if ((flags_g7 & (UINT32_C(1) << 8u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (hybrid_read_u16(
-            machine, g7 + VF2_COLI_CONTACT_SNAP_OFFSET, &snap) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (hybrid_write_u16(
+    if (coli_22404_body(
             machine,
-            g13 + VF2_COLI_CONTACT_SNAPSHOT_BASE + (uint32_t)slot * 2u,
-            snap) != VF2_OK) {
+            cpu,
+            cpu->registers[VF2_I960_G0_REGISTER + 7u],
+            cpu->registers[VF2_I960_G0_REGISTER + 13u],
+            &body) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if (hybrid_read_u16(
-            machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, &pending) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    pending = (uint16_t)(pending &
-                         (uint16_t)~(uint16_t)((uint16_t)1u << slot));
-    if (hybrid_write_u16(
-            machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, pending) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
-    /* bal 0x225bc links g14 to the fall-through address; bx does not
-     * clear it and ret does not restore globals. */
-    cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x00022428);
-    return hybrid_complete_procedure(machine, cpu, UINT64_C(13), 0u, 0u);
+    return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
 }
 
-/* Body-only warm path of 0x22298: no CPU frame, no ret accounting.
- * Used from the mid-body parent. Sibling (bit 8 set) fails closed. */
+/* Body-only recovery of 0x22298: no CPU frame, no ret accounting.
+ * Warm (bit 8 clear): body 6. Sibling (bit 8 and bit 1 set): body 7.
+ * Both store 0 into g7+0x6dc. Other siblings fail closed. */
 static vf2_status coli_22298_body(
     vf2_model2a *machine,
     uint32_t g7,
-    uint32_t g8
+    uint32_t g8,
+    uint64_t *body_out
 )
 {
     uint32_t flags_g8 = 0u;
 
-    if (machine == NULL) {
+    if (machine == NULL || body_out == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     if (vf2_model2a_read_u32(
             machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g8) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((flags_g8 & (UINT32_C(1) << 8u)) != 0u) {
+    if ((flags_g8 & (UINT32_C(1) << 8u)) == 0u) {
+        /* Warm: bbc 8 taken → stos 0. */
+        *body_out = UINT64_C(6);
+    } else if ((flags_g8 & (UINT32_C(1) << 1u)) != 0u) {
+        /* Sibling v0290: bbc 8 not taken, bbs 1 taken → stos 0. */
+        *body_out = UINT64_C(7);
+    } else {
         return VF2_ERROR_UNSUPPORTED;
     }
     if (hybrid_write_u16(
@@ -18111,21 +18092,31 @@ static vf2_status coli_22298_body(
     return VF2_OK;
 }
 
-/* Body-only warm path of 0x22404: no CPU frame, no ret accounting.
- * Writes g0 = 0 and g14 = 0x22428 (bal link). Sibling fails closed. */
+/* Body-only recovery of 0x22404: no CPU frame, no ret accounting.
+ * Warm (bit 8 clear): body 13, clear pending bit, g0 = 0.
+ * Sibling v0290 (bit 8 set, snapshots equal, pending bit clear,
+ * threshold ok, helper r3 = 0, empty scan mask): body 29, store 0
+ * into g8+0x6d4, g0 = 0. Other siblings fail closed. */
 static vf2_status coli_22404_body(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
     uint32_t g7,
-    uint32_t g13
+    uint32_t g13,
+    uint64_t *body_out
 )
 {
     uint8_t slot = 0u;
+    uint16_t old_snap = 0u;
     uint16_t snap = 0u;
     uint16_t pending = 0u;
+    uint16_t thr_a = 0u;
+    uint16_t thr_b = 0u;
     uint32_t flags_g7 = 0u;
+    uint32_t field_5b8 = 0u;
+    uint8_t field_820 = 0u;
+    uint32_t g8 = 0u;
 
-    if (machine == NULL || cpu == NULL) {
+    if (machine == NULL || cpu == NULL || body_out == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     if (hybrid_read_u8(
@@ -18135,35 +18126,88 @@ static vf2_status coli_22404_body(
     if (slot > 1u) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if (vf2_model2a_read_u32(
-            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if ((flags_g7 & (UINT32_C(1) << 8u)) != 0u) {
+    if (hybrid_read_u16(
+            machine,
+            g13 + VF2_COLI_CONTACT_SNAPSHOT_BASE + (uint32_t)slot * 2u,
+            &old_snap) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
     if (hybrid_read_u16(
             machine, g7 + VF2_COLI_CONTACT_SNAP_OFFSET, &snap) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
+    /* Common prologue: store new snapshot into the slot. */
     if (hybrid_write_u16(
             machine,
             g13 + VF2_COLI_CONTACT_SNAPSHOT_BASE + (uint32_t)slot * 2u,
             snap) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
+    if (vf2_model2a_read_u32(
+            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g7 & (UINT32_C(1) << 8u)) == 0u) {
+        /* Warm: bal 0x225bc clears pending, g0 = 0. */
+        if (hybrid_read_u16(
+                machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, &pending) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        pending = (uint16_t)(pending &
+                             (uint16_t)~(uint16_t)((uint16_t)1u << slot));
+        if (hybrid_write_u16(
+                machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, pending) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+        cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x00022428);
+        *body_out = UINT64_C(13);
+        return VF2_OK;
+    }
+
+    /* Sibling v0290: bit 8 set. Require the measured 30-insn shape. */
+    if (old_snap != snap) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
     if (hybrid_read_u16(
             machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, &pending) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    pending = (uint16_t)(pending &
-                         (uint16_t)~(uint16_t)((uint16_t)1u << slot));
-    if (hybrid_write_u16(
-            machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, pending) != VF2_OK) {
+    if ((pending & (uint16_t)((uint16_t)1u << slot)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u16(
+            machine, g7 + UINT32_C(0x1aa), &thr_a) != VF2_OK ||
+        hybrid_read_u16(
+            machine, g7 + UINT32_C(0x808), &thr_b) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (thr_a < thr_b) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g7 + UINT32_C(0x5b8), &field_5b8) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((field_5b8 & UINT32_C(1)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u8(
+            machine, g7 + UINT32_C(0x820), &field_820) != VF2_OK ||
+        field_820 != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* Empty scan mask → andnot leaves 0 → store 0 into g8+0x6d4. */
+    g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
+    if (hybrid_write_u16(machine, g8 + UINT32_C(0x6d4), 0u) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
     cpu->registers[VF2_I960_G0_REGISTER] = 0u;
-    cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x00022428);
+    /* bal 0x223bc links g14 to 0x2244c. */
+    cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x0002244c);
+    *body_out = UINT64_C(29);
     return VF2_OK;
 }
 
@@ -18188,6 +18232,7 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
     uint32_t g7 = 0u;
     uint32_t g8 = 0u;
     uint32_t r6 = 0u;
+    uint64_t child = 0u;
     uint64_t body = UINT64_C(13);
 
     if (machine == NULL || cpu == NULL ||
@@ -18209,29 +18254,29 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
     g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
 
     /* 0x22210 call 0x22298 — current assignment (shell leaves fighters). */
-    if (coli_22298_body(machine, g7, g8) != VF2_OK) {
+    if (coli_22298_body(machine, g7, g8, &child) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    body += UINT64_C(7);
+    body += child + 1u;
 
     /* 0x22214 mov r8,g7 / mov r7,g8 / call — swapped. */
-    if (coli_22298_body(machine, fighter1, fighter0) != VF2_OK) {
+    if (coli_22298_body(machine, fighter1, fighter0, &child) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    body += UINT64_C(7);
+    body += child + 1u;
 
     /* 0x22220 mov r7,g7 / mov r8,g8 / call — restore, then contact. */
-    if (coli_22404_body(machine, cpu, fighter0, g13) != VF2_OK) {
+    if (coli_22404_body(machine, cpu, fighter0, g13, &child) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    body += UINT64_C(14);
+    body += child + 1u;
     r6 = cpu->registers[VF2_I960_G0_REGISTER];
 
     /* 0x2222c mov g0,r6 / swap / call — second contact, swapped. */
-    if (coli_22404_body(machine, cpu, fighter1, g13) != VF2_OK) {
+    if (coli_22404_body(machine, cpu, fighter1, g13, &child) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    body += UINT64_C(14);
+    body += child + 1u;
 
     /* 0x2223c cmpobe 0,g0 / 0x22284 cmpobe 0,r6 — warm both zero. */
     if (cpu->registers[VF2_I960_G0_REGISTER] != 0u || r6 != 0u) {
