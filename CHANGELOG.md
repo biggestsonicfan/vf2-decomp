@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- fa_player `0x19ef8`: replace the manual `0x1a1e4` selector-setup
+  block inside `hybrid_execute_player_19ef8` with the recovered
+  semantic interpreter `player_selector_execute_setup`; keep the
+  `0x505`/`0x284` caller guard, the post-interpreter `+0x1a8`/`+0x1aa`
+  stores, the `0x26ef0` scratch expand and the `0x1428c` endpoint;
+  PUNCH stays `320/320` MATCH / `14,962,620` insns and ctest `56/56`
+  (v0294, `decomp/i960/notes/fa_player_1a1e4_integration_v0294.md`,
+  `docs/PLAYER_19EF8_INTEGRATION_BOUNDARY.md`);
+
+- fa_player drive bases: confirm fighter slots `0x510800`/`0x510980`
+  on the player parks, document that the `0x29414` parks never
+  reached the target (reference loops at `0x10F98`) and that
+  interpretive replay from `player-14288-rt` faults at `0x2704c` even
+  on baseline (v0293,
+  `decomp/i960/notes/fa_player_drive_base_v0293.md`);
+
 - fa_player frontier: record the measured next targets after the coli
   closure — `0x19ef8` flag-bit siblings, `0x29414` non-zero path,
   post-`0x28780` geometry helpers, then physics/hitboxes; tooling

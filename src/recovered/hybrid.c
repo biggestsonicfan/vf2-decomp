@@ -6,6 +6,8 @@
 #include "vf2/fighter_candidate.h"
 #include "vf2/recovered.h"
 
+#include "player_selector_setup.inc"
+
 #define VF2_CAMERA_INITIALIZE_ENTRY UINT32_C(0x0001d320)
 #define VF2_CAMERA_INITIALIZE_EXIT UINT32_C(0x0001d458)
 #define VF2_CAMERA_UPDATE_ENTRY UINT32_C(0x0001d458)
@@ -1114,97 +1116,10 @@ static vf2_status hybrid_execute_player_19ef8(
         status = vf2_model2a_write_u32(machine, player, player_flags);
     }
 
-    /* Observed 0x1a1e4 setup before its indirect record walk. */
+    /* 0x1a1e4 selector-setup interpreter (replaces the manual record walk). */
     if (status == VF2_OK) {
-        status = hybrid_write_u16(machine, player + UINT32_C(0x802), 0u);
-    }
-    if (status == VF2_OK) {
-        uint8_t zero = 0u;
-        status = vf2_model2a_write(
-            machine, player + UINT32_C(0xa00), &zero, sizeof(zero)
-        );
-    }
-    if (status == VF2_OK) {
-        status = hybrid_write_u16(machine, player + UINT32_C(0x812), 0u);
-    }
-    if (status == VF2_OK) {
-        uint8_t zero = 0u;
-        const uint32_t byte_offsets[] = {0x83cu, 0x844u, 0x841u, 0x823u};
-        for (index = 0u; status == VF2_OK &&
-                    index < sizeof(byte_offsets) / sizeof(byte_offsets[0]);
-             ++index) {
-            status = vf2_model2a_write(
-                machine, player + byte_offsets[index], &zero, sizeof(zero)
-            );
-        }
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, player + UINT32_C(0x844), 0u
-        );
-    }
-    if (status == VF2_OK) {
-        status = hybrid_write_u16(machine, player + UINT32_C(0x850), 0u);
-    }
-    if (status == VF2_OK) {
-        status = hybrid_write_u16(machine, player + UINT32_C(0x818), 0u);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, player + UINT32_C(0x854), 0u
-        );
-    }
-    if (status == VF2_OK) {
-        status = hybrid_write_u16(machine, player + UINT32_C(0x800), table_value);
-    }
-    if (status == VF2_OK) {
-        status = hybrid_write_u16(
-            machine, player + UINT32_C(0x80a), table_value
-        );
-    }
-    if (status == VF2_OK) {
-        status = hybrid_write_u16(
-            machine, player + UINT32_C(0x80c), table_value
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, player + UINT32_C(0x802), &record_byte_9, 1u
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, player + UINT32_C(0x803), &record_byte_10, 1u
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, player + UINT32_C(0x804), packed_value
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, player + UINT32_C(0x810), &source_bytes[4], 1u
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, player + UINT32_C(0x811), &source_bytes[5], 1u
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, player + UINT32_C(0x814), &source_bytes[6], 1u
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write(
-            machine, player + UINT32_C(0x815), &source_bytes[7], 1u
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, player + VF2_FIGHTER_OFF_01A4, packed_value
+        status = player_selector_execute_setup(
+            machine, player, selector, NULL
         );
     }
     if (status == VF2_OK) {
@@ -1214,18 +1129,6 @@ static vf2_status hybrid_execute_player_19ef8(
     }
     if (status == VF2_OK) {
         status = hybrid_write_u16(machine, player + UINT32_C(0x1aa), 1u);
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, player + UINT32_C(0x6d0),
-            data_pointer + (selector == UINT32_C(0x00000284) ? 11u : 12u)
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_model2a_write_u32(
-            machine, player + UINT32_C(0x82c),
-            data_pointer + (selector == UINT32_C(0x00000284) ? 11u : 12u)
-        );
     }
 
     /* 0x26ef0: expand the 20 x 3 selector stream into the scratch RAM. */

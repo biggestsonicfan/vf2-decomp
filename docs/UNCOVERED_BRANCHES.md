@@ -406,10 +406,17 @@ retaining clearly marked ROM-backed boundaries.
 - CPU opponent decision logic; and
 - evidence-backed portable fighter/object structures above raw addresses.
 
-Measured next player targets after the coli closure are recorded in
+The accepted `0x19ef8` corridor now runs the recovered `0x1a1e4`
+selector-setup interpreter (`player_selector_execute_setup`) instead of
+the previous manual record stores; the `0x505`/`0x284` caller guard and
+the post-interpreter `+0x1a8`/`+0x1aa` stores remain (v0294). Measured
+next player targets after the coli closure are recorded in
 `decomp/i960/notes/fa_player_next_targets_v0292.md`: `0x19ef8` flag-bit
-siblings, the `0x29414` non-zero path, post-`0x28780` geometry helpers,
-then physics/hitboxes as a later dedicated pin.
+siblings (measurement blocked — interpretive replay from the parked
+snapshot faults at `0x2704c` even on baseline, see
+`decomp/i960/notes/fa_player_drive_base_v0293.md`), the `0x29414`
+non-zero path (parks never reached the target), post-`0x28780` geometry
+helpers, then physics/hitboxes as a later dedicated pin.
 
 ## 3. Camera
 
