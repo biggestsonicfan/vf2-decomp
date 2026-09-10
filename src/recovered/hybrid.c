@@ -4092,6 +4092,41 @@ static vf2_status hybrid_execute_player_post_29414(
     return status;
 }
 
+static vf2_status hybrid_player_29414_add_half(
+    vf2_model2a *machine,
+    uint32_t address,
+    int32_t delta
+)
+{
+    uint16_t raw = 0u;
+    vf2_status status = hybrid_read_u16(machine, address, &raw);
+
+    if (status == VF2_OK) {
+        const int32_t sum = (int32_t)(int16_t)raw + delta;
+        status = hybrid_write_u16(machine, address, (uint16_t)(uint32_t)sum);
+    }
+    return status;
+}
+
+static vf2_status hybrid_player_29414_finish(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t r14,
+    uint64_t body_instructions
+)
+{
+    vf2_status status;
+
+    cpu->registers[14u] = r14;
+    cpu->ip = UINT32_C(0x00028178);
+    cpu->executed_instructions += body_instructions;
+    status = vf2_i960_cpu_return_procedure(cpu, machine);
+    if (status == VF2_OK) {
+        ++cpu->executed_instructions;
+    }
+    return status;
+}
+
 static vf2_status hybrid_execute_player_29414(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
@@ -4103,10 +4138,16 @@ static vf2_status hybrid_execute_player_29414(
     uint32_t state_flags = 0u;
     uint32_t scale_bits = 0u;
     uint32_t result_bits = 0u;
+    uint32_t r10_bits = 0u;
+    uint32_t r9_bits = 0u;
+    uint32_t r8_bits = 0u;
+    uint32_t r13_bits = 0u;
     float scale = 0.0f;
     float r9 = 0.0f;
+    float r10 = 0.0f;
     float result = 0.0f;
     uint64_t body_instructions = 0u;
+    int64_t type_delta = 0;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00029414) ||
@@ -4120,34 +4161,58 @@ static vf2_status hybrid_execute_player_29414(
         return status;
     }
 
-    /* Types 6 and 10 share the 0x29478 constant set; type 8 uses 0x29430.
-     * The bit-19-clear tail stores (r9 * scale - scale) at +0xc50. The
-     * bit-19-set window at 0x294ac..0x294f4 and the +0x1aa < 20 path at
-     * 0x294f8 remain unmeasured siblings. */
-    if (selector == 6u || selector == 8u || selector == 10u) {
-        status = vf2_model2a_read_u32(
-            machine, player + VF2_FIGHTER_OFF_01A4, &state_flags
+    if (selector != 6u && selector != 8u && selector != 10u) {
+        /* Measured type-0 zero path. */
+        status = vf2_model2a_write_u32(
+            machine, player + UINT32_C(0xc50), 0u
         );
         if (status != VF2_OK) {
             return status;
         }
-        if ((state_flags & (UINT32_C(1) << 19u)) != 0u) {
-            return VF2_ERROR_UNSUPPORTED;
+        cpu->registers[14u] = 0u;
+        cpu->ip = UINT32_C(0x00028178);
+        cpu->executed_instructions += UINT64_C(7);
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
         }
+        return status;
+    }
+
+    /* Types 6 and 10 share the 0x29478 constant set; type 8 uses 0x29430. */
+    if (selector == 8u) {
+        r10_bits = UINT32_C(0x3ba3d70a);
+        r9_bits = UINT32_C(0x3f6b851f);
+        r8_bits = UINT32_C(0xfffff000);
+        r13_bits = UINT32_C(0xfffffe67);
+        type_delta = 2;
+    } else {
+        r10_bits = UINT32_C(0x3b23d70a);
+        r9_bits = UINT32_C(0x3f7851ec);
+        r8_bits = UINT32_C(0xfffff800);
+        r13_bits = UINT32_C(0xffffff00);
+        type_delta = (selector == 10u) ? -1 : 0;
+    }
+    r9 = hybrid_player_bits_to_float(r9_bits);
+    r10 = hybrid_player_bits_to_float(r10_bits);
+
+    status = vf2_model2a_read_u32(
+        machine, player + VF2_FIGHTER_OFF_01A4, &state_flags
+    );
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    if ((state_flags & (UINT32_C(1) << 19u)) == 0u) {
         status = vf2_model2a_read_u32(
             machine, player + UINT32_C(0x84), &scale_bits
         );
         if (status != VF2_OK) {
             return status;
         }
-        if (selector == 8u) {
-            r9 = hybrid_player_bits_to_float(UINT32_C(0x3f6b851f));
-            body_instructions = UINT64_C(15);
-        } else {
-            r9 = hybrid_player_bits_to_float(UINT32_C(0x3f7851ec));
-            body_instructions = (selector == 10u) ? UINT64_C(12)
-                                                  : UINT64_C(13);
-        }
+        body_instructions = (selector == 8u) ? UINT64_C(15)
+                          : (selector == 10u) ? UINT64_C(12)
+                                              : UINT64_C(13);
         scale = hybrid_player_bits_to_float(scale_bits);
         result = (r9 * scale) - scale;
         memcpy(&result_bits, &result, sizeof(result_bits));
@@ -4157,31 +4222,158 @@ static vf2_status hybrid_execute_player_29414(
         if (status != VF2_OK) {
             return status;
         }
-        cpu->registers[14u] = result_bits;
-        cpu->ip = UINT32_C(0x00028178);
-        cpu->executed_instructions += body_instructions;
-        status = vf2_i960_cpu_return_procedure(cpu, machine);
-        if (status == VF2_OK) {
-            ++cpu->executed_instructions;
-        }
-        return status;
+        return hybrid_player_29414_finish(
+            machine, cpu, result_bits, body_instructions
+        );
     }
 
-    /* Measured type-0 zero path. */
-    status = vf2_model2a_write_u32(
-        machine, player + UINT32_C(0xc50), 0u
-    );
-    if (status != VF2_OK) {
-        return status;
+    {
+        uint16_t window = 0u;
+        uint32_t board = 0u;
+        uint16_t mask_614 = 0u;
+
+        status = hybrid_read_u16(machine, player + UINT32_C(0x1aa), &window);
+        if (status != VF2_OK) {
+            return status;
+        }
+
+        /* cmpobl 20,r12 / cmpobge 10,r12 are unsigned on the loaded halfword. */
+        if (window > UINT16_C(20)) {
+            status = vf2_model2a_read_u32(machine, UINT32_C(0x00508000), &board);
+            if (status != VF2_OK) {
+                return status;
+            }
+            body_instructions = (uint64_t)(13 + type_delta);
+            if ((board & (UINT32_C(1) << 5u)) != 0u) {
+                return hybrid_player_29414_finish(
+                    machine, cpu, state_flags, body_instructions
+                );
+            }
+            status = hybrid_read_u16(
+                machine, player + UINT32_C(0x614), &mask_614
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            body_instructions = (uint64_t)(17 + type_delta);
+            if ((mask_614 & UINT16_C(0x9000)) == 0u) {
+                return hybrid_player_29414_finish(
+                    machine, cpu, state_flags, body_instructions
+                );
+            }
+            body_instructions = (uint64_t)(19 + type_delta);
+            if ((uint32_t)50u < (uint32_t)window) {
+                return hybrid_player_29414_finish(
+                    machine, cpu, state_flags, body_instructions
+                );
+            }
+            status = hybrid_player_29414_add_half(
+                machine, player + UINT32_C(0x18a), (int32_t)r8_bits
+            );
+            if (status == VF2_OK) {
+                status = hybrid_player_29414_add_half(
+                    machine, player + UINT32_C(0x17c), (int32_t)r8_bits
+                );
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            return hybrid_player_29414_finish(
+                machine, cpu, state_flags, (uint64_t)(26 + type_delta)
+            );
+        }
+
+        if (window <= UINT16_C(10)) {
+            status = vf2_model2a_read_u32(
+                machine, player + UINT32_C(0x84), &scale_bits
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            scale = hybrid_player_bits_to_float(scale_bits);
+            result = (r9 * scale) - scale;
+            memcpy(&result_bits, &result, sizeof(result_bits));
+            status = vf2_model2a_write_u32(
+                machine, player + UINT32_C(0xc50), result_bits
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            return hybrid_player_29414_finish(
+                machine, cpu, result_bits, (uint64_t)(16 + type_delta)
+            );
+        }
+
+        {
+            const uint32_t window_index = (uint32_t)window - UINT32_C(10);
+            const uint32_t g11 = cpu->registers[VF2_I960_G0_REGISTER + 11u];
+            const uint32_t g12 = cpu->registers[VF2_I960_G0_REGISTER + 12u];
+            /* Measured encoding at 0x294b8 uses scale 0: address = g11 + g12. */
+            const uint32_t scratch = g11 + g12;
+            uint32_t loaded = 0u;
+            float r15 = 0.0f;
+
+            status = vf2_model2a_write_u32(
+                machine, scratch, UINT32_C(0x0b801717)
+            );
+            if (status == VF2_OK) {
+                status = vf2_model2a_write_u32(machine, scratch, window_index);
+            }
+            if (status == VF2_OK) {
+                status = vf2_model2a_read_u32(machine, scratch, &loaded);
+            }
+            if (status != VF2_OK) {
+                return status;
+            }
+            r15 = hybrid_player_bits_to_float(loaded);
+            result = (r10 * r15) + r9;
+            r9 = result;
+
+            status = vf2_model2a_read_u32(
+                machine, UINT32_C(0x00508000), &board
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            if ((board & (UINT32_C(1) << 5u)) == 0u) {
+                const int32_t delta =
+                    (int32_t)window_index * (int32_t)r13_bits;
+                status = hybrid_player_29414_add_half(
+                    machine, player + UINT32_C(0x18a), delta
+                );
+                if (status == VF2_OK) {
+                    status = hybrid_player_29414_add_half(
+                        machine, player + UINT32_C(0x17c), delta
+                    );
+                }
+                if (status != VF2_OK) {
+                    return status;
+                }
+            }
+            status = vf2_model2a_read_u32(
+                machine, player + UINT32_C(0x84), &scale_bits
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            scale = hybrid_player_bits_to_float(scale_bits);
+            result = (r9 * scale) - scale;
+            memcpy(&result_bits, &result, sizeof(result_bits));
+            status = vf2_model2a_write_u32(
+                machine, player + UINT32_C(0xc50), result_bits
+            );
+            if (status != VF2_OK) {
+                return status;
+            }
+            /* Board bit 5 skips the two halfword adds (measured 25 vs 33). */
+            body_instructions = ((board & (UINT32_C(1) << 5u)) != 0u)
+                ? (uint64_t)(25 + type_delta)
+                : (uint64_t)(33 + type_delta);
+            return hybrid_player_29414_finish(
+                machine, cpu, result_bits, body_instructions
+            );
+        }
     }
-    cpu->registers[14u] = 0u;
-    cpu->ip = UINT32_C(0x00028178);
-    cpu->executed_instructions += UINT64_C(7);
-    status = vf2_i960_cpu_return_procedure(cpu, machine);
-    if (status == VF2_OK) {
-        ++cpu->executed_instructions;
-    }
-    return status;
 }
 
 vf2_status vf2_hybrid_player_29414_execute(

@@ -413,18 +413,26 @@ the post-interpreter `+0x1a8`/`+0x1aa` stores remain (v0294). Measured
 next player targets after the coli closure are recorded in
 `decomp/i960/notes/fa_player_next_targets_v0292.md`.
 
-Status (v0296): `0x29414` types 6/8/10 with state-flag bit 19 clear are
-now native — they store `(r9 * scale - scale)` at `+0xc50` using the
-measured ROM constant sets. Type 0 zero-path is unchanged. Bit-19-set
-siblings (`0x294ac..0x294f4` indexed stores and the `+0x1aa < 20` window)
-remain explicit boundaries. `0x19ef8` flag-bit siblings stay deferred
-because pure interpretive replay from the parked snapshot still faults at
-`0x2704c`; the hybrid `0x14288` mid-corridor continuation and
-`vf2probe --set-ip` enable the next live-context drive (see
+Status (v0297): `0x29414` types 6/8/10 are now native for both the
+bit-19-clear float tail and the measured bit-19-set siblings. The
+`+0x1aa` window uses unsigned compares (`r12 > 20` → path B at
+`0x294f8`, `r12 <= 10` → float tail, else path A at `0x294ac..0x294f4`
+with indexed `(g11)[g12]` stores and optional halfword adds). Path B
+early-returns without storing `+0xc50` on board bit 5, a missing
+`+0x614 & 0x9000` mask, or `50 < window`. The unreachable-from-this-entry
+constant set at `0x29454` remains unmeasured. Type 0 zero-path is
+unchanged. `0x19ef8` flag-bit siblings stay deferred because pure
+interpretive replay from the parked snapshot still faults at `0x2704c`;
+the hybrid `0x14288` mid-corridor continuation and `vf2probe --set-ip`
+enable the next live-context drive (see
+`decomp/i960/notes/fa_player_29414_bit19_v0297.md`,
 `decomp/i960/notes/fa_player_29414_types_v0296.md`,
 `decomp/i960/notes/fa_player_19ef8_29414_defer_v0295.md` and
-`decomp/i960/notes/fa_player_drive_base_v0293.md`). Post-`0x28780`
-geometry helpers and physics/hitboxes remain later dedicated pins.
+`decomp/i960/notes/fa_player_drive_base_v0293.md`). The already-recovered
+`player_execute_28178_stream` is still not wired into
+`hybrid_execute_player_post_29414` (that segment remains
+`hybrid_execute_interpreted_until`). Post-`0x28780` geometry helpers and
+physics/hitboxes remain later dedicated pins.
 
 ## 3. Camera
 

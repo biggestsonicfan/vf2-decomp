@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- fa_player `0x29414`: recover the measured type-6/8/10 bit-19-set
+  siblings. The `+0x1aa` halfword is compared **unsigned** and the
+  disassembly operand order makes `cmpobl 20,r12` mean `r12 > 20`, so
+  path A at `0x294ac..0x294f4` is the reachable window `11..20` (indexed
+  `(g11)[g12]` stores, `r9 += r10*r11`, optional `+0x18a`/`+0x17c`
+  halfword adds of `r13*r11`, then the float tail). Path B (`window > 20`)
+  early-returns on board bit 5, missing `+0x614 & 0x9000`, or
+  `50 < window`, otherwise adds the type-constant `r8` to the halfwords
+  and never stores `+0xc50`. Type 8 is +2 and type 10 is -1 instructions
+  versus type 6. PUNCH stays `320/320` MATCH / `14,962,620` insns and
+  ctest `56/56` (v0297,
+  `decomp/i960/notes/fa_player_29414_bit19_v0297.md`);
+
 - fa_player `0x29414`: recover the measured type-6/8/10 compact path
   with state-flag bit 19 clear — store `(r9 * scale - scale)` at
   `+0xc50` using the ROM constant sets at `0x29478` (types 6/10) and
@@ -12,6 +25,7 @@
   instruction counts and float stores. PUNCH stays `320/320` MATCH /
   `14,962,620` insns and ctest `56/56` (v0296,
   `decomp/i960/notes/fa_player_29414_types_v0296.md`);
+
 
 - fa_player `0x19ef8` siblings and `0x29414` non-zero: defer after
   measurement blockers — interpretive replay from `player-14288-rt`
