@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- coli mid-body/tail: recover the remaining warm-path glue from
+  `0x22210` through the both-zero exit to `0x10dcc` as one native
+  procedure — two `0x22298` bitmask calls, two `0x22404` contact-query
+  calls and the `cmpobe`/`ret` tail; `hybrid_execute_coli_body` now
+  walks interpret-entry → native-shell → native-midbody; the warm
+  `fa_coli` task runs with zero interpreted instructions after the
+  7-insn entry prefix; PUNCH corridor stays `320/320` MATCH /
+  `14,962,620` instructions; unit test `test_coli_midbody_tail_warm`
+  (v0289, `decomp/i960/notes/fa_coli_midbody_v0289.md`);
+
 - coli `0x225cc`: measure the v0282 reachability drive — the `0x18bd4`
   shortcut is not taken; the path is a 248-instruction multi-branch
   body with four nested calls through `0x230b8` (not a compact

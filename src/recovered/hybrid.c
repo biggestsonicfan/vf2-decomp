@@ -109,6 +109,8 @@
 #define VF2_COLI_SHELL_THR_CONST UINT32_C(0x3cf5c28f)
 #define VF2_COLI_SHELL_FIGHTER_PTR0 UINT32_C(0x00500804)
 #define VF2_COLI_SHELL_FIGHTER_PTR1 UINT32_C(0x00500808)
+#define VF2_COLI_MIDBODY_ENTRY UINT32_C(0x00022210)
+#define VF2_COLI_MIDBODY_RETURN UINT32_C(0x00010dcc)
 #define VF2_PLAYER_TASK_WRAPPER_ENTRY UINT32_C(0x000142f4)
 #define VF2_SCHEDULER_RETURN UINT32_C(0x00010dcc)
 #define VF2_INTERPRETED_TASK_STEP_LIMIT UINT64_C(20000000)
@@ -18082,6 +18084,166 @@ vf2_status vf2_hybrid_coli_contact_query_execute(
     return hybrid_complete_procedure(machine, cpu, UINT64_C(13), 0u, 0u);
 }
 
+/* Body-only warm path of 0x22298: no CPU frame, no ret accounting.
+ * Used from the mid-body parent. Sibling (bit 8 set) fails closed. */
+static vf2_status coli_22298_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8
+)
+{
+    uint32_t flags_g8 = 0u;
+
+    if (machine == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g8) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g8 & (UINT32_C(1) << 8u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_write_u16(
+            machine, g7 + VF2_COLI_BITMASK_RESULT_OFFSET, 0u) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    return VF2_OK;
+}
+
+/* Body-only warm path of 0x22404: no CPU frame, no ret accounting.
+ * Writes g0 = 0 and g14 = 0x22428 (bal link). Sibling fails closed. */
+static vf2_status coli_22404_body(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t g7,
+    uint32_t g13
+)
+{
+    uint8_t slot = 0u;
+    uint16_t snap = 0u;
+    uint16_t pending = 0u;
+    uint32_t flags_g7 = 0u;
+
+    if (machine == NULL || cpu == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (hybrid_read_u8(
+            machine, g7 + VF2_COLI_CONTACT_SLOT_OFFSET, &slot) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (slot > 1u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g7 & (UINT32_C(1) << 8u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u16(
+            machine, g7 + VF2_COLI_CONTACT_SNAP_OFFSET, &snap) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_write_u16(
+            machine,
+            g13 + VF2_COLI_CONTACT_SNAPSHOT_BASE + (uint32_t)slot * 2u,
+            snap) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u16(
+            machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, &pending) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    pending = (uint16_t)(pending &
+                         (uint16_t)~(uint16_t)((uint16_t)1u << slot));
+    if (hybrid_write_u16(
+            machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, pending) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+    cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x00022428);
+    return VF2_OK;
+}
+
+/* Measured warm-path recovery of the fa_coli mid-body/tail (v0289).
+ * Covers 0x22210 through the final ret to 0x10dcc: two 0x22298 calls,
+ * two 0x22404 calls, and the both-zero exit. The 0x225cc resolver is
+ * not reached on the warm PUNCH path. Sibling paths fail closed.
+ *
+ * Accounting: parent 13 + children 7+7+14+14 = 55, plus completed ret
+ * = 56 instructions, 4 nested calls, 5 returns. */
+vf2_status vf2_hybrid_coli_midbody_tail_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+    /* Fighter pointers come from the same table the entry prefix used
+     * (0x221f4/0x221fc). Parent locals r7/r8 hold them in the coli
+     * frame but are not visible once this procedure's frame is current. */
+    uint32_t fighter0 = 0u;
+    uint32_t fighter1 = 0u;
+    uint32_t g7 = 0u;
+    uint32_t g8 = 0u;
+    uint32_t r6 = 0u;
+    uint64_t body = UINT64_C(13);
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_MIDBODY_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(
+            machine, VF2_COLI_SHELL_FIGHTER_PTR0, &fighter0) != VF2_OK ||
+        vf2_model2a_read_u32(
+            machine, VF2_COLI_SHELL_FIGHTER_PTR1, &fighter1) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (fighter0 == 0u || fighter1 == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
+
+    /* 0x22210 call 0x22298 — current assignment (shell leaves fighters). */
+    if (coli_22298_body(machine, g7, g8) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(7);
+
+    /* 0x22214 mov r8,g7 / mov r7,g8 / call — swapped. */
+    if (coli_22298_body(machine, fighter1, fighter0) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(7);
+
+    /* 0x22220 mov r7,g7 / mov r8,g8 / call — restore, then contact. */
+    if (coli_22404_body(machine, cpu, fighter0, g13) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(14);
+    r6 = cpu->registers[VF2_I960_G0_REGISTER];
+
+    /* 0x2222c mov g0,r6 / swap / call — second contact, swapped. */
+    if (coli_22404_body(machine, cpu, fighter1, g13) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(14);
+
+    /* 0x2223c cmpobe 0,g0 / 0x22284 cmpobe 0,r6 — warm both zero. */
+    if (cpu->registers[VF2_I960_G0_REGISTER] != 0u || r6 != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* Tail leaves g7/g8 in the swapped assignment from 0x22230/0x22234. */
+    cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
+    cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
+
+    return hybrid_complete_procedure(machine, cpu, body, 4u, 4u);
+}
+
 /* Measured warm-path recovery of the fa_coli g3-scan helper at 0x238a4.
  * Both PUNCH-driven invocations take the early exit: g7+0x1a4 bit 8
  * clear -> g3 = 0. Five instructions, no nested calls, one return.
@@ -19487,11 +19649,12 @@ vf2_status vf2_hybrid_coli_23524_execute(
     return hybrid_complete_procedure(machine, cpu, body, 13u, 13u);
 }
 
-/* Segment the measured warm body: interpret the entry prefix, recover
- * the entire 0x23524 shell + callees as one native procedure, then
- * interpret the mid-body/tail through the scheduler return. Whole-task
- * counters remain the v0274 pin (9214 / 18 / 19). The warm tail skips
- * 0x225cc because both contact-query results are zero. */
+/* Segment the measured warm body: interpret the 7-insn entry prefix,
+ * recover the entire 0x23524 shell + callees as one native procedure,
+ * then recover the mid-body/tail (0x22298 x2, 0x22404 x2, both-zero
+ * exit) through the scheduler return. Whole-task counters remain the
+ * v0274 pin (9214 / 18 / 19). The warm tail skips 0x225cc because both
+ * contact-query results are zero. */
 static vf2_status hybrid_execute_coli_body(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
@@ -19509,41 +19672,7 @@ static vf2_status hybrid_execute_coli_body(
         status = vf2_hybrid_coli_23524_execute(machine, cpu);
     }
     if (status == VF2_OK) {
-        status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_POLY_RETURN, VF2_COLI_BITMASK_ENTRY
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_hybrid_coli_bitmask_execute(machine, cpu);
-    }
-    if (status == VF2_OK) {
-        status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_BITMASK_RETURN_FIRST, VF2_COLI_BITMASK_ENTRY
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_hybrid_coli_bitmask_execute(machine, cpu);
-    }
-    if (status == VF2_OK) {
-        status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_BITMASK_RETURN_SECOND, VF2_COLI_CONTACT_ENTRY
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_hybrid_coli_contact_query_execute(machine, cpu);
-    }
-    if (status == VF2_OK) {
-        status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_CONTACT_RETURN_FIRST, VF2_COLI_CONTACT_ENTRY
-        );
-    }
-    if (status == VF2_OK) {
-        status = vf2_hybrid_coli_contact_query_execute(machine, cpu);
-    }
-    if (status == VF2_OK) {
-        status = hybrid_execute_interpreted_until(
-            machine, cpu, VF2_COLI_CONTACT_RETURN_SECOND, VF2_SCHEDULER_RETURN
-        );
+        status = vf2_hybrid_coli_midbody_tail_execute(machine, cpu);
     }
     return status;
 }

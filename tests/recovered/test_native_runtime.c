@@ -3117,6 +3117,91 @@ static void test_coli_23524_shell(void) {
     free(main_data);
 }
 
+static void test_coli_midbody_tail_warm(void) {
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const uint32_t fighter0 = UINT32_C(0x00510800);
+    const uint32_t fighter1 = UINT32_C(0x00512800);
+    const uint32_t registry = UINT32_C(0x00514b80);
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    /* Warm path: both fighters bit 8 clear, zero snapshots, empty pending. */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500804), fighter0) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500808), fighter1) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a4),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x4),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x4),
+                                UINT32_C(1)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
+                                UINT32_C(0)) == VF2_OK);
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022210));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022210),
+                                       UINT32_C(0x00010dcc)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+
+    CHECK(vf2_hybrid_coli_midbody_tail_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(56));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(4));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(5));
+    /* Both bitmask results stored 0. */
+    CHECK(read_test_u16(&machine, fighter0 + UINT32_C(0x6dc)) == UINT16_C(0));
+    CHECK(read_test_u16(&machine, fighter1 + UINT32_C(0x6dc)) == UINT16_C(0));
+    /* Contact-query g0 left at 0; g14 is the last bal link.
+     * Tail leaves g7/g8 swapped (0x22230/0x22234). */
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == 0u);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 7u] == fighter1);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 8u] == fighter0);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 14u] ==
+          UINT32_C(0x00022428));
+
+    /* Bit 8 set on fighter1 is an unmeasured sibling: fail closed. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(1) << 8u) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022210));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022210),
+                                       UINT32_C(0x00010dcc)) == VF2_OK);
+    CHECK(vf2_hybrid_coli_midbody_tail_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 static void test_recurring_kill_osage_order_accounting(void) {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
@@ -3283,6 +3368,7 @@ int main(void) {
     test_coli_2364c_fifo_delta();
     test_coli_2396c_poly_cluster();
     test_coli_23524_shell();
+    test_coli_midbody_tail_warm();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 

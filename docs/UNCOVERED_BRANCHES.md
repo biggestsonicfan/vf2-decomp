@@ -1045,6 +1045,26 @@ See `decomp/i960/notes/fa_coli_23524_shell_v0287.md`.
 Remaining interpreted in the coli warm task: mid-body/tail only
 (`0x22210`→`0x22298`→`0x22404`→`0x10dcc`).
 
+### v0289 recover coli mid-body/tail warm path
+
+`vf2_hybrid_coli_midbody_tail_execute` is now native C. The 56-instruction
+corridor from `0x22210` through the both-zero `cmpobe` pair and final
+ret to `0x10dcc` runs as one procedure, inlining body-only
+`coli_22298_body` ×2 and `coli_22404_body` ×2 (extracted from the
+v0276/v0277 exports). Fighter pointers reload from `0x500804`/`0x500808`.
+Final `g7`/`g8` are left swapped (`0x22230`/`0x22234`). Accounting
+**56 / 4 / 5**. Bit-8-set siblings and the non-zero contact-result path
+to `0x225cc` fail closed.
+
+`hybrid_execute_coli_body` now walks interpret-entry (7 insns) →
+native `0x23524` (9151) → native mid-body/tail (56) → `0x10dcc`.
+The warm `fa_coli` task has **zero interpreted instructions** after
+the entry prefix.
+
+PUNCH remains `320/320` MATCH / `14,962,620` instructions.
+Unit test `test_coli_midbody_tail_warm`.
+See `decomp/i960/notes/fa_coli_midbody_v0289.md`.
+
 ### v0288 measure `0x225cc` reachability path (defer)
 
 Re-runs the v0282 mutated drive to `0x225cc`. The `0x18bd4` shortcut
