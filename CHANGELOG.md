@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- fa_player `0x29414`: recover the measured type-6/8/10 compact path
+  with state-flag bit 19 clear — store `(r9 * scale - scale)` at
+  `+0xc50` using the ROM constant sets at `0x29478` (types 6/10) and
+  `0x29430` (type 8); type 0 zero-path unchanged; bit-19-set siblings
+  stay fail-closed. Add `vf2probe --set-ip`, accept `0x14288` as a
+  hybrid player mid-corridor continuation, export
+  `vf2_hybrid_player_29414_execute`, and unit-test the measured
+  instruction counts and float stores. PUNCH stays `320/320` MATCH /
+  `14,962,620` insns and ctest `56/56` (v0296,
+  `decomp/i960/notes/fa_player_29414_types_v0296.md`);
+
 - fa_player `0x19ef8` siblings and `0x29414` non-zero: defer after
   measurement blockers — interpretive replay from `player-14288-rt`
   faults at `0x2704c` even on baseline (980 insns), and `vf2probe`

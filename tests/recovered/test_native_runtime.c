@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "vf2/fighter_candidate.h"
 #include "vf2/native_runtime.h"
 
 static int failures = 0;
@@ -3406,6 +3407,104 @@ static void test_scheduler_finishes_after_early_last_active_task(void) {
     free(rom);
 }
 
+static void write_test_u8(vf2_model2a *machine, uint32_t address, uint8_t value) {
+    CHECK(vf2_model2a_write(machine, address, &value, sizeof(value)) == VF2_OK);
+}
+
+static void test_player_29414_type_paths(void) {
+    uint8_t *rom = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const uint32_t player = UINT32_C(0x00510980);
+    const uint32_t return_address = UINT32_C(0x00028178);
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || machine.work_ram == NULL) {
+        free(rom);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+
+    /* Type 0: measured zero path, 8 instructions / 0 calls / 1 return. */
+    write_test_u8(&machine, player + UINT32_C(0x1b1), 0u);
+    CHECK(vf2_model2a_write_u32(&machine, player + UINT32_C(0xc50),
+                                UINT32_C(0xdeadbeef)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00029414));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00029414),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_player_29414_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == return_address);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(8));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(0));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(read_test_u32(&machine, player + UINT32_C(0xc50)) == 0u);
+
+    /* Type 6, bit-19 clear, scale 2.0: (0.970*2 - 2) = 0xbd75c280. */
+    write_test_u8(&machine, player + UINT32_C(0x1b1), 6u);
+    CHECK(vf2_model2a_write_u32(&machine, player + VF2_FIGHTER_OFF_01A4, 0u) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, player + UINT32_C(0x84),
+                                UINT32_C(0x40000000)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00029414));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00029414),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_29414_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == return_address);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(14));
+    CHECK(read_test_u32(&machine, player + UINT32_C(0xc50)) ==
+          UINT32_C(0xbd75c280));
+
+    /* Type 8, bit-19 clear, scale 2.0: (0.920*2 - 2) = 0xbe23d708. */
+    write_test_u8(&machine, player + UINT32_C(0x1b1), 8u);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00029414));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00029414),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_29414_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == return_address);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(16));
+    CHECK(read_test_u32(&machine, player + UINT32_C(0xc50)) ==
+          UINT32_C(0xbe23d708));
+
+    /* Type 10 shares the type-6 constant set. */
+    write_test_u8(&machine, player + UINT32_C(0x1b1), 10u);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00029414));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00029414),
+                                       return_address) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_player_29414_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == return_address);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(13));
+    CHECK(read_test_u32(&machine, player + UINT32_C(0xc50)) ==
+          UINT32_C(0xbd75c280));
+
+    /* Bit-19 set is an unmeasured sibling: fail closed. */
+    CHECK(vf2_model2a_write_u32(&machine, player + VF2_FIGHTER_OFF_01A4,
+                                UINT32_C(0x00080000)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00029414));
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = player;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00029414),
+                                       return_address) == VF2_OK);
+    CHECK(vf2_hybrid_player_29414_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+}
+
 int main(void) {
     test_initialize_and_names();
     test_post_boot_delay();
@@ -3435,6 +3534,7 @@ int main(void) {
     test_coli_2396c_poly_cluster();
     test_coli_23524_shell();
     test_coli_midbody_tail_warm();
+    test_player_29414_type_paths();
     test_recurring_kill_osage_order_accounting();
     test_scheduler_finishes_after_early_last_active_task();
 

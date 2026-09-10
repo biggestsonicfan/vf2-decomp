@@ -35,6 +35,8 @@ typedef struct vf2_probe_options {
     uint32_t stop_address;
     uint64_t max_steps;
     int has_stop_address;
+    int has_set_ip;
+    uint32_t set_ip;
     int trace;
     int memory_trace;
     int has_raise_irq;
@@ -66,6 +68,7 @@ static void print_usage(FILE *stream, const char *program)
         "  --until <address>          stop when IP reaches address\n"
         "  --max-steps <count>        instruction limit (default 100000)\n"
         "  --set-reg <reg=value>      mutate r0..r31, g0..g15 or fp\n"
+        "  --set-ip <address>         force the instruction pointer\n"
         "  --set-u8 <addr=value>      mutate one byte\n"
         "  --set-u16 <addr=value>     mutate little-endian 16-bit value\n"
         "  --set-u32 <addr=value>     mutate little-endian 32-bit value\n"
@@ -278,6 +281,11 @@ static int parse_options(int argc, char **argv, vf2_probe_options *options)
             if (!append_mutation(options, kind, target, value)) {
                 return 0;
             }
+        } else if (strcmp(argument, "--set-ip") == 0 && index + 1 < argc) {
+            if (!parse_u32(argv[++index], &options->set_ip)) {
+                return 0;
+            }
+            options->has_set_ip = 1;
         } else if (strcmp(argument, "--read-u32") == 0 && index + 1 < argc) {
             if (options->read_u32_count >= VF2_PROBE_MAX_READS ||
                 !parse_u32(argv[++index], &options->reads_u32[options->read_u32_count])) {
@@ -519,6 +527,9 @@ int main(int argc, char **argv)
     }
     for (index = 0u; status == VF2_OK && index < options.mutation_count; ++index) {
         status = apply_mutation(&machine, &cpu, &options.mutations[index]);
+    }
+    if (status == VF2_OK && options.has_set_ip) {
+        cpu.ip = options.set_ip;
     }
     if (status == VF2_OK && options.has_input) {
         status = vf2_model2a_set_input(&machine, options.input);

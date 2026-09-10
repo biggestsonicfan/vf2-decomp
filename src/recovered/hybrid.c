@@ -4092,7 +4092,7 @@ static vf2_status hybrid_execute_player_post_29414(
     return status;
 }
 
-static vf2_status hybrid_execute_player_29414_zero_path(
+static vf2_status hybrid_execute_player_29414(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
 )
@@ -4100,6 +4100,13 @@ static vf2_status hybrid_execute_player_29414_zero_path(
     const uint32_t player = cpu != NULL
         ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
     uint8_t selector = 0u;
+    uint32_t state_flags = 0u;
+    uint32_t scale_bits = 0u;
+    uint32_t result_bits = 0u;
+    float scale = 0.0f;
+    float r9 = 0.0f;
+    float result = 0.0f;
+    uint64_t body_instructions = 0u;
     vf2_status status = VF2_OK;
 
     if (machine == NULL || cpu == NULL || cpu->ip != UINT32_C(0x00029414) ||
@@ -4112,9 +4119,55 @@ static vf2_status hybrid_execute_player_29414_zero_path(
     if (status != VF2_OK) {
         return status;
     }
+
+    /* Types 6 and 10 share the 0x29478 constant set; type 8 uses 0x29430.
+     * The bit-19-clear tail stores (r9 * scale - scale) at +0xc50. The
+     * bit-19-set window at 0x294ac..0x294f4 and the +0x1aa < 20 path at
+     * 0x294f8 remain unmeasured siblings. */
     if (selector == 6u || selector == 8u || selector == 10u) {
-        return VF2_ERROR_UNSUPPORTED;
+        status = vf2_model2a_read_u32(
+            machine, player + VF2_FIGHTER_OFF_01A4, &state_flags
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        if ((state_flags & (UINT32_C(1) << 19u)) != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = vf2_model2a_read_u32(
+            machine, player + UINT32_C(0x84), &scale_bits
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (selector == 8u) {
+            r9 = hybrid_player_bits_to_float(UINT32_C(0x3f6b851f));
+            body_instructions = UINT64_C(15);
+        } else {
+            r9 = hybrid_player_bits_to_float(UINT32_C(0x3f7851ec));
+            body_instructions = (selector == 10u) ? UINT64_C(12)
+                                                  : UINT64_C(13);
+        }
+        scale = hybrid_player_bits_to_float(scale_bits);
+        result = (r9 * scale) - scale;
+        memcpy(&result_bits, &result, sizeof(result_bits));
+        status = vf2_model2a_write_u32(
+            machine, player + UINT32_C(0xc50), result_bits
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        cpu->registers[14u] = result_bits;
+        cpu->ip = UINT32_C(0x00028178);
+        cpu->executed_instructions += body_instructions;
+        status = vf2_i960_cpu_return_procedure(cpu, machine);
+        if (status == VF2_OK) {
+            ++cpu->executed_instructions;
+        }
+        return status;
     }
+
+    /* Measured type-0 zero path. */
     status = vf2_model2a_write_u32(
         machine, player + UINT32_C(0xc50), 0u
     );
@@ -4129,6 +4182,14 @@ static vf2_status hybrid_execute_player_29414_zero_path(
         ++cpu->executed_instructions;
     }
     return status;
+}
+
+vf2_status vf2_hybrid_player_29414_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    return hybrid_execute_player_29414(machine, cpu);
 }
 
 /* The bit-31 fa_game_info path is a dispatcher around the two large fighter
@@ -19762,12 +19823,20 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
         break;
 
     case VF2_PLAYER_TASK_ENTRY:
+    case UINT32_C(0x00014288):
         local_report.kind = VF2_HYBRID_TASK_PLAYER;
-        status = hybrid_execute_player_prefix(machine, cpu);
+        if (cpu->ip == VF2_PLAYER_TASK_ENTRY) {
+            status = hybrid_execute_player_prefix(machine, cpu);
+        } else {
+            /* Mid-corridor park: prefix already ran; g7 must be the player. */
+            status = (cpu->registers[VF2_I960_G0_REGISTER + 7u] != 0u &&
+                      cpu->local_frame_depth != 0u)
+                ? VF2_OK : VF2_ERROR_INVALID_ARGUMENT;
+        }
         if (status == VF2_ERROR_INVALID_ARGUMENT) {
             interpreted_task = 1;
             status = hybrid_execute_interpreted_task(
-                machine, cpu, registry_address, VF2_PLAYER_TASK_ENTRY,
+                machine, cpu, registry_address, cpu->ip,
                 &task_report
             );
         } else if (status == VF2_OK) {
@@ -19970,7 +20039,7 @@ vf2_status vf2_hybrid_first_dispatch_task_execute(
                                                                                             UINT32_C(0x00028174), &task_report
                                                                                         );
                                                                                     } else if (status == VF2_OK) {
-                                                                                        status = hybrid_execute_player_29414_zero_path(
+                                                                                        status = hybrid_execute_player_29414(
                                                                                             machine, cpu
                                                                                         );
                                                                                         if (status == VF2_ERROR_UNSUPPORTED) {

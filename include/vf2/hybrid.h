@@ -387,6 +387,16 @@ vf2_status vf2_hybrid_coli_2364c_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured fa_player 0x29414 type-0/6/8/10 compact paths.
+ * The CPU must already be inside the callee (IP == 0x29414, frame pushed).
+ * Type 0 stores zero at +0xc50. Types 6/8/10 with state-flag bit 19 clear
+ * store (r9 * scale - scale) using the measured constant sets. Bit-19-set
+ * siblings fail closed. */
+vf2_status vf2_hybrid_player_29414_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover the measured warm-path fa_coli poly cluster builder at 0x2396c.
  * The CPU must already be inside the callee (IP == entry, frame pushed).
  * Two PUNCH-driven invocations; inlines three 0x23878 bit-remaps.

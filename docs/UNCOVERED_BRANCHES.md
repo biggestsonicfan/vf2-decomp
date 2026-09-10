@@ -411,11 +411,17 @@ selector-setup interpreter (`player_selector_execute_setup`) instead of
 the previous manual record stores; the `0x505`/`0x284` caller guard and
 the post-interpreter `+0x1a8`/`+0x1aa` stores remain (v0294). Measured
 next player targets after the coli closure are recorded in
-`decomp/i960/notes/fa_player_next_targets_v0292.md`. Status (v0295):
-`0x19ef8` flag-bit siblings and the `0x29414` non-zero path are
-**deferred** — interpretive replay from the parked snapshot faults at
-`0x2704c` even on baseline, and `vf2probe` cannot exit the `0x10FA0`
-vblank wait loop (see
+`decomp/i960/notes/fa_player_next_targets_v0292.md`.
+
+Status (v0296): `0x29414` types 6/8/10 with state-flag bit 19 clear are
+now native — they store `(r9 * scale - scale)` at `+0xc50` using the
+measured ROM constant sets. Type 0 zero-path is unchanged. Bit-19-set
+siblings (`0x294ac..0x294f4` indexed stores and the `+0x1aa < 20` window)
+remain explicit boundaries. `0x19ef8` flag-bit siblings stay deferred
+because pure interpretive replay from the parked snapshot still faults at
+`0x2704c`; the hybrid `0x14288` mid-corridor continuation and
+`vf2probe --set-ip` enable the next live-context drive (see
+`decomp/i960/notes/fa_player_29414_types_v0296.md`,
 `decomp/i960/notes/fa_player_19ef8_29414_defer_v0295.md` and
 `decomp/i960/notes/fa_player_drive_base_v0293.md`). Post-`0x28780`
 geometry helpers and physics/hitboxes remain later dedicated pins.
