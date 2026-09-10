@@ -411,12 +411,14 @@ selector-setup interpreter (`player_selector_execute_setup`) instead of
 the previous manual record stores; the `0x505`/`0x284` caller guard and
 the post-interpreter `+0x1a8`/`+0x1aa` stores remain (v0294). Measured
 next player targets after the coli closure are recorded in
-`decomp/i960/notes/fa_player_next_targets_v0292.md`: `0x19ef8` flag-bit
-siblings (measurement blocked — interpretive replay from the parked
-snapshot faults at `0x2704c` even on baseline, see
-`decomp/i960/notes/fa_player_drive_base_v0293.md`), the `0x29414`
-non-zero path (parks never reached the target), post-`0x28780` geometry
-helpers, then physics/hitboxes as a later dedicated pin.
+`decomp/i960/notes/fa_player_next_targets_v0292.md`. Status (v0295):
+`0x19ef8` flag-bit siblings and the `0x29414` non-zero path are
+**deferred** — interpretive replay from the parked snapshot faults at
+`0x2704c` even on baseline, and `vf2probe` cannot exit the `0x10FA0`
+vblank wait loop (see
+`decomp/i960/notes/fa_player_19ef8_29414_defer_v0295.md` and
+`decomp/i960/notes/fa_player_drive_base_v0293.md`). Post-`0x28780`
+geometry helpers and physics/hitboxes remain later dedicated pins.
 
 ## 3. Camera
 
