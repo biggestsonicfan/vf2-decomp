@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fase 6A/6B partial: attribute the input-17 cycle-2 boundary to
+  `phase17 bit7_index10` (`0x8a`) and admit the measured match-latch
+  sibling `input=previous=0x0f002100, released=0`. Account the match
+  state0 corridor as 1677 instructions (1650 `0x5f234` body + 27 for
+  the `0x10b5c`/`a6c0` shell) and use the measured poststate (`r14=6`,
+  AC `...002`, CC EQUAL). Cycle 2 now matches IP and instruction totals
+  (`3575/3575`, both `0xa010`) but still fails a 6-byte `cpu-state`
+  compare, so the endurance pin remains open. PUNCH stays `320/320`
+  MATCH and ctest `56/56` (v0299,
+  `decomp/i960/notes/fa_player_input17_index10_v0299.md`);
+
 - Fase 6 scouting: holding input 17 or 18 from `sixth-regen` opens a
   corridor distinct from PUNCH. Cycle 1 MATCHes; cycle 2 fails closed
   at the `frame_dispatch_tick` `callx` (`0xa6c0` table `0xa6f8[r3*4]`)

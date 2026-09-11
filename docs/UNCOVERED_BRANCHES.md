@@ -441,6 +441,17 @@ geometry through `0x2826c`/`0x27d90` remains native; physics/hitboxes
 and an input-driven pin distinct from PUNCH remain later dedicated
 work.
 
+Status (v0299): the input-17 cycle-2 stop is attributed to selector-17
+phase `0x8a` / `bit7_index10`, not an unknown `callx` family. The
+handler now admits the measured match-latch sibling
+`input=previous=0x0f002100` with `released=0`, 1677-instruction state0
+accounting and the measured `r14=6` / EQUAL poststate. Cycle 2 reaches
+`0xa010` with equal instruction totals but still fails a residual
+6-byte `cpu-state` compare, so the second endurance pin is not yet
+closed. state1 with the match latch and the park-only latch shape
+`0x0f000000/0x0f002100/0x2100` remain fail-closed (see
+`decomp/i960/notes/fa_player_input17_index10_v0299.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

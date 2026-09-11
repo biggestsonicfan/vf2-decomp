@@ -12259,14 +12259,31 @@ static vf2_status phase17_index10_render_state1(vf2_model2a *machine)
 static vf2_status execute_frame_phase17_bit7_index10(
     vf2_model2a *machine,vf2_i960_cpu *cpu,vf2_hybrid_bridge_report *report,uint8_t flagged_phase_index)
 {
-    const uint32_t base_input=UINT32_C(0x0ff7f700);const uint8_t spill=UINT8_C(0x56);
+    const uint8_t spill=UINT8_C(0x56);
     uint32_t target=0u,input=0u,navigation=0u,released=0u,previous=0u,mask=0u;uint8_t a5=0u,a6=0u,a7=0u;uint64_t instructions=0u,calls=0u;vf2_status status=VF2_OK;int exiting=0;
+    int latch_idle;
+    int latch_match;
     if(flagged_phase_index!=UINT8_C(0x8a)||cpu->local_frame_depth==0u)return VF2_ERROR_UNSUPPORTED;
     status=vf2_model2a_read_u32(machine,UINT32_C(0x0005fef8),&target);if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x00500700),&input);if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x00500704),&navigation);if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x00500708),&released);if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x0050070c),&previous);if(status==VF2_OK)status=vf2_model2a_read_u32(machine,UINT32_C(0x0050002c),&mask);if(status==VF2_OK)status=vf2_model2a_read(machine,UINT32_C(0x005000a5),&a5,1u);if(status==VF2_OK)status=vf2_model2a_read(machine,UINT32_C(0x005000a6),&a6,1u);if(status==VF2_OK)status=vf2_model2a_read(machine,UINT32_C(0x005000a7),&a7,1u);
-    if(status!=VF2_OK||target!=UINT32_C(0x0005f234)||input!=base_input||released!=0u||previous!=base_input||mask!=UINT32_C(0x00020000)||a5>UINT8_C(1)||a6!=UINT8_C(0xff)||a7!=UINT8_C(0xff))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
+    latch_idle = (input == UINT32_C(0x0ff7f700) && previous == UINT32_C(0x0ff7f700) &&
+                  released == 0u);
+    /* Measured input-17 match-held sibling (v0299): vf2cycles --input 17
+     * from in17-c1 reaches index10 with this tuple. The 0x9ff8 park taken
+     * without a held input instead shows 0x0f000000/0x0f002100/0x2100. */
+    latch_match = (input == UINT32_C(0x0f002100) && previous == UINT32_C(0x0f002100) &&
+                   released == 0u);
+    if(status!=VF2_OK||target!=UINT32_C(0x0005f234)||(!latch_idle&&!latch_match)||mask!=UINT32_C(0x00020000)||a5>UINT8_C(1)||a6!=UINT8_C(0xff)||a7!=UINT8_C(0xff))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     if(a5==UINT8_C(0)){
-        const uint8_t next=UINT8_C(1);if(navigation!=0u)return VF2_ERROR_UNSUPPORTED;status=phase17_index10_render_state0(machine);if(status==VF2_OK)status=vf2_model2a_write(machine,UINT32_C(0x005000a5),&next,sizeof(next));instructions=UINT64_C(1650);calls=UINT64_C(31);
+        const uint8_t next=UINT8_C(1);if(navigation!=0u)return VF2_ERROR_UNSUPPORTED;status=phase17_index10_render_state0(machine);if(status==VF2_OK)status=vf2_model2a_write(machine,UINT32_C(0x005000a5),&next,sizeof(next));
+        /* 1650 is the measured 0x5f234 body. The input-17 match-latch
+         * corridor from 0x9ff8 needs 27 more: 0x10b5c wrapper + a6c0
+         * dispatch shell (1909 = prefixes + 1677 + epilogue). */
+        instructions=latch_match?UINT64_C(1677):UINT64_C(1650);
+        calls=UINT64_C(31);
     }else{
+        if (!latch_idle) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
         if (navigation != 0u &&
             (navigation & UINT32_C(0x04000104)) == 0u) {
             return VF2_ERROR_UNSUPPORTED;
@@ -12292,7 +12309,16 @@ static vf2_status execute_frame_phase17_bit7_index10(
         return status;
     }
     cpu->executed_instructions+=instructions;cpu->procedure_calls+=calls;cpu->procedure_returns+=calls;status=vf2_i960_cpu_return_procedure(cpu,machine);if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a010))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
-    if(a5==UINT8_C(0)){phase17_index7_post(cpu,UINT32_C(0x2e),UINT32_C(0x3f4f5c29),UINT32_C(0xc0a0a3d7),UINT32_C(0x01001726),UINT32_C(5),0);cpu->arithmetic_control=(cpu->arithmetic_control&~UINT32_C(7))|UINT32_C(1);cpu->compare_result=VF2_I960_COMPARE_GREATER;}else phase17_index10_post(cpu,exiting);
+    if(a5==UINT8_C(0)){
+        if(latch_match){
+            /* Measured input-17 poststate at 0xa010: r14=6, AC ...002, CC EQUAL. */
+            phase17_index7_post(cpu,UINT32_C(0x2e),UINT32_C(0x3f4f5c29),UINT32_C(0xc0a0a3d7),UINT32_C(0x01001726),UINT32_C(6),0);
+        }else{
+            phase17_index7_post(cpu,UINT32_C(0x2e),UINT32_C(0x3f4f5c29),UINT32_C(0xc0a0a3d7),UINT32_C(0x01001726),UINT32_C(5),0);
+            cpu->arithmetic_control=(cpu->arithmetic_control&~UINT32_C(7))|UINT32_C(1);
+            cpu->compare_result=VF2_I960_COMPARE_GREATER;
+        }
+    }else phase17_index10_post(cpu,exiting);
     report->kind=VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;report->entry_address=VF2_FRAME_DISPATCH_TICK_ENTRY;report->exit_address=cpu->ip;report->iterations=UINT64_C(1);report->recovered_instruction_count=instructions;report->recovered_procedure_calls=calls;report->recovered_procedure_returns=calls+UINT64_C(1);report->cpu_poststate_applied=1;return VF2_OK;
 }
 
