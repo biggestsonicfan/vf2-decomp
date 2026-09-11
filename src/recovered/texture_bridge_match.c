@@ -12327,10 +12327,12 @@ static vf2_status execute_frame_phase17_bit7_index10(
             cpu->compare_result=VF2_I960_COMPARE_GREATER;
         }
     }else{
+        const uint32_t saved_r14 = cpu->registers[14];
         phase17_index10_post(cpu,exiting);
         if (latch_match && !exiting) {
-            /* Measured input-17 state1 poststate: r14=7, EQUAL. */
-            cpu->registers[14] = UINT32_C(7);
+            /* Match-latch state1 leaves the entry r14 intact (measured
+             * 7 then 8 on successive frames). */
+            cpu->registers[14] = saved_r14;
         }
     }
     report->kind=VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;report->entry_address=VF2_FRAME_DISPATCH_TICK_ENTRY;report->exit_address=cpu->ip;report->iterations=UINT64_C(1);report->recovered_instruction_count=instructions;report->recovered_procedure_calls=calls;report->recovered_procedure_returns=calls+UINT64_C(1);report->cpu_poststate_applied=1;return VF2_OK;

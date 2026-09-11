@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Preserve entry `r14` on match-latch index10 state1 (successive frames
+  carry 7, 8, …). Cycle 3 now fails on work-ram (`0xff600`) instead of
+  a register. The 2-cycle input-17 pin and PUNCH stay MATCH (v0301b);
+
 - Fase 6 pin extended: recover index10 state1 (`a5==1`, navigation==0)
   for the match latch (36756/1438, `r14=7`, EQUAL).
   `vf2cycles --input 17 --cycles 2` from `in17-c1` is now **2/2 MATCH**
