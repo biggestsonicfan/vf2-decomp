@@ -12195,7 +12195,7 @@ static vf2_status phase17_index10_render_state0(vf2_model2a *machine)
     static const char *names[11]={"AKIRA","JACKY","SARAH","KAGE","LAU","JEFFRY","PAI","WOLF","SHUN","DURAL","LION"};
     static const uint16_t markers[6]={UINT16_C(0x02c1),UINT16_C(0x02d6),UINT16_C(0x02c7),UINT16_C(0x02d2),UINT16_C(0x02ce),UINT16_C(0x02cb)};
     static const uint8_t marker_cols[6]={54u,55u,56u,58u,59u,60u};
-    size_t i=0u;vf2_status status=write_phase17_index0_text(machine,UINT32_C(13*0x80),UINT32_C(10),"LOSES(%)");
+    size_t i=0u;vf2_status status=write_phase17_index0_text(machine,UINT32_C(13*0x80),UINT32_C(10),"LOSE(%)");
     for(i=0u;status==VF2_OK&&i<6u;++i)status=phase17_index10_tile(machine,UINT32_C(16),marker_cols[i],markers[i]);
     for(i=0u;status==VF2_OK&&i<11u;++i)status=write_phase17_index0_text(machine,UINT32_C(16*0x80),UINT32_C(10)+(uint32_t)i*UINT32_C(4),abbr[i]);
     if(status==VF2_OK)status=write_phase17_index0_text(machine,UINT32_C(14*0x80),UINT32_C(2),"WIN(%)");
@@ -12279,7 +12279,9 @@ static vf2_status execute_frame_phase17_bit7_index10(
          * corridor from 0x9ff8 needs 27 more: 0x10b5c wrapper + a6c0
          * dispatch shell (1909 = prefixes + 1677 + epilogue). */
         instructions=latch_match?UINT64_C(1677):UINT64_C(1650);
-        calls=UINT64_C(31);
+        /* Live vf2cycles compare: match path needs 2 extra calls/returns
+         * beyond the 31 measured in 0x5f234 (0x10b5c wrapper call + callx). */
+        calls=latch_match?UINT64_C(33):UINT64_C(31);
     }else{
         if (!latch_idle) {
             return VF2_ERROR_UNSUPPORTED;
@@ -12311,8 +12313,11 @@ static vf2_status execute_frame_phase17_bit7_index10(
     cpu->executed_instructions+=instructions;cpu->procedure_calls+=calls;cpu->procedure_returns+=calls;status=vf2_i960_cpu_return_procedure(cpu,machine);if(status!=VF2_OK||cpu->ip!=UINT32_C(0x0000a010))return status==VF2_OK?VF2_ERROR_UNSUPPORTED:status;
     if(a5==UINT8_C(0)){
         if(latch_match){
-            /* Measured input-17 poststate at 0xa010: r14=6, AC ...002, CC EQUAL. */
+            /* Measured live vf2cycles --input 17 poststate at 0xa010:
+             * r14=6, AC ...001, CC GREATER (registers otherwise equal). */
             phase17_index7_post(cpu,UINT32_C(0x2e),UINT32_C(0x3f4f5c29),UINT32_C(0xc0a0a3d7),UINT32_C(0x01001726),UINT32_C(6),0);
+            cpu->arithmetic_control=(cpu->arithmetic_control&~UINT32_C(7))|UINT32_C(1);
+            cpu->compare_result=VF2_I960_COMPARE_GREATER;
         }else{
             phase17_index7_post(cpu,UINT32_C(0x2e),UINT32_C(0x3f4f5c29),UINT32_C(0xc0a0a3d7),UINT32_C(0x01001726),UINT32_C(5),0);
             cpu->arithmetic_control=(cpu->arithmetic_control&~UINT32_C(7))|UINT32_C(1);

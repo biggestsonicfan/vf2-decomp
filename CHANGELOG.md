@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fase 6 pin closed: recover `phase17 bit7_index10` match-latch sibling
+  for `--input 17` (`input=previous=0x0f002100`, released=0). State0
+  accounts 1677 instructions / 33 calls, poststate `r14=6` + GREATER,
+  header text `LOSE(%)`. Skip forcing EQUAL in
+  `set_main_final_cluster_condition` for phase `0x8a`.
+  `vf2cycles --input 17 --cycles 1` from `in17-c1` is **1/1 MATCH**
+  (37 blocks / 3,810 insns, both `0x1645c`) — second endurance pin,
+  complementary to PUNCH. Next frame (`a5==1` state1 with match latch)
+  remains fail-closed. PUNCH stays `320/320` MATCH and ctest `56/56`
+  (v0300, `decomp/i960/notes/fa_player_input17_index10_v0299.md`);
+
 - Fase 6A/6B partial: attribute the input-17 cycle-2 boundary to
   `phase17 bit7_index10` (`0x8a`) and admit the measured match-latch
   sibling `input=previous=0x0f002100, released=0`. Account the match

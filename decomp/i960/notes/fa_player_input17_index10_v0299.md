@@ -97,7 +97,7 @@ vf2cycles --snapshot out/v300/in17-c1.vf2snap --input 17 --cycles 2
   ref 0x00009ff8 / native 0x0000a6c0
 ```
 
-## Recovery applied (v0299)
+## Recovery applied (v0299/v0300)
 
 `execute_frame_phase17_bit7_index10` now admits a second measured latch:
 
@@ -108,26 +108,39 @@ match (new):       input=previous=0x0f002100, released=0
 
 state1 (`a5==1`) with the match latch stays fail-closed.
 
-Accounting for match state0 is **1677** (= 1650 `0x5f234` body + 27 for
-the `0x10b5c` wrapper and `0xa6c0` dispatch shell). Poststate uses
-`r14=6` and keeps `set_equal_condition` (AC `...002`, CC EQUAL) instead
-of the idle `r14=5` / AC `...001` / GREATER triple.
+Match state0 accounting and poststate, proven by the live per-block
+compare:
 
-## Residual after v0299
+| Field | Match path |
+|-------|------------|
+| instructions | **1677** (1650 `0x5f234` + 27 shell/wrapper) |
+| calls | **33** (31 body + 2 wrapper/callx) |
+| r14 | 6 |
+| AC low bits / CC | `...001` / GREATER |
+| header text | `LOSE(%)` at row 13 col 10 (not `LOSES(%)`) |
+
+`set_main_final_cluster_condition` no longer forces EQUAL when
+`phase_index==0x8a`; the bridge poststate (GREATER) is left intact.
+
+## Pin (closed)
 
 ```text
-vf2cycles --input 17 --cycles 2 --snapshot out/v300/in17-c1.vf2snap
-→ 34 blocks / 3575=3575 insns
-  ref/native both at 0xa010
-  main-final-cluster bridge entry/exit 0x9ff8/0xa010
-  still cpu-state compare fail, bytes=6
+vf2cycles --snapshot out/v300/in17-c1.vf2snap --input 17 --cycles 1
+→ 1/1 MATCH
+  37 blocks / 3810=3810 insns
+  both at 0x0001645c
 ```
 
-IP and instruction totals now match. The remaining 6-byte `cpu-state`
-difference is the next measured boundary.
+`in17-c1` is the park after input-17 cycle 1 from `sixth-regen`. This
+closes the **second endurance pin**, complementary to PUNCH.
+
+A second cycle from the same park still fails closed at the next
+`main_final_cluster` (now `a5==1` / index10 state1 with the match
+latch) — the next measured sibling.
 
 ## Pins observed
 
 - PUNCH **320/320 MATCH** / 12,946 blocks / 14,962,620 insns
+- **input-17 cycle from `in17-c1`: 1/1 MATCH** / 37 blocks / 3,810 insns
 - ctest Debug **56/56**
 - No snapshot/trace/ROM data committed.

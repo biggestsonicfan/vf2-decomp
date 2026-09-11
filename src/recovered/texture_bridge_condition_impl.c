@@ -134,7 +134,10 @@ static vf2_status set_main_final_cluster_condition(
             phase_state == UINT8_C(0xff) &&
             (int32_t)countdown > 0) {
             set_compare_result(cpu, VF2_I960_COMPARE_LESS);
-        } else {
+        } else if (phase_index != UINT8_C(0x8a)) {
+            /* Phase 0x8a (index10) leaves the measured bridge poststate
+             * intact (match-latch path ends GREATER). Other phases keep
+             * the historical EQUAL default. */
             set_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
         }
     }
