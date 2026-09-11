@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fase 6 pin extended: recover index10 state1 (`a5==1`, navigation==0)
+  for the match latch (36756/1438, `r14=7`, EQUAL).
+  `vf2cycles --input 17 --cycles 2` from `in17-c1` is now **2/2 MATCH**
+  (74 blocks / 42,696 insns, both `0x1645c`). A third cycle still
+  fails closed on a later frame (`r14` 8 vs 7). PUNCH `320/320` and
+  ctest `56/56` hold (v0301,
+  `decomp/i960/notes/fa_player_input17_index10_v0299.md`);
+
 - Fase 6 pin closed: recover `phase17 bit7_index10` match-latch sibling
   for `--input 17` (`input=previous=0x0f002100`, released=0). State0
   accounts 1677 instructions / 33 calls, poststate `r14=6` + GREATER,

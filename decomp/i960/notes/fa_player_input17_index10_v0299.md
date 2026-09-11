@@ -125,22 +125,19 @@ compare:
 ## Pin (closed)
 
 ```text
-vf2cycles --snapshot out/v300/in17-c1.vf2snap --input 17 --cycles 1
-→ 1/1 MATCH
-  37 blocks / 3810=3810 insns
+vf2cycles --snapshot out/v300/in17-c1.vf2snap --input 17 --cycles 2
+→ 2/2 MATCH
+  74 blocks / 42,696=42,696 insns
   both at 0x0001645c
 ```
 
-`in17-c1` is the park after input-17 cycle 1 from `sixth-regen`. This
-closes the **second endurance pin**, complementary to PUNCH.
-
-A second cycle from the same park still fails closed at the next
-`main_final_cluster` (now `a5==1` / index10 state1 with the match
-latch) — the next measured sibling.
+state0 (`a5==0`) and state1 (`a5==1`, navigation==0) with the match
+latch are both native. A third cycle still fails closed on a later
+frame (`r14` expected 8 vs 7).
 
 ## Pins observed
 
 - PUNCH **320/320 MATCH** / 12,946 blocks / 14,962,620 insns
-- **input-17 cycle from `in17-c1`: 1/1 MATCH** / 37 blocks / 3,810 insns
+- **input-17 from `in17-c1`: 2/2 MATCH** / 74 blocks / 42,696 insns
 - ctest Debug **56/56**
 - No snapshot/trace/ROM data committed.

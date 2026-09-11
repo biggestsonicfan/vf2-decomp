@@ -441,15 +441,16 @@ geometry through `0x2826c`/`0x27d90` remains native; physics/hitboxes
 and an input-driven pin distinct from PUNCH remain later dedicated
 work.
 
-Status (v0300): the input-17 endurance pin is closed. Selector-17 phase
-`0x8a` / `bit7_index10` admits the measured match-latch sibling
-`input=previous=0x0f002100` with state0 accounting 1677/33, poststate
-`r14=6` + GREATER, and header `LOSE(%)`.
-`vf2cycles --input 17 --cycles 1` from the `in17-c1` park is **1/1
-MATCH** (37 blocks / 3,810 insns, both `0x1645c`), complementary to
-PUNCH. index10 state1 (`a5==1`) with the match latch and the park-only
-latch shape remain fail-closed (see
-`decomp/i960/notes/fa_player_input17_index10_v0299.md`).
+Status (v0301): the input-17 endurance pin covers **two** extra cycles.
+Selector-17 phase `0x8a` / `bit7_index10` admits the measured match-latch
+sibling `input=previous=0x0f002100` for state0 (1677/33, `r14=6`,
+GREATER, header `LOSE(%)`) and state1 navigation==0 (36756/1438,
+`r14=7`, EQUAL).
+`vf2cycles --input 17 --cycles 2` from `in17-c1` is **2/2 MATCH**
+(74 blocks / 42,696 insns, both `0x1645c`), complementary to PUNCH.
+A third cycle fails closed on a later frame (`r14` 8 vs 7). The
+park-only latch shape and match-latch state1 exit remain fail-closed
+(see `decomp/i960/notes/fa_player_input17_index10_v0299.md`).
 
 ## 3. Camera
 

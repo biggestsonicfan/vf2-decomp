@@ -12283,7 +12283,8 @@ static vf2_status execute_frame_phase17_bit7_index10(
          * beyond the 31 measured in 0x5f234 (0x10b5c wrapper call + callx). */
         calls=latch_match?UINT64_C(33):UINT64_C(31);
     }else{
-        if (!latch_idle) {
+        if (!latch_idle && !(latch_match && navigation == 0u)) {
+            /* Match-latch state1 only proven for navigation==0. */
             return VF2_ERROR_UNSUPPORTED;
         }
         if (navigation != 0u &&
@@ -12298,8 +12299,10 @@ static vf2_status execute_frame_phase17_bit7_index10(
             instructions = UINT64_C(51001);
             calls = UINT64_C(1452);
         } else if (status == VF2_OK) {
-            instructions = UINT64_C(36729);
-            calls = UINT64_C(1436);
+            /* Match-latch corridor from 0x9ff8 is 36756/1438
+             * (36729/1436 body + same +27/+2 as state0). */
+            instructions = latch_match ? UINT64_C(36756) : UINT64_C(36729);
+            calls = latch_match ? UINT64_C(1438) : UINT64_C(1436);
         }
     }
     if (status == VF2_OK && !exiting) {
@@ -12323,7 +12326,13 @@ static vf2_status execute_frame_phase17_bit7_index10(
             cpu->arithmetic_control=(cpu->arithmetic_control&~UINT32_C(7))|UINT32_C(1);
             cpu->compare_result=VF2_I960_COMPARE_GREATER;
         }
-    }else phase17_index10_post(cpu,exiting);
+    }else{
+        phase17_index10_post(cpu,exiting);
+        if (latch_match && !exiting) {
+            /* Measured input-17 state1 poststate: r14=7, EQUAL. */
+            cpu->registers[14] = UINT32_C(7);
+        }
+    }
     report->kind=VF2_HYBRID_BRIDGE_FRAME_DISPATCH_TICK;report->entry_address=VF2_FRAME_DISPATCH_TICK_ENTRY;report->exit_address=cpu->ip;report->iterations=UINT64_C(1);report->recovered_instruction_count=instructions;report->recovered_procedure_calls=calls;report->recovered_procedure_returns=calls+UINT64_C(1);report->cpu_poststate_applied=1;return VF2_OK;
 }
 
