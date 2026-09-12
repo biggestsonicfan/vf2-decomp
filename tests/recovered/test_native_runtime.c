@@ -2593,6 +2593,41 @@ static void test_coli_contact_query_22404_early_path(void) {
     CHECK((read_test_u16(&machine, registry + UINT32_C(0x90)) &
            UINT16_C(0x0002)) != 0u);
 
+    /* v0308: g8+0x26 FIFO cursor path (body 79 on the one-hit scan).
+     * Contact g8 is 0x512800 on this fixture. */
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x4),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00512800) +
+                                             UINT32_C(0x26),
+                                UINT32_C(2)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x8c),
+                                UINT32_C(0x1234)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8),
+                                UINT32_C(0x1234)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x005001e4),
+                                UINT32_C(0x10)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022404));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = UINT32_C(0x00512800);
+    cpu.registers[VF2_I960_G0_REGISTER + 11u] = UINT32_C(0x00880000);
+    cpu.registers[VF2_I960_G0_REGISTER + 12u] = UINT32_C(0x00004000);
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022404),
+                                       UINT32_C(0x0002222c)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_contact_query_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x0002222c));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(80));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == 1u);
+    /* -2 stored at 0x90e010; cursor byte advanced to 0x14. */
+    CHECK(read_test_u32(&machine, UINT32_C(0x0090e010)) ==
+          UINT32_C(0xfffffffe));
+    CHECK(read_test_u8(&machine, UINT32_C(0x005001e4)) == UINT8_C(0x14));
+
     vf2_model2a_shutdown(&machine);
     free(rom);
     free(main_data);

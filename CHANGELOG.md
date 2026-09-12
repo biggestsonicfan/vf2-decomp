@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli `g8+0x26` FIFO cursor (v0308): recover the measured path
+  that writes `-delta` into `0x90e000[byte cursor]`, advances the
+  cursor by 4, and emits command-port `0x36806d6d` before the shared
+  `0x03000606` header (one-hit slot-0 body **79**). PUNCH `320/320`,
+  input-17 `64/64`, ctest `56/56` (v0308,
+  `decomp/i960/notes/fa_coli_fifo_cursor_v0308.md`);
+
 - fa_coli cascade pair-greater arm (v0307): when both `+0x804` bit 15
   are clear, admit `cmpobg` taken on `fighter1+0x822 > fighter0+0x822`
   → swapped compact `0x225cc` (measured **258/5/6**). The `bl`/`bg`

@@ -504,6 +504,11 @@ inherit the compare in the reference executor; those arms and the
 tie-break remain fail-closed (see
 `decomp/i960/notes/fa_coli_cascade_pair_v0307.md`).
 
+Status (v0308): `g8+0x26 != 0` FIFO cursor in `0x22404` is native
+(one-hit slot-0 body 79). Long `0x225cc`, `0x18bd4`, and the
+`0x2227c` tie-break remain fail-closed (see
+`decomp/i960/notes/fa_coli_fifo_cursor_v0308.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

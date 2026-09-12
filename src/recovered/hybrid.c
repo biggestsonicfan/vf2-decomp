@@ -18483,7 +18483,7 @@ static vf2_status coli_22298_body(
  * Sibling v0303 (bit 8 set, same gates, non-empty mask after andnot,
  * slot 0): body 72 on the measured one-hit scan, pending setbit,
  * polygon FIFO via (g11)[g12], g0 = 1. Slot 1 scan loop and
- * g8+0x26 != 0 FIFO branch remain fail-closed. */
+ * g8+0x26 != 0 FIFO cursor is native (v0308). */
 static uint32_t coli_scanbit_msb(uint32_t value)
 {
     int bit = 31;
@@ -18729,7 +18729,34 @@ static vf2_status coli_22404_body(
             }
             body += UINT64_C(2);
             if (g8_delta != 0u) {
-                return VF2_ERROR_UNSUPPORTED;
+                /* v0308: measured cursor path before the shared header. */
+                uint32_t cursor = 0u;
+                uint32_t neg = 0u;
+
+                if (vf2_model2a_read_u32(
+                        machine, UINT32_C(0x005001e4), &cursor) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                neg = (uint32_t)(0u - (uint32_t)g8_delta);
+                if (vf2_model2a_write_u32(
+                        machine, UINT32_C(0x0090e000) + cursor, neg) !=
+                    VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                cursor += UINT32_C(4);
+                {
+                    uint8_t cursor_byte = (uint8_t)cursor;
+                    if (vf2_model2a_write(
+                            machine, UINT32_C(0x005001e4), &cursor_byte,
+                            1u) != VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                }
+                if (vf2_model2a_write_u32(
+                        machine, port, UINT32_C(0x36806d6d)) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                body += UINT64_C(7);
             }
             if (vf2_model2a_write_u32(
                     machine, port, UINT32_C(0x03000606)) != VF2_OK) {
@@ -18872,8 +18899,35 @@ static vf2_status coli_22404_body(
         }
         body += UINT64_C(2); /* ldis, cmpibe */
         if (g8_delta != 0u) {
-            /* Measured sibling has g8+0x26 == 0; cursor path unmeasured. */
-            return VF2_ERROR_UNSUPPORTED;
+            /* v0308: measured cursor path before the shared header.
+             * -delta into 0x90e000[byte cursor], cursor += 4 (stob),
+             * command-port word 0x36806d6d. +7 vs the skip path. */
+            uint32_t cursor = 0u;
+            uint32_t neg = 0u;
+
+            if (vf2_model2a_read_u32(
+                    machine, UINT32_C(0x005001e4), &cursor) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            neg = (uint32_t)(0u - (uint32_t)g8_delta);
+            if (vf2_model2a_write_u32(
+                    machine, UINT32_C(0x0090e000) + cursor, neg) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            cursor += UINT32_C(4);
+            {
+                uint8_t cursor_byte = (uint8_t)cursor;
+                if (vf2_model2a_write(
+                        machine, UINT32_C(0x005001e4), &cursor_byte, 1u) !=
+                    VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+            }
+            if (vf2_model2a_write_u32(
+                    machine, port, UINT32_C(0x36806d6d)) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            body += UINT64_C(7); /* ld, subi, st, addo, stob, lda, st */
         }
         if (vf2_model2a_write_u32(
                 machine, port, UINT32_C(0x03000606)) != VF2_OK) {
