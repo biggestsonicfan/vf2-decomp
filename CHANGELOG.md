@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli `0x18b58` bit-2-set FIFO path (v0317): recover the
+  `0x2d805b5b` delta (bodies 2/29/13) with float `subr` into
+  `g7+0x18`/`+0x20` and the common `g7+0x84` tail. Type-22 shortcut
+  with bit 2 set completes **80/3/4**. PUNCH `320/320`, input-17
+  `64/64`, ctest `56/56` (v0317,
+  `decomp/i960/notes/fa_coli_18b58_fifo_v0317.md`);
+
 - fa_coli type-22 shortcut `0x18bd4` (v0316): admit `g8+0x19f==22`
   in `coli_225cc_body` — `0x1ab34` type-5 walk + `0x18b58` bit-2
   early-out, parent stores and `chkbit`/`alterbit` word update.
