@@ -53,6 +53,8 @@
 #define VF2_COLI_225CC_ENTRY UINT32_C(0x000225cc)
 #define VF2_COLI_225CC_LONG_ROM_SCALE UINT32_C(0x00023270)
 #define VF2_COLI_1AB34_ENTRY UINT32_C(0x0001ab34)
+#define VF2_COLI_18BD4_ENTRY UINT32_C(0x00018bd4)
+#define VF2_COLI_18B58_ENTRY UINT32_C(0x00018b58)
 #define VF2_COLI_LONG_FIFO UINT32_C(0x00884000)
 #define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
 #define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
@@ -19001,15 +19003,42 @@ static vf2_status coli_225cc_long_body(
     uint64_t *body_out
 );
 
-/* Body-only recovery of 0x225cc compact sibling (v0304).
- * Measured: g8+0x1a4 bit 3 set, g8+0x19f != 22, g7+0x821 == 0.
- * counter++ at g7+0x1234, bbs 3 taken to 0x230a0, counter--, ret.
- * Body 12, 0 calls. Bit 3 clear takes the v0314 long body. */
-static vf2_status coli_225cc_body(
+static vf2_status coli_1ab34_body(
+    vf2_model2a *machine,
+    uint32_t g0_in,
+    uint32_t g1,
+    uint32_t *g0_out,
+    uint64_t *body_out
+);
+
+static vf2_status coli_18bd4_body(
     vf2_model2a *machine,
     uint32_t g7,
     uint32_t g8,
     uint64_t *body_out
+);
+
+static vf2_status coli_225cc_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8,
+    uint64_t *body_out,
+    uint64_t *calls_out,
+    uint64_t *rets_out
+);
+
+/* Body-only recovery of 0x225cc compact sibling (v0304).
+ * Measured: g8+0x1a4 bit 3 set, g8+0x19f != 22, g7+0x821 == 0.
+ * counter++ at g7+0x1234, bbs 3 taken to 0x230a0, counter--, ret.
+ * Body 12, 0 calls. Bit 3 clear takes the v0314 long body.
+ * Type 22 takes the v0316 0x18bd4 shortcut. */
+static vf2_status coli_225cc_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8,
+    uint64_t *body_out,
+    uint64_t *calls_out,
+    uint64_t *rets_out
 )
 {
     uint8_t type_byte = 0u;
@@ -19019,6 +19048,12 @@ static vf2_status coli_225cc_body(
 
     if (machine == NULL || body_out == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (calls_out != NULL) {
+        *calls_out = 0u;
+    }
+    if (rets_out != NULL) {
+        *rets_out = 0u;
     }
     if (vf2_model2a_read_u32(
             machine, g7 + UINT32_C(0x1234), &counter) != VF2_OK) {
@@ -19033,7 +19068,19 @@ static vf2_status coli_225cc_body(
         return VF2_ERROR_UNSUPPORTED;
     }
     if (type_byte == UINT8_C(22)) {
-        return VF2_ERROR_UNSUPPORTED;
+        uint64_t shortcut = 0u;
+        if (coli_18bd4_body(machine, g7, g8, &shortcut) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (calls_out != NULL) {
+            *calls_out = UINT64_C(3);
+        }
+        if (rets_out != NULL) {
+            *rets_out = UINT64_C(3);
+        }
+        *body_out = UINT64_C(5) + UINT64_C(1) + shortcut +
+                    UINT64_C(1) + UINT64_C(1);
+        return VF2_OK;
     }
     if (hybrid_read_u8(machine, g7 + UINT32_C(0x821), &scan_byte) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
@@ -19050,6 +19097,12 @@ static vf2_status coli_225cc_body(
         /* Prefix already executed: counter++ (3) + type check (2). */
         if (coli_225cc_long_body(machine, g7, g8, &long_body) != VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;
+        }
+        if (calls_out != NULL) {
+            *calls_out = UINT64_C(4);
+        }
+        if (rets_out != NULL) {
+            *rets_out = UINT64_C(4);
         }
         *body_out = UINT64_C(5) + long_body;
         return VF2_OK;
@@ -19168,6 +19221,157 @@ static vf2_status coli_1ab34_body(
         record += (uint32_t)step;
     }
     return VF2_ERROR_UNSUPPORTED;
+}
+
+/* Body-only 0x18b58 (v0316). Measured early-out: g7 word bit 2 clear
+ * → ret, body 2. Bit 2 set (FIFO delta path) fails closed. */
+static vf2_status coli_18b58_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint64_t *body_out
+)
+{
+    uint32_t word_g7 = 0u;
+
+    if (machine == NULL || body_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(machine, g7, &word_g7) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((word_g7 & (UINT32_C(1) << 2u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    *body_out = UINT64_C(2); /* ld + bbc not taken */
+    return VF2_OK;
+}
+
+/* Body-only measured 0x18bd4 type-22 shortcut (v0316).
+ * Drive: g8+0x19c index, 0x1ab34 type-5 walk miss, g7 bit 2 clear,
+ * g8+0x19c bit 15 clear. Body 61 + own ret via caller. */
+static vf2_status coli_18bd4_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8,
+    uint64_t *body_out
+)
+{
+    uint16_t index = 0u;
+    uint32_t g0 = 0u;
+    uint32_t walk = 0u;
+    uint32_t field = 0u;
+    uint32_t packed = 0u;
+    uint64_t body = 0u;
+    uint64_t child = 0u;
+    uint32_t flags_g8 = 0u;
+    uint32_t flags_g7 = 0u;
+    uint8_t scale_b = 0u;
+    uint8_t rec_b = 0u;
+
+    if (machine == NULL || body_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (hybrid_read_u16(machine, g8 + UINT32_C(0x19c), &index) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((index & UINT16_C(0x8000)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED; /* notbit 15 sibling unmeasured */
+    }
+    g0 = index;
+    body += UINT64_C(3); /* ldos + mov + mov */
+    body += UINT64_C(1); /* call */
+    if (coli_1ab34_body(machine, g0, UINT32_C(5), &walk, &child) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += child + UINT64_C(1);
+    if (walk == 0u) {
+        return VF2_ERROR_UNSUPPORTED; /* miss unmeasured for type 5 */
+    }
+    if (hybrid_read_u16(machine, walk + UINT32_C(1), (uint16_t *)&field) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* ldos 0x1(g0), r3; bbc 15 not taken; shlo 24,17; addi; st g7+0x198. */
+    packed = (UINT32_C(17) << 24u) + (field & UINT32_C(0xffff));
+    if (vf2_model2a_write_u32(
+            machine, g7 + UINT32_C(0x198), packed) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(5); /* ldos + bbc + shlo + addi + st */
+    if (vf2_model2a_read_u32(machine, g8 + UINT32_C(0x1c), &field) !=
+            VF2_OK ||
+        vf2_model2a_write_u32(machine, g7 + UINT32_C(0x1c), field) !=
+            VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(2); /* ld + st */
+    body += UINT64_C(1); /* call */
+    if (coli_18b58_body(machine, g7, &child) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += child + UINT64_C(1);
+    if (hybrid_read_u8(machine, g7 + UINT32_C(0x69c), &scale_b) != VF2_OK ||
+        hybrid_read_u8(machine, walk + UINT32_C(3), &rec_b) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* shlo 2,25; muli 5,ldib; addi; muli rec; divi; stib g7+0x822. */
+    {
+        uint32_t r14 = UINT32_C(25) << 2u;
+        uint32_t r15 = UINT32_C(5) * (uint32_t)scale_b;
+        r15 = r14 + r15;
+        r15 = r15 * (uint32_t)rec_b;
+        if (r14 == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        r15 = r15 / r14;
+        if (hybrid_write_u8(
+                machine, g7 + UINT32_C(0x822), (uint8_t)r15) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    body += UINT64_C(8); /* ldib,shlo,muli,ldib,addi,muli,divi,stib */
+    packed = (UINT32_C(1) << 28u) + index;
+    if (vf2_model2a_write_u32(
+            machine, g8 + UINT32_C(0x198), packed) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(3); /* shlo + addi + st */
+    if (vf2_model2a_read_u32(machine, g8, &flags_g8) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    flags_g8 &= ~(UINT32_C(1) << 4u);
+    if (vf2_model2a_write_u32(machine, g8, flags_g8) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(3); /* ld + clrbit + st */
+    if (vf2_model2a_read_u32(
+            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    flags_g7 &= ~(UINT32_C(1) << 21u);
+    if (vf2_model2a_write_u32(
+            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, flags_g7) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(3); /* ld + clrbit + st */
+    if (vf2_model2a_read_u32(machine, g8, &flags_g8) != VF2_OK ||
+        vf2_model2a_read_u32(machine, g7, &flags_g7) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* chkbit 10, flags_g8 → alterbit 6, flags_g7. */
+    if ((flags_g8 & (UINT32_C(1) << 10u)) != 0u) {
+        flags_g7 |= UINT32_C(1) << 6u;
+    } else {
+        flags_g7 &= ~(UINT32_C(1) << 6u);
+    }
+    if (vf2_model2a_write_u32(machine, g7, flags_g7) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(5); /* ld + ld + chkbit + alterbit + st */
+    *body_out = body;
+    return VF2_OK;
 }
 
 /* Body-only measured long path of 0x230d4 (bit 26 clear, v0314).
@@ -19923,6 +20127,8 @@ vf2_status vf2_hybrid_coli_225cc_execute(
 )
 {
     uint64_t body = 0u;
+    uint64_t nested_calls = 0u;
+    uint64_t nested_rets = 0u;
 
     if (machine == NULL || cpu == NULL ||
         cpu->ip != VF2_COLI_225CC_ENTRY ||
@@ -19933,10 +20139,11 @@ vf2_status vf2_hybrid_coli_225cc_execute(
             machine,
             cpu->registers[VF2_I960_G0_REGISTER + 7u],
             cpu->registers[VF2_I960_G0_REGISTER + 8u],
-            &body) != VF2_OK) {
+            &body, &nested_calls, &nested_rets) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
+    return hybrid_complete_procedure(
+        machine, cpu, body, nested_calls, nested_rets);
 }
 
 /* Measured warm-path recovery of the fa_coli mid-body/tail (v0289).
@@ -20042,7 +20249,7 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
             }
             if ((bit15_g7 & (UINT32_C(1) << 15u)) != 0u) {
                 /* v0306 early-out: bbs 15, f1+0x804 → 0x22290. */
-                if (coli_225cc_body(machine, fighter1, fighter0, &c225) !=
+                if (coli_225cc_body(machine, fighter1, fighter0, &c225, NULL, NULL) !=
                     VF2_OK) {
                     return VF2_ERROR_UNSUPPORTED;
                 }
@@ -20071,7 +20278,8 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
                 }
                 if (pair_g7 > pair_g8) {
                     if (coli_225cc_body(
-                            machine, fighter1, fighter0, &c225) != VF2_OK) {
+                            machine, fighter1, fighter0, &c225, NULL, NULL) !=
+                        VF2_OK) {
                         return VF2_ERROR_UNSUPPORTED;
                     }
                     /* Parent 7 mov + 2 cmpobe + 2 ld + 2 bbc/bbs + 2 ldos
@@ -20089,11 +20297,13 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
                     uint64_t c225_b = 0u;
 
                     if (coli_225cc_body(
-                            machine, fighter1, fighter0, &c225_a) != VF2_OK) {
+                            machine, fighter1, fighter0, &c225_a,
+                            NULL, NULL) != VF2_OK) {
                         return VF2_ERROR_UNSUPPORTED;
                     }
                     if (coli_225cc_body(
-                            machine, fighter0, fighter1, &c225_b) != VF2_OK) {
+                            machine, fighter0, fighter1, &c225_b,
+                            NULL, NULL) != VF2_OK) {
                         return VF2_ERROR_UNSUPPORTED;
                     }
                     /* Parent 32: prefix + pair fall-through + call 0x22290
@@ -20111,7 +20321,7 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
         }
         /* v0305: first contact warm, second hit. 0x22240 takes the
          * no-restore jump to call 0x225cc with g7=fighter1, g8=fighter0. */
-        if (coli_225cc_body(machine, fighter1, fighter0, &c225) != VF2_OK) {
+        if (coli_225cc_body(machine, fighter1, fighter0, &c225, NULL, NULL) != VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;
         }
         /* Parent 9 mov/cmpobe + 5 calls. Measured 130. */
@@ -20124,7 +20334,7 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
     if (r6 != 0u) {
         /* v0304: first contact hit, second warm, compact 0x225cc. */
         uint64_t c225 = 0u;
-        if (coli_225cc_body(machine, fighter0, fighter1, &c225) != VF2_OK) {
+        if (coli_225cc_body(machine, fighter0, fighter1, &c225, NULL, NULL) != VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;
         }
         body = UINT64_C(16) + child_2298_1 + 1u + child_2298_2 + 1u +

@@ -543,6 +543,12 @@ Status (v0315): mid-body `0x2227c` tie-break is native (double
 (v0291). Unmeasured long-body flag siblings remain fail-closed (see
 `decomp/i960/notes/fa_coli_tiebreak_2227c_v0315.md`).
 
+Status (v0316): `0x225cc` type-22 shortcut `0x18bd4` is native
+(first-hit type-5 unit shape 53/3/4; integrates `0x1ab34` and
+`0x18b58` bit-2-clear). `0x18b58` bit-2-set, `notbit 15`, and type-5
+miss remain fail-closed (see
+`decomp/i960/notes/fa_coli_18bd4_type22_v0316.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

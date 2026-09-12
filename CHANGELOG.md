@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli type-22 shortcut `0x18bd4` (v0316): admit `g8+0x19f==22`
+  in `coli_225cc_body` — `0x1ab34` type-5 walk + `0x18b58` bit-2
+  early-out, parent stores and `chkbit`/`alterbit` word update.
+  First-hit unit shape **53/3/4**. PUNCH `320/320`, input-17
+  `64/64`, ctest `56/56` (v0316,
+  `decomp/i960/notes/fa_coli_18bd4_type22_v0316.md`);
+
 - fa_coli mid-body tie-break `0x2227c` (v0315): recover the double
   `0x225cc` call when both bit-15 are clear and `f1+0x822 <=
   f0+0x822` (compact-both **282/7/8**). Pair-greater 258/5/6
