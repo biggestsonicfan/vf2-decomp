@@ -352,6 +352,13 @@ vf2_status vf2_hybrid_coli_238a4_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured 0x23238 early-out (v0310): g0 != 0x2ce returns
+ * after lda/cmpobne (body 2). The g0 == 0x2ce float path fails closed. */
+vf2_status vf2_hybrid_coli_23238_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover the measured warm-path fa_coli bit-remap helper at 0x23878.
  * The CPU must already be inside the callee (IP == entry, frame pushed).
  * Bits 0..29 of g3 are remapped through the ROM table at 0x02007b76. */

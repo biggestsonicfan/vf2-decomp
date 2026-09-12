@@ -515,6 +515,10 @@ replay cannot leave the `0x10fa0` wait. `frontier.py` now ranks call
 edges with function attribution (see
 `decomp/i960/notes/fa_player_19ef8_live_v0309.md`).
 
+Status (v0310): coli helper `0x23238` early-out (`g0 != 0x2ce`) is
+native (body 2). Float-threshold path and the long `0x225cc` parent
+remain fail-closed (see `decomp/i960/notes/fa_coli_23238_v0310.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

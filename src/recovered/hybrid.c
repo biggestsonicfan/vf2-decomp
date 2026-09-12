@@ -47,6 +47,7 @@
 #define VF2_COLI_G3SCAN_ENTRY UINT32_C(0x000238a4)
 #define VF2_COLI_G3SCAN_RETURN_FIRST UINT32_C(0x000235b8)
 #define VF2_COLI_G3SCAN_RETURN_SECOND UINT32_C(0x000235c8)
+#define VF2_COLI_23238_ENTRY UINT32_C(0x00023238)
 #define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
 #define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
 #define VF2_COLI_BITREMAP_TRIPS 30u
@@ -19246,6 +19247,29 @@ vf2_status vf2_hybrid_coli_238a4_execute(
     }
     cpu->registers[VF2_I960_G0_REGISTER + 3u] = 0u;
     return hybrid_complete_procedure(machine, cpu, UINT64_C(4), 0u, 0u);
+}
+
+/* Measured early-out of the fa_coli helper at 0x23238 (v0310).
+ * Called twice from the long 0x225cc body. When g0 != 0x2ce the
+ * helper returns immediately after lda/cmpobne (body 2). The
+ * g0 == 0x2ce float-threshold path remains fail-closed. */
+vf2_status vf2_hybrid_coli_23238_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t g0 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_23238_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    g0 = cpu->registers[VF2_I960_G0_REGISTER];
+    if (g0 == UINT32_C(0x000002ce)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    return hybrid_complete_procedure(machine, cpu, UINT64_C(2), 0u, 0u);
 }
 
 /* Measured warm-path recovery of the fa_coli bit-remap helper at 0x23878.

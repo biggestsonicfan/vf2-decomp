@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli helper `0x23238` early-out (v0310): recover the measured
+  `g0 != 0x2ce` path (body 2, `g0` unchanged) called twice from the
+  long `0x225cc` body. The `g0 == 0x2ce` float-threshold path remains
+  fail-closed. PUNCH `320/320`, input-17 `64/64`, ctest `56/56`
+  (v0310, `decomp/i960/notes/fa_coli_23238_v0310.md`);
+
 - Fase 8 tooling + 0x19ef8 live-drive measurement (v0309):
   `frontier.py` ranks call/bal edges with source/target function
   attribution (`rank_call_edges`, unit-tested). Live hybrid bit-5
