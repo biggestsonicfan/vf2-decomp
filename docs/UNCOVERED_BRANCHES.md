@@ -615,6 +615,12 @@ Status (v0327): `r11>=30` cmpoble gate joins at `0x22e24` (unit
 **299**). `r11>=40` diagnostic-arm r4-offset and remaining siblings
 fail closed (see `decomp/i960/notes/fa_coli_long_r11_30_v0327.md`).
 
+Status (v0328, measurement): `g8+0x1a4` bit 4 has four sites
+(cascade `0x22b7c` r11-transform, post-diag `0x22c98` join,
+`0x22e44` g0=0x2ce, miss-tail offsets `0x1c`/`0x10`). Probe 301.
+Not recovered — the four sites interact and the unit test still
+fail-closes (see `decomp/i960/notes/fa_coli_long_b4_v0328.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
