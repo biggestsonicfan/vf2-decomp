@@ -18996,8 +18996,10 @@ static vf2_status coli_22404_body(
     }
 }
 
-/* Body-only 0x439ac diagnostic insert (v0319). Measured: one pass,
- * store g0, increment count. Body 13. */
+/* Body-only 0x439ac diagnostic insert (v0320).
+ * count >= 4 → cmpoble taken, body 2.
+ * else scan table[1..count+1] downward; match on any slot retires.
+ * no match → store g0 at table[count] and count++. */
 static vf2_status coli_439ac_body(
     vf2_model2a *machine,
     uint32_t g0_in,
@@ -19005,7 +19007,8 @@ static vf2_status coli_439ac_body(
 )
 {
     uint8_t count = 0u;
-    uint32_t slot = 0u;
+    uint32_t r3 = 0u;
+    uint64_t body = 0u;
 
     if (machine == NULL || body_out == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
@@ -19013,23 +19016,41 @@ static vf2_status coli_439ac_body(
     if (hybrid_read_u8(machine, UINT32_C(0x0050406a), &count) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if (count > UINT8_C(4)) {
-        *body_out = UINT64_C(2); /* ldob + cmpoble taken */
-        return VF2_OK;
-    }
-    if (vf2_model2a_read_u32(
-            machine,
-            UINT32_C(0x00504074) + ((uint32_t)count + 1u) * UINT32_C(4),
-            &slot) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (slot == g0_in) {
-        *body_out = UINT64_C(6);
-        return VF2_OK;
-    }
+    body = UINT64_C(1); /* ldob */
     if (count >= UINT8_C(4)) {
-        return VF2_ERROR_UNSUPPORTED;
+        body += UINT64_C(1); /* cmpoble 4,r3 taken */
+        *body_out = body;
+        return VF2_OK;
     }
+    body += UINT64_C(3); /* cmpoble nt + mov g0,r4 + addi 1,r3,r3 */
+    r3 = (uint32_t)count + 1u;
+    for (;;) {
+        uint32_t slot = 0u;
+
+        if (vf2_model2a_read_u32(
+                machine,
+                UINT32_C(0x00504074) + r3 * UINT32_C(4),
+                &slot) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* ld */
+        if (slot == g0_in) {
+            body += UINT64_C(1); /* cmpobe taken */
+            *body_out = body;
+            return VF2_OK;
+        }
+        body += UINT64_C(2); /* cmpobe nt + cmpdeco */
+        /* Measured: count=0 (r3 starts 1) one slot; count=1 two slots;
+         * count=3 four slots. bl is taken while the pre-decrement index
+         * is greater than 1. */
+        if (r3 <= 1u) {
+            body += UINT64_C(1); /* bl not taken */
+            break;
+        }
+        body += UINT64_C(1); /* bl taken */
+        r3 -= 1u;
+    }
+    body += UINT64_C(5); /* ldob + st + ldib + lda + stib */
     if (vf2_model2a_write_u32(
             machine,
             UINT32_C(0x00504078) + (uint32_t)count * UINT32_C(4),
@@ -19040,46 +19061,138 @@ static vf2_status coli_439ac_body(
     if (hybrid_write_u8(machine, UINT32_C(0x0050406a), count) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    *body_out = UINT64_C(13);
+    *body_out = body;
     return VF2_OK;
 }
 
-/* Body-only 0x43888 (v0319). Measured warm shape. Body 26. */
+/* Body-only 0x43888 (v0320).
+ * g0==0xae101f → skip gates, store path.
+ * gate&12 != 0: branch-byte bit 0 set retires (body 9), else fall through.
+ * runtime bit 20 set + (g0&0x00ff0000)==0x009e0000 → g0 -= 0x20000.
+ * Store: write 33 twice, ring if count<16, write 0x421 twice. */
 static vf2_status coli_43888_body(
     vf2_model2a *machine,
-    uint32_t g0_in,
+    uint32_t *g0_inout,
     uint64_t *body_out
 )
 {
-    uint32_t runtime = 0u;
+    uint32_t g0 = 0u;
     uint32_t gate = 0u;
+    uint32_t runtime = 0u;
+    uint8_t ring_count = 0u;
+    uint8_t ring_slot = 0u;
+    uint64_t body = 0u;
 
-    if (machine == NULL || body_out == NULL) {
+    if (machine == NULL || g0_inout == NULL || body_out == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    if (g0_in == UINT32_C(0x00ae101f)) {
-        *body_out = UINT64_C(2);
-        return VF2_OK;
+    g0 = *g0_inout;
+    body = UINT64_C(1); /* lda 0xae101f */
+    if (g0 != UINT32_C(0x00ae101f)) {
+        body += UINT64_C(2); /* cmpobe nt + lda 0xc */
+        if (vf2_model2a_read_u32(machine, UINT32_C(0x0050002c), &gate) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2); /* ld + and */
+        if ((gate & UINT32_C(12)) != 0u) {
+            uint32_t branch_base = 0u;
+            uint8_t branch_byte = 0u;
+
+            body += UINT64_C(1); /* cmpobe 0 not taken */
+            if (vf2_model2a_read_u32(
+                    machine, UINT32_C(0x0050016c), &branch_base) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if (hybrid_read_u8(
+                    machine, branch_base + UINT32_C(0x3351), &branch_byte) !=
+                VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            body += UINT64_C(2); /* ld + ldob */
+            if ((branch_byte & UINT8_C(1)) != 0u) {
+                body += UINT64_C(1); /* bbs 0 taken */
+                *body_out = body;
+                return VF2_OK;
+            }
+            body += UINT64_C(1); /* bbs 0 not taken */
+        } else {
+            body += UINT64_C(1); /* cmpobe 0 taken */
+        }
+        if (vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &runtime) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* ld */
+        if ((runtime & (UINT32_C(1) << 20u)) != 0u) {
+            body += UINT64_C(1); /* bbc 20 not taken */
+            if ((g0 & UINT32_C(0x00ff0000)) == UINT32_C(0x009e0000)) {
+                body += UINT64_C(5); /* lda + and + lda + cmpobne nt + shlo */
+                g0 -= UINT32_C(0x20000);
+                body += UINT64_C(1); /* subo */
+            } else {
+                return VF2_ERROR_UNSUPPORTED; /* cmpobne taken */
+            }
+        } else {
+            body += UINT64_C(1); /* bbc 20 taken */
+        }
+    } else {
+        body += UINT64_C(1); /* cmpobe taken → store */
     }
-    if (vf2_model2a_read_u32(machine, UINT32_C(0x0050002c), &gate) !=
+
+    if (vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(33)) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(33)) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(4); /* lda r6 + addo 31,2 + st + st */
+    if (hybrid_read_u8(machine, UINT32_C(0x00504001), &ring_count) !=
         VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((gate & UINT32_C(12)) != 0u) {
+    body += UINT64_C(2); /* mov 16 + ldob */
+    if (ring_count < UINT8_C(16)) {
+        body += UINT64_C(1); /* cmpobge not taken */
+        ring_count = (uint8_t)(ring_count + 1u);
+        if (hybrid_write_u8(machine, UINT32_C(0x00504001), ring_count) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (hybrid_read_u8(machine, UINT32_C(0x00504003), &ring_slot) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2); /* addo 1 + stob */
+        if (vf2_model2a_write_u32(
+                machine,
+                UINT32_C(0x00504020) + (uint32_t)ring_slot * UINT32_C(4),
+                g0) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2); /* ldob + st */
+        ring_slot = (uint8_t)((uint32_t)(ring_slot + 1u) & 15u);
+        if (hybrid_write_u8(machine, UINT32_C(0x00504003), ring_slot) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(4); /* mov 15 + addo + and + stob */
+    } else {
+        body += UINT64_C(1); /* cmpobge taken */
+    }
+    if (vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(0x421)) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if (vf2_model2a_read_u32(machine, UINT32_C(0x00500068), &runtime) !=
-        VF2_OK) {
+    if (vf2_model2a_write_u32(
+            machine, UINT32_C(0x00e80004), UINT32_C(0x421)) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((runtime & (UINT32_C(1) << 20u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (vf2_model2a_write_u32(machine, UINT32_C(0x00e80004), UINT32_C(2)) !=
-        VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    *body_out = UINT64_C(26);
+    body += UINT64_C(3); /* lda 0x421 + st + st */
+    *g0_inout = g0;
+    *body_out = body;
     return VF2_OK;
 }
 
@@ -20104,7 +20217,7 @@ static vf2_status coli_225cc_long_body(
             }
             body += c439 + UINT64_C(1);
             body += UINT64_C(1); /* call 0x43888 */
-            if (coli_43888_body(machine, diag_g0, &c438) != VF2_OK) {
+            if (coli_43888_body(machine, &diag_g0, &c438) != VF2_OK) {
                 return VF2_ERROR_UNSUPPORTED;
             }
             body += c438 + UINT64_C(1);
@@ -20205,9 +20318,12 @@ static vf2_status coli_225cc_long_body(
         }
         body += UINT64_C(1);
         if ((runtime & (UINT32_C(1) << 20u)) != 0u) {
-            return VF2_ERROR_UNSUPPORTED;
+            body += UINT64_C(1); /* bbc 20 not taken */
+            half = half << 1u;
+            body += UINT64_C(1); /* shli 1,r3,r14 */
+        } else {
+            body += UINT64_C(1); /* bbc 20 taken */
         }
-        body += UINT64_C(1); /* bbc 20 */
         if (hybrid_write_u16(
                 machine, g8 + UINT32_C(0x5de), (uint16_t)half) != VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;

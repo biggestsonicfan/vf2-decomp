@@ -570,6 +570,14 @@ Status (v0319): long-body `r11 != 0` packing and the
 sibling remain fail-closed (see
 `decomp/i960/notes/fa_coli_long_r11_v0319.md`).
 
+Status (v0320): diagnostic cascade completed. `0x439ac` multi-trip
+scan, `count>=4` early-out and table match are native. `0x43888`
+store effects (`33`/`0x421` + ring), gate&12 branch-byte siblings and
+the bit-20 subtract plus `0x22e74` `shli` are native (unit shapes
+302/291/295/306/285/305/309). Bit-20 non-match and the diagnostic-arm
+gates `bit 18` / `+0x823` / `r11>=20` remain fail-closed (see
+`decomp/i960/notes/fa_coli_diag_v0320.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

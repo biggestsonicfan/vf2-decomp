@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli diagnostic cascade completion (v0320): `0x439ac` multi-trip
+  scan (`count>=4` early-out, table match, count=1/3 no-match),
+  `0x43888` correct store effects (`33`/`0x421` + ring), gate&12
+  branch-byte siblings, bit-20 subtract+`shli` at `0x22e74`. Unit
+  shapes 302/291/295/306/285/305/309. PUNCH `320/320`, input-17
+  `64/64` (v0320, `decomp/i960/notes/fa_coli_diag_v0320.md`);
+
 - fa_coli long-body `r11 != 0` packing + diagnostic arm (v0319):
   `0x22640` scanbit pack plus the `0x439ac`/`0x43888` diagnostic
   cascade when `cmpobe 0,r11` is not taken. Unit shape
