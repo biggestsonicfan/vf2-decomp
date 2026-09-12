@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- fa_coli long-body `r11>=30` cmpoble gate (v0327): joins at
+  `0x22e24` (unit **299**). PUNCH `320/320`, input-17 `64/64`
+  (v0327, `decomp/i960/notes/fa_coli_long_r11_30_v0327.md`);
+
 - fa_coli `0x43888` bit-20 non-match (v0326): `cmpobne` taken skips
   the subtract (unit **307**, g0 unchanged in the ring). PUNCH
   `320/320`, input-17 `64/64` (v0326,

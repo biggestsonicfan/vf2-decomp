@@ -20469,10 +20469,20 @@ static vf2_status coli_225cc_long_body(
                     if ((half & (UINT16_C(1) << 10u)) != 0u) {
                         return VF2_ERROR_UNSUPPORTED;
                     }
-                    body += UINT64_C(1); /* cmpoble 30,r11 not taken */
+                    body += UINT64_C(1); /* cmpoble 30,r11 */
                     if (UINT32_C(30) <= r11) {
-                        return VF2_ERROR_UNSUPPORTED;
-                    }
+                        /* v0327: taken → 0x22e24 join. */
+                        if (vf2_model2a_read_u32(
+                                machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET,
+                                &flags_g7) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ld */
+                        if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* bbc 22 taken */
+                    } else {
                     body += UINT64_C(2); /* ldos + bbc 8 taken */
                     if ((half & (UINT16_C(1) << 8u)) != 0u) {
                         return VF2_ERROR_UNSUPPORTED;
@@ -20497,6 +20507,7 @@ static vf2_status coli_225cc_long_body(
                         return VF2_ERROR_UNSUPPORTED;
                     }
                     body += UINT64_C(1); /* bbc 22 taken */
+                    }
                 }
             } else {
                 /* 0x22e24 join: g7+0x1a4 bit 22 clear → 0x22e38. */

@@ -611,6 +611,10 @@ taken, unit **307**). `r11>=40` / `cmpoble 30` and remaining
 `+0x828` bits fail closed (see
 `decomp/i960/notes/fa_coli_43888_b20nm_v0326.md`).
 
+Status (v0327): `r11>=30` cmpoble gate joins at `0x22e24` (unit
+**299**). `r11>=40` diagnostic-arm r4-offset and remaining siblings
+fail closed (see `decomp/i960/notes/fa_coli_long_r11_30_v0327.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
