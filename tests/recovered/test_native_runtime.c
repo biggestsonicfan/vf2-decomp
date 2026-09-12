@@ -2737,6 +2737,73 @@ static void test_coli_23238_early_out(void) {
     free(rom);
 }
 
+/* v0311: 0x230d4 bit-26 compact path (body 15 on the measured shape). */
+static void test_coli_230d4_bit26(void) {
+    uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const uint32_t fighter0 = UINT32_C(0x00510980);
+    const uint32_t fighter1 = UINT32_C(0x00512980);
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK((main_data = (uint8_t *)calloc(1u, UINT32_C(0x00020000))) !=
+          NULL);
+    if (main_data != NULL) {
+        write_u32_bytes(main_data, UINT32_C(0x1cc54), UINT32_C(0x00004421));
+    }
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || main_data == NULL || machine.work_ram == NULL) {
+        free(rom);
+        free(main_data);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(&machine, main_data,
+                                       UINT32_C(0x00020000)) == VF2_OK);
+    /* g8 bit 26 set; halfword inputs 0 so r4 = 0x4000 (bit 15 clear). */
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(1) << 26u) == VF2_OK);
+
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000230d4));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000230d4),
+                                       UINT32_C(0x00022e40)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_230d4_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022e40));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(16));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(0));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x00004421));
+
+    /* Bit 26 clear is the long path: fail closed. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000230d4));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000230d4),
+                                       UINT32_C(0x00022e40)) == VF2_OK);
+    CHECK(vf2_hybrid_coli_230d4_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+    free(main_data);
+}
+
 static void test_coli_23878_bit_remap(void) {
     static const uint32_t table[30] = {
         1u, 1u, 2u, 9u, 3u, 3u, 4u, 4u, 5u, 6u,
@@ -4342,6 +4409,7 @@ int main(void) {
     test_coli_contact_query_22404_early_path();
     test_coli_238a4_early_path();
     test_coli_23238_early_out();
+    test_coli_230d4_bit26();
     test_coli_23878_bit_remap();
     test_coli_238f8_warm_noop();
     test_coli_233d0_flag_builder();

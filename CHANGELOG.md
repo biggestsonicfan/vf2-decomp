@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli helper `0x230d4` bit-26 compact path (v0311): recover the
+  measured index/table select (`g7+0x82a`, `g7+0x26`, `g8+0x5b4`,
+  `g8+0x142` bit 15) with body 15 and `g0` from main-data
+  `0x0201cc54`/`0x0201cc48`. Long `0x2312c` path remains fail-closed.
+  PUNCH `320/320`, input-17 `64/64`, ctest `56/56` (v0311,
+  `decomp/i960/notes/fa_coli_230d4_v0311.md`);
+
 - fa_coli helper `0x23238` early-out (v0310): recover the measured
   `g0 != 0x2ce` path (body 2, `g0` unchanged) called twice from the
   long `0x225cc` body. The `g0 == 0x2ce` float-threshold path remains

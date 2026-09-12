@@ -359,6 +359,13 @@ vf2_status vf2_hybrid_coli_23238_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured bit-26 compact path of fa_coli helper 0x230d4.
+ * g8+0x1a4 bit 26 must be set; the long 0x2312c path fails closed. */
+vf2_status vf2_hybrid_coli_230d4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover the measured warm-path fa_coli bit-remap helper at 0x23878.
  * The CPU must already be inside the callee (IP == entry, frame pushed).
  * Bits 0..29 of g3 are remapped through the ROM table at 0x02007b76. */

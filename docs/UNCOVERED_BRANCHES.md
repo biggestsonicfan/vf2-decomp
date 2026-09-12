@@ -519,6 +519,10 @@ Status (v0310): coli helper `0x23238` early-out (`g0 != 0x2ce`) is
 native (body 2). Float-threshold path and the long `0x225cc` parent
 remain fail-closed (see `decomp/i960/notes/fa_coli_23238_v0310.md`).
 
+Status (v0311): coli helper `0x230d4` bit-26 compact path is native
+(body 15). Bit-26-clear long path remains fail-closed (see
+`decomp/i960/notes/fa_coli_230d4_v0311.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

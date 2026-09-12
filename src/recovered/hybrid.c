@@ -48,6 +48,7 @@
 #define VF2_COLI_G3SCAN_RETURN_FIRST UINT32_C(0x000235b8)
 #define VF2_COLI_G3SCAN_RETURN_SECOND UINT32_C(0x000235c8)
 #define VF2_COLI_23238_ENTRY UINT32_C(0x00023238)
+#define VF2_COLI_230D4_ENTRY UINT32_C(0x000230d4)
 #define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
 #define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
 #define VF2_COLI_BITREMAP_TRIPS 30u
@@ -19270,6 +19271,99 @@ vf2_status vf2_hybrid_coli_23238_execute(
         return VF2_ERROR_UNSUPPORTED;
     }
     return hybrid_complete_procedure(machine, cpu, UINT64_C(2), 0u, 0u);
+}
+
+/* Measured bit-26 compact path of the fa_coli helper at 0x230d4
+ * (v0311). Builds r4 from g7+0x82a, g7+0x26, g8+0x5b4 and selects a
+ * two-entry table via g8+0x142 bit 15 and r4 bit 15. Body 15 on the
+ * measured shape (0x142 bit 15 clear, r4 bit 15 clear). Bit 26 clear
+ * takes the long 0x2312c path and remains fail-closed. */
+vf2_status vf2_hybrid_coli_230d4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    const uint32_t g7 = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 7u] : 0u;
+    const uint32_t g8 = cpu != NULL
+        ? cpu->registers[VF2_I960_G0_REGISTER + 8u] : 0u;
+    uint32_t flags_g8 = 0u;
+    uint16_t half_ua = 0u;
+    uint16_t half_ub = 0u;
+    uint16_t half_uc = 0u;
+    int16_t half_a = 0;
+    int16_t half_b = 0;
+    int16_t half_c = 0;
+    uint32_t r4 = 0u;
+    uint32_t r3 = 0u;
+    uint32_t table = 0u;
+    uint32_t g0 = 0u;
+    uint64_t body = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_230D4_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g8) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g8 & (UINT32_C(1) << 26u)) == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u16(machine, g7 + UINT32_C(0x82a), &half_ua) !=
+            VF2_OK ||
+        hybrid_read_u16(machine, g7 + UINT32_C(0x26), &half_ub) !=
+            VF2_OK ||
+        hybrid_read_u16(machine, g8 + UINT32_C(0x5b4), &half_uc) !=
+            VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    half_a = (int16_t)half_ua;
+    half_b = (int16_t)half_ub;
+    half_c = (int16_t)half_uc;
+    /* ldis/addi/subi/shlo/addi: r4 = a + b - c + (1<<14). */
+    r4 = (uint32_t)(int32_t)((int32_t)half_a + (int32_t)half_b -
+                             (int32_t)half_c + (int32_t)(1 << 14));
+    body = UINT64_C(10); /* ld/bbc + mov + 3 ldis + addi + subi + shlo + addi */
+    {
+        uint32_t field_142 = 0u;
+        if (vf2_model2a_read_u32(
+                machine, g8 + UINT32_C(0x142), &field_142) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* ld 0x142 */
+        if ((field_142 & (UINT32_C(1) << 15u)) != 0u) {
+            table = UINT32_C(0x0201cc48);
+            body += UINT64_C(1); /* bbs taken */
+            body += UINT64_C(1); /* lda other table */
+            if ((r4 & (UINT32_C(1) << 15u)) == 0u) {
+                r3 = 1u;
+                body += UINT64_C(2); /* bbs not taken + addo */
+            } else {
+                body += UINT64_C(1); /* bbs taken to ld */
+            }
+        } else {
+            table = UINT32_C(0x0201cc54);
+            body += UINT64_C(1); /* bbs not taken */
+            body += UINT64_C(1); /* lda primary table */
+            if ((r4 & (UINT32_C(1) << 15u)) != 0u) {
+                r3 = 1u;
+                body += UINT64_C(2); /* bbc not taken + b + addo */
+            } else {
+                body += UINT64_C(1); /* bbc taken to ld */
+            }
+        }
+    }
+    if (vf2_model2a_read_u32(
+            machine, table + r3 * UINT32_C(4), &g0) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* ld (r5)[r3*4] */
+    cpu->registers[VF2_I960_G0_REGISTER] = g0;
+    return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
 }
 
 /* Measured warm-path recovery of the fa_coli bit-remap helper at 0x23878.
