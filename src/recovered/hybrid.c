@@ -19779,7 +19779,8 @@ static vf2_status coli_225cc_long_body(
         }
         body += UINT64_C(1); /* ld g7+0x1a4 */
         if ((flags_g7 & (UINT32_C(1) << 4u)) != 0u) {
-            /* v0318: bits 4 and 12 set → halfword check + ×0.5 scale. */
+            /* v0318: bits 4 and 12 set → halfword check + ×0.5 scale.
+             * v0318b: bit 4 set, bit 12 clear → join cascade (+2). */
             int16_t half_c = 0;
             uint16_t raw_c = 0u;
             uint32_t packed = 0u;
@@ -19790,20 +19791,21 @@ static vf2_status coli_225cc_long_body(
 
             body += UINT64_C(1); /* bbc 4 not taken */
             if ((flags_g7 & (UINT32_C(1) << 12u)) == 0u) {
-                return VF2_ERROR_UNSUPPORTED; /* bit 12 clear unmeasured */
-            }
+                body += UINT64_C(2); /* ld g7 + bbc 12 taken */
+            } else {
             body += UINT64_C(2); /* ld g7 + bbc 12 not taken */
             if (hybrid_read_u16(
                     machine, g7 + UINT32_C(0x5c2), &raw_c) != VF2_OK) {
                 return VF2_ERROR_UNSUPPORTED;
             }
             half_c = (int16_t)raw_c;
-            packed = (uint32_t)(int32_t)((int32_t)half_c - (int32_t)r10s +
+            /* subi r3,r10,r3 → r10 - half_c; addi + (1<<14). */
+            packed = (uint32_t)(int32_t)((int32_t)r10s - (int32_t)half_c +
                                          (int32_t)(1 << 14));
             body += UINT64_C(4); /* ldis + subi + shlo + addi */
             if ((packed & (UINT32_C(1) << 15u)) != 0u) {
-                return VF2_ERROR_UNSUPPORTED; /* bbs 15 taken unmeasured */
-            }
+                body += UINT64_C(1); /* bbs 15 taken → cascade */
+            } else {
             body += UINT64_C(1); /* bbs 15 not taken */
             if (vf2_model2a_read_u32(machine, g7 + UINT32_C(0x2c), &a) !=
                     VF2_OK ||
@@ -19823,6 +19825,8 @@ static vf2_status coli_225cc_long_body(
                 vf2_model2a_write_u32(machine, g7 + UINT32_C(0x34), b) !=
                     VF2_OK) {
                 return VF2_ERROR_UNSUPPORTED;
+            }
+            }
             }
         } else {
             body += UINT64_C(1); /* bbc 4 taken */

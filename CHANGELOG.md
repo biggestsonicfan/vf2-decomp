@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli long-body bit-4-only and bbs-15-taken siblings (v0318b/c):
+  bit 4 without bit 12 (**251**); bits 4+12 with `bbs 15` taken
+  skips the ×0.5 scale (**256**). Fix `subi` operand order in the
+  packed halfword (`r10 - half_c + (1<<14)`). PUNCH `320/320`,
+  input-17 `64/64` (v0318,
+  `decomp/i960/notes/fa_coli_long_b4_bbs15_v0318.md`);
+
 - fa_coli long-body `g8+0x1a4` bit 13 early-join (v0318): admit
   bit 13 when `+0x5b8` bit 0 is set (+2 → **251**). Correct the
   `0x22a28` cascade gate to test bit 8 as in the ROM. PUNCH
