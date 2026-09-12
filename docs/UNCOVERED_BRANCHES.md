@@ -640,6 +640,12 @@ join, `0x22e48` g0=0x2ce, miss-tail offsets `0x1c`/`0x10`). Unit
 **301**. Bit-13 profundo remains fail-closed (see
 `decomp/i960/notes/fa_coli_long_b4_v0332.md`).
 
+Status (v0333): bit-13 profundo (`+0x5b8` bit 0 clear, bit 3 clear,
+scan ∉ {2,5,6}, +0x828 bit 9 clear) is native via the `0x22808`
+alt tail → float tail (unit **223**). Bit-13 sub-paths (bit 3,
+scan 2/5/6, +0x828 bit 9) remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13profundo_v0333.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

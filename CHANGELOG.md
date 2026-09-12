@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli long-body bit-13 profundo (v0333): `+0x5b8` bit 0 clear
+  with bit 3 clear, scan ∉ {2,5,6}, +0x828 bit 9 clear → `0x22808`
+  alt tail → float tail (unit **223**). PUNCH `320/320`,
+  input-17 `64/64` (v0333,
+  `decomp/i960/notes/fa_coli_long_b13profundo_v0333.md`);
+
 - fa_coli long-body `g8+0x1a4` bit 4 (v0332): four sites native
   (cascade r11*3>>1 + g0=0x23d6b, post-diag `0x22e24` join,
   `0x22e48` g0=0x2ce → `0x23238` long, miss-tail `0x1c`/`0x10`).
