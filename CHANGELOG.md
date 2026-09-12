@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- fa_coli slot-1 contact scan + both-hit cascade early-out (v0306):
+  recover the measured 15-trip `bbc`/`setbit` slot-1 loop in
+  `0x22404` (body 133, `g0=1`) and admit both contacts hit when the
+  cascade early-outs at `0x22258` (fighter1 `+0x804` bit 15, measured
+  **255/5/6**). The `0x2227c` tie-break that invokes long `0x225cc`
+  twice remains fail-closed. PUNCH `320/320`, input-17 `64/64`,
+  ctest `56/56` (v0306,
+  `decomp/i960/notes/fa_coli_cascade_v0306.md`);
+
 - fa_coli midbody second-contact `g0=1` (v0305): admit first contact
   warm / second contact hit, then compact `0x225cc` via the no-restore
   jump at `0x22240` (`g7=fighter1`, `g8=fighter0`, measured **130/5/6**).

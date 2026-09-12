@@ -491,6 +491,13 @@ compact `0x225cc` (measured 130/5/6, final `g7=fighter1`,
 the long `0x225cc` body remain fail-closed (see
 `decomp/i960/notes/fa_coli_second_contact_v0305.md`).
 
+Status (v0306): `0x22404` slot-1 15-trip scan is native (body 133).
+Both contacts can hit when they use different slots; the cascade
+early-out at `0x22258` (fighter1 `+0x804` bit 15) is native
+(measured 255/5/6). The `0x2227c` tie-break (long `0x225cc` twice),
+other cascade arms, and the long `0x225cc` body remain fail-closed
+(see `decomp/i960/notes/fa_coli_cascade_v0306.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
