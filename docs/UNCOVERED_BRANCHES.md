@@ -551,8 +551,15 @@ miss remain fail-closed (see
 
 Status (v0317): `0x18b58` bit-2-set FIFO path is native (bodies
 2/29/13). Type-22 shortcut with `g7` bit 2 set completes 80/3/4.
-`notbit 15` and type-5 miss remain fail-closed (see
-`decomp/i960/notes/fa_coli_18b58_fifo_v0317.md`).
+`notbit 15` (`g8+0x19c` bit 15) is native (type22 first-hit 54/3/4).
+Type-5 miss remains fail-closed (see
+`decomp/i960/notes/fa_coli_18b58_fifo_v0317.md` and
+`fa_coli_18bd4_notbit15_v0317.md`).
+
+Status (v0318): long-body `g7+0x1a4` bits 4+12 scale sibling is
+native (263 on the v0288 drive). Bit 4 without bit 12, `bbs 15`
+taken, and remaining long-body flag siblings fail closed (see
+`decomp/i960/notes/fa_coli_long_b4b12_v0318.md`).
 
 ## 3. Camera
 
