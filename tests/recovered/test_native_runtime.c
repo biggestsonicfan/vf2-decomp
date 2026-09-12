@@ -3042,6 +3042,31 @@ static void test_coli_225cc_type22(void) {
               &machine, fighter1 + UINT32_C(0x198), &stored) == VF2_OK);
     CHECK(stored == ((UINT32_C(1) << 28u) + index));
 
+    /* v0317: g7 word bit 2 set → 0x18b58 FIFO delta + common tail. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter0, UINT32_C(4)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x198),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x198),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022240));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(80));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(3));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(4));
+    /* 0x18b58 cleared bit 2 on the g7 word. */
+    CHECK(vf2_model2a_read_u32(&machine, fighter0, &stored) == VF2_OK);
+    CHECK((stored & UINT32_C(4)) == 0u);
+
     vf2_model2a_shutdown(&machine);
     free(rom);
     free(main_data);

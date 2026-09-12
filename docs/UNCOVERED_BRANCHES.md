@@ -549,6 +549,11 @@ Status (v0316): `0x225cc` type-22 shortcut `0x18bd4` is native
 miss remain fail-closed (see
 `decomp/i960/notes/fa_coli_18bd4_type22_v0316.md`).
 
+Status (v0317): `0x18b58` bit-2-set FIFO path is native (bodies
+2/29/13). Type-22 shortcut with `g7` bit 2 set completes 80/3/4.
+`notbit 15` and type-5 miss remain fail-closed (see
+`decomp/i960/notes/fa_coli_18b58_fifo_v0317.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

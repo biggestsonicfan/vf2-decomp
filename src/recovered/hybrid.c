@@ -19223,8 +19223,10 @@ static vf2_status coli_1ab34_body(
     return VF2_ERROR_UNSUPPORTED;
 }
 
-/* Body-only 0x18b58 (v0316). Measured early-out: g7 word bit 2 clear
- * → ret, body 2. Bit 2 set (FIFO delta path) fails closed. */
+/* Body-only 0x18b58 (v0316/v0317).
+ * bit 2 clear → ret, body 2.
+ * bit 2 set: optional FIFO delta (g7+0x840 bit 0 clear) then common
+ * tail. FIFO path body 29; skip-FIFO body 13. */
 static vf2_status coli_18b58_body(
     vf2_model2a *machine,
     uint32_t g7,
@@ -19232,6 +19234,9 @@ static vf2_status coli_18b58_body(
 )
 {
     uint32_t word_g7 = 0u;
+    uint32_t flags_g7 = 0u;
+    uint32_t fifo = VF2_COLI_LONG_FIFO;
+    uint64_t body = UINT64_C(2); /* ld + bbc taken (bit 2 clear) */
 
     if (machine == NULL || body_out == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
@@ -19239,10 +19244,107 @@ static vf2_status coli_18b58_body(
     if (vf2_model2a_read_u32(machine, g7, &word_g7) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((word_g7 & (UINT32_C(1) << 2u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
+    if ((word_g7 & (UINT32_C(1) << 2u)) == 0u) {
+        *body_out = body;
+        return VF2_OK;
     }
-    *body_out = UINT64_C(2); /* ld + bbc not taken */
+    body = UINT64_C(2); /* ld + bbc not taken */
+    {
+        uint8_t gate = 0u;
+        uint32_t a = 0u;
+        uint32_t b = 0u;
+        float fa = 0.0f;
+        float fb = 0.0f;
+        float fr = 0.0f;
+        uint32_t out = 0u;
+        uint16_t half = 0u;
+
+        if (hybrid_read_u8(machine, g7 + UINT32_C(0x840), &gate) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2); /* ldob + bbs */
+        if ((gate & UINT8_C(1)) == 0u) {
+            /* FIFO delta: cmd + 3 operands, 2 results. Buffer model
+             * returns the last written word (no TGP callbacks). */
+            if (hybrid_read_u16(machine, g7 + UINT32_C(0x26), &half) !=
+                    VF2_OK ||
+                vf2_model2a_read_u32(machine, g7 + UINT32_C(0x80), &a) !=
+                    VF2_OK ||
+                vf2_model2a_read_u32(machine, g7 + UINT32_C(0x88), &b) !=
+                    VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if (vf2_model2a_write_u32(
+                    machine, fifo, UINT32_C(0x2d805b5b)) != VF2_OK ||
+                vf2_model2a_write_u32(machine, fifo, half) != VF2_OK ||
+                vf2_model2a_write_u32(machine, fifo, a) != VF2_OK ||
+                vf2_model2a_write_u32(machine, fifo, b) != VF2_OK ||
+                vf2_model2a_read_u32(machine, fifo, &a) != VF2_OK ||
+                vf2_model2a_read_u32(machine, fifo, &b) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            body += UINT64_C(10); /* lda + 4 st + 2 ld + ld + ld */
+            if (vf2_model2a_read_u32(machine, g7 + UINT32_C(0x18), &out) !=
+                VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            memcpy(&fa, &out, sizeof(fa));
+            memcpy(&fb, &a, sizeof(fb));
+            fr = fa - fb;
+            memcpy(&out, &fr, sizeof(out));
+            if (vf2_model2a_write_u32(
+                    machine, g7 + UINT32_C(0x18), out) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if (vf2_model2a_read_u32(machine, g7 + UINT32_C(0x20), &out) !=
+                VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            memcpy(&fa, &out, sizeof(fa));
+            memcpy(&fb, &b, sizeof(fb));
+            fr = fa - fb;
+            memcpy(&out, &fr, sizeof(out));
+            if (vf2_model2a_write_u32(
+                    machine, g7 + UINT32_C(0x20), out) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            body += UINT64_C(6); /* 2 × (ld + subr + st) */
+        }
+        /* Common tail. */
+        if (vf2_model2a_read_u32(machine, g7 + UINT32_C(0x1c), &a) !=
+                VF2_OK ||
+            vf2_model2a_read_u32(machine, g7 + UINT32_C(0x1f8), &b) !=
+                VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        memcpy(&fa, &a, sizeof(fa));
+        memcpy(&fb, &b, sizeof(fb));
+        fr = fa - fb;
+        memcpy(&out, &fr, sizeof(out));
+        if (vf2_model2a_write_u32(machine, g7 + UINT32_C(0x84), out) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(4); /* ld + ld + subr + st */
+        word_g7 &= ~(UINT32_C(1) << 2u);
+        if (vf2_model2a_write_u32(machine, g7, word_g7) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2); /* clrbit + st */
+        if (vf2_model2a_read_u32(
+                machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g7) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        flags_g7 &= ~(UINT32_C(1) << 4u);
+        if (vf2_model2a_write_u32(
+                machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, flags_g7) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(3); /* ld + clrbit + st */
+    }
+    *body_out = body;
     return VF2_OK;
 }
 
