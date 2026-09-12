@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli long-body early exit at 0x230a0 (v0323): `g8+0x1a4` bits
+  3/15/16 with the measured `g7+0x821` gate now take the counter--
+  path (unit bit16 **16**). Insert preserves the warm `+2 +4`
+  accounting. PUNCH `320/320`, input-17 `64/64` (v0323,
+  `decomp/i960/notes/fa_coli_early_exit_v0323.md`);
+
 - fa_coli diagnostic-arm gates (v0321): bit 18 skip (247), r11=20
   r4-offset (305), `g8+0x1b1==9` second pair (354), `g7+0x823`
   table-walk loop (353). Fix `g7+0x820` table select (`0x230bc` when

@@ -591,6 +591,12 @@ exits the long body at `0x230a0` in 15 steps (counter--). Bit 14
 recovered — a flags-region insert broke the warm body count (see
 `decomp/i960/notes/fa_coli_early_exit_v0322.md`).
 
+Status (v0323): early exit at `0x230a0` is native for `g8+0x1a4`
+bits 3/15/16 with the measured `g7+0x821` gate (unit bit16 **16**).
+Warm `+2 +4` accounting preserved. Bit 14/4 at `0x22c84` and
+`g7+0x828` bit 14 remain fail-closed (see
+`decomp/i960/notes/fa_coli_early_exit_v0323.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

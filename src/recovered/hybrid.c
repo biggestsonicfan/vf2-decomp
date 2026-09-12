@@ -19886,11 +19886,70 @@ static vf2_status coli_225cc_long_body(
         return VF2_ERROR_INVALID_ARGUMENT;
     }
 
-    /* Flags region 0x225f0: g7+0x821 == 0, g8+0x1a4 bits 3/15/16 clear. */
+    /* Flags region 0x225f0. v0323: early-exit at 0x230a0 is inserted
+     * before the warm fail-closed so the +2 +4 accounting is unchanged. */
     if (vf2_model2a_read_u32(
             machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags_g8) !=
         VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
+    }
+    {
+        uint8_t scan821 = 0u;
+        uint32_t counter = 0u;
+
+        if (hybrid_read_u8(machine, g7 + UINT32_C(0x821), &scan821) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        /* Early-exit shapes measured at 15 reference steps (unit 16). */
+        if (scan821 == UINT8_C(0)) {
+            if ((flags_g8 & (UINT32_C(1) << 3u)) != 0u) {
+                body += UINT64_C(7);
+                if (vf2_model2a_read_u32(
+                        machine, g7 + UINT32_C(0x1234), &counter) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                counter -= UINT32_C(1);
+                if (vf2_model2a_write_u32(
+                        machine, g7 + UINT32_C(0x1234), counter) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                *body_out = body;
+                return VF2_OK;
+            }
+        }
+        /* bbs 15 is tested before bbc 16 (0x22600 → 0x22608). */
+        if ((flags_g8 & (UINT32_C(1) << 15u)) != 0u) {
+            if (scan821 != UINT8_C(4)) {
+                body += (scan821 == UINT8_C(0)) ? UINT64_C(9) : UINT64_C(8);
+                if (vf2_model2a_read_u32(
+                        machine, g7 + UINT32_C(0x1234), &counter) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                counter -= UINT32_C(1);
+                if (vf2_model2a_write_u32(
+                        machine, g7 + UINT32_C(0x1234), counter) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                *body_out = body;
+                return VF2_OK;
+            }
+            /* +0x821==4: fall through to warm path. */
+        } else if ((flags_g8 & (UINT32_C(1) << 16u)) != 0u &&
+                   scan821 != UINT8_C(4)) {
+            body += (scan821 == UINT8_C(0)) ? UINT64_C(10) : UINT64_C(9);
+            if (vf2_model2a_read_u32(
+                    machine, g7 + UINT32_C(0x1234), &counter) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            counter -= UINT32_C(1);
+            if (vf2_model2a_write_u32(
+                    machine, g7 + UINT32_C(0x1234), counter) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            *body_out = body;
+            return VF2_OK;
+        }
     }
     body += UINT64_C(2); /* ldob + ld */
     if ((flags_g8 & (UINT32_C(1) << 3u)) != 0u ||
