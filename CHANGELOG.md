@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- fa_coli midbody second-contact `g0=1` (v0305): admit first contact
+  warm / second contact hit, then compact `0x225cc` via the no-restore
+  jump at `0x22240` (`g7=fighter1`, `g8=fighter0`, measured **130/5/6**).
+  Second-contact `coli_22404_body` now plants the swapped CPU `g7/g8`
+  so the hit-path exclude/store use `g8=fighter0`. Both-non-zero
+  cascade at `0x22244` remains fail-closed. PUNCH `320/320`,
+  input-17 `64/64`, ctest `56/56` (v0305,
+  `decomp/i960/notes/fa_coli_second_contact_v0305.md`);
+
 - fa_coli `0x225cc` compact bit-3 sibling + midbody non-zero tail
   (v0304): recover the 12-insn early-out (`g8+0x1a4` bit 3 set,
   counter++/-- at `g7+0x1234`) and admit midbody when the first

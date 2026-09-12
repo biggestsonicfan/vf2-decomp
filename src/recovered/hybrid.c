@@ -18893,15 +18893,33 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
     body += child + 1u;
     r6 = cpu->registers[VF2_I960_G0_REGISTER];
 
-    /* 0x2222c mov g0,r6 / swap / call — second contact, swapped. */
+    /* 0x2222c mov g0,r6 / swap / call — second contact, swapped.
+     * Hit path reads exclude/store via CPU g8, so plant the swap. */
+    cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
+    cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
     if (coli_22404_body(machine, cpu, fighter1, g13, &child) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
     body += child + 1u;
 
-    /* 0x2223c cmpobe 0,g0 / 0x22284 cmpobe 0,r6 — warm both zero. */
+    /* 0x2223c cmpobe 0,g0 / 0x22240 cmpobe 0,r6 — warm both zero. */
     if (cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
+        /* v0305: second contact hit, first warm. 0x22240 takes the
+         * no-restore jump to call 0x225cc with g7=fighter1, g8=fighter0.
+         * Both-non-zero cascade at 0x22244 remains fail-closed. */
+        uint64_t c225 = 0u;
+        if (r6 != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (coli_225cc_body(machine, fighter1, fighter0, &c225) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        /* Parent 9 mov/cmpobe + 5 calls; children 8+7+14+73+c225+ret. */
+        body = UINT64_C(14) + UINT64_C(8) + UINT64_C(7) +
+               UINT64_C(14) + UINT64_C(73) + c225 + UINT64_C(1);
+        cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
+        cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
+        return hybrid_complete_procedure(machine, cpu, body, 5u, 5u);
     }
     if (r6 != 0u) {
         /* v0304: first contact hit (body 72), second warm (13),

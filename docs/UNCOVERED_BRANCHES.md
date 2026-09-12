@@ -484,6 +484,13 @@ exit (measured 132/5/6). The 248-insn `0x225cc` body, the `0x18bd4`
 shortcut, and second-contact `g0!=0` remain fail-closed (see
 `decomp/i960/notes/fa_coli_225cc_bit3_v0304.md`).
 
+Status (v0305): mid-body tail also admits the reverse sibling — first
+contact warm, second contact `g0=1` — via the no-restore jump to
+compact `0x225cc` (measured 130/5/6, final `g7=fighter1`,
+`g8=fighter0`). Both-non-zero cascade at `0x22244`, slot-1 scan, and
+the long `0x225cc` body remain fail-closed (see
+`decomp/i960/notes/fa_coli_second_contact_v0305.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
