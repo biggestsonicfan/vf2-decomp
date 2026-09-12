@@ -20465,48 +20465,77 @@ static vf2_status coli_225cc_long_body(
                     }
                     body += UINT64_C(1); /* bbc 22 taken */
                 } else {
-                    body += UINT64_C(2); /* ldos + bbs 10 not taken */
+                    int skip_to_1ac = 0;
+
+                    body += UINT64_C(2); /* ldos + bbs 10 */
                     if ((half & (UINT16_C(1) << 10u)) != 0u) {
-                        return VF2_ERROR_UNSUPPORTED;
+                        /* v0329: bbs 10 taken → 0x22cd8. */
+                        skip_to_1ac = 1;
+                    } else {
+                        body += UINT64_C(1); /* cmpoble 30,r11 */
+                        if (UINT32_C(30) <= r11) {
+                            /* v0327: taken → 0x22e24 join. */
+                            if (vf2_model2a_read_u32(
+                                    machine,
+                                    g7 + VF2_COLI_BITMASK_FLAGS_OFFSET,
+                                    &flags_g7) != VF2_OK) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += UINT64_C(1); /* ld */
+                            if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += UINT64_C(1); /* bbc 22 taken */
+                            skip_to_1ac = 2; /* done, join 0x22e38 */
+                        } else {
+                            body += UINT64_C(2); /* ldos + bbc 8 */
+                            if ((half & (UINT16_C(1) << 8u)) != 0u) {
+                                /* v0329: bbc 8 nt → 0x22cc0 (bit 3). */
+                                if ((flags_g8 & (UINT32_C(1) << 3u)) != 0u) {
+                                    return VF2_ERROR_UNSUPPORTED;
+                                }
+                                body += UINT64_C(2); /* ld + bbc 3 taken */
+                                skip_to_1ac = 2;
+                            } else {
+                                uint8_t b821 = 0u;
+                                body += UINT64_C(2); /* ldob + cmpobne 1 */
+                                if (hybrid_read_u8(
+                                        machine, g7 + UINT32_C(0x821),
+                                        &b821) != VF2_OK) {
+                                    return VF2_ERROR_UNSUPPORTED;
+                                }
+                                if (b821 == UINT8_C(1)) {
+                                    if ((flags_g8 &
+                                         (UINT32_C(1) << 24u)) != 0u) {
+                                        return VF2_ERROR_UNSUPPORTED;
+                                    }
+                                    body += UINT64_C(2); /* ld + bbs 24 nt */
+                                }
+                            }
+                        }
                     }
-                    body += UINT64_C(1); /* cmpoble 30,r11 */
-                    if (UINT32_C(30) <= r11) {
-                        /* v0327: taken → 0x22e24 join. */
+                    if (skip_to_1ac == 0) {
+                        if (hybrid_read_u16(
+                                machine, g8 + UINT32_C(0x1ac), &half) !=
+                            VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(2); /* ldos + cmpoble */
+                        if ((uint32_t)half > r11) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                    }
+                    if (skip_to_1ac != 2) {
                         if (vf2_model2a_read_u32(
                                 machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET,
                                 &flags_g7) != VF2_OK) {
                             return VF2_ERROR_UNSUPPORTED;
                         }
-                        body += UINT64_C(1); /* ld */
+                        body += UINT64_C(1);
                         if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
                             return VF2_ERROR_UNSUPPORTED;
                         }
                         body += UINT64_C(1); /* bbc 22 taken */
-                    } else {
-                    body += UINT64_C(2); /* ldos + bbc 8 taken */
-                    if ((half & (UINT16_C(1) << 8u)) != 0u) {
-                        return VF2_ERROR_UNSUPPORTED;
-                    }
-                    body += UINT64_C(2); /* ldob + cmpobne 1 taken */
-                    if (hybrid_read_u16(
-                            machine, g8 + UINT32_C(0x1ac), &half) != VF2_OK) {
-                        return VF2_ERROR_UNSUPPORTED;
-                    }
-                    body += UINT64_C(1);
-                    if ((uint32_t)half > r11) {
-                        return VF2_ERROR_UNSUPPORTED;
-                    }
-                    body += UINT64_C(1); /* cmpoble taken */
-                    if (vf2_model2a_read_u32(
-                            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET,
-                            &flags_g7) != VF2_OK) {
-                        return VF2_ERROR_UNSUPPORTED;
-                    }
-                    body += UINT64_C(1);
-                    if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
-                        return VF2_ERROR_UNSUPPORTED;
-                    }
-                    body += UINT64_C(1); /* bbc 22 taken */
                     }
                 }
             } else {

@@ -621,6 +621,10 @@ Status (v0328, measurement): `g8+0x1a4` bit 4 has four sites
 Not recovered — the four sites interact and the unit test still
 fail-closes (see `decomp/i960/notes/fa_coli_long_b4_v0328.md`).
 
+Status (v0329): `g7+0x828` bits 10/8 are native (unit **295**/**291**).
+Bit 4, bit 26, `r11>=40` and bit-13 profundo remain fail-closed
+(see `decomp/i960/notes/fa_coli_long_828b10b8_v0329.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

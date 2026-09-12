@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- fa_coli long-body `g7+0x828` bits 10/8 (v0329): bit 10 joins at
+  `+0x1ac` (unit **295**), bit 8 joins at `0x22e24` (unit **291**).
+  PUNCH `320/320`, input-17 `64/64` (v0329,
+  `decomp/i960/notes/fa_coli_long_828b10b8_v0329.md`);
+
 - fa_coli long-body `r11>=30` cmpoble gate (v0327): joins at
   `0x22e24` (unit **299**). PUNCH `320/320`, input-17 `64/64`
   (v0327, `decomp/i960/notes/fa_coli_long_r11_30_v0327.md`);
