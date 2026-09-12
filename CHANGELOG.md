@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- fa_coli long-body `r11>=40` (v0331): diagnostic-arm r4=8 +
+  `cmpoble 30` join, unit **300**. PUNCH `320/320`, input-17 `64/64`
+  (v0331, `decomp/i960/notes/fa_coli_long_r11_40_v0331.md`);
+
 - fa_coli long-body `g8+0x1a4` bit 26 (v0330): post-diag `bbs 26
   taken` joins at `0x22e24`, `0x230d4` takes the compact path
   (unit **263**). PUNCH `320/320`, input-17 `64/64` (v0330,

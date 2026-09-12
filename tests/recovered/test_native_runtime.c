@@ -3566,6 +3566,45 @@ static void test_coli_225cc_long(void) {
               &machine, UINT32_C(0x00504078), &stored) == VF2_OK);
     CHECK(stored == UINT32_C(0x1234));
 
+    /* v0331: r11=40 → r4=8 offset + cmpoble 30 taken → 0x22e24. */
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x822),
+                            (const uint8_t *)"\x28", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050a0b4),
+                                UINT32_C(40)) == VF2_OK);
+    write_u32_bytes(rom, UINT32_C(0x230d0), UINT32_C(0x00001234));
+    write_u32_bytes(rom, UINT32_C(0x230c4), UINT32_C(0x00001234));
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050406a),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504078),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504001),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504003),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x700),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022240));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(300));
+    CHECK(vf2_model2a_read_u32(
+              &machine, UINT32_C(0x00504078), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x1234));
+    /* Restore r11 for subsequent shapes. */
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x822),
+                            (const uint8_t *)"\x01", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050a0b4),
+                                UINT32_C(2)) == VF2_OK);
+
     /* v0321: g8+0x1b1 == 9 → second diagnostic pair with constants. */
     CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x822),
                             (const uint8_t *)"\x01", 1u) == VF2_OK);

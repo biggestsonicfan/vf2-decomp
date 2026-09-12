@@ -627,8 +627,12 @@ Bit 4, `r11>=40` and bit-13 profundo remain fail-closed (see
 
 Status (v0330): `g8+0x1a4` bit 26 is native on the long body
 (post-diag `bbs 26 taken` → `0x22e24` join + `0x230d4` compact,
-unit **263**). Bit 4, `r11>=40` and bit-13 profundo remain
-fail-closed (see `decomp/i960/notes/fa_coli_long_b26_v0330.md`).
+unit **263**). Bit 4 and bit-13 profundo remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b26_v0330.md`).
+
+Status (v0331): `r11>=40` diagnostic-arm shape is native (unit
+**300**; r4=8 + `cmpoble 30` join). Bit 4 and bit-13 profundo remain
+fail-closed (see `decomp/i960/notes/fa_coli_long_r11_40_v0331.md`).
 
 ## 3. Camera
 
