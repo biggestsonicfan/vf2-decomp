@@ -366,6 +366,12 @@ vf2_status vf2_hybrid_coli_230d4_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured 0x1ab34 table-walk helper (v0312). */
+vf2_status vf2_hybrid_coli_1ab34_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover the measured warm-path fa_coli bit-remap helper at 0x23878.
  * The CPU must already be inside the callee (IP == entry, frame pushed).
  * Bits 0..29 of g3 are remapped through the ROM table at 0x02007b76. */

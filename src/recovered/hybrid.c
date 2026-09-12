@@ -49,6 +49,7 @@
 #define VF2_COLI_G3SCAN_RETURN_SECOND UINT32_C(0x000235c8)
 #define VF2_COLI_23238_ENTRY UINT32_C(0x00023238)
 #define VF2_COLI_230D4_ENTRY UINT32_C(0x000230d4)
+#define VF2_COLI_1AB34_ENTRY UINT32_C(0x0001ab34)
 #define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
 #define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
 #define VF2_COLI_BITREMAP_TRIPS 30u
@@ -19364,6 +19365,75 @@ vf2_status vf2_hybrid_coli_230d4_execute(
     body += UINT64_C(1); /* ld (r5)[r3*4] */
     cpu->registers[VF2_I960_G0_REGISTER] = g0;
     return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
+}
+
+/* Measured table-walk helper at 0x1ab34 (v0312). Indexes main-data
+ * 0x0200d34c[g0 & 0x1fff], then walks records of type byte at +0 with
+ * sizes from ROM 0x0001b7f6[type]. Returns the record+8 on type ==
+ * g1, or 0 when type is 0 or 8. Measured two-iteration miss: body 16. */
+vf2_status vf2_hybrid_coli_1ab34_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t g0 = 0u;
+    uint32_t g1 = 0u;
+    uint32_t record = 0u;
+    uint64_t body = UINT64_C(4); /* lda, and, ld table, addo 8 */
+    int guard = 0;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_1AB34_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    g0 = cpu->registers[VF2_I960_G0_REGISTER];
+    g1 = cpu->registers[VF2_I960_G0_REGISTER + 1u];
+    if (vf2_model2a_read_u32(
+            machine,
+            UINT32_C(0x0200d34c) + (g0 & UINT32_C(0x1fff)) * UINT32_C(4),
+            &record) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (record == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    record += UINT32_C(8);
+    for (guard = 0; guard < 32; ++guard) {
+        uint8_t type_byte = 0u;
+        uint8_t step = 0u;
+
+        if (hybrid_read_u8(machine, record, &type_byte) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* ldob */
+        if (type_byte == (uint8_t)g1) {
+            body += UINT64_C(1); /* cmpobe g1 taken */
+            cpu->registers[VF2_I960_G0_REGISTER] = record;
+            return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
+        }
+        body += UINT64_C(1); /* cmpobe g1 not taken */
+        if (type_byte == 0u) {
+            body += UINT64_C(2); /* cmpobe 0 taken + mov 0 */
+            cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+            return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
+        }
+        body += UINT64_C(1); /* cmpobe 0 not taken */
+        if (type_byte == UINT8_C(8)) {
+            body += UINT64_C(2); /* cmpobe 8 taken + mov 0 */
+            cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+            return hybrid_complete_procedure(machine, cpu, body, 0u, 0u);
+        }
+        body += UINT64_C(1); /* cmpobe 8 not taken */
+        if (hybrid_read_u8(
+                machine,
+                UINT32_C(0x0001b7f6) + (uint32_t)type_byte, &step) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(3); /* ldob size, addo, b */
+        record += (uint32_t)step;
+    }
+    return VF2_ERROR_UNSUPPORTED;
 }
 
 /* Measured warm-path recovery of the fa_coli bit-remap helper at 0x23878.

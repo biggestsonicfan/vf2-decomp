@@ -523,6 +523,10 @@ Status (v0311): coli helper `0x230d4` bit-26 compact path is native
 (body 15). Bit-26-clear long path remains fail-closed (see
 `decomp/i960/notes/fa_coli_230d4_v0311.md`).
 
+Status (v0312): coli table-walk helper `0x1ab34` is native (miss body
+16, match body 6). Long `0x225cc` parent remains fail-closed (see
+`decomp/i960/notes/fa_coli_1ab34_v0312.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

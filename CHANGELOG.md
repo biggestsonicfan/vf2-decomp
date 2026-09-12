@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli table-walk helper `0x1ab34` (v0312): recover the measured
+  type-chain walk (`g0 & 0x1fff` → main-data `0x0200d34c`, sizes from
+  ROM `0x1b7f6`). Two-iteration miss body 16 (`g0=0`); first-hit match
+  body 6 (`g0=record+8`). PUNCH `320/320`, input-17 `64/64`, ctest
+  `56/56` (v0312, `decomp/i960/notes/fa_coli_1ab34_v0312.md`);
+
 - fa_coli helper `0x230d4` bit-26 compact path (v0311): recover the
   measured index/table select (`g7+0x82a`, `g7+0x26`, `g8+0x5b4`,
   `g8+0x142` bit 15) with body 15 and `g0` from main-data
