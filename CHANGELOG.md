@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- fa_coli long body `0x225cc` (v0314): admit the measured 248-step
+  path (bit 3 clear) as native C — flags region with scanbit float
+  pack (`be` not taken after non-publishing `cmpibl`), cascade
+  all-clear 60, `0x230d4` long via body-only helper, `0x23238` ×2,
+  `0x1ab34` miss, miss tail, and float FIFO tail. Completes
+  **249/4/5**. Compact bit-3 sibling unchanged. `0x2227c` tie-break
+  and `0x18bd4` shortcut remain fail-closed. PUNCH `320/320`,
+  input-17 `64/64`, ctest `56/56` (v0314,
+  `decomp/i960/notes/fa_coli_225cc_long_v0314.md`);
+
 - fa_coli helper `0x23238` float-threshold path (v0313): complete the
   helper with `g8+0x1f8` compares (~0.9 / ~0.6) → `g0` in
   `{0x2ce, 0xa7, 0x2cf}` (bodies 6/10/11). Early-out body 2 unchanged.

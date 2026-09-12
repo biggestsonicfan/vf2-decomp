@@ -531,6 +531,13 @@ Status (v0313): coli helper `0x23238` float-threshold path is native
 (bodies 2/6/10/11). Long `0x225cc` parent remains fail-closed (see
 `decomp/i960/notes/fa_coli_23238_float_v0313.md`).
 
+Status (v0314): coli long body `0x225cc` is native on the v0288 drive
+(249/4/5 including completed ret). Integrates `0x230d4` long,
+`0x23238` ×2, `0x1ab34` miss, and the float tail. Compact bit-3
+sibling unchanged. `0x2227c` tie-break, `0x18bd4` shortcut, and
+unmeasured flag siblings remain fail-closed (see
+`decomp/i960/notes/fa_coli_225cc_long_v0314.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

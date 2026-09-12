@@ -359,9 +359,16 @@ vf2_status vf2_hybrid_coli_23238_execute(
     vf2_i960_cpu *cpu
 );
 
-/* Recover the measured bit-26 compact path of fa_coli helper 0x230d4.
- * g8+0x1a4 bit 26 must be set; the long 0x2312c path fails closed. */
+/* Recover the measured bit-26 compact path of fa_coli helper 0x230d4
+ * (v0311) and the measured bit-26-clear long path (v0314). */
 vf2_status vf2_hybrid_coli_230d4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
+/* Recover the measured fa_coli resolver at 0x225cc (v0304 compact
+ * bit-3 sibling; v0314 long body). */
+vf2_status vf2_hybrid_coli_225cc_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
 );
