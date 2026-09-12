@@ -19376,9 +19376,6 @@ static vf2_status coli_18bd4_body(
     if (hybrid_read_u16(machine, g8 + UINT32_C(0x19c), &index) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((index & UINT16_C(0x8000)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED; /* notbit 15 sibling unmeasured */
-    }
     g0 = index;
     body += UINT64_C(3); /* ldos + mov + mov */
     body += UINT64_C(1); /* call */
@@ -19393,7 +19390,11 @@ static vf2_status coli_18bd4_body(
         VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    /* ldos 0x1(g0), r3; bbc 15 not taken; shlo 24,17; addi; st g7+0x198. */
+    /* ldos 0x1(g0), r3; bbc 15 → skip notbit; shlo 24,17; addi; st. */
+    if ((index & UINT16_C(0x8000)) != 0u) {
+        field ^= UINT32_C(0x8000);
+        body += UINT64_C(1); /* notbit */
+    }
     packed = (UINT32_C(17) << 24u) + (field & UINT32_C(0xffff));
     if (vf2_model2a_write_u32(
             machine, g7 + UINT32_C(0x198), packed) != VF2_OK) {

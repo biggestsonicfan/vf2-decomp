@@ -3067,6 +3067,33 @@ static void test_coli_225cc_type22(void) {
     CHECK(vf2_model2a_read_u32(&machine, fighter0, &stored) == VF2_OK);
     CHECK((stored & UINT32_C(4)) == 0u);
 
+    /* v0317: index bit 15 set → notbit 15 on the packed halfword. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter0, UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter1 + UINT32_C(0x19c),
+                            (const uint8_t *)"\x01\x80", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x198),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x198),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022240));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(54));
+    /* halfword 0x0123 with bit 15 flipped → 0x8123. */
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter0 + UINT32_C(0x198), &stored) == VF2_OK);
+    CHECK(stored == ((UINT32_C(17) << 24u) + UINT32_C(0x8123)));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x198), &stored) == VF2_OK);
+    CHECK(stored == ((UINT32_C(1) << 28u) + UINT32_C(0x8001)));
+
     vf2_model2a_shutdown(&machine);
     free(rom);
     free(main_data);

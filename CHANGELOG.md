@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli `0x18bd4` notbit-15 sibling (v0317): admit `g8+0x19c`
+  bit 15 set — flip bit 15 of the `walk+1` halfword before the
+  `(17<<24)` pack. Type22 unit shape **54/3/4**. PUNCH `320/320`,
+  input-17 `64/64` (v0317,
+  `decomp/i960/notes/fa_coli_18bd4_notbit15_v0317.md`);
+
 - fa_coli `0x18b58` bit-2-set FIFO path (v0317): recover the
   `0x2d805b5b` delta (bodies 2/29/13) with float `subr` into
   `g7+0x18`/`+0x20` and the common `g7+0x84` tail. Type-22 shortcut
