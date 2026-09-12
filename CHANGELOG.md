@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- fa_coli `0x22404` non-empty contact sibling (v0303): recover the
+  measured bit-8-set path that returns `g0 = 1` after `andnot` with
+  `g8+0x6dc` (body 72 on the one-hit scan, polygon FIFO via
+  `(g11)[g12]`, pending setbit, `g9 = 0x01000550`). Slot 1 scan and
+  `g8+0x26 != 0` remain fail-closed. Mid-body tail still requires both
+  contact results zero. PUNCH `320/320`, input-17 `64/64`, ctest
+  `56/56` (v0303, `decomp/i960/notes/fa_coli_contact_g0_v0303.md`);
+
 - Fase 7 closed: measured taint on `fa_player` `0x29414` confirms
   `branch 0x0002949c depends on fighter0 + 0x01a4 bit 19` (path A/B,
   float tail, type 8). Consolidate fighter layout candidates in

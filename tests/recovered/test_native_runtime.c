@@ -2388,6 +2388,7 @@ static void test_coli_bitmask_22298_early_path(void) {
 
 static void test_coli_contact_query_22404_early_path(void) {
     uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
     vf2_model2a machine;
     vf2_i960_cpu cpu;
     const uint32_t fighter0 = UINT32_C(0x00510800);
@@ -2398,13 +2399,23 @@ static void test_coli_contact_query_22404_early_path(void) {
     uint64_t start_returns = 0u;
 
     CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    /* 0x02007aca lives in main-data (base 0x02000000). Plant table[1]=8. */
+    CHECK((main_data = (uint8_t *)calloc(1u, UINT32_C(0x00008000))) !=
+          NULL);
+    if (main_data != NULL) {
+        /* Model memory is little-endian; table[1] value 8. */
+        write_u32_bytes(main_data, UINT32_C(0x7ace), UINT32_C(8));
+    }
     CHECK(vf2_model2a_initialize(&machine));
-    if (rom == NULL || machine.work_ram == NULL) {
+    if (rom == NULL || main_data == NULL || machine.work_ram == NULL) {
         free(rom);
+        free(main_data);
         return;
     }
     CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
           VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(&machine, main_data,
+                                       UINT32_C(0x00008000)) == VF2_OK);
     CHECK(vf2_model2a_write(&machine, registry + UINT32_C(0x8c), poison,
                             sizeof(poison)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
@@ -2501,8 +2512,78 @@ static void test_coli_contact_query_22404_early_path(void) {
     CHECK(read_test_u16(&machine, UINT32_C(0x00512800) + UINT32_C(0x6d4)) ==
           UINT16_C(0));
 
+    /* v0303: bit 8 set, equal snapshots, pending clear, helper 0,
+     * index 1 (ROM mask 8), dest slot 0xffff -> non-empty after andnot,
+     * g0 = 1, body 72, pending bit set, FIFO triple stored. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a4),
+                                UINT32_C(1) << 8u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8),
+                                UINT32_C(0x1234)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x8c),
+                                UINT32_C(0x1234)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1aa),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x808),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x5b8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x820),
+                                UINT32_C(1)) == VF2_OK);
+    /* g13+0x40[bit 3] holds the dest mask fragment. */
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x40) +
+                                             UINT32_C(3) * UINT32_C(4),
+                                UINT32_C(0x0000ffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00512800) +
+                                             UINT32_C(0x6dc),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x26),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022404));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = UINT32_C(0x00512800);
+    cpu.registers[VF2_I960_G0_REGISTER + 11u] = UINT32_C(0x00880000);
+    cpu.registers[VF2_I960_G0_REGISTER + 12u] = UINT32_C(0x00004000);
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022404),
+                                       UINT32_C(0x0002222c)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_contact_query_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x0002222c));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(73));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == 1u);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 9u] == UINT32_C(0x01000550));
+    CHECK(read_test_u16(&machine, registry + UINT32_C(0x90)) ==
+          UINT16_C(0x0001));
+    CHECK(read_test_u16(&machine, UINT32_C(0x00512800) + UINT32_C(0x6d4)) ==
+          UINT16_C(0xffff));
+
+    /* Slot 1 g0=1 sibling stays fail-closed (different scan loop). */
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x4),
+                            (const uint8_t *)"\x01", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x8e),
+                                UINT32_C(0x1234)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022404));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = UINT32_C(0x00512800);
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022404),
+                                       UINT32_C(0x0002222c)) == VF2_OK);
+    CHECK(vf2_hybrid_coli_contact_query_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+
     vf2_model2a_shutdown(&machine);
     free(rom);
+    free(main_data);
 }
 
 static void test_coli_238a4_early_path(void) {

@@ -470,6 +470,13 @@ with neutral `field_XXXX` names only. Physics/hitbox/damage and
 `decomp/i960/notes/taint_29414_v0302.md` and
 `decomp/i960/notes/fighter_candidate_layout_v0302.md`).
 
+Status (v0303): `0x22404` bit-8-set with non-empty mask after
+`andnot` (`g0 = 1`, body 72 on the measured one-hit scan) is native,
+including the polygon FIFO via `(g11)[g12]`. Slot-1 scan, the
+`g8+0x26 != 0` FIFO cursor branch, and the `0x225cc` resolver remain
+fail-closed; the coli mid-body tail still requires both contact
+results zero (see `decomp/i960/notes/fa_coli_contact_g0_v0303.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

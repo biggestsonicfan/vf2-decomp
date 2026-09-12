@@ -18479,7 +18479,22 @@ static vf2_status coli_22298_body(
  * Warm (bit 8 clear): body 13, clear pending bit, g0 = 0.
  * Sibling v0290 (bit 8 set, snapshots equal, pending bit clear,
  * threshold ok, helper r3 = 0, empty scan mask): body 29, store 0
- * into g8+0x6d4, g0 = 0. Other siblings fail closed. */
+ * into g8+0x6d4, g0 = 0.
+ * Sibling v0303 (bit 8 set, same gates, non-empty mask after andnot,
+ * slot 0): body 72 on the measured one-hit scan, pending setbit,
+ * polygon FIFO via (g11)[g12], g0 = 1. Slot 1 scan loop and
+ * g8+0x26 != 0 FIFO branch remain fail-closed. */
+static uint32_t coli_scanbit_msb(uint32_t value)
+{
+    int bit = 31;
+    for (bit = 31; bit >= 0; --bit) {
+        if ((value & (UINT32_C(1) << (uint32_t)bit)) != 0u) {
+            return (uint32_t)bit;
+        }
+    }
+    return UINT32_C(31);
+}
+
 static vf2_status coli_22404_body(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu,
@@ -18578,20 +18593,187 @@ static vf2_status coli_22404_body(
         return VF2_ERROR_UNSUPPORTED;
     }
     if (hybrid_read_u8(
-            machine, g7 + UINT32_C(0x820), &field_820) != VF2_OK ||
-        field_820 != 0u) {
+            machine, g7 + UINT32_C(0x820), &field_820) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    /* Empty scan mask → andnot leaves 0 → store 0 into g8+0x6d4. */
+    /* ROM bit-mask table at 0x02007aca[index]; measured index 1 = 8. */
     g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
-    if (hybrid_write_u16(machine, g8 + UINT32_C(0x6d4), 0u) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
+    {
+        uint32_t mask = 0u;
+        uint32_t acc = 0u;
+        uint64_t body = UINT64_C(0);
+        uint32_t bit = 0u;
+        uint16_t exclude = 0u;
+        uint16_t result = 0u;
+        uint32_t port = 0u;
+        uint32_t word = 0u;
+        uint32_t triple0 = 0u;
+        uint32_t triple1 = 0u;
+        uint32_t triple2 = 0u;
+        uint16_t g8_delta = 0u;
+        uint8_t fifo_sel = 0u;
+        uint32_t fifo_index = 0u;
+        uint32_t k = 0u;
+
+        if (vf2_model2a_read_u32(
+                machine,
+                UINT32_C(0x02007aca) + (uint32_t)field_820 * UINT32_C(4),
+                &mask) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        /* Through mov 0,r6 / cmpobe slot: 22 insns from entry on the
+         * bit-8-set path (prologue 6 + equal/pending/thr/helper 12
+         * including the 4-instruction helper + index/table/mov/cmp). */
+        body = UINT64_C(22);
+        if (slot == 1u) {
+            /* Slot-1 scan uses a 16-trip bbc/setbit loop (unmeasured). */
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        for (;;) {
+            bit = coli_scanbit_msb(mask);
+            body += UINT64_C(2); /* scanbit + bno */
+            if ((mask & (UINT32_C(1) << bit)) == 0u) {
+                break; /* miss: bno taken to 0x224b4 */
+            }
+            if (vf2_model2a_read_u32(
+                    machine, g13 + UINT32_C(0x40) + bit * UINT32_C(4),
+                    &word) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            acc |= word;
+            mask &= ~(UINT32_C(1) << bit);
+            body += UINT64_C(4); /* ld, or, clrbit, b */
+        }
+        if (hybrid_read_u16(machine, g8 + UINT32_C(0x6dc), &exclude) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        result = (uint16_t)(acc & (uint16_t)~exclude);
+        if (hybrid_write_u16(machine, g8 + UINT32_C(0x6d4), result) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(4); /* ldos, andnot, stos, cmpobe */
+        if (result == 0u) {
+            cpu->registers[VF2_I960_G0_REGISTER] = 0u;
+            cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x0002244c);
+            /* mov 0,g0 at 0x225b4; ret is accounted by the caller. */
+            *body_out = body + UINT64_C(1);
+            return VF2_OK;
+        }
+        /* Non-empty: pending setbit, g0 = 1, polygon FIFO. */
+        if (hybrid_read_u16(
+                machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, &pending) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        pending = (uint16_t)(pending | (uint16_t)((uint16_t)1u << slot));
+        if (hybrid_write_u16(
+                machine, g13 + VF2_COLI_CONTACT_PENDING_MASK, pending) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(4); /* ldos, setbit, stos, mov 1,g0 */
+        cpu->registers[VF2_I960_G0_REGISTER] = 1u;
+        /* Scan loop always exits on a miss, so r5 = 31. */
+        if (hybrid_read_u8(
+                machine,
+                UINT32_C(0x000232a5) + UINT32_C(31) * UINT32_C(2),
+                &fifo_sel) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        fifo_index = (uint32_t)fifo_sel * UINT32_C(12);
+        body += UINT64_C(3); /* ldob, mulo, cmpobe slot */
+        if (vf2_model2a_read_u32(
+                machine, UINT32_C(0x0090fb80) + fifo_index, &triple0) !=
+                VF2_OK ||
+            vf2_model2a_read_u32(
+                machine, UINT32_C(0x0090fb80) + fifo_index + UINT32_C(4),
+                &triple1) != VF2_OK ||
+            vf2_model2a_read_u32(
+                machine, UINT32_C(0x0090fb80) + fifo_index + UINT32_C(8),
+                &triple2) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2); /* ldt + b */
+        port = cpu->registers[VF2_I960_G0_REGISTER + 11u] +
+               cpu->registers[VF2_I960_G0_REGISTER + 12u];
+        {
+            static const uint32_t fifo_prefix[2] = {
+                UINT32_C(0x00800101), UINT32_C(0x01800303)};
+            for (k = 0u; k < 2u; ++k) {
+                if (vf2_model2a_write_u32(machine, port, fifo_prefix[k]) !=
+                    VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+            }
+        }
+        body += UINT64_C(4); /* 2x (lda, st) */
+        if (hybrid_read_u16(machine, g8 + UINT32_C(0x26), &g8_delta) !=
+            VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2); /* ldis, cmpibe */
+        if (g8_delta != 0u) {
+            /* Measured sibling has g8+0x26 == 0; cursor path unmeasured. */
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (vf2_model2a_write_u32(
+                machine, port, UINT32_C(0x03000606)) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2);
+        for (k = 0u; k < 3u; ++k) {
+            uint32_t coord = 0u;
+            if (vf2_model2a_read_u32(
+                    machine, g8 + UINT32_C(0x18) + k * UINT32_C(4),
+                    &coord) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            coord ^= (UINT32_C(1) << 31u);
+            if (vf2_model2a_write_u32(machine, port, coord) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+        }
+        body += UINT64_C(9); /* 3x (ld, notbit, st) */
+        if (vf2_model2a_write_u32(
+                machine, port, UINT32_C(0x14802929)) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2);
+        if (vf2_model2a_write_u32(machine, port, triple0) != VF2_OK ||
+            vf2_model2a_write_u32(machine, port, triple1) != VF2_OK ||
+            vf2_model2a_write_u32(machine, port, triple2) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(3);
+        /* Three sequential loads from the same command-port address. */
+        if (vf2_model2a_read_u32(machine, port, &triple0) != VF2_OK ||
+            vf2_model2a_read_u32(machine, port, &triple1) != VF2_OK ||
+            vf2_model2a_read_u32(machine, port, &triple2) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(3);
+        if (vf2_model2a_write_u32(
+                machine, port, UINT32_C(0x01000202)) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(2);
+        if (vf2_model2a_write_u32(
+                machine, g8 + UINT32_C(0x65c), triple0) != VF2_OK ||
+            vf2_model2a_write_u32(
+                machine, g8 + UINT32_C(0x660), triple1) != VF2_OK ||
+            vf2_model2a_write_u32(
+                machine, g8 + UINT32_C(0x664), triple2) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* stt */
+        cpu->registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x01000550);
+        body += UINT64_C(1); /* lda g9 */
+        cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x0002244c);
+        *body_out = body;
+        return VF2_OK;
     }
-    cpu->registers[VF2_I960_G0_REGISTER] = 0u;
-    /* bal 0x223bc links g14 to 0x2244c. */
-    cpu->registers[VF2_I960_G0_REGISTER + 14u] = UINT32_C(0x0002244c);
-    *body_out = UINT64_C(29);
-    return VF2_OK;
 }
 
 /* Measured warm-path recovery of the fa_coli mid-body/tail (v0289).
