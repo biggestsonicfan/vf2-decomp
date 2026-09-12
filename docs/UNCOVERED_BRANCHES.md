@@ -606,6 +606,11 @@ Status (v0325): `g7+0x828` bit 14 joins at `0x22e24` (unit **286**).
 Bits 10/8 and `r11>=40` remain fail-closed (see
 `decomp/i960/notes/fa_coli_long_828b14_v0325.md`).
 
+Status (v0326): `0x43888` bit-20 non-match is native (`cmpobne`
+taken, unit **307**). `r11>=40` / `cmpoble 30` and remaining
+`+0x828` bits fail closed (see
+`decomp/i960/notes/fa_coli_43888_b20nm_v0326.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

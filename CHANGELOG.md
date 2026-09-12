@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- fa_coli `0x43888` bit-20 non-match (v0326): `cmpobne` taken skips
+  the subtract (unit **307**, g0 unchanged in the ring). PUNCH
+  `320/320`, input-17 `64/64` (v0326,
+  `decomp/i960/notes/fa_coli_43888_b20nm_v0326.md`);
+
 - fa_coli long-body `g7+0x828` bit 14 (v0325): joins at `0x22e24`
   (unit **286**). PUNCH `320/320`, input-17 `64/64` (v0325,
   `decomp/i960/notes/fa_coli_long_828b14_v0325.md`);

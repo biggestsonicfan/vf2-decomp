@@ -19131,7 +19131,8 @@ static vf2_status coli_43888_body(
                 g0 -= UINT32_C(0x20000);
                 body += UINT64_C(1); /* subo */
             } else {
-                return VF2_ERROR_UNSUPPORTED; /* cmpobne taken */
+                /* v0326: cmpobne taken → skip shlo/subo, join store. */
+                body += UINT64_C(4); /* lda + and + lda + cmpobne taken */
             }
         } else {
             body += UINT64_C(1); /* bbc 20 taken */
