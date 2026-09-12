@@ -578,6 +578,13 @@ the bit-20 subtract plus `0x22e74` `shli` are native (unit shapes
 gates `bit 18` / `+0x823` / `r11>=20` remain fail-closed (see
 `decomp/i960/notes/fa_coli_diag_v0320.md`).
 
+Status (v0321): diagnostic-arm gates native. `g7+0x1a4` bit 18 skip
+(247), r11=20 r4-offset (305), `g8+0x1b1==9` second pair (354) and
+`g7+0x823` table-walk loop (353). `g7+0x820` table select corrected
+(`0x230bc` when not 5/6). r11≥40, bit-20 non-match and remaining
+long-body flag siblings fail closed (see
+`decomp/i960/notes/fa_coli_diag_gates_v0321.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

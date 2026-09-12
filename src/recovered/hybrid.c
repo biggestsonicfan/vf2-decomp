@@ -19196,6 +19196,32 @@ static vf2_status coli_43888_body(
     return VF2_OK;
 }
 
+/* One 0x439ac + 0x43888 diagnostic pair. *body_out counts both call
+ * instructions, both child bodies, and both rets. */
+static vf2_status coli_diag_pair(
+    vf2_model2a *machine,
+    uint32_t g0_in,
+    uint64_t *body_out
+)
+{
+    uint32_t g0 = g0_in;
+    uint64_t c439 = 0u;
+    uint64_t c438 = 0u;
+
+    if (machine == NULL || body_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (coli_439ac_body(machine, g0, &c439) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (coli_43888_body(machine, &g0, &c438) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    *body_out = UINT64_C(1) + c439 + UINT64_C(1) +
+                UINT64_C(1) + c438 + UINT64_C(1);
+    return VF2_OK;
+}
+
 static vf2_status coli_225cc_long_body(
     vf2_model2a *machine,
     uint32_t g7,
@@ -20177,13 +20203,13 @@ static vf2_status coli_225cc_long_body(
         }
         body += UINT64_C(1); /* bbs 9 taken */
         if (r11 != 0u) {
-            /* v0319: diagnostic arm — g7+0x1a4 bit 18 clear, g7+0x823
-             * == 0, then 0x439ac + 0x43888 and join at 0x22c84. */
+            /* v0319/v0321 diagnostic arm at 0x22bd8. */
             uint32_t flags18 = 0u;
             uint8_t scan823 = 0u;
+            uint32_t diag_r4 = 0u;
+            uint8_t sel820 = 0u;
             uint32_t diag_g0 = 0u;
-            uint64_t c439 = 0u;
-            uint64_t c438 = 0u;
+            uint64_t pair = 0u;
 
             body += UINT64_C(1); /* cmpobe 0,r11 not taken */
             if (vf2_model2a_read_u32(
@@ -20191,37 +20217,126 @@ static vf2_status coli_225cc_long_body(
                     &flags18) != VF2_OK) {
                 return VF2_ERROR_UNSUPPORTED;
             }
+            body += UINT64_C(1); /* ld */
             if ((flags18 & (UINT32_C(1) << 18u)) != 0u) {
-                return VF2_ERROR_UNSUPPORTED;
+                body += UINT64_C(1); /* bbs 18 taken → 0x22c84 */
+                /* skip the rest of the diagnostic arm */
+            } else {
+                body += UINT64_C(2); /* bbs 18 nt + mov 0,r4 */
+                diag_r4 = 0u;
+                if (hybrid_read_u8(
+                        machine, g7 + UINT32_C(0x823), &scan823) != VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                body += UINT64_C(1); /* ldob */
+                if (scan823 != 0u) {
+                    /* Table walk at 0x22bf0. table_base is loaded once;
+                     * the loop only reloads base[r4]. Zero → 0x22c84. */
+                    uint32_t table_base = 0u;
+                    uint32_t entry = 0u;
+
+                    body += UINT64_C(1); /* cmpobe 0 not taken */
+                    if (vf2_model2a_read_u32(
+                            machine,
+                            UINT32_C(0x0201e880) +
+                                ((uint32_t)scan823 - 1u),
+                            &table_base) != VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    body += UINT64_C(3); /* ldob + subo + ld base */
+                    for (;;) {
+                        if (vf2_model2a_read_u32(
+                                machine, table_base + diag_r4,
+                                &entry) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ld (r3)[r4] */
+                        if (entry == 0u) {
+                            body += UINT64_C(1); /* cmpobe 0 taken */
+                            break;
+                        }
+                        body += UINT64_C(1); /* cmpobe 0 nt */
+                        if (coli_diag_pair(machine, entry, &pair) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += pair;
+                        diag_r4 += UINT32_C(4);
+                        body += UINT64_C(2); /* addo 4 + b */
+                    }
+                    /* zero entry joins at 0x22c84 — no main pair */
+                } else {
+                    body += UINT64_C(1); /* cmpobe 0 taken → 0x22c1c */
+                    /* r11 threshold at 0x22c1c. */
+                    body += UINT64_C(1); /* cmpobg 20,r11 */
+                    if (UINT32_C(20) <= r11) {
+                        diag_r4 += UINT32_C(4);
+                        body += UINT64_C(2); /* addo 4 + addo 31,9 */
+                        body += UINT64_C(1); /* cmpobg r13,r11 */
+                        if (UINT32_C(40) <= r11) {
+                            diag_r4 += UINT32_C(4);
+                            body += UINT64_C(1); /* addo 4 */
+                        }
+                    }
+                    /* g0 select at 0x22c30. */
+                    if (vf2_model2a_read_u32(
+                            machine, UINT32_C(0x000230c8) + diag_r4,
+                            &diag_g0) != VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    if (hybrid_read_u8(
+                            machine, g7 + UINT32_C(0x820), &sel820) !=
+                        VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    body += UINT64_C(3); /* ld + ldob + cmpobe 5 */
+                    if (sel820 != UINT8_C(5)) {
+                        body += UINT64_C(1); /* cmpobe 6 */
+                        if (sel820 != UINT8_C(6)) {
+                            if (vf2_model2a_read_u32(
+                                    machine, UINT32_C(0x000230bc) + diag_r4,
+                                    &diag_g0) != VF2_OK) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += UINT64_C(1); /* ld 0x230bc[r4] */
+                        }
+                    }
+                    body += UINT64_C(1); /* mov r5,g0 */
+                    if (coli_diag_pair(machine, diag_g0, &pair) != VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    body += pair;
+                    body += UINT64_C(1); /* ldob g8+0x1b1 */
+                    {
+                        uint8_t b1b1 = 0u;
+                        if (hybrid_read_u8(
+                                machine, g8 + UINT32_C(0x1b1), &b1b1) !=
+                            VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        if (b1b1 == UINT8_C(9)) {
+                            uint32_t const_g0 = UINT32_C(0x009e2b7f);
+
+                            body += UINT64_C(1); /* cmpobne 9 not taken */
+                            body += UINT64_C(1); /* lda 0x9e2b7f */
+                            if (sel820 != UINT8_C(5) &&
+                                sel820 != UINT8_C(6)) {
+                                const_g0 = UINT32_C(0x009e2c7f);
+                                body += UINT64_C(3); /* 2 cmpobe nt + lda */
+                            } else {
+                                body += UINT64_C(2); /* 2 cmpobe taken */
+                            }
+                            body += UINT64_C(1); /* mov r5,g0 */
+                            if (coli_diag_pair(machine, const_g0, &pair) !=
+                                VF2_OK) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += pair;
+                        } else {
+                            body += UINT64_C(1); /* cmpobne 9 taken */
+                        }
+                    }
+                }
             }
-            body += UINT64_C(3); /* ld + bbs 18 nt + mov 0,r4 */
-            if (hybrid_read_u8(machine, g7 + UINT32_C(0x823), &scan823) !=
-                VF2_OK) {
-                return VF2_ERROR_UNSUPPORTED;
-            }
-            if (scan823 != 0u) {
-                return VF2_ERROR_UNSUPPORTED;
-            }
-            body += UINT64_C(2); /* ldob + cmpobe 0 taken */
-            if (UINT32_C(20) <= r11) {
-                return VF2_ERROR_UNSUPPORTED; /* cmpobg 20,r11 taken */
-            }
-            if (vf2_model2a_read_u32(
-                    machine, UINT32_C(0x000230c8), &diag_g0) != VF2_OK) {
-                return VF2_ERROR_UNSUPPORTED;
-            }
-            body += UINT64_C(7); /* cmpobg nt + ld,ldob,cmpobe,cmpobe,ld,mov */
-            body += UINT64_C(1); /* call 0x439ac */
-            if (coli_439ac_body(machine, diag_g0, &c439) != VF2_OK) {
-                return VF2_ERROR_UNSUPPORTED;
-            }
-            body += c439 + UINT64_C(1);
-            body += UINT64_C(1); /* call 0x43888 */
-            if (coli_43888_body(machine, &diag_g0, &c438) != VF2_OK) {
-                return VF2_ERROR_UNSUPPORTED;
-            }
-            body += c438 + UINT64_C(1);
-            body += UINT64_C(2); /* ldob + cmpobne → 0x22c84 */
         } else {
             body += UINT64_C(1); /* cmpobe 0,r11 taken */
         }

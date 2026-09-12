@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli diagnostic-arm gates (v0321): bit 18 skip (247), r11=20
+  r4-offset (305), `g8+0x1b1==9` second pair (354), `g7+0x823`
+  table-walk loop (353). Fix `g7+0x820` table select (`0x230bc` when
+  not 5/6). PUNCH `320/320`, input-17 `64/64` (v0321,
+  `decomp/i960/notes/fa_coli_diag_gates_v0321.md`);
+
 - fa_coli diagnostic cascade completion (v0320): `0x439ac` multi-trip
   scan (`count>=4` early-out, table match, count=1/3 no-match),
   `0x43888` correct store effects (`33`/`0x421` + ring), gate&12
