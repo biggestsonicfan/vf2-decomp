@@ -3488,6 +3488,52 @@ static void test_coli_225cc_long(void) {
               &machine, fighter0 + UINT32_C(0x1234), &stored) == VF2_OK);
     CHECK(stored == UINT32_C(100));
 
+    /* v0324: g8+0x1a4 bit 14 → cascade skip + 0x22dd4 counter++. */
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(0x00004000)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x821),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x823),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x822),
+                            (const uint8_t *)"\x01", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050a0b4),
+                                UINT32_C(2)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000),
+                                UINT32_C(0x00008a00)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter1 + UINT32_C(0x6d9),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    /* Float tail compares g8+0x6d9 against 0x50a16e. */
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050a16e),
+                            (const uint8_t *)"\x02", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x700),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050406a),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504001),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504003),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022240));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(289));
+    {
+        uint8_t d6d9_chk = 0u;
+        CHECK(vf2_model2a_read(&machine, fighter1 + UINT32_C(0x6d9),
+                               &d6d9_chk, 1u) == VF2_OK);
+        CHECK(d6d9_chk == UINT8_C(1));
+    }
+
     vf2_model2a_shutdown(&machine);
     free(rom);
     free(main_data);

@@ -597,6 +597,11 @@ Warm `+2 +4` accounting preserved. Bit 14/4 at `0x22c84` and
 `g7+0x828` bit 14 remain fail-closed (see
 `decomp/i960/notes/fa_coli_early_exit_v0323.md`).
 
+Status (v0324): `g8+0x1a4` bit 14 is native on the long body
+(cascade `0x22b44` skip-mask + post-diagnostic `0x22dd4` counter++,
+unit **289**). Bit 4/26 and `g7+0x828` bit 14 remain fail-closed
+(see `decomp/i960/notes/fa_coli_long_b14_v0324.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
