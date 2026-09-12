@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fase 8 tooling + 0x19ef8 live-drive measurement (v0309):
+  `frontier.py` ranks call/bal edges with source/target function
+  attribution (`rank_call_edges`, unit-tested). Live hybrid bit-5
+  from `punch10` fails closed at `0x16464` before the first compared
+  block; reference park replay still cannot leave the `0x10fa0` wait.
+  Documented the `vf2cycles` `.vf2snap.runtime` sidecar requirement.
+  No C recovery (v0309,
+  `decomp/i960/notes/fa_player_19ef8_live_v0309.md`);
+
 - fa_coli `g8+0x26` FIFO cursor (v0308): recover the measured path
   that writes `-delta` into `0x90e000[byte cursor]`, advances the
   cursor by 4, and emits command-port `0x36806d6d` before the shared

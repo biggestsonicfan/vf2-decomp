@@ -509,6 +509,12 @@ Status (v0308): `g8+0x26 != 0` FIFO cursor in `0x22404` is native
 `0x2227c` tie-break remain fail-closed (see
 `decomp/i960/notes/fa_coli_fifo_cursor_v0308.md`).
 
+Status (v0309): live hybrid `0x19ef8` bit-5 from `punch10` still
+fails closed at `0x16464` with zero compared blocks; reference park
+replay cannot leave the `0x10fa0` wait. `frontier.py` now ranks call
+edges with function attribution (see
+`decomp/i960/notes/fa_player_19ef8_live_v0309.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
