@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fase 7 closed: measured taint on `fa_player` `0x29414` confirms
+  `branch 0x0002949c depends on fighter0 + 0x01a4 bit 19` (path A/B,
+  float tail, type 8). Consolidate fighter layout candidates in
+  `include/vf2/fighter_candidate.h` with coli mid-body bilateral
+  offsets (`+0x4`, `+0x1a8`, `+0x6dc`, `+0x821`) and `0x29414` g7
+  corridor offsets (`+0x84`, `+0x17c`, `+0x18a`, `+0x1aa`, `+0x1b1`,
+  `+0x0614`, `+0xc50`). No semantic renames. PUNCH `320/320`,
+  input-17 `64/64`, ctest hold (v0302,
+  `decomp/i960/notes/taint_29414_v0302.md`,
+  `decomp/i960/notes/fighter_candidate_layout_v0302.md`);
+
 - Close input-17 cycle-3 residual: match-latch index10 state1 stores
   measured `r20` (`0x00560000`) at work-ram `0x005ff600`. The endurance
   pin extends from `2/2` to **`64/64` MATCH** (2368 blocks /

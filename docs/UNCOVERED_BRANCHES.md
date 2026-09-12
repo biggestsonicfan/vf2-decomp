@@ -458,6 +458,18 @@ index10 state1 stores measured `r20` (`0x00560000`) at `0x005ff600`.
 (2368 blocks / 2,428,988 insns, both `0x1645c`). Park-only latch and
 navigation!=0 siblings remain fail-closed.
 
+Status (v0302): campaign Fase 7 taint/layout items are closed.
+`tools/python/taint.py` on the v0297 `0x29414` traces reports
+`branch 0x0002949c depends on fighter0 + 0x01a4 bit 19`. Window
+compares at `0x294a4`/`0x294a8` do not inherit `+0x1aa` taint in the
+current heuristic (halfword load); that dependency remains memory- and
+recovery-backed. `include/vf2/fighter_candidate.h` now also carries
+coli mid-body bilateral offsets and the `0x29414` g7 corridor offsets
+with neutral `field_XXXX` names only. Physics/hitbox/damage and
+`0x19ef8` flag-bit siblings remain unrecovered (see
+`decomp/i960/notes/taint_29414_v0302.md` and
+`decomp/i960/notes/fighter_candidate_layout_v0302.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
