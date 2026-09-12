@@ -538,6 +538,11 @@ sibling unchanged. `0x2227c` tie-break, `0x18bd4` shortcut, and
 unmeasured flag siblings remain fail-closed (see
 `decomp/i960/notes/fa_coli_225cc_long_v0314.md`).
 
+Status (v0315): mid-body `0x2227c` tie-break is native (double
+`0x225cc`, compact-both 282/7/8). `0x18bd4` shortcut remains DEFER
+(v0291). Unmeasured long-body flag siblings remain fail-closed (see
+`decomp/i960/notes/fa_coli_tiebreak_2227c_v0315.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

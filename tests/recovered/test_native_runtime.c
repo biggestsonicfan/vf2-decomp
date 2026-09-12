@@ -4087,10 +4087,23 @@ static void test_coli_midbody_both_contact_cascade(void) {
     /* Both pending bits set (slot 0 and slot 1). */
     CHECK((read_test_u16(&machine, registry + UINT32_C(0x90)) & 3u) == 3u);
 
-    /* Tie-break cascade (bit 15 clear on both) remains fail-closed. */
+    /* v0315: tie-break cascade (bit 15 clear on both, pair equal).
+     * Both 0x225cc take the compact bit-3 sibling. */
     CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x804),
                                 UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                (UINT32_C(1) << 8u) |
+                                    (UINT32_C(1) << 1u) |
+                                    (UINT32_C(1) << 3u)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x822),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x822),
+                                UINT32_C(0)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8),
                                 UINT32_C(0)) == VF2_OK);
     vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022210));
     cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
@@ -4102,8 +4115,16 @@ static void test_coli_midbody_both_contact_cascade(void) {
     cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
     CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022210),
                                        UINT32_C(0x00010dcc)) == VF2_OK);
-    CHECK(vf2_hybrid_coli_midbody_tail_execute(&machine, &cpu) ==
-          VF2_ERROR_UNSUPPORTED);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_midbody_tail_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(282));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(7));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(8));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 7u] == fighter0);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 8u] == fighter1);
 
     /* v0307: pair-greater cascade arm (cmpobg → 0x22290). */
     CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x822),

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli mid-body tie-break `0x2227c` (v0315): recover the double
+  `0x225cc` call when both bit-15 are clear and `f1+0x822 <=
+  f0+0x822` (compact-both **282/7/8**). Pair-greater 258/5/6
+  unchanged. `0x18bd4` shortcut remains DEFER (v0291). PUNCH
+  `320/320`, input-17 `64/64`, ctest `56/56` (v0315,
+  `decomp/i960/notes/fa_coli_tiebreak_2227c_v0315.md`);
+
 - fa_coli long body `0x225cc` (v0314): admit the measured 248-step
   path (bit 3 clear) as native C — flags region with scanbit float
   pack (`be` not taken after non-publishing `cmpibl`), cascade
