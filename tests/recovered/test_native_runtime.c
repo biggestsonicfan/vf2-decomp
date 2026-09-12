@@ -2689,11 +2689,12 @@ static void test_coli_238a4_early_path(void) {
     free(rom);
 }
 
-/* v0310: 0x23238 early-out when g0 != 0x2ce (body 2). */
+/* v0310/v0313: 0x23238 early-out and float-threshold paths. */
 static void test_coli_23238_early_out(void) {
     uint8_t *rom = NULL;
     vf2_model2a machine;
     vf2_i960_cpu cpu;
+    const uint32_t g8 = UINT32_C(0x00512980);
     uint64_t start_instructions = 0u;
     uint64_t start_calls = 0u;
     uint64_t start_returns = 0u;
@@ -2723,15 +2724,54 @@ static void test_coli_23238_early_out(void) {
     CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
     CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x11));
 
-    /* g0 == 0x2ce is the unmeasured float-threshold path. */
+    /* g0 == 0x2ce, g8+0x1f8 = 0 → g0 = 0x2cf, body 12. */
     vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00023238));
     cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
     cpu.registers[1] = UINT32_C(0x005ff580);
     cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x000002ce);
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = g8;
     CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00023238),
                                        UINT32_C(0x00022e40)) == VF2_OK);
-    CHECK(vf2_hybrid_coli_23238_execute(&machine, &cpu) ==
-          VF2_ERROR_UNSUPPORTED);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_23238_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(12));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x000002cf));
+
+    /* g8+0x1f8 = 0.75f → g0 = 0xa7, body 11. */
+    {
+        const uint32_t bits_075 = UINT32_C(0x3f400000); /* 0.75f */
+        CHECK(vf2_model2a_write_u32(&machine, g8 + UINT32_C(0x1f8),
+                                    bits_075) == VF2_OK);
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00023238));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x000002ce);
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = g8;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00023238),
+                                       UINT32_C(0x00022e40)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_23238_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(11));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x000000a7));
+
+    /* g8+0x1f8 = 0.95f → g0 unchanged 0x2ce, body 7. */
+    {
+        const uint32_t bits_095 = UINT32_C(0x3f733333); /* ~0.95f */
+        CHECK(vf2_model2a_write_u32(&machine, g8 + UINT32_C(0x1f8),
+                                    bits_095) == VF2_OK);
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00023238));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x000002ce);
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = g8;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00023238),
+                                       UINT32_C(0x00022e40)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_23238_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(7));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == UINT32_C(0x000002ce));
 
     vf2_model2a_shutdown(&machine);
     free(rom);

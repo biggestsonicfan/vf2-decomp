@@ -19251,16 +19251,20 @@ vf2_status vf2_hybrid_coli_238a4_execute(
     return hybrid_complete_procedure(machine, cpu, UINT64_C(4), 0u, 0u);
 }
 
-/* Measured early-out of the fa_coli helper at 0x23238 (v0310).
- * Called twice from the long 0x225cc body. When g0 != 0x2ce the
- * helper returns immediately after lda/cmpobne (body 2). The
- * g0 == 0x2ce float-threshold path remains fail-closed. */
+/* Measured fa_coli helper at 0x23238 (v0310/v0313).
+ * g0 != 0x2ce: return immediately (body 2, g0 unchanged).
+ * g0 == 0x2ce: compare g8+0x1f8 as float against ~0.9 / ~0.6 and
+ * set g0 to 0x2cf (low), 0xa7 (mid) or leave 0x2ce (high).
+ * Measured low path: body 11. */
 vf2_status vf2_hybrid_coli_23238_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
 )
 {
     uint32_t g0 = 0u;
+    uint32_t g8 = 0u;
+    uint32_t field_1f8_bits = 0u;
+    float field_1f8 = 0.0f;
 
     if (machine == NULL || cpu == NULL ||
         cpu->ip != VF2_COLI_23238_ENTRY ||
@@ -19268,10 +19272,25 @@ vf2_status vf2_hybrid_coli_23238_execute(
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     g0 = cpu->registers[VF2_I960_G0_REGISTER];
-    if (g0 == UINT32_C(0x000002ce)) {
+    if (g0 != UINT32_C(0x000002ce)) {
+        return hybrid_complete_procedure(machine, cpu, UINT64_C(2), 0u, 0u);
+    }
+    g8 = cpu->registers[VF2_I960_G0_REGISTER + 8u];
+    if (vf2_model2a_read_u32(
+            machine, g8 + UINT32_C(0x1f8), &field_1f8_bits) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    return hybrid_complete_procedure(machine, cpu, UINT64_C(2), 0u, 0u);
+    memcpy(&field_1f8, &field_1f8_bits, sizeof(field_1f8));
+    /* 0x3f666666 ≈ 0.9f, 0x3f19999a ≈ 0.6f */
+    if (field_1f8 > 0.9f) {
+        return hybrid_complete_procedure(machine, cpu, UINT64_C(6), 0u, 0u);
+    }
+    if (field_1f8 > 0.6f) {
+        cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x000000a7);
+        return hybrid_complete_procedure(machine, cpu, UINT64_C(10), 0u, 0u);
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = UINT32_C(0x000002cf);
+    return hybrid_complete_procedure(machine, cpu, UINT64_C(11), 0u, 0u);
 }
 
 /* Measured bit-26 compact path of the fa_coli helper at 0x230d4

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli helper `0x23238` float-threshold path (v0313): complete the
+  helper with `g8+0x1f8` compares (~0.9 / ~0.6) → `g0` in
+  `{0x2ce, 0xa7, 0x2cf}` (bodies 6/10/11). Early-out body 2 unchanged.
+  PUNCH `320/320`, input-17 `64/64`, ctest `56/56` (v0313,
+  `decomp/i960/notes/fa_coli_23238_float_v0313.md`);
+
 - fa_coli table-walk helper `0x1ab34` (v0312): recover the measured
   type-chain walk (`g0 & 0x1fff` → main-data `0x0200d34c`, sizes from
   ROM `0x1b7f6`). Two-iteration miss body 16 (`g0=0`); first-hit match

@@ -352,8 +352,8 @@ vf2_status vf2_hybrid_coli_238a4_execute(
     vf2_i960_cpu *cpu
 );
 
-/* Recover the measured 0x23238 early-out (v0310): g0 != 0x2ce returns
- * after lda/cmpobne (body 2). The g0 == 0x2ce float path fails closed. */
+/* Recover the measured 0x23238 helper (v0310/v0313): g0 != 0x2ce
+ * early-out (body 2); g0 == 0x2ce compares g8+0x1f8 as float. */
 vf2_status vf2_hybrid_coli_23238_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu

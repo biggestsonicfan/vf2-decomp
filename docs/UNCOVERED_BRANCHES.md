@@ -527,6 +527,10 @@ Status (v0312): coli table-walk helper `0x1ab34` is native (miss body
 16, match body 6). Long `0x225cc` parent remains fail-closed (see
 `decomp/i960/notes/fa_coli_1ab34_v0312.md`).
 
+Status (v0313): coli helper `0x23238` float-threshold path is native
+(bodies 2/6/10/11). Long `0x225cc` parent remains fail-closed (see
+`decomp/i960/notes/fa_coli_23238_float_v0313.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
