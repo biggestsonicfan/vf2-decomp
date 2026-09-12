@@ -20232,8 +20232,24 @@ static vf2_status coli_225cc_long_body(
                 }
                 if (scan821b == UINT8_C(2) || scan821b == UINT8_C(5) ||
                     scan821b == UINT8_C(6)) {
-                    return VF2_ERROR_UNSUPPORTED; /* 0x22738 unmeasured */
-                }
+                    /* v0334: scan 2/5/6 → 0x22738. Bit 12 clear →
+                     * warm cascade. Bit 12 set → 0x22794 unmeasured. */
+                    uint16_t half828s = 0u;
+
+                    body += UINT64_C(2); /* ldob + cmpobe taken */
+                    if (hybrid_read_u16(
+                            machine, g7 + UINT32_C(0x828), &half828s) !=
+                        VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    body += UINT64_C(1); /* ldos */
+                    if ((half828s & (UINT16_C(1) << 12u)) != 0u) {
+                        return VF2_ERROR_UNSUPPORTED; /* 0x22794 */
+                    }
+                    body += UINT64_C(1); /* bbs 12 nt */
+                    body += UINT64_C(1); /* b 0x22914 */
+                    /* Fall through to cascade (skip_to_float stays 0). */
+                } else {
                 body += UINT64_C(6); /* 3× (ldob + cmpobe nt) */
                 if (hybrid_read_u16(
                         machine, g7 + UINT32_C(0x828), &half828) != VF2_OK) {
@@ -20241,8 +20257,22 @@ static vf2_status coli_225cc_long_body(
                 }
                 body += UINT64_C(1); /* ldos */
                 if ((half828 & (UINT16_C(1) << 9u)) != 0u) {
-                    return VF2_ERROR_UNSUPPORTED; /* 0x22794/0x22914 */
-                }
+                    /* v0334: bit 9 set → check bit 12. Clear → warm
+                     * cascade. Set → 0x22794 unmeasured. */
+                    body += UINT64_C(1); /* bbc 9 not taken */
+                    if (hybrid_read_u16(
+                            machine, g7 + UINT32_C(0x828), &half828) !=
+                        VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    body += UINT64_C(1); /* ldos */
+                    if ((half828 & (UINT16_C(1) << 12u)) != 0u) {
+                        return VF2_ERROR_UNSUPPORTED; /* 0x22794 */
+                    }
+                    body += UINT64_C(1); /* bbs 12 nt */
+                    body += UINT64_C(1); /* b 0x22914 */
+                    /* Fall through to cascade (skip_to_float stays 0). */
+                } else {
                 body += UINT64_C(1); /* bbc 9 taken → 0x22808 */
                 /* counter-- at g7+0x1234, counter++ at g7+0x1238. */
                 if (vf2_model2a_read_u32(
@@ -20421,6 +20451,8 @@ static vf2_status coli_225cc_long_body(
                 body += UINT64_C(2); /* mov + mov */
                 body += UINT64_C(1); /* b 0x22fbc */
                 skip_to_float = 1;
+                } /* end else (bit 9 clear) */
+                } /* end else (scan not 2/5/6) */
             } else {
                 body += UINT64_C(2); /* ld +0x5b8 + bbs 0 taken */
             }

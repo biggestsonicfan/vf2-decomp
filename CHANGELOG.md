@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli bit-13 sub-paths (v0334, measurement): scan 2/5/6 (310)
+  and `+0x828` bit 9 clear (317) join the warm cascade; code
+  implemented. Bit 13 + bit 3 = v0323 early-exit (12). PUNCH
+  `320/320`, input-17 `64/64` (v0334,
+  `decomp/i960/notes/fa_coli_long_b13subpaths_v0334.md`);
+
 - fa_coli long-body bit-13 profundo (v0333): `+0x5b8` bit 0 clear
   with bit 3 clear, scan ∉ {2,5,6}, +0x828 bit 9 clear → `0x22808`
   alt tail → float tail (unit **223**). PUNCH `320/320`,

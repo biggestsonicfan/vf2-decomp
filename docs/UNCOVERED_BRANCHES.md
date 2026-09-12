@@ -646,6 +646,13 @@ alt tail → float tail (unit **223**). Bit-13 sub-paths (bit 3,
 scan 2/5/6, +0x828 bit 9) remain fail-closed (see
 `decomp/i960/notes/fa_coli_long_b13profundo_v0333.md`).
 
+Status (v0334, measurement): bit-13 sub-paths measured. Scan 2/5/6
+(310) and `+0x828` bit 9 clear (317) join the warm cascade; code
+implemented but unit-test shapes need dedicated setup. Bit 13 +
+bit 3 set is the v0323 early-exit (12). `0x22744` and `0x22794`
+(bit 12 set) remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13subpaths_v0334.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
