@@ -585,6 +585,12 @@ Status (v0321): diagnostic-arm gates native. `g7+0x1a4` bit 18 skip
 long-body flag siblings fail closed (see
 `decomp/i960/notes/fa_coli_diag_gates_v0321.md`).
 
+Status (v0322, measurement): `g8+0x1a4` bit 16 with `g7+0x821==0`
+exits the long body at `0x230a0` in 15 steps (counter--). Bit 14
+(289), bit 4 (301) and `g7+0x828` bit 14 (293) measured. Not yet
+recovered — a flags-region insert broke the warm body count (see
+`decomp/i960/notes/fa_coli_early_exit_v0322.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
