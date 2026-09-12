@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Close input-17 cycle-3 residual: match-latch index10 state1 stores
+  measured `r20` (`0x00560000`) at work-ram `0x005ff600`. The endurance
+  pin extends from `2/2` to **`64/64` MATCH** (2368 blocks /
+  2,428,988 insns, both `0x1645c`). PUNCH `320/320` and ctest `56/56`
+  hold (v0301c);
+
 - Preserve entry `r14` on match-latch index10 state1 (successive frames
   carry 7, 8, …). Cycle 3 now fails on work-ram (`0xff600`) instead of
   a register. The 2-cycle input-17 pin and PUNCH stay MATCH (v0301b);

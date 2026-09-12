@@ -452,6 +452,12 @@ A third cycle fails closed on a later frame (`r14` 8 vs 7). The
 park-only latch shape and match-latch state1 exit remain fail-closed
 (see `decomp/i960/notes/fa_player_input17_index10_v0299.md`).
 
+Status (v0301c): the cycle-3 work-ram residual is closed. Match-latch
+index10 state1 stores measured `r20` (`0x00560000`) at `0x005ff600`.
+`vf2cycles --input 17 --cycles 64` from `in17-c1` is **64/64 MATCH**
+(2368 blocks / 2,428,988 insns, both `0x1645c`). Park-only latch and
+navigation!=0 siblings remain fail-closed.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

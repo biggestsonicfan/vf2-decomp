@@ -12303,6 +12303,13 @@ static vf2_status execute_frame_phase17_bit7_index10(
              * (36729/1436 body + same +27/+2 as state0). */
             instructions = latch_match ? UINT64_C(36756) : UINT64_C(36729);
             calls = latch_match ? UINT64_C(1438) : UINT64_C(1436);
+            if (status == VF2_OK && latch_match) {
+                /* Measured input-17 state1 stores 0x00560000 (r20) at
+                 * 0x5ff600; without it cycle 3 leaves a stale 0x500270. */
+                status = vf2_model2a_write_u32(
+                    machine, UINT32_C(0x005ff600), UINT32_C(0x00560000)
+                );
+            }
         }
     }
     if (status == VF2_OK && !exiting) {

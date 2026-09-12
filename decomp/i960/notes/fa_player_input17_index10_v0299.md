@@ -132,12 +132,27 @@ vf2cycles --snapshot out/v300/in17-c1.vf2snap --input 17 --cycles 2
 ```
 
 state0 (`a5==0`) and state1 (`a5==1`, navigation==0) with the match
-latch are both native. A third cycle still fails closed on a later
-frame (`r14` expected 8 vs 7).
+latch are both native.
+
+### v0301c — cycle-3 residual closed
+
+Match-latch state1 also stores measured `r20` (`0x00560000`) at work-ram
+`0x005ff600` (without it, cycle 3 left a stale `0x500270` / failed a
+2-byte compare at `0xff600`). Endurance then holds far past two cycles:
+
+```text
+vf2cycles --snapshot out/v300/in17-c1.vf2snap --input 17 --cycles 64
+→ 64/64 MATCH
+  2368 blocks / 2,428,988=2,428,988 insns
+  both at 0x0001645c
+```
+
+Park-only latch and `navigation!=0` siblings remain fail-closed.
 
 ## Pins observed
 
 - PUNCH **320/320 MATCH** / 12,946 blocks / 14,962,620 insns
-- **input-17 from `in17-c1`: 2/2 MATCH** / 74 blocks / 42,696 insns
+- **input-17 from `in17-c1`: 64/64 MATCH** / 2,368 blocks / 2,428,988 insns
+  (was 2/2 before the `0x5ff600` store)
 - ctest Debug **56/56**
 - No snapshot/trace/ROM data committed.
