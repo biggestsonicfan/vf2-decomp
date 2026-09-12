@@ -19704,6 +19704,85 @@ static vf2_status coli_18bd4_body(
     return VF2_OK;
 }
 
+/* Body-only measured compact path of 0x230d4 (bit 26 set, v0311/v0330).
+ * r4 = (i16)(g7+0x82a) + (i16)(g7+0x26) - (i16)(g8+0x5b4) + (1<<14);
+ * table = (+0x142 bit 15) ? 0x0201cc48 : 0x0201cc54; slot 1 when the
+ * r4 bit-15 polarity selects the other entry. Body 15 without ret. */
+static vf2_status coli_230d4_compact_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8,
+    uint32_t *g0_out,
+    uint64_t *body_out
+)
+{
+    uint16_t half_ua = 0u;
+    uint16_t half_ub = 0u;
+    uint16_t half_uc = 0u;
+    int16_t half_a = 0;
+    int16_t half_b = 0;
+    int16_t half_c = 0;
+    uint32_t r4 = 0u;
+    uint32_t r3 = 0u;
+    uint32_t table = 0u;
+    uint32_t g0 = 0u;
+    uint64_t body = UINT64_C(10);
+
+    if (machine == NULL || g0_out == NULL || body_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (hybrid_read_u16(machine, g7 + UINT32_C(0x82a), &half_ua) !=
+            VF2_OK ||
+        hybrid_read_u16(machine, g7 + UINT32_C(0x26), &half_ub) !=
+            VF2_OK ||
+        hybrid_read_u16(machine, g8 + UINT32_C(0x5b4), &half_uc) !=
+            VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    half_a = (int16_t)half_ua;
+    half_b = (int16_t)half_ub;
+    half_c = (int16_t)half_uc;
+    r4 = (uint32_t)(int32_t)((int32_t)half_a + (int32_t)half_b -
+                             (int32_t)half_c + (int32_t)(1 << 14));
+    {
+        uint32_t field_142 = 0u;
+        if (vf2_model2a_read_u32(
+                machine, g8 + UINT32_C(0x142), &field_142) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* ld 0x142 */
+        if ((field_142 & (UINT32_C(1) << 15u)) != 0u) {
+            table = UINT32_C(0x0201cc48);
+            body += UINT64_C(1); /* bbs taken */
+            body += UINT64_C(1); /* lda other table */
+            if ((r4 & (UINT32_C(1) << 15u)) == 0u) {
+                r3 = 1u;
+                body += UINT64_C(2); /* bbs not taken + addo */
+            } else {
+                body += UINT64_C(1); /* bbs taken to ld */
+            }
+        } else {
+            table = UINT32_C(0x0201cc54);
+            body += UINT64_C(1); /* bbs not taken */
+            body += UINT64_C(1); /* lda primary table */
+            if ((r4 & (UINT32_C(1) << 15u)) != 0u) {
+                r3 = 1u;
+                body += UINT64_C(2); /* bbc not taken + b + addo */
+            } else {
+                body += UINT64_C(1); /* bbc taken to ld */
+            }
+        }
+    }
+    if (vf2_model2a_read_u32(
+            machine, table + r3 * UINT32_C(4), &g0) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* ld (r5)[r3*4] */
+    *g0_out = g0;
+    *body_out = body;
+    return VF2_OK;
+}
+
 /* Body-only measured long path of 0x230d4 (bit 26 clear, v0314).
  * Drive shape: g0=4, g7+0x828=0, branch-byte bit 6 clear,
  * g8+0x1a4 bits 3/25 clear, halfword inputs zero. */
@@ -20441,9 +20520,12 @@ static vf2_status coli_225cc_long_body(
                 }
                 body += UINT64_C(2); /* ld + bbs 4 not taken */
                 if ((flags_g8 & (UINT32_C(1) << 26u)) != 0u) {
-                    return VF2_ERROR_UNSUPPORTED;
+                    /* v0330: bbs 26 taken → 0x22e24. */
+                    body += UINT64_C(2); /* ld + bbs 26 taken */
+                    joined_22e24 = 1;
+                } else {
+                    body += UINT64_C(2); /* ld + bbs 26 not taken */
                 }
-                body += UINT64_C(2); /* ld + bbs 26 not taken */
             }
             if (!joined_22e24) {
                 if (hybrid_read_u16(
@@ -20556,14 +20638,18 @@ static vf2_status coli_225cc_long_body(
         g0 = UINT32_C(4);
     }
 
-    /* 0x230d4 long (bit 26 clear on this drive). */
-    if ((flags_g8 & (UINT32_C(1) << 26u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
+    /* 0x230d4: bit 26 set → compact (v0311); clear → long (v0314). */
     body += UINT64_C(1); /* call */
-    if (coli_230d4_long_body(
-            machine, g0, g7, g8, &g0, &child) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
+    if ((flags_g8 & (UINT32_C(1) << 26u)) != 0u) {
+        if (coli_230d4_compact_body(
+                machine, g7, g8, &g0, &child) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    } else {
+        if (coli_230d4_long_body(
+                machine, g0, g7, g8, &g0, &child) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
     }
     body += child + UINT64_C(1); /* child + ret */
 

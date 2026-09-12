@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- fa_coli long-body `g8+0x1a4` bit 26 (v0330): post-diag `bbs 26
+  taken` joins at `0x22e24`, `0x230d4` takes the compact path
+  (unit **263**). PUNCH `320/320`, input-17 `64/64` (v0330,
+  `decomp/i960/notes/fa_coli_long_b26_v0330.md`);
+
 - fa_coli long-body `g7+0x828` bits 10/8 (v0329): bit 10 joins at
   `+0x1ac` (unit **295**), bit 8 joins at `0x22e24` (unit **291**).
   PUNCH `320/320`, input-17 `64/64` (v0329,
