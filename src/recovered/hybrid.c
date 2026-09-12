@@ -19829,9 +19829,20 @@ static vf2_status coli_225cc_long_body(
         }
         body += UINT64_C(1); /* ld g8+0x1a4 */
         if ((flags_g8 & (UINT32_C(1) << 13u)) != 0u) {
-            return VF2_ERROR_UNSUPPORTED;
+            /* v0318: bit 13 set joins cascade when +0x5b8 bit 0 is set. */
+            uint32_t gate5b8 = 0u;
+            body += UINT64_C(1); /* bbc 13 not taken */
+            if (vf2_model2a_read_u32(machine, g8 + UINT32_C(0x5b8),
+                                     &gate5b8) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if ((gate5b8 & UINT32_C(1)) == 0u) {
+                return VF2_ERROR_UNSUPPORTED; /* deeper sibling unmeasured */
+            }
+            body += UINT64_C(2); /* ld +0x5b8 + bbs 0 taken */
+        } else {
+            body += UINT64_C(1); /* bbc 13 taken */
         }
-        body += UINT64_C(1); /* bbc 13 taken */
         /* r11 remains the g7+0x822 byte (0 on this drive). The float
          * scale is carried in r9 only. */
         (void)r10s;
@@ -19898,10 +19909,11 @@ static vf2_status coli_225cc_long_body(
             return VF2_ERROR_UNSUPPORTED;
         }
         body += UINT64_C(1); /* bbc 6 taken */
-        if ((flags_g8 & (UINT32_C(1) << 13u)) != 0u) {
+        /* 0x22a28: bbc 8, g8+0x1a4 → 0x22a54 when bit 8 clear. */
+        if ((flags_g8 & (UINT32_C(1) << 8u)) != 0u) {
             return VF2_ERROR_UNSUPPORTED;
         }
-        body += UINT64_C(2); /* ld + bbc 13 taken */
+        body += UINT64_C(2); /* ld + bbc 8 taken */
         if (vf2_model2a_read_u32(
                 machine, UINT32_C(0x0050016c), &branch_base) != VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;

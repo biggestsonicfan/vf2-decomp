@@ -557,9 +557,12 @@ Type-5 miss remains fail-closed (see
 `fa_coli_18bd4_notbit15_v0317.md`).
 
 Status (v0318): long-body `g7+0x1a4` bits 4+12 scale sibling is
-native (263 on the v0288 drive). Bit 4 without bit 12, `bbs 15`
-taken, and remaining long-body flag siblings fail closed (see
-`decomp/i960/notes/fa_coli_long_b4b12_v0318.md`).
+native (263 on the v0288 drive). `g8+0x1a4` bit 13 early-join is
+native when `+0x5b8` bit 0 is set (251). Bit 4 without bit 12,
+deeper bit-13 arms, `bbs 15` taken, and remaining long-body flag
+siblings fail closed (see
+`decomp/i960/notes/fa_coli_long_b4b12_v0318.md` and
+`fa_coli_long_b13_v0318.md`).
 
 ## 3. Camera
 

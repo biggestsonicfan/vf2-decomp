@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli long-body `g8+0x1a4` bit 13 early-join (v0318): admit
+  bit 13 when `+0x5b8` bit 0 is set (+2 → **251**). Correct the
+  `0x22a28` cascade gate to test bit 8 as in the ROM. PUNCH
+  `320/320`, input-17 `64/64` (v0318,
+  `decomp/i960/notes/fa_coli_long_b13_v0318.md`);
+
 - fa_coli long-body `g7+0x1a4` bits 4+12 scale sibling (v0318):
   admit bit 4 set when bit 12 is also set — halfword check at
   `+0x5c2` and ×0.5 `mulr` into `+0x2c`/`+0x34` (**263** on the
