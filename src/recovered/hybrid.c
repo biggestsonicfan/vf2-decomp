@@ -19090,21 +19090,49 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
             if ((bit15_g8 & (UINT32_C(1) << 15u)) != 0u) {
                 return VF2_ERROR_UNSUPPORTED;
             }
-            /* 0x22258 bbs 15, f1+0x804 → 0x22290. */
-            if ((bit15_g7 & (UINT32_C(1) << 15u)) == 0u) {
-                return VF2_ERROR_UNSUPPORTED;
+            if ((bit15_g7 & (UINT32_C(1) << 15u)) != 0u) {
+                /* v0306 early-out: bbs 15, f1+0x804 → 0x22290. */
+                if (coli_225cc_body(machine, fighter1, fighter0, &c225) !=
+                    VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                body = UINT64_C(18) + child_2298_1 + 1u + child_2298_2 + 1u +
+                       child_22404_1 + 1u + child_22404_2 + 1u + c225 + 1u;
+                cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
+                cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
+                return hybrid_complete_procedure(machine, cpu, body, 5u, 5u);
             }
-            if (coli_225cc_body(machine, fighter1, fighter0, &c225) !=
-                VF2_OK) {
-                return VF2_ERROR_UNSUPPORTED;
+            /* v0307: both bit15 clear. Pair compare at 0x2225c.
+             * cmpobg taken when f1+0x822 > f0+0x822 → 0x22290.
+             * Subsequent bl/bg arms do not inherit the compare in the
+             * reference executor and remain fail-closed (tie-break). */
+            {
+                uint16_t pair_g7 = 0u;
+                uint16_t pair_g8 = 0u;
+
+                if (hybrid_read_u16(
+                        machine, fighter1 + UINT32_C(0x822), &pair_g7) !=
+                        VF2_OK ||
+                    hybrid_read_u16(
+                        machine, fighter0 + UINT32_C(0x822), &pair_g8) !=
+                        VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                if (pair_g7 <= pair_g8) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                if (coli_225cc_body(machine, fighter1, fighter0, &c225) !=
+                    VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                /* Parent 7 mov + 2 cmpobe + 2 ld + 2 bbc/bbs + 2 ldos
+                 * + 1 cmpobg + 5 calls. Measured 257 before parent ret. */
+                body = UINT64_C(21) + child_2298_1 + 1u + child_2298_2 + 1u +
+                       child_22404_1 + 1u + child_22404_2 + 1u + c225 + 1u;
+                cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
+                cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
+                return hybrid_complete_procedure(machine, cpu, body, 5u, 5u);
             }
-            /* Parent 7 mov + 2 cmpobe + 2 ld + 2 bbc/bbs + 5 calls.
-             * Measured 254 with 7+7+72+133 children. */
-            body = UINT64_C(18) + child_2298_1 + 1u + child_2298_2 + 1u +
-                   child_22404_1 + 1u + child_22404_2 + 1u + c225 + 1u;
-            cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;
-            cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter0;
-            return hybrid_complete_procedure(machine, cpu, body, 5u, 5u);
         }
         /* v0305: first contact warm, second hit. 0x22240 takes the
          * no-restore jump to call 0x225cc with g7=fighter1, g8=fighter0. */

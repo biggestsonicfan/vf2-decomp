@@ -498,6 +498,12 @@ early-out at `0x22258` (fighter1 `+0x804` bit 15) is native
 other cascade arms, and the long `0x225cc` body remain fail-closed
 (see `decomp/i960/notes/fa_coli_cascade_v0306.md`).
 
+Status (v0307): cascade pair-greater `cmpobg` (`f1+0x822 > f0+0x822`)
+is native (258/5/6). `bl`/`bg` after non-taken `cmpob*` do not
+inherit the compare in the reference executor; those arms and the
+tie-break remain fail-closed (see
+`decomp/i960/notes/fa_coli_cascade_pair_v0307.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

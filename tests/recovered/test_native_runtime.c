@@ -3717,6 +3717,38 @@ static void test_coli_midbody_both_contact_cascade(void) {
     CHECK(vf2_hybrid_coli_midbody_tail_execute(&machine, &cpu) ==
           VF2_ERROR_UNSUPPORTED);
 
+    /* v0307: pair-greater cascade arm (cmpobg → 0x22290). */
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x822),
+                                UINT32_C(5)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x822),
+                                UINT32_C(3)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, registry + UINT32_C(0x90),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1a8),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00022210));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    cpu.registers[VF2_I960_G0_REGISTER + 11u] = UINT32_C(0x00880000);
+    cpu.registers[VF2_I960_G0_REGISTER + 12u] = UINT32_C(0x00004000);
+    cpu.registers[VF2_I960_G0_REGISTER + 13u] = registry;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00022210),
+                                       UINT32_C(0x00010dcc)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_midbody_tail_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00010dcc));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(258));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(5));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(6));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 7u] == fighter1);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 8u] == fighter0);
+
     vf2_model2a_shutdown(&machine);
     free(rom);
     free(main_data);

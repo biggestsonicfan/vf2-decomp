@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- fa_coli cascade pair-greater arm (v0307): when both `+0x804` bit 15
+  are clear, admit `cmpobg` taken on `fighter1+0x822 > fighter0+0x822`
+  → swapped compact `0x225cc` (measured **258/5/6**). The `bl`/`bg`
+  arms do not inherit the compare in the reference executor and stay
+  fail-closed along with the `0x2227c` tie-break. PUNCH `320/320`,
+  input-17 `64/64`, ctest `56/56` (v0307,
+  `decomp/i960/notes/fa_coli_cascade_pair_v0307.md`);
+
 - fa_coli slot-1 contact scan + both-hit cascade early-out (v0306):
   recover the measured 15-trip `bbc`/`setbit` slot-1 loop in
   `0x22404` (body 133, `g0=1`) and admit both contacts hit when the
