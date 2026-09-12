@@ -18776,6 +18776,62 @@ static vf2_status coli_22404_body(
     }
 }
 
+/* Body-only recovery of 0x225cc compact sibling (v0304).
+ * Measured: g8+0x1a4 bit 3 set, g8+0x19f != 22, g7+0x821 == 0.
+ * counter++ at g7+0x1234, bbs 3 taken to 0x230a0, counter--, ret.
+ * Body 12, 0 calls. Other 0x225cc branches fail closed. */
+static vf2_status coli_225cc_body(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8,
+    uint64_t *body_out
+)
+{
+    uint8_t type_byte = 0u;
+    uint8_t scan_byte = 0u;
+    uint32_t flags_g8 = 0u;
+    uint32_t counter = 0u;
+
+    if (machine == NULL || body_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g7 + UINT32_C(0x1234), &counter) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    counter += UINT32_C(1);
+    if (vf2_model2a_write_u32(
+            machine, g7 + UINT32_C(0x1234), counter) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u8(machine, g8 + UINT32_C(0x19f), &type_byte) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (type_byte == UINT8_C(22)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (hybrid_read_u8(machine, g7 + UINT32_C(0x821), &scan_byte) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (scan_byte != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (vf2_model2a_read_u32(
+            machine, g8 + UINT32_C(0x1a4), &flags_g8) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((flags_g8 & (UINT32_C(1) << 3u)) == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    counter -= UINT32_C(1);
+    if (vf2_model2a_write_u32(
+            machine, g7 + UINT32_C(0x1234), counter) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    *body_out = UINT64_C(12);
+    return VF2_OK;
+}
+
 /* Measured warm-path recovery of the fa_coli mid-body/tail (v0289).
  * Covers 0x22210 through the final ret to 0x10dcc: two 0x22298 calls,
  * two 0x22404 calls, and the both-zero exit. The 0x225cc resolver is
@@ -18844,8 +18900,23 @@ vf2_status vf2_hybrid_coli_midbody_tail_execute(
     body += child + 1u;
 
     /* 0x2223c cmpobe 0,g0 / 0x22284 cmpobe 0,r6 — warm both zero. */
-    if (cpu->registers[VF2_I960_G0_REGISTER] != 0u || r6 != 0u) {
+    if (cpu->registers[VF2_I960_G0_REGISTER] != 0u) {
         return VF2_ERROR_UNSUPPORTED;
+    }
+    if (r6 != 0u) {
+        /* v0304: first contact hit (body 72), second warm (13),
+         * compact 0x225cc bit-3 sibling. Parent shell 11 mov/cmpobe
+         * + 5 calls. Measured 131 insns before the parent ret. */
+        uint64_t c225 = 0u;
+        if (coli_225cc_body(machine, fighter0, fighter1, &c225) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body = UINT64_C(16) + UINT64_C(7) + UINT64_C(8) +
+               UINT64_C(72) + UINT64_C(1) + UINT64_C(13) + UINT64_C(1) +
+               c225 + UINT64_C(1);
+        cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+        cpu->registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+        return hybrid_complete_procedure(machine, cpu, body, 5u, 5u);
     }
     /* Tail leaves g7/g8 in the swapped assignment from 0x22230/0x22234. */
     cpu->registers[VF2_I960_G0_REGISTER + 7u] = fighter1;

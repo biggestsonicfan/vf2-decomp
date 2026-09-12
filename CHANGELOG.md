@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- fa_coli `0x225cc` compact bit-3 sibling + midbody non-zero tail
+  (v0304): recover the 12-insn early-out (`g8+0x1a4` bit 3 set,
+  counter++/-- at `g7+0x1234`) and admit midbody when the first
+  contact returns `g0=1` and the second is warm (measured **132/5/6**).
+  Long `0x225cc` body, `0x18bd4` shortcut, and second-contact `g0!=0`
+  remain fail-closed. Warm midbody `56/4/5`, PUNCH `320/320`,
+  input-17 `64/64`, ctest `56/56` (v0304,
+  `decomp/i960/notes/fa_coli_225cc_bit3_v0304.md`);
+
 - fa_coli `0x22404` non-empty contact sibling (v0303): recover the
   measured bit-8-set path that returns `g0 = 1` after `andnot` with
   `g8+0x6dc` (body 72 on the one-hit scan, polygon FIFO via

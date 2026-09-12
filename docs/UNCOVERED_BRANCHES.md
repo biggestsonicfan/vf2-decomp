@@ -477,6 +477,13 @@ including the polygon FIFO via `(g11)[g12]`. Slot-1 scan, the
 fail-closed; the coli mid-body tail still requires both contact
 results zero (see `decomp/i960/notes/fa_coli_contact_g0_v0303.md`).
 
+Status (v0304): `0x225cc` compact bit-3 sibling is native (12 insns,
+counter++/-- net zero). Mid-body tail admits first-contact `g0=1`
+with a warm second contact when `g8+0x1a4` bit 3 selects the compact
+exit (measured 132/5/6). The 248-insn `0x225cc` body, the `0x18bd4`
+shortcut, and second-contact `g0!=0` remain fail-closed (see
+`decomp/i960/notes/fa_coli_225cc_bit3_v0304.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
