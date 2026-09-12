@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- fa_coli long-body `g7+0x828` bit 14 (v0325): joins at `0x22e24`
+  (unit **286**). PUNCH `320/320`, input-17 `64/64` (v0325,
+  `decomp/i960/notes/fa_coli_long_828b14_v0325.md`);
+
 - fa_coli long-body `g8+0x1a4` bit 14 (v0324): cascade `0x22b44`
   skip-mask and post-diagnostic `0x22dd4` counter++ are native
   (unit **289**, `d6d9==1`). PUNCH `320/320`, input-17 `64/64`

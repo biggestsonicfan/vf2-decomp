@@ -602,6 +602,10 @@ Status (v0324): `g8+0x1a4` bit 14 is native on the long body
 unit **289**). Bit 4/26 and `g7+0x828` bit 14 remain fail-closed
 (see `decomp/i960/notes/fa_coli_long_b14_v0324.md`).
 
+Status (v0325): `g7+0x828` bit 14 joins at `0x22e24` (unit **286**).
+Bits 10/8 and `r11>=40` remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_828b14_v0325.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
