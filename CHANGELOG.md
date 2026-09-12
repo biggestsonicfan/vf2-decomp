@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli long-body `g7+0x1a4` bits 4+12 scale sibling (v0318):
+  admit bit 4 set when bit 12 is also set — halfword check at
+  `+0x5c2` and ×0.5 `mulr` into `+0x2c`/`+0x34` (**263** on the
+  v0288 drive, +14). PUNCH `320/320`, input-17 `64/64` (v0318,
+  `decomp/i960/notes/fa_coli_long_b4b12_v0318.md`);
+
 - fa_coli `0x18bd4` notbit-15 sibling (v0317): admit `g8+0x19c`
   bit 15 set — flip bit 15 of the `walk+1` halfword before the
   `(17<<24)` pack. Type22 unit shape **54/3/4**. PUNCH `320/320`,
