@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli long-body `g8+0x1a4` bit 4 (v0332): four sites native
+  (cascade r11*3>>1 + g0=0x23d6b, post-diag `0x22e24` join,
+  `0x22e48` g0=0x2ce → `0x23238` long, miss-tail `0x1c`/`0x10`).
+  Unit **301**. PUNCH `320/320`, input-17 `64/64` (v0332,
+  `decomp/i960/notes/fa_coli_long_b4_v0332.md`);
+
 - fa_coli long-body `r11>=40` (v0331): diagnostic-arm r4=8 +
   `cmpoble 30` join, unit **300**. PUNCH `320/320`, input-17 `64/64`
   (v0331, `decomp/i960/notes/fa_coli_long_r11_40_v0331.md`);

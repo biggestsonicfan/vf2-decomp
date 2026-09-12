@@ -20322,18 +20322,26 @@ static vf2_status coli_225cc_long_body(
             }
         }
         if ((flags_g8 & UINT32_C(0x00004010)) == UINT32_C(16)) {
-            return VF2_ERROR_UNSUPPORTED;
+            /* v0332: bit 4 set, bit 14 clear → r11*3>>1, g0=0x23d6b,
+             * skip g8+0x804. Joins at 0x22bc0. */
+            body += UINT64_C(4); /* lda + ld + and + cmpobne 16 nt */
+            r11 = (r11 * UINT32_C(3)) >> 1u;
+            body += UINT64_C(2); /* lda (r11)[r11*2] + shro 1 */
+            g0 = UINT32_C(0x00023d6b);
+            body += UINT64_C(1); /* lda 0x23d6b, g0 */
+            body += UINT64_C(1); /* b 0x22bc0 */
+        } else {
+            body += UINT64_C(4); /* lda + ld + and + cmpobne 16 taken */
+            if (vf2_model2a_read_u32(
+                    machine, g8 + UINT32_C(0x804), &field) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            body += UINT64_C(1);
+            if ((field & (UINT32_C(1) << 8u)) != 0u) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            body += UINT64_C(1); /* bbc 8 taken */
         }
-        body += UINT64_C(4); /* lda + ld + and + cmpobne 16 taken */
-        if (vf2_model2a_read_u32(
-                machine, g8 + UINT32_C(0x804), &field) != VF2_OK) {
-            return VF2_ERROR_UNSUPPORTED;
-        }
-        body += UINT64_C(1);
-        if ((field & (UINT32_C(1) << 8u)) != 0u) {
-            return VF2_ERROR_UNSUPPORTED;
-        }
-        body += UINT64_C(1); /* bbc 8 taken */
         if (vf2_model2a_read_u32(
                 machine, UINT32_C(0x00508000), &board) != VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;
@@ -20516,15 +20524,18 @@ static vf2_status coli_225cc_long_body(
             } else {
                 body += UINT64_C(2); /* ld + bbs 14 not taken */
                 if ((flags_g8 & (UINT32_C(1) << 4u)) != 0u) {
-                    return VF2_ERROR_UNSUPPORTED;
-                }
-                body += UINT64_C(2); /* ld + bbs 4 not taken */
-                if ((flags_g8 & (UINT32_C(1) << 26u)) != 0u) {
-                    /* v0330: bbs 26 taken → 0x22e24. */
-                    body += UINT64_C(2); /* ld + bbs 26 taken */
+                    /* v0332: bbs 4 taken → 0x22e24. */
+                    body += UINT64_C(2); /* ld + bbs 4 taken */
                     joined_22e24 = 1;
                 } else {
-                    body += UINT64_C(2); /* ld + bbs 26 not taken */
+                    body += UINT64_C(2); /* ld + bbs 4 not taken */
+                    if ((flags_g8 & (UINT32_C(1) << 26u)) != 0u) {
+                        /* v0330: bbs 26 taken → 0x22e24. */
+                        body += UINT64_C(2); /* ld + bbs 26 taken */
+                        joined_22e24 = 1;
+                    } else {
+                        body += UINT64_C(2); /* ld + bbs 26 not taken */
+                    }
                 }
             }
             if (!joined_22e24) {
@@ -20653,12 +20664,15 @@ static vf2_status coli_225cc_long_body(
     }
     body += child + UINT64_C(1); /* child + ret */
 
-    /* 0x22e40: second 0x23238 (bit 4 clear → g0 unchanged). */
+    /* 0x22e40: second 0x23238. Bit 4 set → g0=0x2ce (long path). */
     body += UINT64_C(1); /* ld */
     if ((flags_g8 & (UINT32_C(1) << 4u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
+        body += UINT64_C(1); /* bbc 4 not taken */
+        g0 = UINT32_C(0x000002ce);
+        body += UINT64_C(1); /* lda 0x2ce, g0 */
+    } else {
+        body += UINT64_C(1); /* bbc 4 taken */
     }
-    body += UINT64_C(1); /* bbc 4 taken */
     body += UINT64_C(1); /* call */
     if (coli_23238_body(machine, g0, g8, &g0, &child) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
@@ -20724,22 +20738,34 @@ static vf2_status coli_225cc_long_body(
         }
     }
 
-    /* Miss tail 0x22edc: r8==2, g8+0x1a4 bit 4 clear. */
+    /* Miss tail 0x22edc. Bit 4 set → offsets 0x1c/0x10. */
     body += UINT64_C(1); /* cmpobe 0,g0 taken */
     body += UINT64_C(1); /* ld */
     if ((flags_g8 & (UINT32_C(1) << 4u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    body += UINT64_C(1); /* bbs 4 not taken */
-    if (r8 == UINT32_C(3)) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    body += UINT64_C(1); /* cmpobe 3,r8 not taken */
-    if (hybrid_read_u16(machine, r7 + UINT32_C(0x18), (uint16_t *)&r6) !=
-            VF2_OK ||
-        vf2_model2a_read_u32(machine, r7 + UINT32_C(0x8), &scale_bits) !=
-            VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
+        body += UINT64_C(1); /* bbs 4 taken → 0x22f08 */
+        if (r8 == UINT32_C(3)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* cmpobe 3,r8 not taken */
+        if (hybrid_read_u16(machine, r7 + UINT32_C(0x1c), (uint16_t *)&r6) !=
+                VF2_OK ||
+            vf2_model2a_read_u32(machine, r7 + UINT32_C(0x10), &scale_bits) !=
+                VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    } else {
+        body += UINT64_C(1); /* bbs 4 not taken */
+        if (r8 == UINT32_C(3)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* cmpobe 3,r8 not taken */
+        if (hybrid_read_u16(
+                machine, r7 + UINT32_C(0x18), (uint16_t *)&r6) !=
+                VF2_OK ||
+            vf2_model2a_read_u32(machine, r7 + UINT32_C(0x8), &scale_bits) !=
+                VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
     }
     body += UINT64_C(3); /* ldis + ld + mulr */
     {

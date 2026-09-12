@@ -634,6 +634,12 @@ Status (v0331): `r11>=40` diagnostic-arm shape is native (unit
 **300**; r4=8 + `cmpoble 30` join). Bit 4 and bit-13 profundo remain
 fail-closed (see `decomp/i960/notes/fa_coli_long_r11_40_v0331.md`).
 
+Status (v0332): `g8+0x1a4` bit 4 is native on the long body (4
+sites: cascade `0x22b7c` r11*3>>1 + g0=0x23d6b, post-diag `0x22e24`
+join, `0x22e48` g0=0x2ce, miss-tail offsets `0x1c`/`0x10`). Unit
+**301**. Bit-13 profundo remains fail-closed (see
+`decomp/i960/notes/fa_coli_long_b4_v0332.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
