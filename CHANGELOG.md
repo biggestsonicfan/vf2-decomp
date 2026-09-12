@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli long-body `r11 != 0` packing + diagnostic arm (v0319):
+  `0x22640` scanbit pack plus the `0x439ac`/`0x43888` diagnostic
+  cascade when `cmpobe 0,r11` is not taken. Unit shape
+  `r11b=1` **302/7/8**. PUNCH `320/320`, input-17 `64/64` (v0319,
+  `decomp/i960/notes/fa_coli_long_r11_v0319.md`);
+
 - fa_coli long-body bit-4-only and bbs-15-taken siblings (v0318b/c):
   bit 4 without bit 12 (**251**); bits 4+12 with `bbs 15` taken
   skips the ×0.5 scale (**256**). Fix `subi` operand order in the

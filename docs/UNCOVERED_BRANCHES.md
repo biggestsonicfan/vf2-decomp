@@ -564,6 +564,12 @@ arms and remaining long-body flag siblings fail closed (see
 `decomp/i960/notes/fa_coli_long_b4b12_v0318.md`,
 `fa_coli_long_b13_v0318.md` and `fa_coli_long_b4_bbs15_v0318.md`).
 
+Status (v0319): long-body `r11 != 0` packing and the
+`0x439ac`/`0x43888` diagnostic cascade arm are native (unit shape
+`r11b=1` 302/7/8). `0x439ac` multi-trip and `0x43888` branch-byte
+sibling remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_r11_v0319.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
