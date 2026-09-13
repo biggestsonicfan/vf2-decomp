@@ -667,6 +667,34 @@ static vf2_status execute_instruction(
         }
         return VF2_OK;
     }
+    if (strcmp(mnemonic, "dmovt") == 0) {
+        /* v0344: measured at fa_coli 0x508d4 as dmovt r3, r3
+         * (word 0x64181203) inside the 0x502a4 subtree. Double-word
+         * register copy like movl; no compare-state effects (mirrors
+         * mov/movt/movl/movq). Only the register-to-register form is
+         * admitted; anything else stays fail-closed. Trace-fault
+         * machinery does not exist in this executor and the measured
+         * path observes no trace event. */
+        if (instruction->operands[0].kind != VF2_I960_OPERAND_REGISTER ||
+            instruction->operands[1].kind != VF2_I960_OPERAND_REGISTER) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        {
+            size_t dm_index = 0u;
+            uint8_t dm_source = instruction->operands[0].value.reg;
+            uint8_t dm_destination = instruction->operands[1].value.reg;
+
+            if ((size_t)dm_source + 2u > VF2_I960_REGISTER_COUNT ||
+                (size_t)dm_destination + 2u > VF2_I960_REGISTER_COUNT) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            for (dm_index = 0u; dm_index < 2u; ++dm_index) {
+                cpu->registers[dm_destination + dm_index] =
+                    cpu->registers[dm_source + dm_index];
+            }
+        }
+        return VF2_OK;
+    }
     if (strcmp(mnemonic, "addo") == 0 || strcmp(mnemonic, "addi") == 0 ||
         strcmp(mnemonic, "subo") == 0 || strcmp(mnemonic, "subi") == 0 ||
         strcmp(mnemonic, "and") == 0 || strcmp(mnemonic, "andnot") == 0 ||
@@ -851,6 +879,23 @@ static vf2_status execute_instruction(
             return status;
         }
         address = first * second;
+        if (strcmp(mnemonic, "mulo") == 0) {
+            /* v0344: the fa_coli 0x502a4 digit loop (0x508dc) can only
+             * terminate via the following bo, which reads the overflow
+             * latch — but no in-loop instruction sets it, so the oracle
+             * spins forever while hardware exits on the mulo overflow.
+             * Sticky-set OVERFLOW when the true unsigned product does
+             * not fit 32 bits; otherwise leave the latch alone (smallest
+             * blast radius: existing paths with non-overflowing mulos
+             * are bit-identical). muli intentionally untouched.
+             * Assumption grade: architecture-inferred, pins-validated
+             * (see note); re-scope if any pin moves. */
+            uint64_t wide = (uint64_t)first * (uint64_t)second;
+
+            if (wide > (uint64_t)UINT32_MAX) {
+                cpu->compare_result = VF2_I960_COMPARE_OVERFLOW;
+            }
+        }
         return set_register(cpu, &instruction->operands[2], address);
     }
     if (strcmp(mnemonic, "ediv") == 0) {

@@ -477,5 +477,59 @@ int vf2_test_i960_executor(void)
         return 53;
     }
     vf2_model2a_shutdown(&machine);
+
+    /* dmovt r3, r3 with the exact fa_coli 0x508d4 word: self-copy is
+     * value-neutral but must advance IP, preserve neighbours and
+     * leave compare state untouched (the following bo depends on
+     * the stale scanbit result). */
+    memset(image, 0xff, sizeof(image));
+    write_le32(image + 0u, UINT32_C(0x64181203)); /* dmovt r3, r3 */
+    if (!vf2_model2a_initialize(&machine)) {
+        return 54;
+    }
+    if (vf2_model2a_attach_main_rom(&machine, image, sizeof(image)) != VF2_OK) {
+        vf2_model2a_shutdown(&machine);
+        return 55;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, 0u);
+    cpu.registers[3] = UINT32_C(0xa5a5a5a5);
+    cpu.registers[4] = UINT32_C(0x5a5a5a5a);
+    cpu.compare_result = VF2_I960_COMPARE_OVERFLOW;
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.ip != 4u ||
+        cpu.registers[3] != UINT32_C(0xa5a5a5a5) ||
+        cpu.registers[4] != UINT32_C(0x5a5a5a5a) ||
+        cpu.compare_result != VF2_I960_COMPARE_OVERFLOW) {
+        vf2_model2a_shutdown(&machine);
+        return 56;
+    }
+    vf2_model2a_shutdown(&machine);
+
+    /* dmovt r4, r8: double-word copy, neighbours move as a pair,
+     * compare state still untouched. */
+    memset(image, 0xff, sizeof(image));
+    write_le32(image + 0u, UINT32_C(0x64401204)); /* dmovt r4, r8 */
+    if (!vf2_model2a_initialize(&machine)) {
+        return 57;
+    }
+    if (vf2_model2a_attach_main_rom(&machine, image, sizeof(image)) != VF2_OK) {
+        vf2_model2a_shutdown(&machine);
+        return 58;
+    }
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, 0u);
+    cpu.registers[4] = UINT32_C(0x11111111);
+    cpu.registers[5] = UINT32_C(0x22222222);
+    cpu.registers[8] = UINT32_C(0xdeadbeef);
+    cpu.registers[9] = UINT32_C(0xdeadbeef);
+    cpu.compare_result = VF2_I960_COMPARE_EQUAL;
+    status = vf2_i960_step(&cpu, &machine, NULL);
+    if (status != VF2_OK || cpu.ip != 4u ||
+        cpu.registers[8] != UINT32_C(0x11111111) ||
+        cpu.registers[9] != UINT32_C(0x22222222) ||
+        cpu.compare_result != VF2_I960_COMPARE_EQUAL) {
+        vf2_model2a_shutdown(&machine);
+        return 59;
+    }
+    vf2_model2a_shutdown(&machine);
     return 0;
 }
