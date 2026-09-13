@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- fa_coli `0x227c4` (v0337): `+0x828` bit 13 on `0x22778` path →
+  diag pair + g0=1 + alt tail join. Probe 219. PUNCH `320/320`,
+  input-17 `64/64` (v0337,
+  `decomp/i960/notes/fa_coli_long_b13_227c4_v0337.md`);
+
 - fa_coli bit-13 + bit 3 sub-paths (v0336): `0x22744`/`0x22778`
   native (scan 2/5/6 shared, scan==1 `0x227ac` r11*3/4 scale,
   bit 12 `0x22794` scale). `0x227dc` fail-closed (needs type-5).

@@ -20283,7 +20283,21 @@ static vf2_status coli_225cc_long_body(
                         body += UINT64_C(1); /* ldos */
                         if ((half828x &
                              (UINT16_C(1) << 13u)) != 0u) {
-                            return VF2_ERROR_UNSUPPORTED; /* 0x227c4 */
+                            /* v0337: 0x227c4 — diag pair, g0=1,
+                             * join alt tail at 0x22848. */
+                            uint64_t pair2 = 0u;
+
+                            body += UINT64_C(1); /* bbs 13 taken */
+                            body += UINT64_C(1); /* lda 0x9e167f, g0 */
+                            if (coli_diag_pair(
+                                    machine, UINT32_C(0x009e167f),
+                                    &pair2) != VF2_OK) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += pair2;
+                            g0 = UINT32_C(1);
+                            body += UINT64_C(1); /* mov 1,g0 */
+                            goto bit13_alt_join;
                         }
                         body += UINT64_C(1); /* bbs 13 nt */
                         if (hybrid_read_u16(
@@ -20425,8 +20439,10 @@ static vf2_status coli_225cc_long_body(
                 }
                 body += pair;
                 g0 = 0u;
+                body += UINT64_C(1); /* mov 0,g0 */
+bit13_alt_join:
                 r8 = 0u;
-                body += UINT64_C(2); /* mov 0,g0 + mov 0,r8 */
+                body += UINT64_C(1); /* mov 0,r8 */
                 if (vf2_model2a_write_u32(
                         machine, g7 + UINT32_C(0x194),
                         UINT32_C(0x14000002)) != VF2_OK) {

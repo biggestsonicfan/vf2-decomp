@@ -664,6 +664,10 @@ scan==1 `0x227ac` scale / else cascade), `0x227dc` fail-closed
 (needs type-5 record). `0x227c4` remains fail-closed (see
 `decomp/i960/notes/fa_coli_long_b13_b3_v0336.md`).
 
+Status (v0337): `0x227c4` is native (diag pair + g0=1 + alt tail
+join at `0x22848`). Probe 219. `0x227dc` remains fail-closed
+(needs type-5). See `decomp/i960/notes/fa_coli_long_b13_227c4_v0337.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
