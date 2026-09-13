@@ -56,6 +56,7 @@
 #define VF2_COLI_1AB34_ENTRY UINT32_C(0x0001ab34)
 #define VF2_COLI_18BD4_ENTRY UINT32_C(0x00018bd4)
 #define VF2_COLI_18B58_ENTRY UINT32_C(0x00018b58)
+#define VF2_COLI_502A4_ENTRY UINT32_C(0x000502a4)
 #define VF2_COLI_LONG_FIFO UINT32_C(0x00884000)
 #define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
 #define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
@@ -19373,6 +19374,344 @@ static vf2_status coli_225cc_body(
 }
 
 static float coli_bits_to_float(uint32_t bits);
+
+/* Body-only 0x502a4 digit-parse subtree (v0344-B). Entry at the balx
+ * target with caller registers; exit at the computed bx (ip_out).
+ * Wrapper-level units cannot observe counts/registers past bx-out
+ * (the 0x22960+/0x22e20+ continuation is unrecovered, so gates stay
+ * fail-closed there); this helper carries its own direct unit via
+ * vf2_hybrid_coli_502a4_execute below instead. See the evidence note.
+ *
+ * Measured shapes: site A (link 0x22950, inline "d hit combo",
+ * 9 loop iters, 2-byte copy, bx-out 0x22960, 140 steps) and site B
+ * (link 0x22e0c, inline "d down hit", 10 iters, 7-byte copy,
+ * bx-out 0x22e20, 171 steps). Same branches both sites; the code is
+ * fully data-driven.
+ *
+ * Proven-irrelevant inputs (documented, not taken): g0/g2 entries
+ * (overwritten before any read: mov r14,g0 at entry, mov 0,g2
+ * before its first real use), g7/g8 (no fighter access in span),
+ * sp (the single prefix-st/0x50368-ld stack slot is write-then-
+ * read-discarded: its value never reaches a store, branch, or exit
+ * register — g0 is clobbered at 0x502fc first; counts retained).
+ * r9 (old-sp carrier) and the stack load feed only that discarded
+ * g0, so both are modeled as accounting-only.
+ */
+static vf2_status coli_502a4_body(
+    vf2_model2a *machine,
+    uint32_t r14_link,
+    uint32_t r15_in,
+    uint32_t g1_in,
+    uint64_t *body_out,
+    uint32_t *g0_out,
+    uint32_t *g1_out,
+    uint32_t *g2_out,
+    uint32_t *ip_out
+)
+{
+    uint32_t g0 = 0u;
+    uint32_t g1 = 0u;
+    uint32_t g2 = 0u;
+    uint32_t r3 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r9 = 0u;
+    uint32_t r10 = 0u;
+    uint32_t r11 = 0u;
+    uint32_t r13 = 0u;
+    uint32_t r14 = 0u;
+    uint32_t r15 = 0u;
+    uint64_t body = 0u;
+    int guard = 0;
+
+    if (machine == NULL || body_out == NULL || g0_out == NULL ||
+        g1_out == NULL || g2_out == NULL || ip_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    (void)r15_in;
+    g1 = g1_in;
+    r14 = r14_link;
+
+    /* Prologue 0x502a4: mov sp,g2 + lda + mov g2,r15. sp/r15 entry
+     * values are untracked (net-zero frame dance, single stack slot
+     * omitted per above); r15 exit is caller-restored scratch. */
+    body += UINT64_C(3);
+    g0 = r14;
+    body += UINT64_C(1); /* mov r14,g0 */
+    body += UINT64_C(1); /* call 0x502c0 */
+
+    /* 0x502c0 head. */
+    r10 = g0;
+    body += UINT64_C(1); /* mov g0,r10 */
+    r11 = g1;
+    body += UINT64_C(1); /* mov g1,r11 */
+    r9 = 0u;
+    body += UINT64_C(1); /* mov g2,r9 (entry g2 discarded, see above) */
+    r6 = UINT32_C(31) + UINT32_C(6);
+    body += UINT64_C(1); /* addo 31,6,r6 */
+
+    /* First-entry pass 0x502d0: the length byte must match r6 and
+     * exit via cmpobe to 0x50304 (measured: 0x25 on both sites).
+     * Any other first byte is unmeasured. */
+    {
+        uint8_t byte = 0u;
+
+        if (hybrid_read_u8(machine, r10, &byte) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        r3 = byte;
+        body += UINT64_C(1); /* ldob */
+        r10 += 1u;
+        body += UINT64_C(1); /* addo */
+        if (r3 != r6) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* cmpobe taken */
+    }
+
+    /* 0x50304 block. */
+    r5 = g1;
+    body += UINT64_C(1); /* mov g1,r5 */
+    g1 = r10;
+    body += UINT64_C(1); /* mov r10,g1 */
+    g2 = 0u;
+    body += UINT64_C(1); /* mov 0,g2 */
+    {
+        uint8_t byte = 0u;
+
+        if (hybrid_read_u8(machine, g1, &byte) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        r3 = byte;
+        body += UINT64_C(1); /* ldob */
+    }
+    r13 = UINT32_C(31) + UINT32_C(17);
+    body += UINT64_C(1); /* addo 31,17,r13 */
+    if (r3 == r13) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* cmpobne taken → call 0x508c4 */
+    body += UINT64_C(1); /* call */
+
+    /* Digit loop 0x508c4: mov g1,r11 (digit-local, dies at ret). */
+    body += UINT64_C(1);
+    r9 = UINT32_C(31) + UINT32_C(17);
+    body += UINT64_C(1); /* addo 31,17,r9 */
+    g0 = 0u;
+    body += UINT64_C(1); /* mov 0,g0 */
+    {
+        bool overflow = false;
+
+        for (guard = 0; guard < 64; ++guard) {
+            uint8_t byte = 0u;
+            uint64_t wide = 0u;
+
+            if (hybrid_read_u8(machine, g1, &byte) != VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            r3 = byte;
+            body += UINT64_C(1); /* ldob */
+            body += UINT64_C(1); /* dmovt (value-neutral self-move) */
+            if (overflow) {
+                body += UINT64_C(1); /* bo taken → 0x508f0 */
+                break;
+            }
+            body += UINT64_C(1); /* bo not taken */
+            wide = (uint64_t)g0 * UINT64_C(10);
+            if (wide > (uint64_t)UINT32_MAX) {
+                overflow = true;
+            }
+            g0 = (uint32_t)wide;
+            body += UINT64_C(1); /* mulo */
+            r3 = (r3 - r9) & UINT32_C(0xffffffff);
+            body += UINT64_C(1); /* subo */
+            g0 = (g0 + r3) & UINT32_C(0xffffffff);
+            body += UINT64_C(1); /* addo */
+            g1 += 1u;
+            body += UINT64_C(1); /* addo */
+            body += UINT64_C(1); /* b */
+        }
+        if (guard >= 64) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+
+    /* 0x508f0 cmpobne (g1 vs r11) taken → ret. The nt edge
+     * (g0 = -1) is unmeasured. */
+    body += UINT64_C(1);
+    if (g1 == r11) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* ret (0x508f8) */
+
+    /* 0x50328 bbc-31 taken (Horner g0 bit 31 clear). The nt edge
+     * (g0 = 0) is unmeasured. */
+    body += UINT64_C(1);
+    if ((g0 & (UINT32_C(1) << 31u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    g2 |= g0;
+    body += UINT64_C(1); /* or g0,g2,g2 */
+    {
+        uint8_t byte = 0u;
+
+        if (hybrid_read_u8(machine, g1, &byte) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        r3 = byte;
+        body += UINT64_C(1); /* ldob (0x50334) */
+    }
+    r13 = UINT32_C(31) + UINT32_C(15);
+    body += UINT64_C(1); /* addo 31,15,r13 */
+    if (r3 == r13) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* cmpobne taken → 0x50358 */
+    r10 = g1;
+    body += UINT64_C(1); /* mov g1,r10 */
+    g1 = r5;
+    body += UINT64_C(1); /* mov r5,g1 */
+    {
+        uint8_t byte = 0u;
+
+        if (hybrid_read_u8(machine, r10, &byte) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        r3 = byte;
+        body += UINT64_C(1); /* ldob (0x50360) */
+    }
+    r10 += 1u;
+    body += UINT64_C(1); /* addo */
+    g0 = 0u;
+    body += UINT64_C(1); /* ld (0x50368, stack word discarded) */
+    r9 += UINT32_C(4);
+    body += UINT64_C(1); /* addo (dead, see above) */
+
+    /* Classification chain 0x50370-0x5038c: all-nt → copy loop.
+     * Any taken edge calls an unmeasured callee. */
+    r13 = (UINT32_C(25) << 2u);
+    body += UINT64_C(1); /* shlo */
+    if (r3 == r13) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* cmpobe nt */
+    r13 = (UINT32_C(15) << 3u);
+    body += UINT64_C(1); /* shlo */
+    if (r3 == r13) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* cmpobe nt */
+    r13 = UINT32_C(0x66);
+    body += UINT64_C(1); /* lda */
+    if (r3 == r13) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* cmpobe nt */
+    r13 = UINT32_C(0x73);
+    body += UINT64_C(1); /* lda */
+    if (r3 == r13) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* cmpobe nt */
+    body += UINT64_C(1); /* b 0x502d0 */
+
+    /* Copy loop 0x502d0 re-entry: exits on NUL. A 0x25 byte here is
+     * unmeasured (would rejoin 0x50304). */
+    for (guard = 0; guard < 64; ++guard) {
+        uint8_t byte = 0u;
+
+        if (hybrid_read_u8(machine, r10, &byte) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        r3 = byte;
+        body += UINT64_C(1); /* ldob */
+        r10 += 1u;
+        body += UINT64_C(1); /* addo */
+        if (r3 == r6) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* cmpobe nt */
+        if (hybrid_write_u8(machine, g1, (uint8_t)r3) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* stob */
+        g1 += 1u;
+        body += UINT64_C(1); /* addo */
+        if (r3 == 0u) {
+            body += UINT64_C(1); /* cmpobne taken → exit */
+            break;
+        }
+        body += UINT64_C(1); /* cmpobne nt */
+    }
+
+    /* Align r10 up: r15 = 4 - (r10 & 3), masked (subo operand order:
+     * dst = src2 - src1). */
+    r15 = r10 & UINT32_C(3);
+    body += UINT64_C(1); /* and */
+    r15 = (UINT32_C(4) - r15) & UINT32_C(0xffffffff);
+    body += UINT64_C(1); /* subo */
+    r15 &= UINT32_C(3);
+    body += UINT64_C(1); /* and */
+    r10 = (r10 + r15) & UINT32_C(0xffffffff);
+    body += UINT64_C(1); /* addo */
+    g2 = r10;
+    body += UINT64_C(1); /* mov r10,g2 */
+    g0 = r11;
+    body += UINT64_C(1); /* mov r11,g0 */
+    body += UINT64_C(1); /* ret 0x50300 */
+
+    /* Epilogue 0x502b8: mov r15,sp (sp untracked, net-zero) + bx. */
+    body += UINT64_C(1); /* mov */
+    body += UINT64_C(1); /* bx (g2) */
+    *body_out = body;
+    *g0_out = g0;
+    *g1_out = g1;
+    *g2_out = g2;
+    *ip_out = g2;
+    return VF2_OK;
+}
+
+/* Recover the measured fa_coli digit-parse helper at 0x502a4
+ * (v0344-B). Unlike call/ret callees, the balx entry performs no
+ * frame push and the computed bx-out performs no pop: the caller
+ * frame stays current throughout, so counts advance here and ip is
+ * set to the bx target directly (no hybrid_complete_procedure).
+ * The CPU must already be inside the caller (frame depth >= 1)
+ * with entry registers staged (r14 = balx link, r15, g1 = buffer).
+ * Internal calls/returns (0x502c0, 0x508c4) are balanced. */
+vf2_status vf2_hybrid_coli_502a4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint64_t body = 0u;
+    uint32_t g0 = 0u;
+    uint32_t g1 = 0u;
+    uint32_t g2 = 0u;
+    uint32_t ip = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_502A4_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (coli_502a4_body(
+            machine,
+            cpu->registers[14u],
+            cpu->registers[15u],
+            cpu->registers[VF2_I960_G0_REGISTER + 1u],
+            &body, &g0, &g1, &g2, &ip) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER] = g0;
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = g1;
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = g2;
+    cpu->ip = ip;
+    cpu->executed_instructions += body;
+    cpu->procedure_calls += UINT64_C(2);
+    cpu->procedure_returns += UINT64_C(2);
+    return VF2_OK;
+}
 
 /* Body-only 0x23238 (v0310/v0313). Does not complete the CPU frame. */
 static vf2_status coli_23238_body(

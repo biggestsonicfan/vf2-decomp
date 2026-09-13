@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Native `0x502a4` digit-parse helper (v0344-B): `coli_502a4_body` +
+  `vf2_hybrid_coli_502a4_execute` recover the balx-to-bx subtree for
+  both sites (Horner x10 digit loop with oracle-latch mirroring,
+  NUL-terminated copy, align-up to computed bx-out). Direct unit
+  proves exact step deltas (140/170), exit regs, stores and both bx
+  targets plus a fail-closed classification control. Wrapper gates
+  unchanged (wiring queued behind the `0x22960+` continuation).
 - Executor `dmovt` + `mulo` overflow latch (v0344-A): measured
   reg-reg double copy (exact `0x508d4` word, unit codes 54-59,
   flag-neutral) and sticky `OVERFLOW` on unsigned-64 product >

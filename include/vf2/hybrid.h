@@ -366,6 +366,16 @@ vf2_status vf2_hybrid_coli_230d4_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured fa_coli digit-parse helper at 0x502a4
+ * (v0344-B). The CPU must already be inside the caller (frame depth
+ * >= 1, balx performs no push) with entry registers staged. Exit
+ * registers and the computed bx target are written back; ip is set
+ * to the bx target with no frame pop. */
+vf2_status vf2_hybrid_coli_502a4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover the measured fa_coli resolver at 0x225cc (v0304 compact
  * bit-3 sibling; v0314 long body). */
 vf2_status vf2_hybrid_coli_225cc_execute(

@@ -4243,6 +4243,128 @@ static void test_coli_225cc_long(void) {
     free(main_data);
 }
 
+/* v0344-B: 0x502a4 digit-parse helper (both balx sites, direct unit).
+ * Site A: link 0x22950, inline "d hit combo", 9 loop iters, 2-byte
+ * copy, bx-out 0x22960, 140 steps. Site B: link 0x22e0c, inline
+ * "d down hit", 10 iters, 7-byte copy, bx-out 0x22e20, 170 steps. */
+static void test_coli_502a4(void) {
+    static const uint8_t site_a_inline[] = {
+        0x25u, 0x64u, 0x20u, 0x68u, 0x69u, 0x74u, 0x20u, 0x63u, 0x6fu,
+        0x6du, 0x62u, 0x6fu, 0x00u
+    };
+    static const uint8_t site_b_inline[] = {
+        0x25u, 0x64u, 0x20u, 0x64u, 0x6fu, 0x77u, 0x6eu, 0x20u, 0x68u,
+        0x69u, 0x74u, 0x20u, 0x63u, 0x6fu, 0x6du, 0x62u, 0x6fu, 0x00u
+    };
+    uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    const uint32_t out_buffer = UINT32_C(0x00503200);
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+    uint32_t word = 0u;
+    size_t k = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK((main_data = (uint8_t *)calloc(1u, UINT32_C(0x00020000))) !=
+          NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || main_data == NULL || machine.work_ram == NULL) {
+        free(rom);
+        free(main_data);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(&machine, main_data,
+                                       UINT32_C(0x00020000)) == VF2_OK);
+    for (k = 0u; k < sizeof(site_a_inline); ++k) {
+        rom[UINT32_C(0x00022950) + k] = site_a_inline[k];
+    }
+    for (k = 0u; k < sizeof(site_b_inline); ++k) {
+        rom[UINT32_C(0x00022e0c) + k] = site_b_inline[k];
+    }
+
+    /* Site A drive. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000502a4));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000502a4),
+                                       UINT32_C(0)) == VF2_OK);
+    /* Locals are zeroed by frame entry: stage r14/r15/g1 after. */
+    cpu.registers[14u] = UINT32_C(0x00022950);
+    cpu.registers[15u] = UINT32_C(1);
+    cpu.registers[VF2_I960_G0_REGISTER + 1u] = out_buffer;
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_502a4_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022960));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(140));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(2));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(2));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == out_buffer);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 1u] ==
+          out_buffer + UINT32_C(2));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 2u] ==
+          UINT32_C(0x00022960));
+    CHECK(vf2_model2a_read_u32(&machine, out_buffer, &word) == VF2_OK);
+    CHECK(word == UINT32_C(0x0000006f));
+
+    /* Site B drive (buffer cleared first; 7-byte overwrite). */
+    CHECK(vf2_model2a_write_u32(&machine, out_buffer, UINT32_C(0)) ==
+          VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, out_buffer + UINT32_C(4),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000502a4));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000502a4),
+                                       UINT32_C(0)) == VF2_OK);
+    cpu.registers[14u] = UINT32_C(0x00022e0c);
+    cpu.registers[15u] = UINT32_C(1);
+    cpu.registers[VF2_I960_G0_REGISTER + 1u] = out_buffer;
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_502a4_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022e20));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(170));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(2));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(2));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER] == out_buffer);
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 1u] ==
+          out_buffer + UINT32_C(7));
+    CHECK(cpu.registers[VF2_I960_G0_REGISTER + 2u] ==
+          UINT32_C(0x00022e20));
+    CHECK(vf2_model2a_read_u32(&machine, out_buffer, &word) == VF2_OK);
+    CHECK(word == UINT32_C(0x6d6f6320));
+    CHECK(vf2_model2a_read_u32(&machine, out_buffer + UINT32_C(4),
+                               &word) == VF2_OK);
+    CHECK(word == UINT32_C(0x00006f62));
+
+    /* Unmeasured sibling: classification byte 0x64 ('d') takes the
+     * 0x503b4 call edge and must fail closed. */
+    rom[UINT32_C(0x0002295a)] = 0x64u;
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000502a4));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000502a4),
+                                       UINT32_C(0)) == VF2_OK);
+    /* Locals are zeroed by frame entry: stage r14/r15/g1 after. */
+    cpu.registers[14u] = UINT32_C(0x00022950);
+    cpu.registers[15u] = UINT32_C(1);
+    cpu.registers[VF2_I960_G0_REGISTER + 1u] = out_buffer;
+    CHECK(vf2_hybrid_coli_502a4_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+    free(main_data);
+}
+
 /* v0316: 0x225cc type-22 shortcut through 0x18bd4 (first-hit type 5). */
 static void test_coli_225cc_type22(void) {
     uint8_t *rom = NULL;
@@ -6067,6 +6189,7 @@ int main(void) {
     test_coli_238a4_early_path();
     test_coli_23238_early_out();
     test_coli_230d4_bit26();
+    test_coli_502a4();
     test_coli_225cc_long();
     test_coli_225cc_type22();
     test_coli_1ab34_walk();

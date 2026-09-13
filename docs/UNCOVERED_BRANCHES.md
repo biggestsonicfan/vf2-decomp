@@ -738,6 +738,16 @@ shapes cover the whole admitted gate (only `+0x828` bits 12/13
 are tested downstream).
 See `decomp/i960/notes/fa_coli_22744_leaves_v0343.md`.
 
+Status (v0344-B, helper): `coli_502a4_body` +
+`vf2_hybrid_coli_502a4_execute` recover the full balx-to-bx subtree
+natively for both sites (direct unit: exact 140/170-step deltas,
+exit regs, stores, bx-out `0x22960`/`0x22e20`, fail-closed
+classification control). Wrapper gates UNCHANGED: both balx sites
+still fail closed there; wiring is queued behind shared-prefix
+verification (scan-1+bit13-clear) and the `0x22960+` continuation
+(`call 0x7fc0`, `balx 0x9444`, …). See
+`decomp/i960/notes/fa_coli_502a4_v0344B.md`.
+
 Status (v0344-A, executor): `dmovt` reg-reg is implemented
 (exact `0x508d4` word + derived pair-copy unit, flag-neutral)
 and `mulo` sticky-sets `OVERFLOW` on unsigned overflow, which
