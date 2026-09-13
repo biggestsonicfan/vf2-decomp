@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli `0x22d8c` g0=5 (v0339): bbs-11 edge native at all four
+  `0x22e24` sites (`mov 5`, `0x230d4` fork `r3=42`, `0x23238`
+  early-out, `0x22d9c` tail, `0x23070` skip). Unit **149**.
+  PUNCH `320/320`, input-17 `64/64`
+  (`decomp/i960/notes/fa_coli_22d8c_g05_v0339.md`);
+
 - fa_coli `g7+0x1a4` bit 22 (v0338): native at all four `0x22e24`
   join sites (g8 bit 4 → join, bit 11 → fail). Probe 305.
   `g7+0x821=3` confirmed working (301). PUNCH `320/320`,

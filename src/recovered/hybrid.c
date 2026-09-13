@@ -19936,6 +19936,177 @@ static vf2_status coli_230d4_long_body(
     return VF2_OK;
 }
 
+/* Measured 0x22d8c g0=5 path (v0339). Entry via bbs-11-taken from the
+ * 0x22e24 join block: g7 bit 22 set, g8 bit 4 clear, g8 bit 11 set.
+ * 0x22d8c re-reads g7 flags (bbc 22 nt required; the taken edge rejoins
+ * 0x22e24 unmeasured), mov 5, call 0x230d4. The g0=5 fork takes
+ * cmpobne-5 nt, r3 = 40, bbc-11 nt (taken/r3=40 edge unmeasured), then
+ * the shared 0x231ec tail: bbc-25 taken (set edge unmeasured),
+ * branch-byte bit 6 taken (set edge unmeasured), table load and the
+ * 0x23238 leaf. The 0x22d9c return tail stores g8+0x198 and the
+ * caller-r11-derived halfword at g8+0x5de (bbc-20 taken required; the
+ * shli edge is unmeasured), then 0x23070 skips call 0x18a54 on
+ * ldis(0x50028) >= 0 (call edge unmeasured) and returns at 0x230b8.
+ * r11_in is the caller (0x225cc-frame) r11 for the 0x22d9c tail; the
+ * 0x230d4-frame table base does not survive its ret. Body excludes the
+ * 0x225cc frame ret completed by the caller. */
+static vf2_status coli_22d8c_g05_tail(
+    vf2_model2a *machine,
+    uint32_t g7,
+    uint32_t g8,
+    uint32_t r11_in,
+    uint64_t *body_out
+)
+{
+    uint32_t flags = 0u;
+    uint8_t type_index = 0u;
+    uint32_t table = 0u;
+    uint32_t r3 = 0u;
+    uint32_t g0 = 0u;
+    uint32_t branch_base = 0u;
+    uint8_t branch_byte = 0u;
+    uint32_t runtime = 0u;
+    uint32_t r14 = 0u;
+    uint16_t phase = 0u;
+    uint64_t body = 0u;
+    uint64_t child = 0u;
+
+    if (machine == NULL || body_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    body += UINT64_C(1); /* bbs 11 taken (site edge) */
+    /* 0x22d8c ld + 0x22d90 bbc 22 nt (taken edge unmeasured). */
+    if (vf2_model2a_read_u32(
+            machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if ((flags & (UINT32_C(1) << 22u)) == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    /* 0x22d94 mov 5, g0; 0x22d98 call 0x230d4. */
+    g0 = UINT32_C(5);
+    body += UINT64_C(2);
+    /* 0x230d4 ld + 0x230d8 bbc 26 taken (set edge is the compact body). */
+    if (vf2_model2a_read_u32(
+            machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if ((flags & (UINT32_C(1) << 26u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    /* 0x2312c ldob g7+0x828; 0x23130 table load. */
+    if (hybrid_read_u8(machine, g7 + UINT32_C(0x828), &type_index) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if (vf2_model2a_read_u32(
+            machine,
+            VF2_COLI_230D4_LONG_TABLE + (uint32_t)type_index * UINT32_C(4),
+            &table) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    /* 0x23138 cmpobne 5 nt (helper is only entered with g0 == 5). */
+    if (g0 != UINT32_C(5)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    /* 0x2313c addo 31,9,r3; 0x23140 ld; 0x23144 bbc 11 nt. */
+    r3 = UINT32_C(40);
+    body += UINT64_C(1);
+    if (vf2_model2a_read_u32(
+            machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if ((flags & (UINT32_C(1) << 11u)) == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    /* 0x23148 addo 2,r3,r3 (r3 = 42); 0x2314c b 0x231ec. */
+    r3 += UINT32_C(2);
+    body += UINT64_C(2);
+    /* 0x231ec ld; 0x231f0 bbc 25 taken (set edge unmeasured). */
+    if (vf2_model2a_read_u32(
+            machine, g8 + VF2_COLI_BITMASK_FLAGS_OFFSET, &flags) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if ((flags & (UINT32_C(1) << 25u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    /* 0x23200 ld; 0x23208 ldob; 0x23210 bbc 6 taken (set edge unmeasured). */
+    if (vf2_model2a_read_u32(
+            machine, UINT32_C(0x0050016c), &branch_base) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if (hybrid_read_u8(
+            machine, branch_base + UINT32_C(0x3351), &branch_byte) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if ((branch_byte & (UINT8_C(1) << 6u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    /* 0x2322c ld (table)[r3*4], g0; 0x23230 call 0x23238. */
+    if (vf2_model2a_read_u32(machine, table + r3 * UINT32_C(4), &g0) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(2);
+    if (coli_23238_body(machine, g0, g8, &g0, &child) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += child + UINT64_C(1);
+    /* 0x23234 ret. */
+    body += UINT64_C(1);
+    /* 0x22d9c tail: lda + addi + st g8+0x198 = g0 + 0x0c010000. */
+    if (vf2_model2a_write_u32(machine, g8 + UINT32_C(0x198),
+                              g0 + UINT32_C(0x0c010000)) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(3);
+    /* shro/subo/addo/mov on caller r11 (unsigned wrap matches). */
+    r14 = ((r11_in >> 1u) - UINT32_C(7)) * UINT32_C(2);
+    body += UINT64_C(4);
+    if (vf2_model2a_read_u32(
+            machine, UINT32_C(0x00500068), &runtime) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if ((runtime & (UINT32_C(1) << 20u)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* bbc 20 taken */
+    if (hybrid_write_u16(
+            machine, g8 + UINT32_C(0x5de), (uint16_t)r14) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* stos */
+    body += UINT64_C(1); /* b 0x23070 */
+    /* 0x23070 ldis + cmpibge taken (call 0x18a54 edge unmeasured). */
+    if (hybrid_read_u16(machine, UINT32_C(0x00500028), &phase) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1);
+    if ((int16_t)phase < 0) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    body += UINT64_C(1); /* cmpibge taken */
+    body += UINT64_C(1); /* b 0x230b8 */
+    *body_out = body;
+    return VF2_OK;
+}
+
 /* Measured long body of 0x225cc (v0314). Caller already executed the
  * counter++ / type-!=22 prefix. Starts at 0x225f0. One drive shape
  * through 0x230d4 long, 0x23238 ×2, 0x1ab34 miss and the float tail.
@@ -20961,7 +21132,17 @@ bit13_skip:
                             body += UINT64_C(1); /* bbs 4 nt */
                             if ((fg8b22 &
                                  (UINT32_C(1) << 11u)) != 0u) {
-                                return VF2_ERROR_UNSUPPORTED;
+                                uint64_t g05_tail = 0u;
+
+                                /* v0339: bbs 11 taken → 0x22d8c g0=5 (counted in helper). */
+                                if (coli_22d8c_g05_tail(
+                                        machine, g7, g8, r11,
+                                        &g05_tail) != VF2_OK) {
+                                    return VF2_ERROR_UNSUPPORTED;
+                                }
+                                body += g05_tail;
+                                *body_out = body;
+                                return VF2_OK;
                             }
                             body += UINT64_C(1); /* bbs 11 nt */
                         }
@@ -21005,7 +21186,17 @@ bit13_skip:
                                     body += UINT64_C(1);
                                     if ((fg8b22 &
                                          (UINT32_C(1) << 11u)) != 0u) {
-                                        return VF2_ERROR_UNSUPPORTED;
+                                        uint64_t g05_tail = 0u;
+
+                                        /* v0339: bbs 11 taken → 0x22d8c (counted in helper). */
+                                        if (coli_22d8c_g05_tail(
+                                                machine, g7, g8, r11,
+                                                &g05_tail) != VF2_OK) {
+                                            return VF2_ERROR_UNSUPPORTED;
+                                        }
+                                        body += g05_tail;
+                                        *body_out = body;
+                                        return VF2_OK;
                                     }
                                     body += UINT64_C(1);
                                 }
@@ -21076,7 +21267,17 @@ bit13_skip:
                                 body += UINT64_C(1);
                                 if ((fg8b22 &
                                      (UINT32_C(1) << 11u)) != 0u) {
-                                    return VF2_ERROR_UNSUPPORTED;
+                                    uint64_t g05_tail = 0u;
+
+                                    /* v0339: bbs 11 taken → 0x22d8c (counted in helper). */
+                                    if (coli_22d8c_g05_tail(
+                                            machine, g7, g8, r11,
+                                            &g05_tail) != VF2_OK) {
+                                        return VF2_ERROR_UNSUPPORTED;
+                                    }
+                                    body += g05_tail;
+                                    *body_out = body;
+                                    return VF2_OK;
                                 }
                                 body += UINT64_C(1);
                             }
@@ -21111,7 +21312,17 @@ bit13_skip:
                         body += UINT64_C(1); /* bbs 4 nt */
                         if ((fg8b22 &
                              (UINT32_C(1) << 11u)) != 0u) {
-                            return VF2_ERROR_UNSUPPORTED;
+                            uint64_t g05_tail = 0u;
+
+                            /* v0339: bbs 11 taken → 0x22d8c g0=5 (counted in helper). */
+                            if (coli_22d8c_g05_tail(
+                                    machine, g7, g8, r11,
+                                    &g05_tail) != VF2_OK) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += g05_tail;
+                            *body_out = body;
+                            return VF2_OK;
                         }
                         body += UINT64_C(1); /* bbs 11 nt */
                     }

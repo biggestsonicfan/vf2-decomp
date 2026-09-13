@@ -680,6 +680,17 @@ profundo alt tail, bit-13 sub-paths (`0x22744`/`0x22778`/`0x22794`/
 `0x22d8c` (needs `0x230d4` g0=5), `0x227dc` (type-5), `0x502a4`
 (board bit 9). See `decomp/i960/notes/fa_coli_campaign_final.md`.
 
+Status (v0339): the `0x22d8c` bbs-11 edge is native at all four
+`0x22e24` join sites (`g7+0x1a4` bit 22 set, `g8+0x1a4` bit 11 set,
+bit 4 clear): `mov 5, g0`, `0x230d4` g0=5 fork (`cmpobne 5` nt,
+`r3 = 42` via bbc-11 nt, shared `0x231ec` tail, `0x23238`
+early-out), `0x22d9c` tail (`g8+0x198 = g0 + 0x0c010000`,
+caller-r11 halfword at `g8+0x5de`), `0x23070` skip of `0x18a54`,
+ret at `0x230b8` (unit **149**). The `0x22c88` bbs-16 edge, the
+g0=5 fork siblings (r3=40, bit-25-set table return, branch-byte-set,
+bbc-20-nt, `0x18a54` call), `0x227dc` and `0x502a4` remain
+fail-closed. See `decomp/i960/notes/fa_coli_22d8c_g05_v0339.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
