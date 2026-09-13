@@ -738,6 +738,17 @@ shapes cover the whole admitted gate (only `+0x828` bits 12/13
 are tested downstream).
 See `decomp/i960/notes/fa_coli_22744_leaves_v0343.md`.
 
+Status (v0344-A, executor): `dmovt` reg-reg is implemented
+(exact `0x508d4` word + derived pair-copy unit, flag-neutral)
+and `mulo` sticky-sets `OVERFLOW` on unsigned overflow, which
+unblocks the `0x502a4` digit loop (exits iteration 9; both balx
+sites traced to computed `bx`-out `0x22960`). Assumption grade:
+architecture-inferred, pins-validated — re-scope if any pin
+moves. Both coli gates stay fail-closed: the `0x22960+`
+continuation (`0x7fc0`, `0x9444`) is unrecovered, and wiring
+without it would strand the caller.
+See `decomp/i960/notes/fa_coli_dmovt_v0344A.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

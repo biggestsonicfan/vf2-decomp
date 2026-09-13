@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Executor `dmovt` + `mulo` overflow latch (v0344-A): measured
+  reg-reg double copy (exact `0x508d4` word, unit codes 54-59,
+  flag-neutral) and sticky `OVERFLOW` on unsigned-64 product >
+  32 bits (unblocks the `0x502a4` digit loop; architecture-
+  inferred, pins-validated). Reference walks past the v0341 halt
+  and exits the loop at iteration 9. Both `balx` sites traced;
+  coli gates stay fail-closed until the `0x22960+` continuation
+  is recovered. PUNCH `320/320`, input-17 `64/64`
+  (`decomp/i960/notes/fa_coli_dmovt_v0344A.md`);
+
 - fa_coli bit-30-clear scan-1 leaves (v0343): `+0x828` empty/bit12/
   bit13 native via `0x227ac`/`0x22794`/`0x227c4` (units
   **275/271/224**). Wrapper admits scan==1 + bit13 without the
