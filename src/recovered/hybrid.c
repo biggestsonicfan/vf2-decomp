@@ -20943,9 +20943,31 @@ bit13_skip:
                     }
                     body += UINT64_C(1); /* ld */
                     if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
-                        return VF2_ERROR_UNSUPPORTED;
+                        /* v0338: bit 22 set → check g8 bits 4/11. */
+                        uint32_t fg8b22 = 0u;
+
+                        body += UINT64_C(1); /* bbc 22 nt */
+                        if (vf2_model2a_read_u32(
+                                machine,
+                                g8 + VF2_COLI_BITMASK_FLAGS_OFFSET,
+                                &fg8b22) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ld */
+                        if ((fg8b22 &
+                             (UINT32_C(1) << 4u)) != 0u) {
+                            body += UINT64_C(1); /* bbs 4 taken */
+                        } else {
+                            body += UINT64_C(1); /* bbs 4 nt */
+                            if ((fg8b22 &
+                                 (UINT32_C(1) << 11u)) != 0u) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += UINT64_C(1); /* bbs 11 nt */
+                        }
+                    } else {
+                        body += UINT64_C(1); /* bbc 22 taken */
                     }
-                    body += UINT64_C(1); /* bbc 22 taken */
                 } else {
                     int skip_to_1ac = 0;
 
@@ -20964,10 +20986,32 @@ bit13_skip:
                                 return VF2_ERROR_UNSUPPORTED;
                             }
                             body += UINT64_C(1); /* ld */
-                            if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
-                                return VF2_ERROR_UNSUPPORTED;
+                            if ((flags_g7 &
+                                 (UINT32_C(1) << 22u)) != 0u) {
+                                uint32_t fg8b22 = 0u;
+
+                                body += UINT64_C(1); /* bbc 22 nt */
+                                if (vf2_model2a_read_u32(
+                                        machine,
+                                        g8 + VF2_COLI_BITMASK_FLAGS_OFFSET,
+                                        &fg8b22) != VF2_OK) {
+                                    return VF2_ERROR_UNSUPPORTED;
+                                }
+                                body += UINT64_C(1); /* ld */
+                                if ((fg8b22 &
+                                     (UINT32_C(1) << 4u)) != 0u) {
+                                    body += UINT64_C(1);
+                                } else {
+                                    body += UINT64_C(1);
+                                    if ((fg8b22 &
+                                         (UINT32_C(1) << 11u)) != 0u) {
+                                        return VF2_ERROR_UNSUPPORTED;
+                                    }
+                                    body += UINT64_C(1);
+                                }
+                            } else {
+                                body += UINT64_C(1); /* bbc 22 taken */
                             }
-                            body += UINT64_C(1); /* bbc 22 taken */
                             skip_to_1ac = 2; /* done, join 0x22e38 */
                         } else {
                             body += UINT64_C(2); /* ldos + bbc 8 */
@@ -21015,13 +21059,34 @@ bit13_skip:
                         }
                         body += UINT64_C(1);
                         if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
-                            return VF2_ERROR_UNSUPPORTED;
+                            uint32_t fg8b22 = 0u;
+
+                            body += UINT64_C(1); /* bbc 22 nt */
+                            if (vf2_model2a_read_u32(
+                                    machine,
+                                    g8 + VF2_COLI_BITMASK_FLAGS_OFFSET,
+                                    &fg8b22) != VF2_OK) {
+                                return VF2_ERROR_UNSUPPORTED;
+                            }
+                            body += UINT64_C(1); /* ld */
+                            if ((fg8b22 &
+                                 (UINT32_C(1) << 4u)) != 0u) {
+                                body += UINT64_C(1);
+                            } else {
+                                body += UINT64_C(1);
+                                if ((fg8b22 &
+                                     (UINT32_C(1) << 11u)) != 0u) {
+                                    return VF2_ERROR_UNSUPPORTED;
+                                }
+                                body += UINT64_C(1);
+                            }
+                        } else {
+                            body += UINT64_C(1); /* bbc 22 taken */
                         }
-                        body += UINT64_C(1); /* bbc 22 taken */
                     }
                 }
             } else {
-                /* 0x22e24 join: g7+0x1a4 bit 22 clear → 0x22e38. */
+                /* 0x22e24 join: g7+0x1a4 bit 22 check. */
                 if (vf2_model2a_read_u32(
                         machine, g7 + VF2_COLI_BITMASK_FLAGS_OFFSET,
                         &flags_g7) != VF2_OK) {
@@ -21029,9 +21094,30 @@ bit13_skip:
                 }
                 body += UINT64_C(1); /* ld */
                 if ((flags_g7 & (UINT32_C(1) << 22u)) != 0u) {
-                    return VF2_ERROR_UNSUPPORTED;
+                    uint32_t fg8b22 = 0u;
+
+                    body += UINT64_C(1); /* bbc 22 nt */
+                    if (vf2_model2a_read_u32(
+                            machine,
+                            g8 + VF2_COLI_BITMASK_FLAGS_OFFSET,
+                            &fg8b22) != VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    body += UINT64_C(1); /* ld */
+                    if ((fg8b22 &
+                         (UINT32_C(1) << 4u)) != 0u) {
+                        body += UINT64_C(1); /* bbs 4 taken */
+                    } else {
+                        body += UINT64_C(1); /* bbs 4 nt */
+                        if ((fg8b22 &
+                             (UINT32_C(1) << 11u)) != 0u) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* bbs 11 nt */
+                    }
+                } else {
+                    body += UINT64_C(1); /* bbc 22 taken */
                 }
-                body += UINT64_C(1); /* bbc 22 taken */
             }
         }
         body += UINT64_C(1); /* mov 4, g0 */

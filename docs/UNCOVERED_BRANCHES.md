@@ -668,6 +668,11 @@ Status (v0337): `0x227c4` is native (diag pair + g0=1 + alt tail
 join at `0x22848`). Probe 219. `0x227dc` remains fail-closed
 (needs type-5). See `decomp/i960/notes/fa_coli_long_b13_227c4_v0337.md`.
 
+Status (v0338): `g7+0x1a4` bit 22 is native at all four `0x22e24`
+join sites (probe 305). `g7+0x821=3` already works (probe 301).
+Board bit 9 clear on bit-14 hits `call 0x502a4` (correctly
+fail-closed). See `decomp/i960/notes/fa_coli_long_g7b22_v0338.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

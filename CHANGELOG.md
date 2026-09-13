@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli `g7+0x1a4` bit 22 (v0338): native at all four `0x22e24`
+  join sites (g8 bit 4 → join, bit 11 → fail). Probe 305.
+  `g7+0x821=3` confirmed working (301). PUNCH `320/320`,
+  input-17 `64/64` (v0338,
+  `decomp/i960/notes/fa_coli_long_g7b22_v0338.md`);
+
 - fa_coli `0x227c4` (v0337): `+0x828` bit 13 on `0x22778` path →
   diag pair + g0=1 + alt tail join. Probe 219. PUNCH `320/320`,
   input-17 `64/64` (v0337,
