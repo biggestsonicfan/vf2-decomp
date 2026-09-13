@@ -20224,7 +20224,106 @@ static vf2_status coli_225cc_long_body(
                 body += UINT64_C(1); /* bbc 13 nt + ld +0x5b8 */
                 body += UINT64_C(1); /* bbs 0 not taken */
                 if ((flags_g8 & (UINT32_C(1) << 3u)) != 0u) {
-                    return VF2_ERROR_UNSUPPORTED; /* 0x22744 unmeasured */
+                    /* v0336: bit 3 set → 0x22744/0x22778. */
+                    uint32_t gate844 = 0u;
+                    uint16_t half828x = 0u;
+
+                    body += UINT64_C(2); /* ld flags + bbs 3 taken */
+                    if (vf2_model2a_read_u32(
+                            machine, g7 + UINT32_C(0x844), &gate844) !=
+                        VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    body += UINT64_C(1); /* ld */
+                    if ((gate844 & (UINT32_C(1) << 30u)) != 0u) {
+                        return VF2_ERROR_UNSUPPORTED; /* 0x227dc */
+                    }
+                    body += UINT64_C(1); /* bbs 30 nt */
+                    if (hybrid_read_u8(
+                            machine, g7 + UINT32_C(0x821), &scan821b) !=
+                        VF2_OK) {
+                        return VF2_ERROR_UNSUPPORTED;
+                    }
+                    if (scan821b == UINT8_C(2) ||
+                        scan821b == UINT8_C(5) ||
+                        scan821b == UINT8_C(6)) {
+                        /* Scan 2/5/6 → 0x22764 (shared with bit3 clear). */
+                        body += UINT64_C(6); /* 3× ldob+cmpobe */
+                        if (hybrid_read_u16(
+                                machine, g7 + UINT32_C(0x828),
+                                &half828x) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ldos */
+                        if ((half828x &
+                             (UINT16_C(1) << 12u)) != 0u) {
+                            body += UINT64_C(1); /* bbs 12 taken */
+                            r11 = r11 >> 1u;
+                            {
+                                float f9 = coli_bits_to_float(r9);
+                                f9 = f9 * 0.5f;
+                                memcpy(&r9, &f9, sizeof(r9));
+                            }
+                            r8 = 1u;
+                            body += UINT64_C(4);
+                            body += UINT64_C(1); /* b 0x22918 */
+                            cascade_r8_set = 1;
+                        } else {
+                            body += UINT64_C(1); /* bbs 12 nt */
+                            body += UINT64_C(1); /* b 0x22914 */
+                        }
+                    } else {
+                        /* 0x22778: scan not 2/5/6. */
+                        body += UINT64_C(6); /* 3× ldob+cmpobne */
+                        if (hybrid_read_u16(
+                                machine, g7 + UINT32_C(0x828),
+                                &half828x) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ldos */
+                        if ((half828x &
+                             (UINT16_C(1) << 13u)) != 0u) {
+                            return VF2_ERROR_UNSUPPORTED; /* 0x227c4 */
+                        }
+                        body += UINT64_C(1); /* bbs 13 nt */
+                        if (hybrid_read_u16(
+                                machine, g7 + UINT32_C(0x828),
+                                &half828x) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ldos */
+                        if ((half828x &
+                             (UINT16_C(1) << 12u)) != 0u) {
+                            body += UINT64_C(1); /* bbs 12 taken */
+                            r11 = r11 >> 1u;
+                            {
+                                float f9 = coli_bits_to_float(r9);
+                                f9 = f9 * 0.5f;
+                                memcpy(&r9, &f9, sizeof(r9));
+                            }
+                            r8 = 1u;
+                            body += UINT64_C(4);
+                            body += UINT64_C(1); /* b 0x22918 */
+                            cascade_r8_set = 1;
+                        } else {
+                            body += UINT64_C(1); /* bbs 12 nt */
+                            if (scan821b == UINT8_C(1)) {
+                                body += UINT64_C(1); /* cmpobne 1 nt */
+                                r11 = r11 - (r11 >> 2u);
+                                {
+                                    float f9 = coli_bits_to_float(r9);
+                                    f9 = f9 * 0.75f;
+                                    memcpy(&r9, &f9, sizeof(r9));
+                                }
+                                body += UINT64_C(4);
+                                body += UINT64_C(1); /* b 0x22914 */
+                            } else {
+                                body += UINT64_C(1); /* cmpobne 1 t */
+                                body += UINT64_C(1); /* b 0x22914 */
+                            }
+                        }
+                    }
+                    goto bit13_skip;
                 }
                 body += UINT64_C(2); /* ld flags + bbs 3 not taken */
                 if (hybrid_read_u8(
@@ -20486,6 +20585,7 @@ static vf2_status coli_225cc_long_body(
          * scale is carried in r9 only. */
         (void)r10s;
     }
+bit13_skip:
 
     if (!skip_to_float) {
     /* Cascade 0x22914..0x22e3c: measured all-clear path (60 insns). */

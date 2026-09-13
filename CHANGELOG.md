@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli bit-13 + bit 3 sub-paths (v0336): `0x22744`/`0x22778`
+  native (scan 2/5/6 shared, scan==1 `0x227ac` r11*3/4 scale,
+  bit 12 `0x22794` scale). `0x227dc` fail-closed (needs type-5).
+  PUNCH `320/320`, input-17 `64/64` (v0336,
+  `decomp/i960/notes/fa_coli_long_b13_b3_v0336.md`);
+
 - fa_coli bit-13 `0x22794` scale (v0335): `+0x828` bit 12 set →
   r11>>=1, r9*=0.5, r8=1, cascade at `0x22918`. PUNCH `320/320`,
   input-17 `64/64` (v0335,

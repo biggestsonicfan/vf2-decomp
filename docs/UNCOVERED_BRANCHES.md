@@ -658,6 +658,12 @@ Status (v0335): `0x22794` scale transform is native (`r11>>=1`,
 (bit 3 + scan≠{2,5,6}) and `0x227dc` remain fail-closed (see
 `decomp/i960/notes/fa_coli_long_b13_22794_v0335.md`).
 
+Status (v0336): bit-13 + bit 3 sub-paths native. `0x22744` (scan
+2/5/6 → shared path), `0x22778` (scan∉{2,5,6} → bit 12 scale /
+scan==1 `0x227ac` scale / else cascade), `0x227dc` fail-closed
+(needs type-5 record). `0x227c4` remains fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13_b3_v0336.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
