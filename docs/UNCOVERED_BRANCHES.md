@@ -713,6 +713,18 @@ unimplemented `dmovt` at `0x508d4` (81 steps). Unblock = implement
 subtree. Both sites correctly fail-closed.
 See `decomp/i960/notes/fa_coli_502a4_defer_v0341.md`.
 
+Status (v0342, measurement): the `0x19ef8` selector-bit14 clrbit
+block is measured (20 steps: `+0x1a4` bits 5/6/21 cleared in r7,
+`+0xbe4 = 1`) and the mutated path rejoins warm exactly
+(985-step identity diff, +5 insert only; g0 self-masks at
+`0x1a034`; `+0x1a4` copy/overwrite handled generically). Recovery
+deferred: the only player-entry park has degenerate floats and
+warm faults identically at `0x2705c cvtri`, so the tail, counts
+(predicted `1657`) and final state are unprovable until a
+live-valid park exists. The v0309 `+0`-word bit-5 drive has no
+clearing mechanism and stays fail-closed.
+See `decomp/i960/notes/fa_player_19ef8_prologue_v0342.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

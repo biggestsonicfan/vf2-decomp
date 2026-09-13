@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_player `0x19ef8` prologue (v0342, measurement): selector-bit14
+  clrbit block measured (20 steps), 985-step warm-identity diff,
+  g0 self-mask + `+0x1a4` handling analyzed. Recovery deferred:
+  player-entry park floats are degenerate (warm faults too);
+  needs a live-valid park
+  (`decomp/i960/notes/fa_player_19ef8_prologue_v0342.md`);
+
 - fa_coli `0x502a4` (v0341, measurement): two balx sites mapped
   (`0x22948` cascade, `0x22e04` bit-14 path); reference halts on
   unimplemented `dmovt` at `0x508d4`. Deferred with unblock
