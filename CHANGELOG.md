@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- fa_coli bit-30-clear scan-1 leaves (v0343): `+0x828` empty/bit12/
+  bit13 native via `0x227ac`/`0x22794`/`0x227c4` (units
+  **275/271/224**). Wrapper admits scan==1 + bit13 without the
+  `0x844` condition. Fixed five latent bugs in dead code
+  (bit-3 `r9 += 4`, scan re-read, `g0` threading, `r9 += r5`,
+  `divr` polarity) plus the `b 0x22848` count. PUNCH `320/320`,
+  input-17 `64/64`
+  (`decomp/i960/notes/fa_coli_22744_leaves_v0343.md`);
+
 - fa_player `0x19ef8` prologue (v0342, measurement): selector-bit14
   clrbit block measured (20 steps), 985-step warm-identity diff,
   g0 self-mask + `+0x1a4` handling analyzed. Recovery deferred:

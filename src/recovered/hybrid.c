@@ -1,6 +1,7 @@
 #include "vf2/hybrid.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "vf2/fighter_candidate.h"
@@ -19337,10 +19338,10 @@ static vf2_status coli_225cc_body(
         return VF2_OK;
     }
     /* Bit 3 set: scan==0 takes the compact counter-- exit (v0304).
-     * Scan==1 is admitted only for the measured v0340 shape
-     * (bit 13 set, g7+0x844 bit 30 set → 0x227dc miss); every other
-     * scan!=0 combination stays fail-closed. The extra 0x844 read
-     * is side-effect-free; long_body re-reads it for accounting. */
+     * Scan==1 with bit 13 set (no bits 15/16) enters long_body
+     * (v0340 bit-30-set 0x227dc plus v0343 bit-30-clear 0x22744
+     * leaves, all probe-measured); every other scan!=0 combination
+     * stays fail-closed. */
     if (scan_byte == UINT8_C(0)) {
         counter -= UINT32_C(1);
         if (vf2_model2a_write_u32(
@@ -19353,28 +19354,20 @@ static vf2_status coli_225cc_body(
     if (scan_byte == UINT8_C(1) &&
         (flags_g8 & (UINT32_C(1) << 13u)) != 0u &&
         (flags_g8 & ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) == 0u) {
-        uint32_t gate844 = 0u;
+        uint64_t long_body = 0u;
 
-        if (vf2_model2a_read_u32(
-                machine, g7 + UINT32_C(0x844), &gate844) != VF2_OK) {
+        if (coli_225cc_long_body(machine, g7, g8, &long_body) !=
+            VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;
         }
-        if ((gate844 & (UINT32_C(1) << 30u)) != 0u) {
-            uint64_t long_body = 0u;
-
-            if (coli_225cc_long_body(machine, g7, g8, &long_body) !=
-                VF2_OK) {
-                return VF2_ERROR_UNSUPPORTED;
-            }
-            if (calls_out != NULL) {
-                *calls_out = UINT64_C(4);
-            }
-            if (rets_out != NULL) {
-                *rets_out = UINT64_C(4);
-            }
-            *body_out = UINT64_C(5) + long_body;
-            return VF2_OK;
+        if (calls_out != NULL) {
+            *calls_out = UINT64_C(4);
         }
+        if (rets_out != NULL) {
+            *rets_out = UINT64_C(4);
+        }
+        *body_out = UINT64_C(5) + long_body;
+        return VF2_OK;
     }
     return VF2_ERROR_UNSUPPORTED;
 }
@@ -19893,9 +19886,13 @@ static vf2_status coli_230d4_long_body(
     }
     body += UINT64_C(1);
     if ((flags_g8 & (UINT32_C(1) << 3u)) != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
+        /* v0343: bit 3 set falls through at 0x23190 → 0x23194
+         * addo 4,r9,r9 (L1/L2/L3 all carry bit 3). */
+        r9 += UINT32_C(4);
+        body += UINT64_C(2); /* bbc nt + addo */
+    } else {
+        body += UINT64_C(1); /* bbc 3 taken */
     }
-    body += UINT64_C(1); /* bbc 3 taken */
     r5 = r10 >> 15u;
     body += UINT64_C(1);
     if (vf2_model2a_read_u32(machine, g7, &word_g7) != VF2_OK ||
@@ -19914,7 +19911,10 @@ static vf2_status coli_230d4_long_body(
     r5 ^= flags_g8 >> 21u;
     body += UINT64_C(2); /* xor + and */
     r5 &= UINT32_C(1);
-    r9 = r5;
+    /* v0343: ROM 0x231c0 is addo r5,r9,r9 (r9 += r5), not r9 = r5.
+     * Identical when r9 enters 0 (warm/bit3-clear); required now
+     * that bit-3-set carries r9 = 4 into this point. */
+    r9 += r5;
     body += UINT64_C(1); /* addo */
     {
         int16_t half_a = 0;
@@ -20583,6 +20583,7 @@ static vf2_status coli_225cc_long_body(
                             body += pair2;
                             g0 = UINT32_C(1);
                             body += UINT64_C(1); /* mov 1,g0 */
+                            body += UINT64_C(1); /* b 0x22848 */
                             goto bit13_alt_join;
                         }
                         body += UINT64_C(1); /* bbs 13 nt */
@@ -20608,7 +20609,16 @@ static vf2_status coli_225cc_long_body(
                         } else {
                             body += UINT64_C(1); /* bbs 12 nt */
                             if (scan821b == UINT8_C(1)) {
-                                body += UINT64_C(1); /* cmpobne 1 nt */
+                                /* v0343: ROM re-reads scan at 0x22788
+                                 * before the compare (same value; nobody
+                                 * writes 0x821 on this route). */
+                                if (hybrid_read_u8(
+                                        machine, g7 + UINT32_C(0x821),
+                                        &scan821b) != VF2_OK) {
+                                    return VF2_ERROR_UNSUPPORTED;
+                                }
+                                body += UINT64_C(3); /* ldob + cmpobne nt
+                                                 * + b 0x227ac */
                                 r11 = r11 - (r11 >> 2u);
                                 {
                                     float f9 = coli_bits_to_float(r9);
@@ -20735,10 +20745,11 @@ bit13_alt_join:
                     return VF2_ERROR_UNSUPPORTED;
                 }
                 body += UINT64_C(2); /* lda + st */
-                /* call 0x230d4 with g0 = 0 (long path, bit 26 clear). */
+                /* call 0x230d4 with the incoming g0 (0 profundo,
+                 * 1 for 0x227c4; v0343: hardcoding 0 broke L2). */
                 body += UINT64_C(1); /* call */
                 if (coli_230d4_long_body(
-                        machine, 0u, g7, g8, &g0, &child) != VF2_OK) {
+                        machine, g0, g7, g8, &g0, &child) != VF2_OK) {
                     return VF2_ERROR_UNSUPPORTED;
                 }
                 body += child + UINT64_C(1);
@@ -21651,7 +21662,9 @@ bit13_skip:
         if (r9 == 0u) {
             return VF2_ERROR_UNSUPPORTED;
         }
-        acc = acc / coli_bits_to_float(r9);
+        /* v0343: ROM divr r4,r9,r4 computes r9/r4 (dst = src2/src1,
+         * verified exact against L1/L3 float tails). */
+        acc = coli_bits_to_float(r9) / acc;
         body += UINT64_C(1); /* divr */
         acc = acc * 2.0f;
         body += UINT64_C(2); /* lda + mulr */

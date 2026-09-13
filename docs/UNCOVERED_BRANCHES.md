@@ -725,6 +725,19 @@ live-valid park exists. The v0309 `+0`-word bit-5 drive has no
 clearing mechanism and stays fail-closed.
 See `decomp/i960/notes/fa_player_19ef8_prologue_v0342.md`.
 
+Status (v0343): the bit-30-clear scan-1 leaves are native. `+0x828`
+empty takes `0x227ac` (unit **275**), bit 12 takes `0x22794`
+(unit **271**), bit 13 takes `0x227c4` into the alt tail with
+`g0 = 1` (unit **224**). The wrapper admits scan==1 + bit13 +
+no bits 15/16 without the `0x844` condition. Executing the
+previously-dead code fixed: `0x230d4` bit-3 `r9 += 4`, the
+`0x22788` scan re-read, `g0` threading into the alt-join
+`0x230d4` call, `r9 += r5` (was `r9 = r5`), the float-tail
+`divr` polarity (`r9/r4`), and the `b 0x22848` count. The four
+shapes cover the whole admitted gate (only `+0x828` bits 12/13
+are tested downstream).
+See `decomp/i960/notes/fa_coli_22744_leaves_v0343.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

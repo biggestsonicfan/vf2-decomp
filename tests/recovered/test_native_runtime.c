@@ -4056,6 +4056,188 @@ static void test_coli_225cc_long(void) {
               &machine, fighter0 + UINT32_C(0x1234), &stored) == VF2_OK);
     CHECK(stored == UINT32_C(1));
 
+    /* v0343 L1: bit-13 + bit 3 + scan 1, bit-30 clear, +0x828 = 0 →
+     * 0x22778 → 0x227ac scale (r11*3/4, r9*0.75) → cascade → warm
+     * join. Reference entry→0x22294 is 275 steps. Live chain at the
+     * 0x4ac table slot replicated (record 0x0200ee55, 03/08). */
+    if (main_data != NULL) {
+        write_u32_bytes(main_data, UINT32_C(0x0e5fc),
+                        UINT32_C(0x0200ee55));
+        main_data[0x0ee5du] = 0x03u;
+        main_data[0x0ee6bu] = 0x08u;
+        /* v0343: bit3-addo makes r9 = 6, so the 0x230d4-leg reads
+         * slot 38 (0x201ce0c), not slot 34. */
+        write_u32_bytes(main_data, UINT32_C(0x01ce0c),
+                        UINT32_C(0x000004ac));
+    }
+    rom[0x1b7f8u] = 0x07u;
+    rom[0x1b7f9u] = 0x0eu;
+    rom[0x1b7fau] = 0x11u;
+    CHECK(vf2_model2a_write_u32(
+              &machine, fighter0 + UINT32_C(0x1a4),
+              UINT32_C(0x00010000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(0x00002008)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x844),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x848),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x821),
+                            (const uint8_t *)"\x01", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x822),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x820),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x823),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x828),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x843),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x1224),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1234),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x26),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x82a),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x1b0),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter1 + UINT32_C(0x19f),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter1 + UINT32_C(0x1ac),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x5b8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x5d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d4),
+                                UINT32_C(0x0000ffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x700),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068),
+                                UINT32_C(0x00440080)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000),
+                                UINT32_C(0x00008a00)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050a0b4),
+                            (const uint8_t *)"\x36\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050a16e),
+                            (const uint8_t *)"\x01", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500028),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022240));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(275));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x198), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x0c0004ac));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter0 + UINT32_C(0x194), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x14000001));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x5e4), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0xc8a3d709));
+    CHECK(read_test_u16(&machine, fighter1 + UINT32_C(0x5de)) ==
+          UINT16_C(0xfff2));
+
+    /* v0343 L3: same but +0x828 bit 12 → 0x22794 scale (r11>>=1,
+     * r9*=0.5) → cascade at 0x22918. Reference 271 steps. */
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x828),
+                            (const uint8_t *)"\x00\x10", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x700),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022240));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(271));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x198), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x0c0004ac));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter0 + UINT32_C(0x194), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x14000001));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x5e4), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0xc85a740c));
+    CHECK(read_test_u16(&machine, fighter1 + UINT32_C(0x5de)) ==
+          UINT16_C(0xfff2));
+
+    /* v0343 L2: +0x828 bit 13 → 0x227c4 diagnostic pair (g0=0x9e167f,
+     * then 1) → alt tail at 0x22848. Reference 224 steps. */
+    rom[0x23282u] = 0x06u;
+    if (main_data != NULL) {
+        write_u32_bytes(main_data, UINT32_C(0x01cdac),
+                        UINT32_C(0x00000104));
+    }
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x828),
+                            (const uint8_t *)"\x00\x20", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050002c),
+                                UINT32_C(0x100)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050a0b7),
+                            (const uint8_t *)"\x0a", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050a14c),
+                            (const uint8_t *)"\x16", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0xb2),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x85c),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x700),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x0050406a),
+                                UINT32_C(0)) == VF2_OK);
+    /* v0343: prior diag-pair shapes leave their g0 in slot[1] (work
+     * RAM); L2's live slot is 0 (no early match → full iteration). */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504078),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504001),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00504003),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022240));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(224));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x198), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x0e000104));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter0 + UINT32_C(0x194), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x14000002));
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x5e4), &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0xc8da740c));
+    CHECK(read_test_u16(&machine, fighter1 + UINT32_C(0x5de)) ==
+          UINT16_C(0x0006));
+
     vf2_model2a_shutdown(&machine);
     free(rom);
     free(main_data);
