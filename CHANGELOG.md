@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- fa_coli `0x227dc` miss (v0340): bit-13 + bit 3 + scan 1 +
+  `g7+0x844` bit 30 native for the type-8 miss chain
+  (`g8+0x198 = index`, `g7+0x198 = 0x11000000`). Wrapper admits
+  scan==1 only for this measured combination; early bit-3 gate
+  scan-aware. Unit **87**. PUNCH `320/320`, input-17 `64/64`
+  (`decomp/i960/notes/fa_coli_227dc_miss_v0340.md`);
+
 - fa_coli `0x22d8c` g0=5 (v0339): bbs-11 edge native at all four
   `0x22e24` sites (`mov 5`, `0x230d4` fork `r3=42`, `0x23238`
   early-out, `0x22d9c` tail, `0x23070` skip). Unit **149**.

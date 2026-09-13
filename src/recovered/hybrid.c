@@ -19312,14 +19312,16 @@ static vf2_status coli_225cc_body(
     if (hybrid_read_u8(machine, g7 + UINT32_C(0x821), &scan_byte) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if (scan_byte != 0u) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
     if (vf2_model2a_read_u32(
             machine, g8 + UINT32_C(0x1a4), &flags_g8) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
     if ((flags_g8 & (UINT32_C(1) << 3u)) == 0u) {
+        /* Bit 3 clear: scan!=0 still fails closed (only the measured
+         * v0340 bit-13+bit-3 scan-1 shape below is admitted). */
+        if (scan_byte != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
         uint64_t long_body = 0u;
         /* Prefix already executed: counter++ (3) + type check (2). */
         if (coli_225cc_long_body(machine, g7, g8, &long_body) != VF2_OK) {
@@ -19334,13 +19336,47 @@ static vf2_status coli_225cc_body(
         *body_out = UINT64_C(5) + long_body;
         return VF2_OK;
     }
-    counter -= UINT32_C(1);
-    if (vf2_model2a_write_u32(
-            machine, g7 + UINT32_C(0x1234), counter) != VF2_OK) {
-        return VF2_ERROR_UNSUPPORTED;
+    /* Bit 3 set: scan==0 takes the compact counter-- exit (v0304).
+     * Scan==1 is admitted only for the measured v0340 shape
+     * (bit 13 set, g7+0x844 bit 30 set → 0x227dc miss); every other
+     * scan!=0 combination stays fail-closed. The extra 0x844 read
+     * is side-effect-free; long_body re-reads it for accounting. */
+    if (scan_byte == UINT8_C(0)) {
+        counter -= UINT32_C(1);
+        if (vf2_model2a_write_u32(
+                machine, g7 + UINT32_C(0x1234), counter) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        *body_out = UINT64_C(12);
+        return VF2_OK;
     }
-    *body_out = UINT64_C(12);
-    return VF2_OK;
+    if (scan_byte == UINT8_C(1) &&
+        (flags_g8 & (UINT32_C(1) << 13u)) != 0u &&
+        (flags_g8 & ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) == 0u) {
+        uint32_t gate844 = 0u;
+
+        if (vf2_model2a_read_u32(
+                machine, g7 + UINT32_C(0x844), &gate844) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if ((gate844 & (UINT32_C(1) << 30u)) != 0u) {
+            uint64_t long_body = 0u;
+
+            if (coli_225cc_long_body(machine, g7, g8, &long_body) !=
+                VF2_OK) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            if (calls_out != NULL) {
+                *calls_out = UINT64_C(4);
+            }
+            if (rets_out != NULL) {
+                *rets_out = UINT64_C(4);
+            }
+            *body_out = UINT64_C(5) + long_body;
+            return VF2_OK;
+        }
+    }
+    return VF2_ERROR_UNSUPPORTED;
 }
 
 static float coli_bits_to_float(uint32_t bits);
@@ -20134,6 +20170,7 @@ static vf2_status coli_225cc_long_body(
     uint32_t r6 = 0u;
     uint32_t r4 = 0u;
     uint32_t scale_bits = 0u;
+    uint8_t scan821 = 0u;
 
     if (machine == NULL || body_out == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
@@ -20147,7 +20184,6 @@ static vf2_status coli_225cc_long_body(
         return VF2_ERROR_UNSUPPORTED;
     }
     {
-        uint8_t scan821 = 0u;
         uint32_t counter = 0u;
 
         if (hybrid_read_u8(machine, g7 + UINT32_C(0x821), &scan821) !=
@@ -20205,11 +20241,25 @@ static vf2_status coli_225cc_long_body(
         }
     }
     body += UINT64_C(2); /* ldob + ld */
-    if ((flags_g8 & (UINT32_C(1) << 3u)) != 0u ||
-        (flags_g8 & ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u) {
+    if (scan821 == UINT8_C(0)) {
+        /* Proven warm path: bit 3/15/16 were handled by the exits
+         * above; anything set here stays fail-closed. */
+        if ((flags_g8 & (UINT32_C(1) << 3u)) != 0u ||
+            (flags_g8 & ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) !=
+                0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(4); /* cmpibne + bbs3 + bbs15 + bbc16 */
+    } else if (scan821 == UINT8_C(1) &&
+               (flags_g8 & ((UINT32_C(1) << 15u) |
+                            (UINT32_C(1) << 16u))) == 0u) {
+        /* v0340: scan!=0 skips the bbs-3 early exit via cmpibne taken;
+         * bit 3 continues downstream (0x22708), bits 15/16 stay
+         * fail-closed (their scan!=0 early exits are unmeasured). */
+        body += UINT64_C(3); /* cmpibne + bbs15 + bbc16 */
+    } else {
         return VF2_ERROR_UNSUPPORTED;
     }
-    body += UINT64_C(4); /* cmpibne + bbs3 + bbs15 + bbc16 */
     {
         int16_t half_a = 0;
         int16_t half_b = 0;
@@ -20407,7 +20457,72 @@ static vf2_status coli_225cc_long_body(
                     }
                     body += UINT64_C(1); /* ld */
                     if ((gate844 & (UINT32_C(1) << 30u)) != 0u) {
-                        return VF2_ERROR_UNSUPPORTED; /* 0x227dc */
+                        /* v0340: bbs 30 taken → 0x227dc miss path. The
+                         * straight line is ld/st/mov/call into the
+                         * 0x1ab34 type-5 walk, then ldos/shlo/addi/st
+                         * and ldib/stib, returning from 0x225cc.
+                         * Only the measured miss (walk == 0) is
+                         * admitted; a type-5 match is unmeasured. */
+                        uint32_t idx848 = 0u;
+                        uint32_t walk_rec = 0u;
+                        uint32_t tail_field = 0u;
+                        uint16_t tail_half = 0u;
+                        uint8_t tail_byte = 0u;
+                        uint64_t walk_child = 0u;
+
+                        body += UINT64_C(1);
+                        if (vf2_model2a_read_u32(
+                                machine, g7 + UINT32_C(0x848),
+                                &idx848) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ld */
+                        if (vf2_model2a_write_u32(
+                                machine, g8 + UINT32_C(0x198),
+                                idx848) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* st */
+                        body += UINT64_C(2); /* mov 5,g1 + call */
+                        if (coli_1ab34_body(
+                                machine, idx848, UINT32_C(5), &walk_rec,
+                                &walk_child) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += walk_child + UINT64_C(1);
+                        if (walk_rec != 0u) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        if (hybrid_read_u16(
+                                machine, UINT32_C(0x1),
+                                &tail_half) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ldos */
+                        tail_field =
+                            (UINT32_C(17) << 24u) + (uint32_t)tail_half;
+                        body += UINT64_C(1); /* shlo */
+                        body += UINT64_C(1); /* addi */
+                        if (vf2_model2a_write_u32(
+                                machine, g7 + UINT32_C(0x198),
+                                tail_field) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* st */
+                        if (hybrid_read_u8(
+                                machine, UINT32_C(0x3),
+                                &tail_byte) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* ldib */
+                        if (hybrid_write_u8(
+                                machine, g7 + UINT32_C(0x822),
+                                tail_byte) != VF2_OK) {
+                            return VF2_ERROR_UNSUPPORTED;
+                        }
+                        body += UINT64_C(1); /* stib */
+                        *body_out = body;
+                        return VF2_OK;
                     }
                     body += UINT64_C(1); /* bbs 30 nt */
                     if (hybrid_read_u8(

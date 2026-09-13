@@ -691,6 +691,19 @@ g0=5 fork siblings (r3=40, bit-25-set table return, branch-byte-set,
 bbc-20-nt, `0x18a54` call), `0x227dc` and `0x502a4` remain
 fail-closed. See `decomp/i960/notes/fa_coli_22d8c_g05_v0339.md`.
 
+Status (v0340): `0x227dc` is native for the miss shape
+(`g8+0x1a4` bits 13+3, scan 1, `g7+0x844` bit 30,
+walkable `g7+0x848` index → type-8 miss): `ld/st/mov 5/call
+0x1ab34`, `g8+0x198 = index`, `g7+0x198 = 0x11000000`,
+`g7+0x822 = low byte`, ret (unit **87**). The wrapper admits
+scan==1 only for bit13+bit3, no bits 15/16, `0x844` bit 30 set;
+the early bit-3 gate is scan-aware (`+3` for scan-1). A type-5
+match, `0x848 = 0` (reference faults), the `0x22c88` edge,
+`0x502a4`, and all other scan!=0 entries remain fail-closed.
+Notably the wrapper had rejected scan!=0 since v0304, so the
+v0334/v0336 scan!=0 long-body code was unreachable until now.
+See `decomp/i960/notes/fa_coli_227dc_miss_v0340.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
