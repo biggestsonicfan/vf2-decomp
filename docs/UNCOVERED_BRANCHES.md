@@ -704,6 +704,15 @@ Notably the wrapper had rejected scan!=0 since v0304, so the
 v0334/v0336 scan!=0 long-body code was unreachable until now.
 See `decomp/i960/notes/fa_coli_227dc_miss_v0340.md`.
 
+Status (v0341, measurement): the `0x502a4` balx is deferred with
+evidence. Two ROM sites call it: `0x22948` (cascade, board bit 9
+only) and `0x22e04` (bit-14 `0x22dd4` path). The reference
+executes into `0x502a4`/`0x502c0`/`0x508c4` and halts on
+unimplemented `dmovt` at `0x508d4` (81 steps). Unblock = implement
+`dmovt` from the i960 manual + unit test, then attribute the
+subtree. Both sites correctly fail-closed.
+See `decomp/i960/notes/fa_coli_502a4_defer_v0341.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

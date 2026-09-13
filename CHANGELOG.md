@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fa_coli `0x502a4` (v0341, measurement): two balx sites mapped
+  (`0x22948` cascade, `0x22e04` bit-14 path); reference halts on
+  unimplemented `dmovt` at `0x508d4`. Deferred with unblock
+  recipe; both sites correctly fail-closed
+  (`decomp/i960/notes/fa_coli_502a4_defer_v0341.md`);
+
 - fa_coli `0x227dc` miss (v0340): bit-13 + bit 3 + scan 1 +
   `g7+0x844` bit 30 native for the type-8 miss chain
   (`g8+0x198 = index`, `g7+0x198 = 0x11000000`). Wrapper admits
