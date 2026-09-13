@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Site-A full leg runs natively end-to-end (v0345-B, fa_coli
+  done): new `coli_225cc_sitea_cont` models `0x22960` → `0x22e24`
+  (three `0x7fc0` calls, `0x9444`, scan tail, `0x2298c` join,
+  site-B prefix, `0x502a4`#siteB) and joins the existing
+  `0x22e24` tail unchanged. Wrapper unit proves OK, exact delta
+  883, calls/rets 7/8 and all stores. `long_body` now reports
+  calls/rets (legacy 4/4 default preserved).
+
 - Native `0x7fc0` byte-expand leaf (v0345-A): `coli_7fc0_body` +
   `vf2_hybrid_coli_7fc0_execute` recover the NUL-terminated
   byte-copy/or/store loop called from all three continuation

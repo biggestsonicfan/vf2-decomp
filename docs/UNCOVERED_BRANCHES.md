@@ -759,6 +759,15 @@ with a clean class audit. Next: `0x9444`/`0x9450` inline spans +
 site-B prefix wiring. See
 `decomp/i960/notes/fa_coli_7fc0_v0345A.md`.
 
+Status (v0345-B, fa_coli done): the site-A leg runs natively
+end-to-end (OK, delta 883, calls/rets 7/8, all stores proven).
+`coli_225cc_sitea_cont` covers `0x22960` → `0x22e24` and joins the
+existing tail unchanged; `long_body` reports calls/rets. Left:
+unmeasured-input variants (fail closed by design) and the
+cross-cutting `0x230b8`/`0x22294` procedure-exit landing shared
+by every shape. See
+`decomp/i960/notes/fa_coli_full_leg_v0345B.md`.
+
 Status (v0344-A, executor): `dmovt` reg-reg is implemented
 (exact `0x508d4` word + derived pair-copy unit, flag-neutral)
 and `mulo` sticky-sets `OVERFLOW` on unsigned overflow, which

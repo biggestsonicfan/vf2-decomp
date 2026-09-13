@@ -4238,12 +4238,37 @@ static void test_coli_225cc_long(void) {
     CHECK(read_test_u16(&machine, fighter1 + UINT32_C(0x5de)) ==
           UINT16_C(0x0006));
 
-    /* v0344-C site A: bit-13-clear + bit-3-clear + scan 1 +
-     * board-clear (f1+0x1a4 = 0x4000, board 0x8800) reaches the
-     * 0x22948 balx; the helper runs to bx-out 0x22960 but the
-     * 0x22960+ continuation is unrecovered, so the wrapper stays
-     * fail-closed with the helper's stores applied. L1 setup
-     * replicated with the bit flips; ROM inline bytes planted. */
+    /* v0345-B site A full leg: bit-13-clear + bit-3-clear + scan 1
+     * + board-clear runs prefix → cascade → 0x502a4#siteA →
+     * continuation (0x7fc0 ×3, 0x9444, join, site-B prefix,
+     * 0x502a4#siteB, 0x7fc0#4) → existing 0x22e24 tail → OK.
+     * 7 guest calls + 7 nested rets; the 0x230b8/0x22294 rets stay
+     * unmodeled (pre-existing gap shared by every shape: ip lands
+     * on the entered return, not the live scheduler target).
+     * Reference entry→0x2309c-b is 882 steps; +1 completes. */
+    {
+        static const uint8_t site_b_inline[] = {
+            0x25u, 0x64u, 0x20u, 0x64u, 0x6fu, 0x77u, 0x6eu, 0x20u,
+            0x68u, 0x69u, 0x74u, 0x20u, 0x63u, 0x6fu, 0x6du, 0x62u,
+            0x6fu, 0x00u
+        };
+        static const uint8_t shape3_src[] = {
+            0x68u, 0x69u, 0x74u, 0x20u, 0x20u, 0x20u, 0x20u, 0x20u,
+            0x00u
+        };
+        size_t k = 0u;
+
+        for (k = 0u; k < sizeof(site_b_inline); ++k) {
+            rom[UINT32_C(0x00022e0c) + k] = site_b_inline[k];
+        }
+        for (k = 0u; k < 19u; ++k) {
+            rom[UINT32_C(0x00022978) + k] = 0x20u;
+        }
+        rom[UINT32_C(0x0002298a)] = 0x00u;
+        for (k = 0u; k < sizeof(shape3_src); ++k) {
+            rom[UINT32_C(0x00023d50) + k] = shape3_src[k];
+        }
+    }
     {
         static const uint8_t site_a_inline[] = {
             0x25u, 0x64u, 0x20u, 0x68u, 0x69u, 0x74u, 0x20u, 0x63u,
@@ -4314,6 +4339,14 @@ static void test_coli_225cc_long(void) {
                                 UINT32_C(0)) == VF2_OK);
     CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00503204),
                                 UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x8),
+                                UINT32_C(0x00002000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x700),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x804),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d8),
+                                UINT32_C(0)) == VF2_OK);
     vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
     cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
     cpu.registers[1] = UINT32_C(0x005ff580);
@@ -4321,14 +4354,50 @@ static void test_coli_225cc_long(void) {
     cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
     CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
                                        UINT32_C(0x00022240)) == VF2_OK);
-    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) ==
-          VF2_ERROR_UNSUPPORTED);
+    start_instructions = cpu.executed_instructions;
+    {
+        uint64_t start_calls = cpu.procedure_calls;
+        uint64_t start_rets = cpu.procedure_returns;
+
+        CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) == VF2_OK);
+        CHECK(cpu.ip == UINT32_C(0x00022240));
+        CHECK(cpu.executed_instructions - start_instructions ==
+              UINT64_C(883));
+        CHECK(cpu.procedure_calls - start_calls == UINT64_C(7));
+        CHECK(cpu.procedure_returns - start_rets == UINT64_C(8));
+    }
     CHECK(vf2_model2a_read_u32(
               &machine, fighter1 + UINT32_C(0x6d8), &cursor) == VF2_OK);
-    CHECK(cursor == UINT32_C(1));
+    /* Live-correct composite: byte0 from the cascade counter++,
+     * byte1 from the site-B prefix counter2 stob (both recorded). */
+    CHECK(cursor == UINT32_C(0x00000101));
     CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00503200),
                                &stored) == VF2_OK);
-    CHECK(stored == UINT32_C(0x0000006f));
+    CHECK(stored == UINT32_C(0x6d6f6320));
+    CHECK(vf2_model2a_read_u32(&machine, fighter1 + UINT32_C(0x6d9),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(1));
+    CHECK(vf2_model2a_read_u32(&machine, fighter1 + UINT32_C(0x198),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x0c0004ac));
+    CHECK(vf2_model2a_read_u32(&machine, fighter0 + UINT32_C(0x194),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x14000001));
+    CHECK(vf2_model2a_read_u32(&machine, fighter1 + UINT32_C(0x700),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(2));
+    CHECK(read_test_u16(&machine, fighter1 + UINT32_C(0x5de)) ==
+          UINT16_C(0xfff2));
+    /* Observer hex is LE bytes: trace "0c74dac8" = 0xC8DA740C. */
+    CHECK(vf2_model2a_read_u32(&machine, fighter1 + UINT32_C(0x5e4),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0xc8da740c));
+    CHECK(vf2_model2a_read_u32(&machine, fighter1 + UINT32_C(0x5e0),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0xc8da740c));
+    CHECK(vf2_model2a_read_u32(&machine, fighter1 + UINT32_C(0x5e8),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0xc8da740c));
 
     vf2_model2a_shutdown(&machine);
     free(rom);
