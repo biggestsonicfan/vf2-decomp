@@ -91,8 +91,10 @@ Site B keeps its own gate (prefix crosses the continuation).
 - Site-B wrapper wiring needs its caller prefix (through the
   continuation above); its helper path is already proven by the
   direct unit.
-- Sanitizer gate: `build-san` (clang-cl) cannot find CRT headers
-  pre-existing environment limitation, unrelated to this change.
-  Strict MSVC build (warnings-as-errors) + full ctest + both pins
-  green; the helper uses only established checked accessors and
-  bounded loops.
+- Sanitizer gate: PASSED 56/56 (`build-san`, clang-cl ASan).
+  Recipe (required on this Windows box — the shell has no CRT env
+  by default, so a bare `cmake --build build-san` fails even on
+  pristine files): run under the VS18 BuildTools env, i.e. `call
+  vcvars64.bat` from `…\VS\18\BuildTools\VC\Auxiliary\Build` plus
+  LLVM `bin` on `PATH` (ASan runtime), then the AGENTS.md
+  `build-san` configure/build/ctest commands verbatim.
