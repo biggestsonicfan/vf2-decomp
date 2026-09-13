@@ -673,6 +673,13 @@ join sites (probe 305). `g7+0x821=3` already works (probe 301).
 Board bit 9 clear on bit-14 hits `call 0x502a4` (correctly
 fail-closed). See `decomp/i960/notes/fa_coli_long_g7b22_v0338.md`.
 
+Coli campaign summary (v0330–v0338): all main `g8+0x1a4` flag
+bits (3/4/8/10/13/14/16/18/26), the diagnostic cascade, bit-13
+profundo alt tail, bit-13 sub-paths (`0x22744`/`0x22778`/`0x22794`/
+`0x227ac`/`0x227c4`), and `g7+0x1a4` bit 22 are native. Remaining:
+`0x22d8c` (needs `0x230d4` g0=5), `0x227dc` (type-5), `0x502a4`
+(board bit 9). See `decomp/i960/notes/fa_coli_campaign_final.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
