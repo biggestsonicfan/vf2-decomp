@@ -653,6 +653,11 @@ bit 3 set is the v0323 early-exit (12). `0x22744` and `0x22794`
 (bit 12 set) remain fail-closed (see
 `decomp/i960/notes/fa_coli_long_b13subpaths_v0334.md`).
 
+Status (v0335): `0x22794` scale transform is native (`r11>>=1`,
+`r9*=0.5`, `r8=1`, cascade at `0x22918`). Probe 263. `0x22744`
+(bit 3 + scan≠{2,5,6}) and `0x227dc` remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13_22794_v0335.md`).
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport

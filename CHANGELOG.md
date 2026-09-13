@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- fa_coli bit-13 `0x22794` scale (v0335): `+0x828` bit 12 set →
+  r11>>=1, r9*=0.5, r8=1, cascade at `0x22918`. PUNCH `320/320`,
+  input-17 `64/64` (v0335,
+  `decomp/i960/notes/fa_coli_long_b13_22794_v0335.md`);
+
 - fa_coli bit-13 sub-paths (v0334, measurement): scan 2/5/6 (310)
   and `+0x828` bit 9 clear (317) join the warm cascade; code
   implemented. Bit 13 + bit 3 = v0323 early-exit (12). PUNCH

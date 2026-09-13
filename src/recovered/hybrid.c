@@ -19958,6 +19958,7 @@ static vf2_status coli_225cc_long_body(
     uint32_t r8 = UINT32_C(2);
     uint32_t r11 = 0u;
     int skip_to_float = 0;
+    int cascade_r8_set = 0;
     uint32_t r10 = 0u;
     uint32_t r6 = 0u;
     uint32_t r4 = 0u;
@@ -20232,8 +20233,7 @@ static vf2_status coli_225cc_long_body(
                 }
                 if (scan821b == UINT8_C(2) || scan821b == UINT8_C(5) ||
                     scan821b == UINT8_C(6)) {
-                    /* v0334: scan 2/5/6 → 0x22738. Bit 12 clear →
-                     * warm cascade. Bit 12 set → 0x22794 unmeasured. */
+                    /* v0334: scan 2/5/6 → 0x22738. */
                     uint16_t half828s = 0u;
 
                     body += UINT64_C(2); /* ldob + cmpobe taken */
@@ -20244,10 +20244,22 @@ static vf2_status coli_225cc_long_body(
                     }
                     body += UINT64_C(1); /* ldos */
                     if ((half828s & (UINT16_C(1) << 12u)) != 0u) {
-                        return VF2_ERROR_UNSUPPORTED; /* 0x22794 */
+                        /* v0335: bit 12 set → 0x22794 scale. */
+                        body += UINT64_C(1); /* bbs 12 taken */
+                        r11 = r11 >> 1u;
+                        {
+                            float f9 = coli_bits_to_float(r9);
+                            f9 = f9 * 0.5f;
+                            memcpy(&r9, &f9, sizeof(r9));
+                        }
+                        r8 = 1u;
+                        body += UINT64_C(4); /* shro + lda + mulr + mov */
+                        body += UINT64_C(1); /* b 0x22918 */
+                        cascade_r8_set = 1;
+                    } else {
+                        body += UINT64_C(1); /* bbs 12 nt */
+                        body += UINT64_C(1); /* b 0x22914 */
                     }
-                    body += UINT64_C(1); /* bbs 12 nt */
-                    body += UINT64_C(1); /* b 0x22914 */
                     /* Fall through to cascade (skip_to_float stays 0). */
                 } else {
                 body += UINT64_C(6); /* 3× (ldob + cmpobe nt) */
@@ -20257,8 +20269,7 @@ static vf2_status coli_225cc_long_body(
                 }
                 body += UINT64_C(1); /* ldos */
                 if ((half828 & (UINT16_C(1) << 9u)) != 0u) {
-                    /* v0334: bit 9 set → check bit 12. Clear → warm
-                     * cascade. Set → 0x22794 unmeasured. */
+                    /* v0334: bit 9 set → check bit 12. */
                     body += UINT64_C(1); /* bbc 9 not taken */
                     if (hybrid_read_u16(
                             machine, g7 + UINT32_C(0x828), &half828) !=
@@ -20267,10 +20278,22 @@ static vf2_status coli_225cc_long_body(
                     }
                     body += UINT64_C(1); /* ldos */
                     if ((half828 & (UINT16_C(1) << 12u)) != 0u) {
-                        return VF2_ERROR_UNSUPPORTED; /* 0x22794 */
+                        /* v0335: bit 12 set → 0x22794 scale. */
+                        body += UINT64_C(1); /* bbs 12 taken */
+                        r11 = r11 >> 1u;
+                        {
+                            float f9 = coli_bits_to_float(r9);
+                            f9 = f9 * 0.5f;
+                            memcpy(&r9, &f9, sizeof(r9));
+                        }
+                        r8 = 1u;
+                        body += UINT64_C(4); /* shro + lda + mulr + mov */
+                        body += UINT64_C(1); /* b 0x22918 */
+                        cascade_r8_set = 1;
+                    } else {
+                        body += UINT64_C(1); /* bbs 12 nt */
+                        body += UINT64_C(1); /* b 0x22914 */
                     }
-                    body += UINT64_C(1); /* bbs 12 nt */
-                    body += UINT64_C(1); /* b 0x22914 */
                     /* Fall through to cascade (skip_to_float stays 0). */
                 } else {
                 body += UINT64_C(1); /* bbc 9 taken → 0x22808 */
@@ -20475,8 +20498,10 @@ static vf2_status coli_225cc_long_body(
         uint16_t half = 0u;
         uint32_t mask = 0u;
 
-        body += UINT64_C(1); /* mov 2, r8 */
-        r8 = UINT32_C(2);
+        if (!cascade_r8_set) {
+            body += UINT64_C(1); /* mov 2, r8 */
+            r8 = UINT32_C(2);
+        }
         if (hybrid_read_u8(
                 machine, g8 + UINT32_C(0x6d8), &cursor) != VF2_OK) {
             return VF2_ERROR_UNSUPPORTED;
