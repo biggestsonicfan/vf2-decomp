@@ -71,18 +71,27 @@ exact `ip`, +2/+2 calls/rets, exact store words, plus a negative
 control (classification byte forced to `0x64` takes the `0x503b4`
 call edge → `UNSUPPORTED`).
 
+## Wired (v0344-C): site-A wrapper path
+
+Wrapper gate admits scan-1 + bit-13-clear + bit-3-clear + no15/16
++ board-clear into `long_body` (extra board read fires solely on
+the newly-admitted path, `v0340` precedent). The shared prefix
+needed no new work (bit-3/bit-13-clear edges already native from
+`v0314`/`v0343`). At the cascade `bbs-9`-nt edge the site runs
+the prefix + helper and fail-closes past bx-out (`0x22960`
+target-checked) with the helper's stores applied. Wrapper unit
+(L1 setup with bit flips + planted inline bytes): `UNSUPPORTED`
+status, `+0x6d8` counter = 1, copy bytes `6f 00` at `0x503200`.
+Site B keeps its own gate (prefix crosses the continuation).
+
 ## Queued (not this slice)
 
-- Wrapper wiring (site-A `bbs-9`-nt edge + prefix + helper call +
-  target check + fail-closed-after) needs the shared-prefix path
-  for scan-1+bit13-clear verified first (unmeasured today), plus a
-  wrapper gate clause (scan1 + bit13-clear + bit3-clear + no15/16
-  + board-clear, with the `v0340`-style extra board read).
 - The `0x22960+`/`0x22e20+` continuation (`call 0x7fc0`,
-  `cmpobne`, `balx 0x9444`, …) is the actual next frontier; wire
-  the helper together with it so no half-bridge ships.
+  `cmpobne`, `balx 0x9444`, …) is the actual next frontier.
+- Site-B wrapper wiring needs its caller prefix (through the
+  continuation above); its helper path is already proven by the
+  direct unit.
 - Sanitizer gate: `build-san` (clang-cl) cannot find CRT headers
-  (`string.h`/`stdlib.h`/`ctype.h`) on pristine untouched files —
   pre-existing environment limitation, unrelated to this change.
   Strict MSVC build (warnings-as-errors) + full ctest + both pins
   green; the helper uses only established checked accessors and

@@ -4238,6 +4238,98 @@ static void test_coli_225cc_long(void) {
     CHECK(read_test_u16(&machine, fighter1 + UINT32_C(0x5de)) ==
           UINT16_C(0x0006));
 
+    /* v0344-C site A: bit-13-clear + bit-3-clear + scan 1 +
+     * board-clear (f1+0x1a4 = 0x4000, board 0x8800) reaches the
+     * 0x22948 balx; the helper runs to bx-out 0x22960 but the
+     * 0x22960+ continuation is unrecovered, so the wrapper stays
+     * fail-closed with the helper's stores applied. L1 setup
+     * replicated with the bit flips; ROM inline bytes planted. */
+    {
+        static const uint8_t site_a_inline[] = {
+            0x25u, 0x64u, 0x20u, 0x68u, 0x69u, 0x74u, 0x20u, 0x63u,
+            0x6fu, 0x6du, 0x62u, 0x6fu, 0x00u
+        };
+        size_t k = 0u;
+
+        for (k = 0u; k < sizeof(site_a_inline); ++k) {
+            rom[UINT32_C(0x00022950) + k] = site_a_inline[k];
+        }
+    }
+    CHECK(vf2_model2a_write_u32(
+              &machine, fighter0 + UINT32_C(0x1a4),
+              UINT32_C(0x00010000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x1a4),
+                                UINT32_C(0x00004000)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x844),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x848),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x821),
+                            (const uint8_t *)"\x01", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x822),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x820),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x823),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x828),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x843),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x1224),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter0 + UINT32_C(0x1234),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x26),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x82a),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter0 + UINT32_C(0x1b0),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter1 + UINT32_C(0x19f),
+                            (const uint8_t *)"\x00", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, fighter1 + UINT32_C(0x1ac),
+                            (const uint8_t *)"\x00\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x5b8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x5d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d4),
+                                UINT32_C(0x0000ffff)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x6d8),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, fighter1 + UINT32_C(0x700),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500068),
+                                UINT32_C(0x00440080)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00508000),
+                                UINT32_C(0x00008800)) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050a0b4),
+                            (const uint8_t *)"\x36\x00", 2u) == VF2_OK);
+    CHECK(vf2_model2a_write(&machine, UINT32_C(0x0050a16e),
+                            (const uint8_t *)"\x01", 1u) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00500028),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00503200),
+                                UINT32_C(0)) == VF2_OK);
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00503204),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x000225cc));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER + 7u] = fighter0;
+    cpu.registers[VF2_I960_G0_REGISTER + 8u] = fighter1;
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x000225cc),
+                                       UINT32_C(0x00022240)) == VF2_OK);
+    CHECK(vf2_hybrid_coli_225cc_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+    CHECK(vf2_model2a_read_u32(
+              &machine, fighter1 + UINT32_C(0x6d8), &cursor) == VF2_OK);
+    CHECK(cursor == UINT32_C(1));
+    CHECK(vf2_model2a_read_u32(&machine, UINT32_C(0x00503200),
+                               &stored) == VF2_OK);
+    CHECK(stored == UINT32_C(0x0000006f));
+
     vf2_model2a_shutdown(&machine);
     free(rom);
     free(main_data);

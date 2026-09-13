@@ -19319,10 +19319,40 @@ static vf2_status coli_225cc_body(
         return VF2_ERROR_UNSUPPORTED;
     }
     if ((flags_g8 & (UINT32_C(1) << 3u)) == 0u) {
-        /* Bit 3 clear: scan!=0 still fails closed (only the measured
-         * v0340 bit-13+bit-3 scan-1 shape below is admitted). */
+        /* Bit 3 clear: scan!=0 still fails closed, except the measured
+         * v0340 bit-13+bit-3 scan-1 shape below and the measured
+         * v0344-C bit-13-clear scan-1 board-clear shape (site-A balx
+         * drive: bit 14 set, board bit 9 clear). The extra board read
+         * fires solely on this newly-admitted path. */
         if (scan_byte != 0u) {
-            return VF2_ERROR_UNSUPPORTED;
+            uint32_t board_c = 0u;
+
+            if (scan_byte != UINT8_C(1) ||
+                (flags_g8 & (UINT32_C(1) << 13u)) != 0u ||
+                (flags_g8 &
+                 ((UINT32_C(1) << 15u) | (UINT32_C(1) << 16u))) != 0u ||
+                vf2_model2a_read_u32(
+                    machine, UINT32_C(0x00508000), &board_c) != VF2_OK ||
+                (board_c & (UINT32_C(1) << 9u)) != 0u) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            {
+                uint64_t long_body = 0u;
+
+                /* Prefix already executed: counter++ (3) + type (2). */
+                if (coli_225cc_long_body(machine, g7, g8, &long_body) !=
+                    VF2_OK) {
+                    return VF2_ERROR_UNSUPPORTED;
+                }
+                if (calls_out != NULL) {
+                    *calls_out = UINT64_C(4);
+                }
+                if (rets_out != NULL) {
+                    *rets_out = UINT64_C(4);
+                }
+                *body_out = UINT64_C(5) + long_body;
+                return VF2_OK;
+            }
         }
         uint64_t long_body = 0u;
         /* Prefix already executed: counter++ (3) + type check (2). */
@@ -21270,6 +21300,34 @@ bit13_skip:
         }
         body += UINT64_C(1);
         if ((board & (UINT32_C(1) << 9u)) == 0u) {
+            /* v0344-C site A: board bit 9 clear falls through at
+             * 0x2292c to the 0x22948 balx (link 0x22950). Prefix sets
+             * g9 = 0x010007de (dead: clobbered at 0x502c8 before any
+             * read), g1 = 0x00503200, r15 = 1; the st r3,(sp) store
+             * hits the untracked stack slot (counted, effect omitted
+             * per the helper note). The helper runs the full
+             * balx-to-bx subtree; the 0x22960+ continuation
+             * (call 0x7fc0, …) is unrecovered, so this stays
+             * fail-closed past bx-out with the helper's stores
+             * applied. Site B (0x22e04) keeps its own gate below. */
+            uint64_t site_body = 0u;
+            uint32_t site_g0 = 0u;
+            uint32_t site_g1 = 0u;
+            uint32_t site_g2 = 0u;
+            uint32_t site_ip = 0u;
+
+            body += UINT64_C(6); /* bbs-nt + lda + lda + st + mov + balx */
+            if (coli_502a4_body(
+                    machine,
+                    UINT32_C(0x00022950),
+                    UINT32_C(1),
+                    UINT32_C(0x00503200),
+                    &site_body, &site_g0, &site_g1, &site_g2,
+                    &site_ip) != VF2_OK ||
+                site_ip != UINT32_C(0x00022960)) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            body += site_body;
             return VF2_ERROR_UNSUPPORTED;
         }
         body += UINT64_C(1); /* bbs 9 taken */

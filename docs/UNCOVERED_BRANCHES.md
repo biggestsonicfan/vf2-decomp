@@ -738,14 +738,16 @@ shapes cover the whole admitted gate (only `+0x828` bits 12/13
 are tested downstream).
 See `decomp/i960/notes/fa_coli_22744_leaves_v0343.md`.
 
-Status (v0344-B, helper): `coli_502a4_body` +
+Status (v0344-B/C, helper + site-A wiring): `coli_502a4_body` +
 `vf2_hybrid_coli_502a4_execute` recover the full balx-to-bx subtree
 natively for both sites (direct unit: exact 140/170-step deltas,
 exit regs, stores, bx-out `0x22960`/`0x22e20`, fail-closed
-classification control). Wrapper gates UNCHANGED: both balx sites
-still fail closed there; wiring is queued behind shared-prefix
-verification (scan-1+bit13-clear) and the `0x22960+` continuation
-(`call 0x7fc0`, `balx 0x9444`, …). See
+classification control). The wrapper admits scan-1 + bit-13-clear
++ bit-3-clear + board-clear and runs the helper at the cascade
+`bbs-9`-nt edge, fail-closing past bx-out with stores applied
+(wrapper unit: `UNSUPPORTED` + counter + copy bytes). Site B keeps
+its gate (prefix crosses the continuation). Next: the `0x22960+`
+continuation (`call 0x7fc0`, `balx 0x9444`, …). See
 `decomp/i960/notes/fa_coli_502a4_v0344B.md`.
 
 Status (v0344-A, executor): `dmovt` reg-reg is implemented
