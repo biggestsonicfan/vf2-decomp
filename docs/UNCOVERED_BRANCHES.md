@@ -750,6 +750,15 @@ its gate (prefix crosses the continuation). Next: the `0x22960+`
 continuation (`call 0x7fc0`, `balx 0x9444`, …). See
 `decomp/i960/notes/fa_coli_502a4_v0344B.md`.
 
+Status (v0345-A, leaf): `coli_7fc0_body` +
+`vf2_hybrid_coli_7fc0_execute` recover the byte-expand leaf called
+from all three `0x22960+` continuation sites (direct unit: exact
+16/152/72-step deltas, return IPs, stores, guard control).
+Unwired; `shlo` operand order settled (`operands[1]<<operands[0]`)
+with a clean class audit. Next: `0x9444`/`0x9450` inline spans +
+site-B prefix wiring. See
+`decomp/i960/notes/fa_coli_7fc0_v0345A.md`.
+
 Status (v0344-A, executor): `dmovt` reg-reg is implemented
 (exact `0x508d4` word + derived pair-copy unit, flag-neutral)
 and `mulo` sticky-sets `OVERFLOW` on unsigned overflow, which

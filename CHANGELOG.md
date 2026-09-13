@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Native `0x7fc0` byte-expand leaf (v0345-A): `coli_7fc0_body` +
+  `vf2_hybrid_coli_7fc0_execute` recover the NUL-terminated
+  byte-copy/or/store loop called from all three continuation
+  sites. Direct unit proves exact step deltas (16/152/72), return
+  IPs, stores and a guard control. Unwired; also settles the
+  `shlo` operand order (`operands[1]<<operands[0]`) with a class
+  audit of every shift modeling (all correct).
+
 - Native `0x502a4` digit-parse helper (v0344-B) plus site-A
   wrapper wiring (v0344-C): `coli_502a4_body` +
   `vf2_hybrid_coli_502a4_execute` recover the balx-to-bx subtree

@@ -4457,6 +4457,141 @@ static void test_coli_502a4(void) {
     free(main_data);
 }
 
+/* v0345-A: 0x7fc0 byte-expand leaf (three call sites, direct unit).
+ * Shape 1: src "o\\0" (2 iters, 16 steps, 1 store). Shape 2: 19x
+ * 0x20 + NUL (19 iters, 152 steps, 18 stores). Shape 3: "hit     \\0"
+ * (9 iters, 72 steps, 8 stores). Plus empty-string (8 steps, no
+ * store) and a 300-byte no-NUL guard control (fail-closed). */
+static void test_coli_7fc0(void) {
+    static const uint8_t shape3_src[] = {
+        0x68u, 0x69u, 0x74u, 0x20u, 0x20u, 0x20u, 0x20u, 0x20u, 0x00u
+    };
+    uint8_t *rom = NULL;
+    uint8_t *main_data = NULL;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    uint64_t start_instructions = 0u;
+    uint64_t start_calls = 0u;
+    uint64_t start_returns = 0u;
+    size_t k = 0u;
+
+    CHECK((rom = (uint8_t *)calloc(1u, VF2_MAIN_ROM_SIZE)) != NULL);
+    CHECK((main_data = (uint8_t *)calloc(1u, UINT32_C(0x00020000))) !=
+          NULL);
+    CHECK(vf2_model2a_initialize(&machine));
+    if (rom == NULL || main_data == NULL || machine.work_ram == NULL) {
+        free(rom);
+        free(main_data);
+        return;
+    }
+    CHECK(vf2_model2a_attach_main_rom(&machine, rom, VF2_MAIN_ROM_SIZE) ==
+          VF2_OK);
+    CHECK(vf2_model2a_attach_main_data(&machine, main_data,
+                                       UINT32_C(0x00020000)) == VF2_OK);
+    for (k = 0u; k < 19u; ++k) {
+        rom[UINT32_C(0x00022978) + k] = 0x20u;
+    }
+    rom[UINT32_C(0x0002298a)] = 0x00u;
+    for (k = 0u; k < sizeof(shape3_src); ++k) {
+        rom[UINT32_C(0x00023d50) + k] = shape3_src[k];
+    }
+    for (k = 0u; k < 300u; ++k) {
+        rom[UINT32_C(0x00023000) + k] = 0x20u;
+    }
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00503200),
+                                UINT32_C(0x0000006f)) == VF2_OK);
+
+    /* Shape 1: site-A post-copy bytes, table 0x010007de. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00007fc0));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x00503200);
+    cpu.registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x010007de);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00007fc0),
+                                       UINT32_C(0x00022964)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_7fc0_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022964));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(16));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(0));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(read_test_u16(&machine, UINT32_C(0x010007de)) ==
+          UINT16_C(0x806f));
+
+    /* Shape 2: 0x9444 link data, table 0x0100085e. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00007fc0));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x00022978);
+    cpu.registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x0100085e);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00007fc0),
+                                       UINT32_C(0x00009450)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_7fc0_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00009450));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(152));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(0));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(read_test_u16(&machine, UINT32_C(0x0100085e)) ==
+          UINT16_C(0x8020));
+    CHECK(read_test_u16(&machine, UINT32_C(0x01000880)) ==
+          UINT16_C(0x8020));
+
+    /* Shape 3: 0x23d50 table bytes, table 0x010006e8. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00007fc0));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x00023d50);
+    cpu.registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x010006e8);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00007fc0),
+                                       UINT32_C(0x00022bd8)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    start_calls = cpu.procedure_calls;
+    start_returns = cpu.procedure_returns;
+    CHECK(vf2_hybrid_coli_7fc0_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.ip == UINT32_C(0x00022bd8));
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(72));
+    CHECK(cpu.procedure_calls - start_calls == UINT64_C(0));
+    CHECK(cpu.procedure_returns - start_returns == UINT64_C(1));
+    CHECK(read_test_u16(&machine, UINT32_C(0x010006e8)) ==
+          UINT16_C(0x8068));
+    CHECK(read_test_u16(&machine, UINT32_C(0x010006f6)) ==
+          UINT16_C(0x8020));
+
+    /* Empty string: NUL first byte, 8 steps, no store. */
+    CHECK(vf2_model2a_write_u32(&machine, UINT32_C(0x00503200),
+                                UINT32_C(0)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00007fc0));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x00503200);
+    cpu.registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x010007de);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00007fc0),
+                                       UINT32_C(0x00022964)) == VF2_OK);
+    start_instructions = cpu.executed_instructions;
+    CHECK(vf2_hybrid_coli_7fc0_execute(&machine, &cpu) == VF2_OK);
+    CHECK(cpu.executed_instructions - start_instructions == UINT64_C(8));
+
+    /* Guard control: 300 non-NUL bytes never terminate. */
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00007fc0));
+    cpu.registers[VF2_I960_FP_REGISTER] = UINT32_C(0x005ff500);
+    cpu.registers[1] = UINT32_C(0x005ff580);
+    cpu.registers[VF2_I960_G0_REGISTER] = UINT32_C(0x00023000);
+    cpu.registers[VF2_I960_G0_REGISTER + 9u] = UINT32_C(0x010007de);
+    CHECK(vf2_i960_cpu_enter_procedure(&cpu, UINT32_C(0x00007fc0),
+                                       UINT32_C(0x00022964)) == VF2_OK);
+    CHECK(vf2_hybrid_coli_7fc0_execute(&machine, &cpu) ==
+          VF2_ERROR_UNSUPPORTED);
+
+    vf2_model2a_shutdown(&machine);
+    free(rom);
+    free(main_data);
+}
+
 /* v0316: 0x225cc type-22 shortcut through 0x18bd4 (first-hit type 5). */
 static void test_coli_225cc_type22(void) {
     uint8_t *rom = NULL;
@@ -6282,6 +6417,7 @@ int main(void) {
     test_coli_23238_early_out();
     test_coli_230d4_bit26();
     test_coli_502a4();
+    test_coli_7fc0();
     test_coli_225cc_long();
     test_coli_225cc_type22();
     test_coli_1ab34_walk();

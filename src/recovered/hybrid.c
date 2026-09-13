@@ -57,6 +57,7 @@
 #define VF2_COLI_18BD4_ENTRY UINT32_C(0x00018bd4)
 #define VF2_COLI_18B58_ENTRY UINT32_C(0x00018b58)
 #define VF2_COLI_502A4_ENTRY UINT32_C(0x000502a4)
+#define VF2_COLI_7FC0_ENTRY UINT32_C(0x00007fc0)
 #define VF2_COLI_LONG_FIFO UINT32_C(0x00884000)
 #define VF2_COLI_BITREMAP_ENTRY UINT32_C(0x00023878)
 #define VF2_COLI_BITREMAP_TABLE UINT32_C(0x02007b76)
@@ -19741,6 +19742,103 @@ vf2_status vf2_hybrid_coli_502a4_execute(
     cpu->procedure_calls += UINT64_C(2);
     cpu->procedure_returns += UINT64_C(2);
     return VF2_OK;
+}
+
+/* Body-only 0x7fc0 byte-expand leaf (v0345-A). Called from three
+ * coli sites; copies NUL-terminated bytes from (g0), ORs each with
+ * 0x8000 (ROM `shlo 15, 1` = 1<<15: executor computes
+ * operands[1]<<operands[0], consistent with the `shlo 2, 25` = 100
+ * proven in v0344-B) and stores shorts to (g9)+=2.
+ *
+ * Measured shapes: 2 iters (site-A post-copy, 16 steps), 19 iters
+ * (0x9444 link data, 152 steps), 9 iters (0x23d50 table, 72 steps).
+ * r3/r4 are callee-frame locals (die at ret); g0/g9 pass through
+ * untouched, so the only outs are body + stores. Both `be` edges
+ * measured; the loop carries a guard (exceed → fail-closed).
+ */
+static vf2_status coli_7fc0_body(
+    vf2_model2a *machine,
+    uint32_t g0_in,
+    uint32_t g9_in,
+    uint64_t *body_out
+)
+{
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint64_t body = 0u;
+    int guard = 0;
+
+    if (machine == NULL || body_out == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    r3 = g0_in;
+    body += UINT64_C(1); /* mov g0,r3 */
+    r4 = g9_in;
+    body += UINT64_C(1); /* mov g9,r4 */
+    r5 = UINT32_C(1) << 15u;
+    body += UINT64_C(1); /* shlo 15,1,r5 */
+
+    for (guard = 0; guard < 256; ++guard) {
+        uint8_t byte = 0u;
+
+        if (hybrid_read_u8(machine, r3, &byte) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        r6 = byte;
+        body += UINT64_C(1); /* ldib */
+        r3 += 1u;
+        body += UINT64_C(1); /* addi */
+        body += UINT64_C(1); /* cmpi r6,0 */
+        if (r6 == 0u) {
+            body += UINT64_C(1); /* be taken → 0x7fec */
+            break;
+        }
+        body += UINT64_C(1); /* be not taken */
+        r6 |= r5;
+        body += UINT64_C(1); /* or */
+        if (hybrid_write_u16(machine, r4, (uint16_t)r6) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        body += UINT64_C(1); /* stis */
+        r4 += UINT32_C(2);
+        body += UINT64_C(1); /* addi */
+        body += UINT64_C(1); /* b */
+    }
+    if (guard >= 256) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* The ret itself is counted by hybrid_complete_procedure (which
+     * also tallies the return); body ends at the be-taken edge. */
+    *body_out = body;
+    return VF2_OK;
+}
+
+/* Recover the measured byte-expand leaf at 0x7fc0 (v0345-A). Real
+ * call/ret callee: the CPU must already be inside the caller frame
+ * (depth >= 1); completion pops the frame to the return address. */
+vf2_status vf2_hybrid_coli_7fc0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint64_t body = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != VF2_COLI_7FC0_ENTRY ||
+        cpu->local_frame_depth == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (coli_7fc0_body(
+            machine,
+            cpu->registers[VF2_I960_G0_REGISTER],
+            cpu->registers[VF2_I960_G0_REGISTER + 9u],
+            &body) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    return hybrid_complete_procedure(
+        machine, cpu, body, UINT64_C(0), UINT64_C(0));
 }
 
 /* Body-only 0x23238 (v0310/v0313). Does not complete the CPU frame. */

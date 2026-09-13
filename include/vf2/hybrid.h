@@ -376,6 +376,14 @@ vf2_status vf2_hybrid_coli_502a4_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover the measured byte-expand leaf at 0x7fc0 (v0345-A). Real
+ * call/ret callee: the CPU must already be inside the caller frame
+ * (depth >= 1); completion pops the frame to the return address. */
+vf2_status vf2_hybrid_coli_7fc0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover the measured fa_coli resolver at 0x225cc (v0304 compact
  * bit-3 sibling; v0314 long body). */
 vf2_status vf2_hybrid_coli_225cc_execute(
