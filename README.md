@@ -1,5 +1,7 @@
 # vf2-decomp
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/L4L11VB7JN)
+
 Clean-room, non-matching C17 decompilation research project for **Virtua Fighter 2 Version 2.1** on Sega Model 2A.
 
 The goal is to recover the original game/runtime behavior into portable, readable C while continuously validating the recovered implementation against the original Intel i960 program.
