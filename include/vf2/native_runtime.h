@@ -74,7 +74,8 @@ typedef enum vf2_native_runtime_step_kind {
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_COPRO_INIT,
     VF2_NATIVE_RUNTIME_STEP_POST_BOOT_DELAY,
     VF2_NATIVE_RUNTIME_STEP_SCHEDULER_EPILOGUE,
-    VF2_NATIVE_RUNTIME_STEP_SCHEDULER_SCAN
+    VF2_NATIVE_RUNTIME_STEP_SCHEDULER_SCAN,
+    VF2_NATIVE_RUNTIME_STEP_OBJECT_SERVICE
 } vf2_native_runtime_step_kind;
 
 typedef struct vf2_native_runtime_state {
@@ -166,6 +167,9 @@ vf2_status vf2_native_runtime_state_write_file(const vf2_native_runtime_state *s
 vf2_status vf2_native_runtime_state_read_file(vf2_native_runtime_state *state,
                                               const char *path);
 
+#ifdef vf2_native_runtime_step_impl
+#define vf2_native_runtime_step_kind_name vf2_native_runtime_step_kind_name_base
+#endif
 const char *vf2_native_runtime_step_kind_name(vf2_native_runtime_step_kind kind);
 
 #endif

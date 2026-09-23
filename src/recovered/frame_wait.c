@@ -118,10 +118,29 @@ vf2_status vf2_hybrid_frame_wait_execute(
             }
             cpu->registers[4] = frame_byte;
             cpu->executed_instructions += UINT64_C(2);
-            repeats = frame_byte > UINT8_C(2);
+            if (UINT8_C(2) < frame_byte) {
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(4);
+                cpu->compare_result = VF2_I960_COMPARE_LESS;
+            } else if (UINT8_C(2) > frame_byte) {
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(1);
+                cpu->compare_result = VF2_I960_COMPARE_GREATER;
+            } else {
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) | UINT32_C(2);
+                cpu->compare_result = VF2_I960_COMPARE_EQUAL;
+            }
+            repeats = frame_byte < UINT8_C(2);
             if (!repeats) {
                 ++cpu->executed_instructions;
                 repeats = (frame_byte & UINT8_C(1)) != 0u;
+                cpu->arithmetic_control =
+                    (cpu->arithmetic_control & ~UINT32_C(7)) |
+                    (repeats ? UINT32_C(2) : UINT32_C(0));
+                cpu->compare_result = repeats
+                    ? VF2_I960_COMPARE_EQUAL
+                    : VF2_I960_COMPARE_NONE;
             }
             if (!repeats) {
                 const uint8_t zero = 0u;
@@ -157,6 +176,32 @@ vf2_status vf2_hybrid_frame_wait_execute(
     } else if (entry == UINT32_C(0x00010f90)) {
         uint8_t frame_byte = 0u;
         vf2_hybrid_frame_wait_report wait_report;
+        size_t phase_seed = 0u;
+        uint32_t phase_flags = 0u;
+        uint32_t phase_global20 = 0u;
+
+        /* CPU/machine snapshots do not serialize the host frame scheduler
+         * phase.  Reconstruct the measured one-poll offset only for the
+         * proven recurring game-disp resume family.  Balanced IRQ counters
+         * alone also occur during ordinary continuous dispatches and must not
+         * alter their four-visit VBlank phase. */
+        if (state->visits == 0u && state->interrupts_injected == 0u &&
+            cpu->interrupt_entries != 0u &&
+            cpu->interrupt_entries == cpu->interrupt_returns &&
+            vf2_model2a_read_u32(
+                machine, UINT32_C(0x00515b00), &phase_flags
+            ) == VF2_OK &&
+            (phase_flags == UINT32_C(0x80000040) ||
+             phase_flags == UINT32_C(0x80000080) ||
+             phase_flags == UINT32_C(0x800000c0)) &&
+            vf2_model2a_read_u32(
+                machine, UINT32_C(0x00500020), &phase_global20
+            ) == VF2_OK &&
+            phase_global20 >= UINT32_C(7) &&
+            phase_global20 <= UINT32_C(501)) {
+            phase_seed = 1u;
+            state->visits = phase_seed;
+        }
 
         status = vf2_model2a_read(
             machine, UINT32_C(0x00500000), &frame_byte, sizeof(frame_byte)
@@ -202,7 +247,8 @@ vf2_status vf2_hybrid_frame_wait_execute(
         }
 
         local_report.kind = VF2_HYBRID_BRIDGE_FRAME_WAIT_POLL;
-        local_report.iterations = state->visits_before_interrupt;
+        local_report.iterations =
+            state->visits_before_interrupt - phase_seed;
     } else if (entry == UINT32_C(0x00000d20)) {
         uint8_t frame_byte = 0u;
         vf2_hybrid_frame_wait_report wait_report;

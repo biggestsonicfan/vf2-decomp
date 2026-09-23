@@ -114,6 +114,7 @@ class FunctionTable:
 
 CALL_MNEMONICS = {"call", "callx", "bal", "balx"}
 
+
 class EdgeRecord:
     __slots__ = (
         "witnesses",
@@ -173,7 +174,7 @@ class Frontier:
                     self.address_executions[ip_before] += 1
                     if mnemonic in CALL_MNEMONICS:
                         record_edge.call_hits += 1
-                        self.call_targets[ip_before] += 1
+                        self.call_targets[ip_after] += 1
                         stats["call_edges"] += 1
                     stats["steps"] += 1
                     hits = pending_memory.pop(parse_int(record["step"]), None)
@@ -358,6 +359,44 @@ class Frontier:
         items = self.call_targets.most_common(limit)
         return [{"address": hex32(addr), "count": count} for addr, count in items]
 
+    def rank_call_edges(
+        self,
+        functions: Optional["FunctionTable"],
+        limit: int,
+    ) -> List[dict]:
+        """Rank measured call/bal edges with target-function attribution."""
+        ranked: List[dict] = []
+        for (source, target), record in self.edges.items():
+            if record.call_hits <= 0:
+                continue
+            source_fn = functions.lookup(source) if functions else (None, None, None)
+            target_fn = functions.lookup(target) if functions else (None, None, None)
+            source_native = (source_fn[2] or "") in RECOVERED_STATUSES
+            target_native = (target_fn[2] or "") in RECOVERED_STATUSES
+            score = (
+                record.call_hits * 4
+                + record.witnesses * 2
+                + record.halted_unsupported * 16
+                + (12 if source_native != target_native else 0)
+                + (0 if target_native else 6)
+            )
+            ranked.append(
+                {
+                    "from": hex32(source),
+                    "to": hex32(target),
+                    "call_hits": record.call_hits,
+                    "witnesses": record.witnesses,
+                    "from_function": source_fn[1],
+                    "from_status": source_fn[2],
+                    "to_function": target_fn[1],
+                    "to_status": target_fn[2],
+                    "crosses_boundary": source_native != target_native,
+                    "score": score,
+                }
+            )
+        ranked.sort(key=lambda item: (-item["score"], item["from"], item["to"]))
+        return ranked[:limit]
+
 
 def _boundary_distance(
     source_fn: Tuple[Optional[int], Optional[str], Optional[str]],
@@ -404,6 +443,8 @@ def classify_input(path: Path) -> Optional[str]:
             return "trace"
         if "new_edges" in record or "inputs" in record:
             return "corpus"
+        if "outcome" in record:
+            return "sweep"
         return None
     return None
 
@@ -618,9 +659,21 @@ def main() -> int:
                     output.write(f"  {item['address']}  R:{item['reads']} W:{item['writes']} total:{item['total']}\n")
             call_top = frontier.top_call_targets(8)
             if call_top:
-                output.write("\ncall-source IPs:\n")
+                output.write("\ncall-target IPs:\n")
                 for item in call_top:
                     output.write(f"  {item['address']}  x{item['count']}\n")
+            call_edges = frontier.rank_call_edges(functions, 12)
+            if call_edges:
+                output.write("\ncall edges (source -> target):\n")
+                for item in call_edges:
+                    where = item["from_function"] or "?"
+                    target = item["to_function"] or "?"
+                    tstatus = item["to_status"] or "unknown"
+                    mark = " *" if item["crosses_boundary"] else ""
+                    output.write(
+                        f"  {item['from']}->{item['to']}  x{item['call_hits']}  "
+                        f"{where} -> {target}({tstatus}){mark}\n"
+                    )
     finally:
         if output is not sys.stdout:
             output.close()

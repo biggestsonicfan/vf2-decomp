@@ -667,6 +667,34 @@ static vf2_status execute_instruction(
         }
         return VF2_OK;
     }
+    if (strcmp(mnemonic, "dmovt") == 0) {
+        /* v0344: measured at fa_coli 0x508d4 as dmovt r3, r3
+         * (word 0x64181203) inside the 0x502a4 subtree. Double-word
+         * register copy like movl; no compare-state effects (mirrors
+         * mov/movt/movl/movq). Only the register-to-register form is
+         * admitted; anything else stays fail-closed. Trace-fault
+         * machinery does not exist in this executor and the measured
+         * path observes no trace event. */
+        if (instruction->operands[0].kind != VF2_I960_OPERAND_REGISTER ||
+            instruction->operands[1].kind != VF2_I960_OPERAND_REGISTER) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        {
+            size_t dm_index = 0u;
+            uint8_t dm_source = instruction->operands[0].value.reg;
+            uint8_t dm_destination = instruction->operands[1].value.reg;
+
+            if ((size_t)dm_source + 2u > VF2_I960_REGISTER_COUNT ||
+                (size_t)dm_destination + 2u > VF2_I960_REGISTER_COUNT) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            for (dm_index = 0u; dm_index < 2u; ++dm_index) {
+                cpu->registers[dm_destination + dm_index] =
+                    cpu->registers[dm_source + dm_index];
+            }
+        }
+        return VF2_OK;
+    }
     if (strcmp(mnemonic, "addo") == 0 || strcmp(mnemonic, "addi") == 0 ||
         strcmp(mnemonic, "subo") == 0 || strcmp(mnemonic, "subi") == 0 ||
         strcmp(mnemonic, "and") == 0 || strcmp(mnemonic, "andnot") == 0 ||
@@ -851,6 +879,23 @@ static vf2_status execute_instruction(
             return status;
         }
         address = first * second;
+        if (strcmp(mnemonic, "mulo") == 0) {
+            /* v0344: the fa_coli 0x502a4 digit loop (0x508dc) can only
+             * terminate via the following bo, which reads the overflow
+             * latch — but no in-loop instruction sets it, so the oracle
+             * spins forever while hardware exits on the mulo overflow.
+             * Sticky-set OVERFLOW when the true unsigned product does
+             * not fit 32 bits; otherwise leave the latch alone (smallest
+             * blast radius: existing paths with non-overflowing mulos
+             * are bit-identical). muli intentionally untouched.
+             * Assumption grade: architecture-inferred, pins-validated
+             * (see note); re-scope if any pin moves. */
+            uint64_t wide = (uint64_t)first * (uint64_t)second;
+
+            if (wide > (uint64_t)UINT32_MAX) {
+                cpu->compare_result = VF2_I960_COMPARE_OVERFLOW;
+            }
+        }
         return set_register(cpu, &instruction->operands[2], address);
     }
     if (strcmp(mnemonic, "ediv") == 0) {
@@ -950,7 +995,8 @@ static vf2_status execute_instruction(
     }
     if (strcmp(mnemonic, "scanbit") == 0 || strcmp(mnemonic, "spanbit") == 0) {
         int bit = 31;
-        uint32_t result = UINT32_MAX;
+        uint32_t result = UINT32_C(31);
+        bool found = false;
         status = operand_value(cpu, &instruction->operands[0], &first);
         if (status != VF2_OK) {
             return status;
@@ -961,12 +1007,16 @@ static vf2_status execute_instruction(
                 : (first & (UINT32_C(1) << (uint32_t)bit)) == 0u;
             if (selected) {
                 result = (uint32_t)bit;
+                found = true;
                 break;
             }
         }
-        cpu->compare_result = result == UINT32_MAX
-            ? VF2_I960_COMPARE_NONE
-            : VF2_I960_COMPARE_EQUAL;
+        /* Bno after scanbit/spanbit tests NoBit: taken only on a miss.
+         * OVERFLOW keeps bno from firing on a hit; NONE fires on miss.
+         * Architectural dest on miss is 31. */
+        cpu->compare_result = found
+            ? VF2_I960_COMPARE_OVERFLOW
+            : VF2_I960_COMPARE_NONE;
         return set_register(cpu, &instruction->operands[1], result);
     }
     if (strcmp(mnemonic, "cmpo") == 0 || strcmp(mnemonic, "cmpi") == 0) {
@@ -1291,7 +1341,7 @@ vf2_status vf2_i960_cpu_reset_from_machine(
     return VF2_OK;
 }
 
-vf2_status vf2_i960_step(
+vf2_status vf2_i960_step_legacy(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine,
     vf2_i960_trace_event *event
@@ -1312,6 +1362,40 @@ vf2_status vf2_i960_step(
     );
     if (status != VF2_OK || !instruction.valid) {
         return status == VF2_OK ? VF2_ERROR_UNSUPPORTED : status;
+    }
+    /* Literal-source multi-register moves (movt 0, r8 at fa_coli 0x236b8):
+     * src1 is an inline literal; the destination and following registers
+     * receive that literal then zeros. */
+    if ((strcmp(instruction.mnemonic, "movl") == 0 ||
+         strcmp(instruction.mnemonic, "movt") == 0 ||
+         strcmp(instruction.mnemonic, "movq") == 0) &&
+        instruction.operand_count == 2u &&
+        instruction.operands[0].kind == VF2_I960_OPERAND_LITERAL &&
+        instruction.operands[1].kind == VF2_I960_OPERAND_REGISTER) {
+        const size_t count = strcmp(instruction.mnemonic, "movl") == 0 ? 2u :
+                             (strcmp(instruction.mnemonic, "movt") == 0 ? 3u : 4u);
+        const size_t alignment = count == 2u ? 2u : 4u;
+        const uint8_t destination = instruction.operands[1].value.reg;
+        size_t index = 0u;
+        if ((size_t)destination + count > VF2_I960_REGISTER_COUNT ||
+            ((size_t)destination % alignment) != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        cpu->registers[destination] =
+            (uint32_t)instruction.operands[0].value.literal;
+        for (index = 1u; index < count; ++index) {
+            cpu->registers[destination + index] = 0u;
+        }
+        cpu->ip = ip_before + instruction.size;
+        ++cpu->executed_instructions;
+        if (event != NULL) {
+            memset(event, 0, sizeof(*event));
+            event->step = cpu->executed_instructions;
+            event->ip_before = ip_before;
+            event->ip_after = cpu->ip;
+            event->instruction = instruction;
+        }
+        return VF2_OK;
     }
     next_ip = cpu->ip + instruction.size;
     cpu->ip = next_ip;

@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,6 +22,8 @@ jobs:
           decomp/i960/enumerate_game_info_18644.py
           decomp/i960/tools/*.py
           tools/python/*.py
+      - name: Test frontier analysis
+        run: python3 tools/python/test_frontier.py
 
   build:
     name: ${{ matrix.compiler }} release
@@ -47,12 +50,41 @@ jobs:
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Build boot quad-copy differential test
+        run: >-
+          $CC -std=c17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+          -Wstrict-prototypes -Werror -Iinclude
+          tests/recovered/test_iac_reinitialize.c
+          build/libvf2_core.a -lm -o build/vf2_iac_reinitialize_tests
+      - name: Test boot quad-copy fail-closed paths
+        run: build/vf2_iac_reinitialize_tests
       - name: Publish vf2i960 analysis binary
         if: matrix.compiler == 'gcc'
         uses: actions/upload-artifact@v4
         with:
           name: vf2i960-linux
           path: build/vf2i960
+          if-no-files-found: error
+      - name: Publish vf2cycles differential binary
+        if: matrix.compiler == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2cycles-linux
+          path: build/vf2cycles
+          if-no-files-found: error
+      - name: Publish object differential test binary
+        if: matrix.compiler == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2-object-tests-linux
+          path: build/vf2_object_handler_tests
+          if-no-files-found: error
+      - name: Publish boot quad-copy differential test binary
+        if: matrix.compiler == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2-iac-copy-tests-linux
+          path: build/vf2_iac_reinitialize_tests
           if-no-files-found: error
 
   sanitizers:
@@ -76,3 +108,15 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build-asan --output-on-failure
+      - name: Build boot quad-copy sanitizer test
+        run: >-
+          clang -std=c17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+          -Wstrict-prototypes -Werror -fsanitize=address,undefined
+          -fno-omit-frame-pointer -Iinclude
+          tests/recovered/test_iac_reinitialize.c
+          build-asan/libvf2_core.a -lm -o build-asan/vf2_iac_reinitialize_tests
+      - name: Test boot quad-copy sanitizer paths
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: build-asan/vf2_iac_reinitialize_tests

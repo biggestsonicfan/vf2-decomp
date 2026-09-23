@@ -40,7 +40,7 @@ static void usage(const char *program)
         "  %s task-profile <rom-directory> [output.csv]\n"
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
-        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address]\n"
+        "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address] [raise-irq] [enter-vector] [enter-level]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
         "  %s compare-game-info <rom-directory> <input.vf2snap> [fighter-flags-or] [stop-address]\n"
         "  %s compare-boot <rom-directory>\n"
@@ -2584,7 +2584,10 @@ static int command_resume_trace(
     uint32_t write_address,
     uint32_t write_value,
     const char *output_snapshot_path,
-    uint32_t stop_address
+    uint32_t stop_address,
+    uint32_t raise_irq_mask,
+    uint32_t enter_vector,
+    uint32_t enter_level
 )
 {
     uint8_t *image = NULL;
@@ -2672,6 +2675,15 @@ static int command_resume_trace(
     }
     if (status == VF2_OK && write_address != UINT32_MAX) {
         status = vf2_model2a_write_u32(&machine, write_address, write_value);
+    }
+    if (status == VF2_OK && raise_irq_mask != UINT32_MAX) {
+        status = vf2_model2a_raise_interrupt(&machine, raise_irq_mask);
+    }
+    if (status == VF2_OK && enter_vector != UINT32_MAX &&
+        enter_level != UINT32_MAX) {
+        status = vf2_i960_cpu_enter_interrupt(
+            &cpu, &machine, enter_vector, enter_level
+        );
     }
     if (status == VF2_OK) {
         printf("Resume trace start: IP=0x%08x instructions=%llu\n",
@@ -5354,14 +5366,14 @@ static int command_native_dispatch_ex(
             status = VF2_ERROR_UNSUPPORTED;
         }
         if (status == VF2_OK &&
-            (bridge_steps != UINT64_C(1270824) ||
-             bridge_recovered_instructions != UINT64_C(1270824) ||
+            (bridge_steps != UINT64_C(1270820) ||
+             bridge_recovered_instructions != UINT64_C(1270820) ||
              bridge_interpreted_instructions != UINT64_C(0) ||
-             bridge_validated_blocks != 192u ||
-             bridge_memory_checkpoints != 190u ||
+             bridge_validated_blocks != 190u ||
+             bridge_memory_checkpoints != 189u ||
              bridge_recovered_calls != UINT64_C(342) ||
              bridge_recovered_returns != UINT64_C(340) ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_RETURN_STUB] != 2u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_RETURN_STUB] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INLINE_TEXT_THUNK] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_TEXTURE_STATUS_LINE] != 4u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_GAME_STATE_CLASSIFY] != 0u ||
@@ -5373,7 +5385,7 @@ static int command_native_dispatch_ex(
              bridge_block_counts[VF2_HYBRID_BRIDGE_TILE_CONTROLLER_UPDATE] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_TIMER_PREFIX] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_SAVE_PREFIX] != 1u ||
-             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_BUFFER_GATE] != 1u ||
+             bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_BUFFER_GATE] != 0u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_INPUT_RING] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_INTERRUPT_RESTORE_PREFIX] != 1u ||
              bridge_block_counts[VF2_HYBRID_BRIDGE_FRAME_TIMER_SUFFIX] != 1u ||
@@ -5712,17 +5724,17 @@ static int command_native_dispatch_ex(
                 ? 83u
                 : (native_fourth_dispatch ? 45u : 1u));
         const size_t expected_blocks = native_sixth_dispatch
-            ? 874u
+            ? 870u
             : (native_fifth_dispatch
-                ? 836u
-                : (native_fourth_dispatch ? 82u : 44u));
+                ? 833u
+                : (native_fourth_dispatch ? 80u : 43u));
         const uint64_t expected_instructions = native_sixth_dispatch
-            ? UINT64_C(7404917)
+            ? UINT64_C(7404901)
             : (native_fifth_dispatch
-                ? UINT64_C(7402744)
+                ? UINT64_C(7402732)
                 : (native_fourth_dispatch
-                    ? UINT64_C(58871)
-                    : UINT64_C(55240)));
+                    ? UINT64_C(58863)
+                    : UINT64_C(55236)));
         const char *dispatch_label = native_sixth_dispatch
             ? "sixth"
             : (native_fifth_dispatch
@@ -5945,6 +5957,25 @@ static int command_native_dispatch_ex(
                 (unsigned)original_cpu.ip,
                 (unsigned long long)original_cpu.executed_instructions);
         printf("  watching for visits to 0x0000a010 ...\n");
+        {
+            const char *boundary_park_path = getenv("VF2_PARK_SNAPSHOT");
+            if (boundary_park_path != NULL && boundary_park_path[0] != '\0') {
+                vf2_i960_snapshot boundary_snapshot;
+                vf2_i960_snapshot_init(&boundary_snapshot);
+                if (vf2_i960_snapshot_capture(
+                        &boundary_snapshot, &original_cpu,
+                        &original_machine) == VF2_OK &&
+                    vf2_i960_snapshot_write_file(
+                        &boundary_snapshot,
+                        boundary_park_path) == VF2_OK) {
+                    printf(
+                        "  >> parked post-second-dispatch boundary at %s\n",
+                        boundary_park_path
+                    );
+                }
+                vf2_i960_snapshot_destroy(&boundary_snapshot);
+            }
+        }
 
         while (status == VF2_OK && budget > 0u) {
             const uint32_t ip_before = original_cpu.ip;
@@ -5957,6 +5988,41 @@ static int command_native_dispatch_ex(
             }
             --budget;
             prev_ip = ip_before;
+
+            if (original_cpu.ip == UINT32_C(0x000221cc) ||
+                original_cpu.ip == UINT32_C(0x000221e8)) {
+                const char *park_path = getenv("VF2_PARK_SNAPSHOT");
+                uint32_t coli_flags = 0u;
+                uint32_t coli_entry = 0u;
+                (void)vf2_model2a_read_u32(
+                    &original_machine, UINT32_C(0x00514980), &coli_flags
+                );
+                (void)vf2_model2a_read_u32(
+                    &original_machine, UINT32_C(0x0051498c), &coli_entry
+                );
+                printf(
+                    "  >> coli ip=0x%08x ins=%llu flags=0x%08x entry=0x%08x\n",
+                    (unsigned)original_cpu.ip,
+                    (unsigned long long)original_cpu.executed_instructions,
+                    (unsigned)coli_flags, (unsigned)coli_entry
+                );
+                if (park_path != NULL && park_path[0] != '\0') {
+                    vf2_i960_snapshot park_snapshot;
+                    vf2_i960_snapshot_init(&park_snapshot);
+                    if (vf2_i960_snapshot_capture(
+                            &park_snapshot, &original_cpu,
+                            &original_machine) == VF2_OK &&
+                        vf2_i960_snapshot_write_file(
+                            &park_snapshot, park_path) == VF2_OK) {
+                        printf("  >> parked snapshot at %s\n", park_path);
+                    }
+                    vf2_i960_snapshot_destroy(&park_snapshot);
+                }
+                if (original_cpu.ip == UINT32_C(0x000221e8) &&
+                    park_path != NULL && park_path[0] != '\0') {
+                    break;
+                }
+            }
 
             if (ip_before == UINT32_C(0x0000a748)) {
                 uint32_t gate_flags = 0u;
@@ -6333,13 +6399,16 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
         (argc == 4 || argc == 5 || argc == 6 || argc == 7 || argc == 8 ||
-         argc == 10 || argc == 11)) {
+         argc == 10 || argc == 11 || argc == 14)) {
         uint32_t max_steps = UINT32_C(10000000);
         uint32_t clear_task_index = UINT32_MAX;
         uint32_t fighter_flags_or = UINT32_MAX;
         uint32_t write_address = UINT32_MAX;
         uint32_t write_value = 0u;
         uint32_t stop_address = UINT32_MAX;
+        uint32_t raise_irq_mask = UINT32_MAX;
+        uint32_t enter_vector = UINT32_MAX;
+        uint32_t enter_level = UINT32_MAX;
         if (argc == 5 && !parse_u32(argv[4], &max_steps)) {
             fprintf(stderr, "Invalid maximum steps: %s\n", argv[4]);
             return EXIT_FAILURE;
@@ -6370,11 +6439,21 @@ int main(int argc, char **argv)
             fprintf(stderr, "Invalid resume-trace options\n");
             return EXIT_FAILURE;
         }
+        if (argc == 14 &&
+            (!parse_u32(argv[7], &write_address) ||
+             !parse_u32(argv[8], &write_value) ||
+             !parse_u32(argv[10], &stop_address) ||
+             !parse_u32(argv[11], &raise_irq_mask) ||
+             !parse_u32(argv[12], &enter_vector) ||
+             !parse_u32(argv[13], &enter_level))) {
+            fprintf(stderr, "Invalid resume-trace options\n");
+            return EXIT_FAILURE;
+        }
         return command_resume_trace(
             argv[2], argv[3], max_steps, clear_task_index, fighter_flags_or,
             write_address, write_value,
-            argc == 8 ? argv[7] : (argc == 10 || argc == 11 ? argv[9] : NULL),
-            stop_address
+            argc == 8 ? argv[7] : (argc == 10 || argc == 11 || argc == 14 ? argv[9] : NULL),
+            stop_address, raise_irq_mask, enter_vector, enter_level
         );
     }
 

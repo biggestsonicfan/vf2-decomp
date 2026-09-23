@@ -1,5 +1,7 @@
 # vf2-decomp
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/L4L11VB7JN)
+
 Clean-room, non-matching C17 decompilation research project for **Virtua Fighter 2 Version 2.1** on Sega Model 2A.
 
 The goal is to recover the original game/runtime behavior into portable, readable C while continuously validating the recovered implementation against the original Intel i960 program.
@@ -11,6 +13,24 @@ The goal is to recover the original game/runtime behavior into portable, readabl
 The project already contains a substantial recovered native runtime, ROM validation/reconstruction tools, Intel i960 analysis tooling, a bounded Model 2A hardware model, snapshot/resume support and strict differential validation between recovered C and the original program.
 
 Current work is focused on expanding recovered gameplay/runtime state coverage while preserving exact CPU, procedure-count and mutable-memory behavior for accepted paths. Unsupported or unverified branches remain explicit instead of being approximated.
+
+### Progress toward a playable Virtua Fighter 2 port
+
+These bars are a qualitative view of progress toward running the **complete game natively**, not a percentage of decompiled code or recovered instructions.
+
+```text
+ROM / boot              ██████████  very advanced
+Model 2A hardware       ███████░░░  functional for the current corridor
+scheduler / runtime     █████████░  very advanced
+input                    ████████░░
+camera                   ████████░░
+HUD / game_disp          ███████░░░
+fighter / game logic     ██████░░░░
+geometry / rendering     █████░░░░░
+audio                    ███░░░░░░░
+complete game flow       ███░░░░░░░
+fully playable match     ██░░░░░░░░
+```
 
 For detailed development history, recovered branches and release-by-release progress, see [`CHANGELOG.md`](CHANGELOG.md).
 

@@ -76,7 +76,11 @@ def test_memory_rw_and_call():
         assert stats["call_edges"] == 1
         assert stats["memory_reads"] == 1
         assert stats["memory_writes"] == 1
-        assert frontier.call_targets[0x164ac] == 1
+        assert frontier.call_targets[0x18644] == 1
+        assert frontier.call_targets.get(0x164ac, 0) == 0
+        assert frontier.top_call_targets(1) == [
+            {"address": hex32(0x18644), "count": 1}
+        ]
         assert frontier.address_reads[0x18648] == 1
         assert frontier.address_writes[0x1864c] == 1
         edge_call = frontier.edges[(0x164ac, 0x18644)]
@@ -85,7 +89,40 @@ def test_memory_rw_and_call():
         assert edge_ld.mem_reads == 1
         edge_st = frontier.edges[(0x1864c, 0x18650)]
         assert edge_st.mem_writes == 1
-    print("ok: memory R/W separation and call attribution")
+    print("ok: memory R/W separation and call-target attribution")
+
+
+def test_rank_call_edges_crosses_boundary():
+    rows = [
+        {"address": "0x16400", "end": "0x16500", "name": "caller", "status": "recovered"},
+        {"address": "0x18600", "end": "0x18700", "name": "callee", "status": "candidate"},
+    ]
+    table = FunctionTable(rows)
+    with tempfile.TemporaryDirectory() as tmp:
+        trace = Path(tmp) / "case.jsonl"
+        records = [
+            {"type": "step", "step": 1, "ip_before": 0x164ac, "ip_after": 0x18644,
+             "mnemonic": "call"},
+            {"type": "step", "step": 2, "ip_before": 0x164ac, "ip_after": 0x18644,
+             "mnemonic": "call"},
+            {"type": "step", "step": 3, "ip_before": 0x164b0, "ip_after": 0x164b4,
+             "mnemonic": "mov"},
+        ]
+        trace.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+        frontier = Frontier()
+        frontier.ingest_trace(trace, "case.jsonl")
+        ranked = frontier.rank_call_edges(table, limit=10)
+        assert len(ranked) == 1
+        item = ranked[0]
+        assert item["from"] == hex32(0x164ac)
+        assert item["to"] == hex32(0x18644)
+        assert item["call_hits"] == 2
+        assert item["from_function"] == "caller"
+        assert item["to_function"] == "callee"
+        assert item["crosses_boundary"] is True
+        plain = frontier.rank_call_edges(None, limit=10)
+        assert plain[0]["from_function"] is None
+    print("ok: rank_call_edges with boundary attribution")
 
 
 def test_unsupported_final_attribution():
@@ -169,6 +206,19 @@ def test_classify_input():
         corpus = Path(tmp) / "m.jsonl"
         corpus.write_text(json.dumps({"case": 0, "inputs": {}, "new_edges": []}) + "\n")
         assert classify_input(corpus) == "corpus"
+        sweep = Path(tmp) / "sweep.jsonl"
+        sweep.write_text(json.dumps({
+            "field": "fighter0_flags",
+            "value": 0x40,
+            "outcome": {"status": "unsupported operation", "ip": 0x18700},
+        }) + "\n")
+        assert classify_input(sweep) == "sweep"
+        frontier = Frontier()
+        stats = frontier.ingest_sweep(sweep, "sweep.jsonl")
+        assert stats == {"cases": 1, "unsupported": 1}
+        assert frontier.top_unsupported(1) == [
+            {"address": hex32(0x18700), "count": 1}
+        ]
     print("ok: input classification")
 
 
@@ -216,6 +266,7 @@ def main() -> int:
     test_function_table_lookup()
     test_trace_ingestion()
     test_memory_rw_and_call()
+    test_rank_call_edges_crosses_boundary()
     test_unsupported_final_attribution()
     test_corpus_manifest_ingestion(True)
     test_corpus_manifest_ingestion(False)

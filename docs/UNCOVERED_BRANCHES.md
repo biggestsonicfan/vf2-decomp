@@ -2,7 +2,7 @@
 
 This document catalogs major unobserved execution paths and unrecovered
 subsystems in Virtua Fighter 2 Version 2.1. The accepted clean-room corridor now
-runs through the seventh-dispatch validation corridor, but it remains one evidence-backed
+runs through the eleventh-dispatch validation corridor, but it remains one evidence-backed
 sequence rather than a complete game implementation. Unsupported paths return
 `VF2_ERROR_UNSUPPORTED` instead of falling back to i960 interpretation.
 
@@ -11,7 +11,11 @@ handoffs in `native-second-dispatch`: the `ret` stubs at `0x0004bab4` and
 `0x000020ec` are now recovered bridges. The strict post-scheduler corridor is
 therefore 1,270,824 recovered instructions with zero interpreted instructions,
 and the modular return boundaries remain exact through the repeated third to
-seventh dispatch validations.
+sixth dispatch validations plus the eleventh-dispatch continuation (the strict
+sixth-dispatch base now ends at the tenth `fa_game_info` entry with `8`
+repeated scheduler entries, so dispatches 7-10 are covered per-block inside
+the sixth command and `native-nth-dispatch 11` proves one further 37-block /
+2,166-instruction cycle exact).
 
 ## 1. Scheduler and task execution
 
@@ -402,6 +406,379 @@ retaining clearly marked ROM-backed boundaries.
 - CPU opponent decision logic; and
 - evidence-backed portable fighter/object structures above raw addresses.
 
+The accepted `0x19ef8` corridor now runs the recovered `0x1a1e4`
+selector-setup interpreter (`player_selector_execute_setup`) instead of
+the previous manual record stores; the `0x505`/`0x284` caller guard and
+the post-interpreter `+0x1a8`/`+0x1aa` stores remain (v0294). Measured
+next player targets after the coli closure are recorded in
+`decomp/i960/notes/fa_player_next_targets_v0292.md`.
+
+Status (v0298): `0x29414` types 6/8/10 are now native for both the
+bit-19-clear float tail and the measured bit-19-set siblings. The
+`+0x1aa` window uses unsigned compares (`r12 > 20` → path B at
+`0x294f8`, `r12 <= 10` → float tail, else path A at `0x294ac..0x294f4`
+with indexed `(g11)[g12]` stores and optional halfword adds). Path B
+early-returns without storing `+0xc50` on board bit 5, a missing
+`+0x614 & 0x9000` mask, or `50 < window`. The unreachable-from-this-entry
+constant set at `0x29454` remains unmeasured. Type 0 zero-path is
+unchanged. `0x19ef8` flag-bit siblings stay deferred because pure
+interpretive replay from the parked snapshot still faults at `0x2704c`;
+the hybrid `0x14288` mid-corridor continuation and `vf2probe --set-ip`
+enable the next live-context drive (see
+`decomp/i960/notes/fa_player_29414_bit19_v0297.md`,
+`decomp/i960/notes/fa_player_29414_types_v0296.md`,
+`decomp/i960/notes/fa_player_19ef8_29414_defer_v0295.md` and
+`decomp/i960/notes/fa_player_drive_base_v0293.md`).
+
+Status (v0298): the `0x180bc` player flag tail and the `0x1441c`
+epilogue are native. On the measured warm shape the first-dispatch
+player task therefore finishes without `hybrid_execute_interpreted_task`
+from `0x180bc`. `hybrid_execute_interpreted_until` already routes
+`0x28178`/`0x17710`/`0x1791c`/`0x4b640` through
+`vf2_hybrid_i960_run_tail` semantic layers (see
+`decomp/i960/notes/fa_player_180bc_v0298.md`). Post-`0x28780`
+geometry through `0x2826c`/`0x27d90` remains native; physics/hitboxes
+and an input-driven pin distinct from PUNCH remain later dedicated
+work.
+
+Status (v0301): the input-17 endurance pin covers **two** extra cycles.
+Selector-17 phase `0x8a` / `bit7_index10` admits the measured match-latch
+sibling `input=previous=0x0f002100` for state0 (1677/33, `r14=6`,
+GREATER, header `LOSE(%)`) and state1 navigation==0 (36756/1438,
+`r14=7`, EQUAL).
+`vf2cycles --input 17 --cycles 2` from `in17-c1` is **2/2 MATCH**
+(74 blocks / 42,696 insns, both `0x1645c`), complementary to PUNCH.
+A third cycle fails closed on a later frame (`r14` 8 vs 7). The
+park-only latch shape and match-latch state1 exit remain fail-closed
+(see `decomp/i960/notes/fa_player_input17_index10_v0299.md`).
+
+Status (v0301c): the cycle-3 work-ram residual is closed. Match-latch
+index10 state1 stores measured `r20` (`0x00560000`) at `0x005ff600`.
+`vf2cycles --input 17 --cycles 64` from `in17-c1` is **64/64 MATCH**
+(2368 blocks / 2,428,988 insns, both `0x1645c`). Park-only latch and
+navigation!=0 siblings remain fail-closed.
+
+Status (v0302): campaign Fase 7 taint/layout items are closed.
+`tools/python/taint.py` on the v0297 `0x29414` traces reports
+`branch 0x0002949c depends on fighter0 + 0x01a4 bit 19`. Window
+compares at `0x294a4`/`0x294a8` do not inherit `+0x1aa` taint in the
+current heuristic (halfword load); that dependency remains memory- and
+recovery-backed. `include/vf2/fighter_candidate.h` now also carries
+coli mid-body bilateral offsets and the `0x29414` g7 corridor offsets
+with neutral `field_XXXX` names only. Physics/hitbox/damage and
+`0x19ef8` flag-bit siblings remain unrecovered (see
+`decomp/i960/notes/taint_29414_v0302.md` and
+`decomp/i960/notes/fighter_candidate_layout_v0302.md`).
+
+Status (v0303): `0x22404` bit-8-set with non-empty mask after
+`andnot` (`g0 = 1`, body 72 on the measured one-hit scan) is native,
+including the polygon FIFO via `(g11)[g12]`. Slot-1 scan, the
+`g8+0x26 != 0` FIFO cursor branch, and the `0x225cc` resolver remain
+fail-closed; the coli mid-body tail still requires both contact
+results zero (see `decomp/i960/notes/fa_coli_contact_g0_v0303.md`).
+
+Status (v0304): `0x225cc` compact bit-3 sibling is native (12 insns,
+counter++/-- net zero). Mid-body tail admits first-contact `g0=1`
+with a warm second contact when `g8+0x1a4` bit 3 selects the compact
+exit (measured 132/5/6). The 248-insn `0x225cc` body, the `0x18bd4`
+shortcut, and second-contact `g0!=0` remain fail-closed (see
+`decomp/i960/notes/fa_coli_225cc_bit3_v0304.md`).
+
+Status (v0305): mid-body tail also admits the reverse sibling — first
+contact warm, second contact `g0=1` — via the no-restore jump to
+compact `0x225cc` (measured 130/5/6, final `g7=fighter1`,
+`g8=fighter0`). Both-non-zero cascade at `0x22244`, slot-1 scan, and
+the long `0x225cc` body remain fail-closed (see
+`decomp/i960/notes/fa_coli_second_contact_v0305.md`).
+
+Status (v0306): `0x22404` slot-1 15-trip scan is native (body 133).
+Both contacts can hit when they use different slots; the cascade
+early-out at `0x22258` (fighter1 `+0x804` bit 15) is native
+(measured 255/5/6). The `0x2227c` tie-break (long `0x225cc` twice),
+other cascade arms, and the long `0x225cc` body remain fail-closed
+(see `decomp/i960/notes/fa_coli_cascade_v0306.md`).
+
+Status (v0307): cascade pair-greater `cmpobg` (`f1+0x822 > f0+0x822`)
+is native (258/5/6). `bl`/`bg` after non-taken `cmpob*` do not
+inherit the compare in the reference executor; those arms and the
+tie-break remain fail-closed (see
+`decomp/i960/notes/fa_coli_cascade_pair_v0307.md`).
+
+Status (v0308): `g8+0x26 != 0` FIFO cursor in `0x22404` is native
+(one-hit slot-0 body 79). Long `0x225cc`, `0x18bd4`, and the
+`0x2227c` tie-break remain fail-closed (see
+`decomp/i960/notes/fa_coli_fifo_cursor_v0308.md`).
+
+Status (v0309): live hybrid `0x19ef8` bit-5 from `punch10` still
+fails closed at `0x16464` with zero compared blocks; reference park
+replay cannot leave the `0x10fa0` wait. `frontier.py` now ranks call
+edges with function attribution (see
+`decomp/i960/notes/fa_player_19ef8_live_v0309.md`).
+
+Status (v0310): coli helper `0x23238` early-out (`g0 != 0x2ce`) is
+native (body 2). Float-threshold path and the long `0x225cc` parent
+remain fail-closed (see `decomp/i960/notes/fa_coli_23238_v0310.md`).
+
+Status (v0311): coli helper `0x230d4` bit-26 compact path is native
+(body 15). Bit-26-clear long path remains fail-closed (see
+`decomp/i960/notes/fa_coli_230d4_v0311.md`).
+
+Status (v0312): coli table-walk helper `0x1ab34` is native (miss body
+16, match body 6). Long `0x225cc` parent remains fail-closed (see
+`decomp/i960/notes/fa_coli_1ab34_v0312.md`).
+
+Status (v0313): coli helper `0x23238` float-threshold path is native
+(bodies 2/6/10/11). Long `0x225cc` parent remains fail-closed (see
+`decomp/i960/notes/fa_coli_23238_float_v0313.md`).
+
+Status (v0314): coli long body `0x225cc` is native on the v0288 drive
+(249/4/5 including completed ret). Integrates `0x230d4` long,
+`0x23238` ×2, `0x1ab34` miss, and the float tail. Compact bit-3
+sibling unchanged. `0x2227c` tie-break, `0x18bd4` shortcut, and
+unmeasured flag siblings remain fail-closed (see
+`decomp/i960/notes/fa_coli_225cc_long_v0314.md`).
+
+Status (v0315): mid-body `0x2227c` tie-break is native (double
+`0x225cc`, compact-both 282/7/8). `0x18bd4` shortcut remains DEFER
+(v0291). Unmeasured long-body flag siblings remain fail-closed (see
+`decomp/i960/notes/fa_coli_tiebreak_2227c_v0315.md`).
+
+Status (v0316): `0x225cc` type-22 shortcut `0x18bd4` is native
+(first-hit type-5 unit shape 53/3/4; integrates `0x1ab34` and
+`0x18b58` bit-2-clear). `0x18b58` bit-2-set, `notbit 15`, and type-5
+miss remain fail-closed (see
+`decomp/i960/notes/fa_coli_18bd4_type22_v0316.md`).
+
+Status (v0317): `0x18b58` bit-2-set FIFO path is native (bodies
+2/29/13). Type-22 shortcut with `g7` bit 2 set completes 80/3/4.
+`notbit 15` (`g8+0x19c` bit 15) is native (type22 first-hit 54/3/4).
+Type-5 miss remains fail-closed (see
+`decomp/i960/notes/fa_coli_18b58_fifo_v0317.md` and
+`fa_coli_18bd4_notbit15_v0317.md`).
+
+Status (v0318): long-body `g7+0x1a4` bits 4+12 scale sibling is
+native (263 on the v0288 drive). `g8+0x1a4` bit 13 early-join is
+native when `+0x5b8` bit 0 is set (251). Bit 4 without bit 12 (251)
+and bits 4+12 with `bbs 15` taken (256) are native. Deeper bit-13
+arms and remaining long-body flag siblings fail closed (see
+`decomp/i960/notes/fa_coli_long_b4b12_v0318.md`,
+`fa_coli_long_b13_v0318.md` and `fa_coli_long_b4_bbs15_v0318.md`).
+
+Status (v0319): long-body `r11 != 0` packing and the
+`0x439ac`/`0x43888` diagnostic cascade arm are native (unit shape
+`r11b=1` 302/7/8). `0x439ac` multi-trip and `0x43888` branch-byte
+sibling remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_r11_v0319.md`).
+
+Status (v0320): diagnostic cascade completed. `0x439ac` multi-trip
+scan, `count>=4` early-out and table match are native. `0x43888`
+store effects (`33`/`0x421` + ring), gate&12 branch-byte siblings and
+the bit-20 subtract plus `0x22e74` `shli` are native (unit shapes
+302/291/295/306/285/305/309). Bit-20 non-match and the diagnostic-arm
+gates `bit 18` / `+0x823` / `r11>=20` remain fail-closed (see
+`decomp/i960/notes/fa_coli_diag_v0320.md`).
+
+Status (v0321): diagnostic-arm gates native. `g7+0x1a4` bit 18 skip
+(247), r11=20 r4-offset (305), `g8+0x1b1==9` second pair (354) and
+`g7+0x823` table-walk loop (353). `g7+0x820` table select corrected
+(`0x230bc` when not 5/6). r11≥40, bit-20 non-match and remaining
+long-body flag siblings fail closed (see
+`decomp/i960/notes/fa_coli_diag_gates_v0321.md`).
+
+Status (v0322, measurement): `g8+0x1a4` bit 16 with `g7+0x821==0`
+exits the long body at `0x230a0` in 15 steps (counter--). Bit 14
+(289), bit 4 (301) and `g7+0x828` bit 14 (293) measured. Not yet
+recovered — a flags-region insert broke the warm body count (see
+`decomp/i960/notes/fa_coli_early_exit_v0322.md`).
+
+Status (v0323): early exit at `0x230a0` is native for `g8+0x1a4`
+bits 3/15/16 with the measured `g7+0x821` gate (unit bit16 **16**).
+Warm `+2 +4` accounting preserved. Bit 14/4 at `0x22c84` and
+`g7+0x828` bit 14 remain fail-closed (see
+`decomp/i960/notes/fa_coli_early_exit_v0323.md`).
+
+Status (v0324): `g8+0x1a4` bit 14 is native on the long body
+(cascade `0x22b44` skip-mask + post-diagnostic `0x22dd4` counter++,
+unit **289**). Bit 4/26 and `g7+0x828` bit 14 remain fail-closed
+(see `decomp/i960/notes/fa_coli_long_b14_v0324.md`).
+
+Status (v0325): `g7+0x828` bit 14 joins at `0x22e24` (unit **286**).
+Bits 10/8 and `r11>=40` remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_828b14_v0325.md`).
+
+Status (v0326): `0x43888` bit-20 non-match is native (`cmpobne`
+taken, unit **307**). `r11>=40` / `cmpoble 30` and remaining
+`+0x828` bits fail closed (see
+`decomp/i960/notes/fa_coli_43888_b20nm_v0326.md`).
+
+Status (v0327): `r11>=30` cmpoble gate joins at `0x22e24` (unit
+**299**). `r11>=40` diagnostic-arm r4-offset and remaining siblings
+fail closed (see `decomp/i960/notes/fa_coli_long_r11_30_v0327.md`).
+
+Status (v0328, measurement): `g8+0x1a4` bit 4 has four sites
+(cascade `0x22b7c` r11-transform, post-diag `0x22c98` join,
+`0x22e44` g0=0x2ce, miss-tail offsets `0x1c`/`0x10`). Probe 301.
+Not recovered — the four sites interact and the unit test still
+fail-closes (see `decomp/i960/notes/fa_coli_long_b4_v0328.md`).
+
+Status (v0329): `g7+0x828` bits 10/8 are native (unit **295**/**291**).
+Bit 4, `r11>=40` and bit-13 profundo remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_828b10b8_v0329.md`).
+
+Status (v0330): `g8+0x1a4` bit 26 is native on the long body
+(post-diag `bbs 26 taken` → `0x22e24` join + `0x230d4` compact,
+unit **263**). Bit 4 and bit-13 profundo remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b26_v0330.md`).
+
+Status (v0331): `r11>=40` diagnostic-arm shape is native (unit
+**300**; r4=8 + `cmpoble 30` join). Bit 4 and bit-13 profundo remain
+fail-closed (see `decomp/i960/notes/fa_coli_long_r11_40_v0331.md`).
+
+Status (v0332): `g8+0x1a4` bit 4 is native on the long body (4
+sites: cascade `0x22b7c` r11*3>>1 + g0=0x23d6b, post-diag `0x22e24`
+join, `0x22e48` g0=0x2ce, miss-tail offsets `0x1c`/`0x10`). Unit
+**301**. Bit-13 profundo remains fail-closed (see
+`decomp/i960/notes/fa_coli_long_b4_v0332.md`).
+
+Status (v0333): bit-13 profundo (`+0x5b8` bit 0 clear, bit 3 clear,
+scan ∉ {2,5,6}, +0x828 bit 9 clear) is native via the `0x22808`
+alt tail → float tail (unit **223**). Bit-13 sub-paths (bit 3,
+scan 2/5/6, +0x828 bit 9) remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13profundo_v0333.md`).
+
+Status (v0334, measurement): bit-13 sub-paths measured. Scan 2/5/6
+(310) and `+0x828` bit 9 clear (317) join the warm cascade; code
+implemented but unit-test shapes need dedicated setup. Bit 13 +
+bit 3 set is the v0323 early-exit (12). `0x22744` and `0x22794`
+(bit 12 set) remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13subpaths_v0334.md`).
+
+Status (v0335): `0x22794` scale transform is native (`r11>>=1`,
+`r9*=0.5`, `r8=1`, cascade at `0x22918`). Probe 263. `0x22744`
+(bit 3 + scan≠{2,5,6}) and `0x227dc` remain fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13_22794_v0335.md`).
+
+Status (v0336): bit-13 + bit 3 sub-paths native. `0x22744` (scan
+2/5/6 → shared path), `0x22778` (scan∉{2,5,6} → bit 12 scale /
+scan==1 `0x227ac` scale / else cascade), `0x227dc` fail-closed
+(needs type-5 record). `0x227c4` remains fail-closed (see
+`decomp/i960/notes/fa_coli_long_b13_b3_v0336.md`).
+
+Status (v0337): `0x227c4` is native (diag pair + g0=1 + alt tail
+join at `0x22848`). Probe 219. `0x227dc` remains fail-closed
+(needs type-5). See `decomp/i960/notes/fa_coli_long_b13_227c4_v0337.md`.
+
+Status (v0338): `g7+0x1a4` bit 22 is native at all four `0x22e24`
+join sites (probe 305). `g7+0x821=3` already works (probe 301).
+Board bit 9 clear on bit-14 hits `call 0x502a4` (correctly
+fail-closed). See `decomp/i960/notes/fa_coli_long_g7b22_v0338.md`.
+
+Coli campaign summary (v0330–v0338): all main `g8+0x1a4` flag
+bits (3/4/8/10/13/14/16/18/26), the diagnostic cascade, bit-13
+profundo alt tail, bit-13 sub-paths (`0x22744`/`0x22778`/`0x22794`/
+`0x227ac`/`0x227c4`), and `g7+0x1a4` bit 22 are native. Remaining:
+`0x22d8c` (needs `0x230d4` g0=5), `0x227dc` (type-5), `0x502a4`
+(board bit 9). See `decomp/i960/notes/fa_coli_campaign_final.md`.
+
+Status (v0339): the `0x22d8c` bbs-11 edge is native at all four
+`0x22e24` join sites (`g7+0x1a4` bit 22 set, `g8+0x1a4` bit 11 set,
+bit 4 clear): `mov 5, g0`, `0x230d4` g0=5 fork (`cmpobne 5` nt,
+`r3 = 42` via bbc-11 nt, shared `0x231ec` tail, `0x23238`
+early-out), `0x22d9c` tail (`g8+0x198 = g0 + 0x0c010000`,
+caller-r11 halfword at `g8+0x5de`), `0x23070` skip of `0x18a54`,
+ret at `0x230b8` (unit **149**). The `0x22c88` bbs-16 edge, the
+g0=5 fork siblings (r3=40, bit-25-set table return, branch-byte-set,
+bbc-20-nt, `0x18a54` call), `0x227dc` and `0x502a4` remain
+fail-closed. See `decomp/i960/notes/fa_coli_22d8c_g05_v0339.md`.
+
+Status (v0340): `0x227dc` is native for the miss shape
+(`g8+0x1a4` bits 13+3, scan 1, `g7+0x844` bit 30,
+walkable `g7+0x848` index → type-8 miss): `ld/st/mov 5/call
+0x1ab34`, `g8+0x198 = index`, `g7+0x198 = 0x11000000`,
+`g7+0x822 = low byte`, ret (unit **87**). The wrapper admits
+scan==1 only for bit13+bit3, no bits 15/16, `0x844` bit 30 set;
+the early bit-3 gate is scan-aware (`+3` for scan-1). A type-5
+match, `0x848 = 0` (reference faults), the `0x22c88` edge,
+`0x502a4`, and all other scan!=0 entries remain fail-closed.
+Notably the wrapper had rejected scan!=0 since v0304, so the
+v0334/v0336 scan!=0 long-body code was unreachable until now.
+See `decomp/i960/notes/fa_coli_227dc_miss_v0340.md`.
+
+Status (v0341, measurement): the `0x502a4` balx is deferred with
+evidence. Two ROM sites call it: `0x22948` (cascade, board bit 9
+only) and `0x22e04` (bit-14 `0x22dd4` path). The reference
+executes into `0x502a4`/`0x502c0`/`0x508c4` and halts on
+unimplemented `dmovt` at `0x508d4` (81 steps). Unblock = implement
+`dmovt` from the i960 manual + unit test, then attribute the
+subtree. Both sites correctly fail-closed.
+See `decomp/i960/notes/fa_coli_502a4_defer_v0341.md`.
+
+Status (v0342, measurement): the `0x19ef8` selector-bit14 clrbit
+block is measured (20 steps: `+0x1a4` bits 5/6/21 cleared in r7,
+`+0xbe4 = 1`) and the mutated path rejoins warm exactly
+(985-step identity diff, +5 insert only; g0 self-masks at
+`0x1a034`; `+0x1a4` copy/overwrite handled generically). Recovery
+deferred: the only player-entry park has degenerate floats and
+warm faults identically at `0x2705c cvtri`, so the tail, counts
+(predicted `1657`) and final state are unprovable until a
+live-valid park exists. The v0309 `+0`-word bit-5 drive has no
+clearing mechanism and stays fail-closed.
+See `decomp/i960/notes/fa_player_19ef8_prologue_v0342.md`.
+
+Status (v0343): the bit-30-clear scan-1 leaves are native. `+0x828`
+empty takes `0x227ac` (unit **275**), bit 12 takes `0x22794`
+(unit **271**), bit 13 takes `0x227c4` into the alt tail with
+`g0 = 1` (unit **224**). The wrapper admits scan==1 + bit13 +
+no bits 15/16 without the `0x844` condition. Executing the
+previously-dead code fixed: `0x230d4` bit-3 `r9 += 4`, the
+`0x22788` scan re-read, `g0` threading into the alt-join
+`0x230d4` call, `r9 += r5` (was `r9 = r5`), the float-tail
+`divr` polarity (`r9/r4`), and the `b 0x22848` count. The four
+shapes cover the whole admitted gate (only `+0x828` bits 12/13
+are tested downstream).
+See `decomp/i960/notes/fa_coli_22744_leaves_v0343.md`.
+
+Status (v0344-B/C, helper + site-A wiring): `coli_502a4_body` +
+`vf2_hybrid_coli_502a4_execute` recover the full balx-to-bx subtree
+natively for both sites (direct unit: exact 140/170-step deltas,
+exit regs, stores, bx-out `0x22960`/`0x22e20`, fail-closed
+classification control). The wrapper admits scan-1 + bit-13-clear
++ bit-3-clear + board-clear and runs the helper at the cascade
+`bbs-9`-nt edge, fail-closing past bx-out with stores applied
+(wrapper unit: `UNSUPPORTED` + counter + copy bytes). Site B keeps
+its gate (prefix crosses the continuation). Next: the `0x22960+`
+continuation (`call 0x7fc0`, `balx 0x9444`, …). See
+`decomp/i960/notes/fa_coli_502a4_v0344B.md`.
+
+Status (v0345-A, leaf): `coli_7fc0_body` +
+`vf2_hybrid_coli_7fc0_execute` recover the byte-expand leaf called
+from all three `0x22960+` continuation sites (direct unit: exact
+16/152/72-step deltas, return IPs, stores, guard control).
+Unwired; `shlo` operand order settled (`operands[1]<<operands[0]`)
+with a clean class audit. Next: `0x9444`/`0x9450` inline spans +
+site-B prefix wiring. See
+`decomp/i960/notes/fa_coli_7fc0_v0345A.md`.
+
+Status (v0345-B, fa_coli done): the site-A leg runs natively
+end-to-end (OK, delta 883, calls/rets 7/8, all stores proven).
+`coli_225cc_sitea_cont` covers `0x22960` → `0x22e24` and joins the
+existing tail unchanged; `long_body` reports calls/rets. Left:
+unmeasured-input variants (fail closed by design) and the
+cross-cutting `0x230b8`/`0x22294` procedure-exit landing shared
+by every shape. See
+`decomp/i960/notes/fa_coli_full_leg_v0345B.md`.
+
+Status (v0344-A, executor): `dmovt` reg-reg is implemented
+(exact `0x508d4` word + derived pair-copy unit, flag-neutral)
+and `mulo` sticky-sets `OVERFLOW` on unsigned overflow, which
+unblocks the `0x502a4` digit loop (exits iteration 9; both balx
+sites traced to computed `bx`-out `0x22960`). Assumption grade:
+architecture-inferred, pins-validated — re-scope if any pin
+moves. Both coli gates stay fail-closed: the `0x22960+`
+continuation (`0x7fc0`, `0x9444`) is unrecovered, and wiring
+without it would strand the caller.
+See `decomp/i960/notes/fa_coli_dmovt_v0344A.md`.
+
 ## 3. Camera
 
 The startup and recurring camera corridor plus the validated optional viewport
@@ -690,10 +1067,422 @@ are measured. Compact forms now use `& ~0x16` or `& ~0x10016` and share
 * 30 bases without low `30` masks `cd0/mode6` split (`f0 +8/+3, f1 +4/+3, bi +7/+6`) (v0245)
 * quint low `7` masks `cd` split (`cd0 +8/+11, cd1 +3/+6`) (v0246) — high-family base 0x140 now `248/248` exact
 
+### v0248–v0253 bit-21 low variants for remaining bases
+* `0xC140` bit-21 low `16×7=112` masks `+2/+5` no bit11 (v0248)
+* `0x4140` bit-21 low `16×7=112` masks `+2/+4` no bit11 (v0249)
+* `0x14140` bit-21 low `16×7=112` masks `+2/+4` no bit11 (v0250)
+* `0x10140` bit-21 low `16×7=112` masks `+4/+8` plus bit11 (v0251)
+* `0x18140` bit-21 low `16×7=112` masks `+4/+9` plus bit11 (v0252)
+* `0x1C140` bit-21 low `16×7=112` masks `+2/+5` no bit11 (v0253) — plus `0x8140` bit-21 low `112` masks `−3/−5` (v0247) already closed. Total `672` masks.
+
+### v0254 middle-high low variants (generalizes v0247–v0253)
+* same 7 bases with `low !=0` and `outer 16` but `MIDDLE=0x1B7E3EA9` (20 bits: `0x200`+`0x400`+… excluding `outer`/`base`/`low`/`bit6`/`0x00800000`). Single-bit middle highs `9` bits and multi-bit combos (`0xC0000`, `0x1B7C0000`, `0x1B7E3EA9`) all share per-base `−3/−5`/`+2/+5`/`+4/+8`/`+4/+9` (v0254). Representative `40` combos `36/36 exact`; `outer`-only stays exact, `0x00800000` stays `NATIVE-FAIL` (excluded).
+
+### v0255 middle-high bare+low (extends v0254)
+* removes `low !=0` guard — any middle `0x1B7E3EA9` with `outer 16` and `low 8` (incl. bare) admitted, same per-base accounting and bit11 (v0255). Bare `0x00048140` etc `36/36 exact`.
+
+### v0256 bit-23 bridge (extends v0255)
+* recovers `0x17b68` helper `bbs 23,r15,0x17fe8` path: `fighter+0x30=0, fighter+0x1c=0, if 0x624!=0 then fighter+0x620=1`, `28/30` instructions vs `31` for `0x624==0/!=0`, converges to common `0x1853c` tail. `MIDDLE` widens to `0x1BFE3EA9` (`0x1B7E3EA9|0x00800000`, 21 bits) and mask `~0xFFFE3EBF`. Same 7 bases now admit any middle including bit23: `0x00808142` etc `36/36 exact` (representative `12` masks, `7` bases x `16x8` outer/low). Bare `0x00808140` etc exact. Counters adjust via same per-base `−3/−5` etc.
+
+### v0257 bare pure-bit21 fix (extends v0256)
+* bare `0x00208140` etc (`7` bases, outer `16`, middle `0x00200000` alone, low `0`) were `0/36` DIFF `-3` (middle-high over-corrected); they need `0` excess, not `−3/−5`. Guard bare with `((low & 0x16)!=0 || (middle & 0x1BDE3EA9)!=0)` so pure-bit21 bare falls through to native `0` and now `36/36 exact` (`112` masks `16×7`). Low `0x00208142` etc already `36/36`; bare `0x00808140` etc stay `36/36`.
+
+### v0258 base 0x140 single-middle (extends v0257)
+
+* `0x140` + exactly one `MIDDLE 0x1BFE3EA9` bit (`20` bits:
+  `0x1,0x8,0x20,0x80,0x200,0x400,0x800,0x1000,0x2000,0x20000,0x40000,0x80000,0x100000,0x200000,0x400000,0x800000,0x1000000,0x2000000,0x8000000,0x10000000`)
+  with any outer `16` and any low `8` (incl. bare) — `20*16*8=2560` but
+  `0x00200000` alone was already `36/36`? Actually `0x00200140` was
+  `0/36 +3` before, now `36/36` — single-middle uniformly `+3/+6`
+  (`0x340/0x940/0x1140/0x2140/0x20140/0x141/0x00200140` etc all `0/36 +3/+6`
+  → `36/36`, `16*8*19=2432` masks after excluding pure `bit21`? Wait
+  pure `bit21` now included: `19` vs `20` — `0x00200140` also `+3` so
+  `20*128=2560` but `0x140` bare without middle stays `0`. Net `2432`
+  with `0x1BDE3EA9` guard? Actually `0x1BDE3EA9` guard for `8140` etc
+  not needed for `0x140`. Representative `12` masks `36/36`, multi-middle
+  `0x1840` (`+3/+7`) and `0x200342` etc stay fail-closed. See
+  `decomp/i960/notes/game_info_18644_positive_base0140_single_middle_v0258.md`.
+
+### v0259 base 0x140 any-middle (generalizes v0258)
+
+* `0x140` + any `Mp = 0x1BDE3EA9 !=0` (19 bits: `0x1,0x8,0x20,0x80,0x200,0x400,0x800,0x1000,0x2000,0x20000,0x40000,0x80000,0x100000,0x400000,0x800000,0x1000000,0x2000000,0x8000000,0x10000000`)
+  with or without `bit21 0x00200000`, any outer `16` and any low `8` — single 0x340, double 0xB40/0x1940/0x1340, quad 0x3D40, high 0x60140/0x8000340,
+  bit21+Mp 0x00200340/0x00200940/0x00260140/0x08200340 etc all measured `+3` uni / `+6` bi → `36/36` (spot ~15 masks). Bare `0x140` and pure `0x00200140` remain `0/0` 36/36.
+  Counts: `2^19-1=524287` *128=67,108,736 without bit21 plus same with bit21 = `134,217,472` masks (replaces v0258 `2432`). See
+  `decomp/i960/notes/game_info_18644_positive_base0140_any_middle_v0259.md`.
+
+### v0260 base 0x40 any-composition (extends v0259)
+
+* `0x40` (bit6 alone) + any `MIDDLE 0x1BFE3EA9` (20 bits incl. bit23) subset, incl. bare, incl. bit21, any low `8`, any outer `16` — uniformly `+3` uni / `+7` bi:
+  bare `0x40`, single `0x240/0x840`, double `0x1840`, bit21 `0x00200040`, bit21+single `0x00200240`, bit21+double `0x00201840`, low `0x42`, many `0x1BDE3EE9/0x1BFE3EE9` all `0/36 DIFF +3/+7` → `36/36` (spot ~12 masks). Counts: `2^20=1,048,576` *128=134,217,728. See
+  `decomp/i960/notes/game_info_18644_positive_base0040_any_v0260.md`.
+
+### v0261 base 0x4040 any-composition (extends v0260)
+
+* `0x4040` (0x4000+0x40) + any `MIDDLE 0x1BFE3EA9` (20 bits) subset, incl. bare, incl. bit21, any low `8`, any outer `16` — uniformly `-2` uni / `-3` bi (native undercounts):
+  bare `0x4040`, single `0x4240`, high `0x44040`, bit21 `0x00204040`, many `0x1BDE6E49` all `0/36 DIFF -2/-3` → `36/36` (spot ~8 masks). Counts: `2^20=1,048,576` *128=134,217,728. See
+  `decomp/i960/notes/game_info_18644_positive_base4040_any_v0261.md`.
+
+### v0262 base 0x8040 any-composition (extends v0261)
+
+* `0x8040` (0x8000+0x40) + any `MIDDLE 0x1BFE3EA9` (20 bits) subset, incl. bare, incl. bit21, any low `8`, any outer `16` — uniformly `+3` uni / `+6` bi (native overcounts):
+  bare `0x8040`, singles `0x8240/0x8440`, high `0xA040`, bit21 `0x00208040`, many `0x1BDE8E49` all `0/36 DIFF +3/+6` → `36/36` (spot ~8 masks). Counts: `2^20=1,048,576` *128=134,217,728. See
+  `decomp/i960/notes/game_info_18644_positive_base8040_any_v0262.md`.
+* `0xC040` (0x4000+0x8000+0x40) + any `MIDDLE 0x1BFE3EA9` (20 bits) subset, incl. bare, incl. bit21, any low `8`, any outer `16` — uniformly `-2` uni / `-4` bi (native undercounts):
+  bare `0xC040`, single `0xC240`, bit21 `0x0020C040`, many `0x1BDECE49` all `0/36 DIFF -2/-4` → `36/36` (spot ~6 masks). Counts: `2^20=1,048,576` *128=134,217,728. See
+  `decomp/i960/notes/game_info_18644_positive_baseC040_any_v0263.md`.
+
+### v0264 base 0x10040 any-composition (extends v0263)
+
+* `0x10040` (0x10000+0x40) + any `MIDDLE 0x1BFE3EA9` (20 bits) subset, incl. bare, incl. bit21, any low `8`, any outer `16` — uniformly `-4` uni / `-7` bi (native undercounts) plus work-RAM `0x510b24`/`0x512b24` `|=0x800`:
+  bare `0x10040`, singles `0x10240/0x11240`, bit21 `0x00210040`, many `0x30040/0x50040` all `0/36 DIFF -4/-7` + work-ram `0x08` at `0x10b25`/`0x12b25` → `36/36` (spot ~8 masks). Counts: `2^20=1,048,576` *128=134,217,728. See
+  `decomp/i960/notes/game_info_18644_positive_base10040_any_v0264.md`.
+* `0x14040` (0x10000+0x4000+0x40) + any `MIDDLE 0x1BFE3EA9` (20 bits) subset — uniformly `-2` uni / `-3` bi: bare `0x14040`, single `0x14240`, bit21 `0x00214040` all `0/36 DIFF -2/-3` → `36/36` (spot ~6 masks). Counts: `2^20*128=134,217,728`. See `decomp/i960/notes/game_info_18644_positive_low_family_closure_v0265_v0267.md`.
+* `0x18040` (0x10000+0x8000+0x40) + any `MIDDLE` — uniformly `-4` uni / `-8` bi plus work-RAM `0x510b24/0x512b24|=0x800`: bare `0x18040`, single `0x18240`, bit21 `0x00218040` all `0/36 DIFF -4/-8` → `36/36`. Counts: `134,217,728`.
+* `0x1C040` (0x10000+0x4000+0x8000+0x40) + any `MIDDLE` — uniformly `-2` uni / `-4` bi: bare `0x1C040`, single `0x1C240`, bit21 `0x0021C040` all `0/36 DIFF -2/-4` → `36/36`. Counts: `134,217,728`.
+  Low `0x40` family (all 16 combos of `0x100/0x4000/0x8000/0x10000` with bit6) now fully closed; frontier remains helper `runtime bit5` and any remaining non-low positive compositions.
+
 ### Current positive threshold scope
 
-`1223` masks are now `36/36 exact` for the positive `0x1645c` corridor
-(`120` high family + `991` base/low/high families + `112` base-`0x8140`
-bit-21 low variants (v0247)). All use the measured
+`1,207,961,303` masks are now `36/36 exact` for the positive `0x1645c` corridor (`2007` + `134,217,472` base `0x140` any-middle v0259 + `134,217,728` base `0x40` any v0260 + `134,217,728` base `0x4040` any v0261 + `134,217,728` base `0x8040` any v0262 + `134,217,728` base `0xC040` any v0263 + `134,217,728` base `0x10040` any v0264 + `402,653,184` bases `0x14040/0x18040/0x1C040` any v0265-v0267)
+(`120` high family + `991` base/low/high families + `784` bit-21 low variants (`112×7` bases: `8140`/`C140`/`4140`/`14140`/`10140`/`18140`/`1C140`)). All use the measured
 stale-frame and compare result. Remaining positive compositions still
 fail closed.
+
+### v0268 fa_object handlers
+
+The `fa_object0/1/2` dispatcher at `0x6ca64` was already native; its five
+continuations are now recovered: init stubs `0x6cae0`/`0x6caf4` rewrite
+`registry+0x0c` to the measured ret continuations `0x6caf0`/`0x6cb04`,
+and `0x6caf0`/`0x6cb04`/`0x6cb08` are bare rets. Each of the six cases
+(dispatcher + five continuations) is `exact` for full CPU state,
+condition state, frame depth, all counters and full work-RAM `memcmp`
+plus report kind/exit/counts (`tests/recovered/test_object_handlers.c`,
+`vf2_object_handlers_differential`). The per-frame re-arm in
+`execute_selector2_body` keeps these dormant in the accepted corridor;
+they were proven from synthetic state. Still open: the `0x6ca84`
+indirect `callx` service loop (count `3` at `0x6cad0`, control blocks
+`[0x500878, 0x50087c, 0x500880]`, called from `0x1dd70`) and the
+`fa_coli` recurring body at `0x221e8` with callees `0x22298` (31
+blocks), `0x22404` (24 blocks), `0x225cc` (174 blocks) and `0x23524`
+(6 blocks). Reachability scouting from regenerated fifth (`out-fifth.vf2snap`,
+MATCH, 836 blocks) and sixth snapshots is negative: forcing the coli
+slot runnable at either `0x221cc` or `0x221e8` over ~15.3M guest
+instructions never dispatches index 10 (identical call/return counters,
+`10255/10254` from fifth) — the accepted corridor dispatches only a
+fixed few tasks per frame, so flag/entry mutation inside these windows
+is exhausted. That parked-window attempt was executed in v0269 (boot
+prefix chain + observe-parked boundary) with the same negative outcome;
+see below.
+
+### v0269 fa_coli recurring hunt (negative with mechanism)
+
+The scheduler at `0x10d54` full-scans 29 tasks only when `0x500068`
+bit 16 is clear at sweep entry; otherwise the single-slot fast path at
+`0x10e68` (`0x10ea0`, rewritten to `0x500834` each frame) dispatches one
+rotating task. Sweeps are single-pass (`0xa010` front-end, no loop), so
+a sweep never revisits an index. The selector2 re-arm writes coli
+`flags=1 + entry=0x221cc` coupled and unconditionally, but only in boot
+frames. Measured over 61M+ guest instructions across five snapshot
+windows (boot prefix chain, post-second observe-parked boundary, fifth,
+sixth) with flag/entry forcing and a fast-path slot hijack: index 10
+never executes outside the validated second sweep, flags stay 0, and a
+forced `entry=0x221e8 + flags=1` state survives 8.87M insns untouched.
+The recurring body needs that conjunction at a scanning sweep, which
+the attract trajectory never produces — reachable, if at all, only in
+frames via driven inputs. Tooling added (all
+passive/default-off): `vf2probe --raise-irq/--enter-interrupt`,
+`resume-trace` trailing injection args, `VF2_PARK_SNAPSHOT` boundary
+parking in `observe-third-sweep`. See
+`decomp/i960/notes/coli_recurring_hunt_v0269.md`.
+
+### v0273 fa_coli recurring entry (extends v0269/v0270)
+
+The v0269 conjunction is now reproduced without forcing: holding PUNCH
+(`vf2cycles --input 16`) from the sixth-dispatch snapshot runs the
+phase-11 countdown to its terminal, clears the phase flag (`0x8b` to
+`0x0b`) and arms slot 10 with `entry=0x221e8 + flags=0x80000000`, all
+under strict per-block differential. The recurring sweep's scan prefix
+through the `callx` dispatch is native and exact (`27 + 16*index`
+instructions: 235 for index-13 game_info, 187 measured for index-10
+coli; 4 calls / 2 returns; caller-carried r0 preserved). The strict step
+ends with both sides at `0x000221e8`; the `fa_coli` body itself
+(`bbs 5 -> 0x22294` gate, `0x23524`/`0x22298` callees) remains the
+explicit open boundary. See
+`decomp/i960/notes/fa_coli_entry_v0273.md`.
+
+### v0274 fa_coli body via measured interpretation
+
+The PUNCH-driven warm body at `0x221e8` is now admitted as an explicit
+original-i960 bridge: runtime bit 5 clear, `9,214` instructions,
+`18` calls / `19` returns through `0x10dcc`, fighters from
+`0x500804`/`0x500808`. Literal `movt 0, r8` (`0x236b8`) is handled in
+the executor step used by `vf2probe`/`vf2_i960_run`. The PUNCH corridor
+now completes `320/320` cycles (`14,962,620` instructions) MATCH back
+to `0x1645c`. See `decomp/i960/notes/fa_coli_body_v0274.md`.
+
+### v0275 fa_coli bit-5-set gate and `0x23524` boundary
+
+Runtime bit 5 set is now a measured native early return: `ld`/`bbs`/
+`ret`, **3 instructions**, `0` calls / `1` return, no stores, through
+`0x10dcc`. Bit 5 clear remains the v0274 warm-body bridge.
+
+The warm-call boundary of `0x23524` is recorded (not yet native):
+**9,158 instructions**, **14** nested calls, `bbc 0, g6` not taken,
+468 stores including the `g13+0x40` clear and both-fighter
+`+0xe80..+0xf04` clusters. `0x23524` accounts for ~99% of the warm
+body; native callees `0x23524`/`0x22298`/`0x22404`/`0x225cc` remain
+open. See `decomp/i960/notes/fa_coli_gate_23524_v0275.md`.
+
+### v0276 fa_coli mid-body child `0x22298` + hybrid segmentation
+
+The first mid-body callee is now native. Both PUNCH-driven invocations
+of `0x22298` take the measured early exit (bit 8 of `g8+0x1a4` clear):
+`stos 0` into `g7+0x6dc`, **7 instructions**, `0` calls / `1` return.
+Bit 8 set remains an explicit `VF2_ERROR_UNSUPPORTED` boundary.
+
+`hybrid_execute_coli_body` segments the warm path (interpret `0x23524`
+subtree → native `0x22298` ×2 → interpret tail). The whole-task pin is
+unchanged (`9214 / 18 / 19`). ROM-backed PUNCH corridor remains
+`320/320` MATCH. `0x23524` (still interpreted), `0x22404` and
+`0x225cc` remain open. See
+`decomp/i960/notes/fa_coli_bitmask_22298_v0276.md`.
+
+### v0277 fa_coli contact query `0x22404` + warm-path skip of `0x225cc`
+
+The second mid-body callee is now native. Both PUNCH-driven invocations
+of `0x22404` take the measured early exit (bit 8 of `g7+0x1a4` clear):
+snapshot `g7+0x1a8` into `g13+0x8c[slot]`, clear the slot bit in
+`g13+0x90`, `g0 = 0`, **14 instructions**, `0` counted calls /
+`1` return. Bit 8 set and slot `> 1` fail closed.
+
+The warm tail does **not** reach `0x225cc`: both contact-query results
+are zero, so `cmpobe` at `0x2223c`/`0x22284` skip `0x22290`. `0x225cc`
+needs a drive where a contact query returns non-zero. `0x23524` remains
+the dominant interpreted cost (~9,151 of 9,214 warm instructions).
+See `decomp/i960/notes/fa_coli_contact_22404_v0277.md`.
+
+### v0278 fa_coli `0x23524` callee cost attribution
+
+Measurement-only. The 9,158-instruction warm `0x23524` path is
+attributed by call-stack walk: `0x2396c` **5236** (×2, 402 stores),
+`0x238f8` **2855** (×1, 0 writes; source mask `0x91f880` all-zero),
+`0x23878` **810** (×6, pure bit-remap via ROM `0x2007b76`),
+shell 179, `0x233d0` 44, `0x2364c` 17, `0x238a4` **10** (×2, bit-8
+clear → `g3=0`). First native leaf chosen: `0x238a4`.
+See `decomp/i960/notes/fa_coli_23524_attribution_v0278.md`.
+
+### v0279 fa_coli `0x238a4` g3-scan leaf + `0x23524` hybrid parent
+
+The first `0x23524` callee is now native. Both PUNCH-driven invocations
+of `0x238a4` take the measured early exit (`g7+0x1a4` bit 8 clear):
+`g3 = 0`, **5 instructions**, `0` counted calls / `1` return. Bit 8
+set fails closed and leaves `g3` untouched.
+
+`hybrid_execute_coli_body` now stops at `0x23524` and `0x238a4`,
+native-recovers the pair, then continues into the v0276/v0277 children.
+The whole-task pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH
+corridor remains `320/320` MATCH. Remaining `0x23524` callees stay
+interpreted: `0x2396c`, `0x238f8`, `0x23878`, `0x233d0`, `0x2364c`.
+See `decomp/i960/notes/fa_coli_23524_attribution_v0278.md`.
+
+### v0280 fa_coli `0x23878` bit-remap leaf
+
+The second `0x23524` callee is now native. All six PUNCH-driven
+invocations remap bits `0..29` of `g3` through the main-data table at
+`0x02007b76` (30 words). Empty source is **95 instructions**; full
+source is **155**; single-bit is **97**. No memory writes. Table
+entries `>= 32` fail closed.
+
+`hybrid_execute_coli_body` now walks the six `0x23878` call sites
+inside both `0x2396c` invocations before the `0x238a4` pair. The
+whole-task pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH
+corridor remains `320/320` MATCH. Unit test `test_coli_23878_bit_remap`.
+Remaining interpreted: `0x2396c`, `0x238f8`, `0x233d0`, `0x2364c`.
+
+### v0281 fa_coli `0x238f8` nested bit-scan leaf
+
+The third `0x23524` callee is now native. The 30×30 nested scan reads
+source masks from buffer RAM `0x91f880` and remaps through ROM bytes at
+`0x23284` into `g13+0x40`. Warm PUNCH source is all-zero: **2855
+instructions**, **0** stores. Non-zero source executes the measured
+`setbit`/`st` path.
+
+`hybrid_execute_coli_body` now stops at `0x238f8` after the `0x238a4`
+pair and resumes at `0x23644` (before `bal 0x23694`). The whole-task
+pin is unchanged (`9214 / 18 / 19`). ROM-backed PUNCH corridor remains
+`320/320` MATCH. Unit test `test_coli_238f8_warm_noop`.
+Remaining interpreted inside `0x23524`: `0x2396c` (5236), `0x233d0`
+(44), `0x2364c` (17), and the 179-insn shell.
+
+### v0283 remaining-leaf measure (`0x2396c` / `0x233d0` / `0x2364c`)
+
+Measurement-only. Reconfirms PUNCH `320/320` MATCH / `12946` blocks /
+`14,962,620` instructions and the warm `0x221e8 → 0x22210` path at
+**9158** instructions. Attributes every remaining interpreted block.
+
+- `0x2396c`: **GO** (large). 30 blocks, warm path is fixed; six blocks
+  never taken (`0x23a70`, `0x23a88`, `0x23af0`, `0x23b14`, `0x23b24`,
+  `0x23b88`). Own cost **2618** per invocation (×2) plus three nested
+  `0x23878` bodies. Stores: fighter `stq` cluster `g7+0xd00[0..29]`,
+  `stos` `+0x624/+0x614/+0x618`, final `+0x644/+0x64c`, and the `g13`
+  `+0xfc..+0x12c` accumulator words. Prefer split prototype then wire-up;
+  inline the bit-remap (calling `vf2_hybrid_coli_23878_execute` from
+  inside a native parent would pop the wrong frame).
+- `0x233d0`: **GO**. Late entry at `0x233d0` jumps back into the shared
+  body at `0x23398`. 44 instructions, single warm path, copies the ROM
+  row at `0x232c4` into `g13+0xb4/+0xb8/+0xc0/+0xc4/+0xbc/+0x88`,
+  leaves `g6 = 0`. Magic `+0x1a8` compares (`0x242`, `0x241`,
+  `shlo 2,27 = 108`) and every other sibling fail closed.
+- `0x2364c`: **GO**. 17 instructions. Diffs both fighters' `+0x1f4`,
+  writes command `0x18003030` plus three delta words to FIFO `0x884000`,
+  reads three words back, stores them at `g13+0xc8/+0xcc/+0xd0`.
+
+See `decomp/i960/notes/fa_coli_2396c_measure_v0283.md`.
+Next recovery slice is `0x233d0` + `0x2364c` (v0284).
+
+### v0284 recover `0x233d0` + `0x2364c` warm leaves
+
+Both small callees are now native C.
+
+- `vf2_hybrid_coli_233d0_execute` — 44 insns / 0 calls / 1 return.
+  Copies the ROM row at `0x232c4` into `g13+0xb4/+0xb8/+0xc0/+0xc4/
+  +0xbc/+0x88`, leaves `g6 = 0`. Magic `+0x1a8` states and every
+  unmeasured `bbc`/`bbs` fail closed.
+- `vf2_hybrid_coli_2364c_execute` — 17 insns / 0 calls / 1 return.
+  Both fighters' `+0x1f4` triples zero → writes command `0x18003030`
+  plus three zero deltas to FIFO `0x884000`, stores the three hardware
+  replies at `g13+0xc8/+0xcc/+0xd0`. Non-zero positions fail closed.
+
+`hybrid_execute_coli_body` stops at `0x233d0` (after the six `0x23878`
+walk) and at `0x2364c` (after `0x238f8`). PUNCH remains `320/320`
+MATCH / `14,962,620` instructions. Unit tests
+`test_coli_233d0_flag_builder` and `test_coli_2364c_fifo_delta`.
+See `decomp/i960/notes/fa_coli_small_leaves_v0284.md`.
+
+Remaining interpreted inside `0x23524`: `0x2396c` (5236, ×2) and the
+179-insn shell.
+
+### v0285 recover `0x2396c` warm poly-cluster builder
+
+`vf2_hybrid_coli_2396c_execute` is now native C. Two PUNCH-driven
+invocations replace the six-step `0x23878` bitremap walk. The leaf
+inlines three bit-remaps (calling `vf2_hybrid_coli_23878_execute` from
+inside a native parent would pop the wrong frame), copies the 30-trip
+`stq` cluster, runs the threshold/inner/max scans, and stores the
+measured `stos`/`st` results. Own cost **2618**/invocation plus three
+remap bodies (warm sum 405). Unmeasured threshold/min/max/positive
+siblings fail closed.
+
+PUNCH remains `320/320` MATCH / `14,962,620` instructions.
+Unit test `test_coli_2396c_poly_cluster`.
+See `decomp/i960/notes/fa_coli_2396c_v0285.md`.
+
+Remaining interpreted inside `0x23524`: the **179-insn shell** only.
+
+### v0286 measure `0x23524` shell warm path
+
+Measurement-only. The 179-insn shell plus the `bal 0x23694` body are
+attributed glue-by-glue from the warm trace. Prologue pushes FIFO
+command `0x1f003e3e` and clears 16 words at `g13+0x40`; call glue runs
+`0x2396c`×2 / `0x233d0` / `0x238a4`×2 / `0x238f8`; `bal 0x23694`
+reloads fighters, takes `bbc 3,g6` and `cmpobl 0,g13+0x148` on the warm
+side, calls `0x2364c`, stores the six-word cluster at `g13+0xd4..0xe8`,
+pushes FIFO `0x1e803d3d`, updates fighter `+0x18/+0x20`, and clamps
+`+0x650` with constant `0x3cf5c28f`. All warm payload/store values are
+zero except the four FIFO command words. Verdict **GO** for the native
+shell. See `decomp/i960/notes/fa_coli_23524_shell_measure_v0286.md`.
+
+Remaining interpreted inside `0x23524`: the **179-insn shell** only
+(native recovery planned as v0287).
+
+### v0287 recover `0x23524` shell as one native procedure
+
+`vf2_hybrid_coli_23524_execute` is now native C. The 179-insn shell
+plus the `bal 0x23694` body run as a single procedure, with every
+recovered callee (`0x2396c`×2, `0x233d0`, `0x238a4`×2, `0x238f8`,
+`0x2364c`) inlined for accounting only — calling the standalone
+exports would pop the wrong frame. `coli_2396c_body` was extracted
+from the v0285 export (wrapper unchanged). `hybrid_execute_coli_body`
+now stops at `0x23524` once and resumes at `0x22210`.
+
+Accounting: **9151** instructions / **13** calls / **14** returns for
+the procedure; caller prefix adds 7+1 → path **9158 / 14 / 14**.
+Unmeasured shell siblings (`bbc 0,g6` taken, `bbc 3,g6` taken,
+`cmpobl 0,g13+0x148` taken) fail closed.
+
+PUNCH remains `320/320` MATCH / `14,962,620` instructions.
+Unit test `test_coli_23524_shell`.
+See `decomp/i960/notes/fa_coli_23524_shell_v0287.md`.
+
+Remaining interpreted in the coli warm task: mid-body/tail only
+(`0x22210`→`0x22298`→`0x22404`→`0x10dcc`).
+
+### v0289 recover coli mid-body/tail warm path
+
+`vf2_hybrid_coli_midbody_tail_execute` is now native C. The 56-instruction
+corridor from `0x22210` through the both-zero `cmpobe` pair and final
+ret to `0x10dcc` runs as one procedure, inlining body-only
+`coli_22298_body` ×2 and `coli_22404_body` ×2 (extracted from the
+v0276/v0277 exports). Fighter pointers reload from `0x500804`/`0x500808`.
+Final `g7`/`g8` are left swapped (`0x22230`/`0x22234`). Accounting
+**56 / 4 / 5**. Bit-8-set siblings and the non-zero contact-result path
+to `0x225cc` fail closed.
+
+`hybrid_execute_coli_body` now walks interpret-entry (7 insns) →
+native `0x23524` (9151) → native mid-body/tail (56) → `0x10dcc`.
+The warm `fa_coli` task has **zero interpreted instructions** after
+the entry prefix.
+
+PUNCH remains `320/320` MATCH / `14,962,620` instructions.
+Unit test `test_coli_midbody_tail_warm`.
+See `decomp/i960/notes/fa_coli_midbody_v0289.md`.
+
+### v0290 coli bit-8-set compact siblings
+
+Two measured compact siblings are now native:
+
+- `0x22298` bits 8 and 1 set — 8 instructions, same `stos 0` into
+  `g7+0x6dc` as the warm path.
+- `0x22404` bit 8 set with equal snapshots, pending bit clear,
+  threshold `a >= b`, helper `r3 = 0` and empty scan mask — 30
+  instructions, store 0 into `g8+0x6d4`, `g0 = 0`, `g14 = 0x2244c`.
+
+Body-only statics return dynamic instruction counts so the mid-body
+parent accounts correctly. Other bit-8 sub-branches (the 16-trip
+float loops in `0x22298`, the non-empty scan / `g0 = 1` path in
+`0x22404`) remain explicit boundaries. PUNCH remains `320/320` MATCH.
+See `decomp/i960/notes/fa_coli_bit8_siblings_v0290.md`.
+
+### v0291 measure `0x225cc` `g8+0x19f==22` shortcut (defer)
+
+Forcing `g8+0x19f = 22` takes the `call 0x18bd4` shortcut. That helper
+itself calls `0x1ab34` (ROM table walk) and `0x18b58` — still a
+multi-block subtree, not a compact leaf. **Defer.** Does not affect the
+warm PUNCH pin.
+See `decomp/i960/notes/fa_coli_225cc_shortcut_v0291.md`.
+
+### v0288 measure `0x225cc` reachability path (defer)
+
+Re-runs the v0282 mutated drive to `0x225cc`. The `0x18bd4` shortcut
+is not taken (`g8+0x19f != 22`); the measured path is a 248-instruction
+multi-branch body with four nested calls (`0x230d4`, `0x23238` ×2,
+`0x1ab34`) through `0x230b8`. Not a compact prefix — **defer**. Does
+not affect the warm PUNCH pin.
+See `decomp/i960/notes/fa_coli_225cc_prefix_v0288.md`.
+
+### v0282 scanbit/bno NoBit fix + `0x225cc` reachability drive
+
+`bno` after a successful `scanbit` was incorrectly taken (`EQUAL !=
+OVERFLOW`). A hit now records OVERFLOW (bno not taken); a miss records
+NONE (`dest = 31`) so bno fires. Warm PUNCH is unchanged (no scanbit
+on that path).
+
+A three-field mutation of `out/coli-22404-e1` (`g7+0x1a4` bit 8,
+`g7+0x820 = 1`, dest slot `0x5149cc = 0xffff`) makes the first contact
+query return `g0 = 1` in **73 instructions**. The caller then reaches
+`0x225cc` after **96 instructions** (second query still warm-zero).
+`0x225cc` remains unmeasured beyond its prefix (`g7+0x1234` counter++,
+optional `call 0x18bd4` when `g8+0x19f == 22`).
+See `decomp/i960/notes/fa_coli_225cc_drive_v0282.md`.
+

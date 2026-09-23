@@ -35,8 +35,17 @@ typedef struct vf2_probe_options {
     uint32_t stop_address;
     uint64_t max_steps;
     int has_stop_address;
+    int has_set_ip;
+    uint32_t set_ip;
     int trace;
     int memory_trace;
+    int has_raise_irq;
+    int has_enter_interrupt;
+    uint32_t raise_irq_mask;
+    uint32_t enter_interrupt_vector;
+    uint32_t enter_interrupt_level;
+    int has_input;
+    uint32_t input;
     vf2_probe_mutation mutations[VF2_PROBE_MAX_MUTATIONS];
     size_t mutation_count;
     uint32_t reads_u32[VF2_PROBE_MAX_READS];
@@ -59,11 +68,15 @@ static void print_usage(FILE *stream, const char *program)
         "  --until <address>          stop when IP reaches address\n"
         "  --max-steps <count>        instruction limit (default 100000)\n"
         "  --set-reg <reg=value>      mutate r0..r31, g0..g15 or fp\n"
+        "  --set-ip <address>         force the instruction pointer\n"
         "  --set-u8 <addr=value>      mutate one byte\n"
         "  --set-u16 <addr=value>     mutate little-endian 16-bit value\n"
         "  --set-u32 <addr=value>     mutate little-endian 32-bit value\n"
         "  --read-u32 <address>       include final 32-bit memory value\n"
         "  --output-snapshot <file>   save the resulting CPU/machine state\n"
+        "  --raise-irq <bits>         raise interrupt lines once after restore\n"
+        "  --enter-interrupt <v=l>    enter interrupt vector v at level l once\n"
+        "  --input <mask>              hold host input mask during execution\n"
         "  --trace                    emit one JSON record per instruction\n"
         "  --memory-trace             emit successful bus accesses plus steps\n",
         VF2_VERSION_STRING,
@@ -209,6 +222,29 @@ static int parse_options(int argc, char **argv, vf2_probe_options *options)
             options->trace = 1;
         } else if (strcmp(argument, "--memory-trace") == 0) {
             options->memory_trace = 1;
+        } else if (strcmp(argument, "--raise-irq") == 0 && index + 1 < argc) {
+            if (!parse_u32(argv[++index], &options->raise_irq_mask)) {
+                return 0;
+            }
+            options->has_raise_irq = 1;
+        } else if (strcmp(argument, "--input") == 0 && index + 1 < argc) {
+            if (!parse_u32(argv[++index], &options->input)) {
+                return 0;
+            }
+            options->has_input = 1;
+        } else if (strcmp(argument, "--enter-interrupt") == 0 && index + 1 < argc) {
+            char left[64];
+            uint32_t vector = 0u;
+            uint32_t level = 0u;
+            if (!parse_assignment(argv[++index], left, sizeof(left), &level)) {
+                return 0;
+            }
+            if (!parse_u32(left, &vector)) {
+                return 0;
+            }
+            options->enter_interrupt_vector = vector;
+            options->enter_interrupt_level = level;
+            options->has_enter_interrupt = 1;
         } else if ((strcmp(argument, "--set-reg") == 0 ||
                     strcmp(argument, "--set-u8") == 0 ||
                     strcmp(argument, "--set-u16") == 0 ||
@@ -245,6 +281,11 @@ static int parse_options(int argc, char **argv, vf2_probe_options *options)
             if (!append_mutation(options, kind, target, value)) {
                 return 0;
             }
+        } else if (strcmp(argument, "--set-ip") == 0 && index + 1 < argc) {
+            if (!parse_u32(argv[++index], &options->set_ip)) {
+                return 0;
+            }
+            options->has_set_ip = 1;
         } else if (strcmp(argument, "--read-u32") == 0 && index + 1 < argc) {
             if (options->read_u32_count >= VF2_PROBE_MAX_READS ||
                 !parse_u32(argv[++index], &options->reads_u32[options->read_u32_count])) {
@@ -486,6 +527,22 @@ int main(int argc, char **argv)
     }
     for (index = 0u; status == VF2_OK && index < options.mutation_count; ++index) {
         status = apply_mutation(&machine, &cpu, &options.mutations[index]);
+    }
+    if (status == VF2_OK && options.has_set_ip) {
+        cpu.ip = options.set_ip;
+    }
+    if (status == VF2_OK && options.has_input) {
+        status = vf2_model2a_set_input(&machine, options.input);
+    }
+    if (status == VF2_OK && options.has_raise_irq) {
+        status = vf2_model2a_raise_interrupt(&machine, options.raise_irq_mask);
+    }
+    if (status == VF2_OK && options.has_enter_interrupt) {
+        status = vf2_i960_cpu_enter_interrupt(
+            &cpu, &machine,
+            options.enter_interrupt_vector,
+            options.enter_interrupt_level
+        );
     }
 
     if (status == VF2_OK) {
