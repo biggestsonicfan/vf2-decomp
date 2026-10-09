@@ -247,6 +247,19 @@ vf2_status vf2_hybrid_player_4ad40_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x6dccc: poly_or_model2a_register_switch (88 B, 4 blocks).
+ * IP must be 0x6dccc with a pushed frame. Reads the byte at
+ * 0x50002b; if it is 16 or 17, the function is a pure ret
+ * (no writes). Otherwise reads the 32-bit word at 0x59c318,
+ * increments it by 1, and mirrors the new value to 0x1d03318
+ * and 0x59c318. The byte from 0x50002b is mirrored to 0x1d0331c
+ * and 0x59c31c. The name is provisional (v0734k-characterised
+ * gap-run sub-function; second-source naming not yet confirmed). */
+vf2_status vf2_hybrid_model2a_register_switch_6dccc_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

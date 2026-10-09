@@ -35524,3 +35524,119 @@ vf2_status vf2_hybrid_player_4ad40_execute(
 {
     return hybrid_execute_player_4ad40(machine, cpu);
 }
+/* ====================================================================
+ * Model 2A 0x6dccc - poly_or_model2a_register_switch (v0765)
+ *
+ * Disassembly (per vf2i960 disasm, 88 B, 4 blocks):
+ *
+ *   block_0006dccc:
+ *     0006dccc  ldob     0x0050002b, r15           ; byte = *(0x50002b)
+ *     0006dcd4  lda      0x00000010, r14           ; r14 = 16
+ *     0006dcdc  lda      0x00000011, r13           ; r13 = 17
+ *     0006dce4  cmpobe   r14, r15, 0x0006dd20      ; if byte == 16, skip
+ *     0006dce8  cmpobe   r13, r15, 0x0006dd20      ; if byte == 17, skip
+ *     0006dcec  ldl      0x0059c318, r14           ; r14 = *(0x59c318)
+ *     0006dcf4  cmpo     1, 0                      ; (i960 canonical "g0", sets carry=0)
+ *     0006dcf8  addc     1, r14, r14               ; r14 = r14 + 1
+ *     0006dcfc  addc     0, r15, r15               ; r15 = r15 + 0 + carry = r15 (unchanged)
+ *     0006dd00  st       r14, 0x01d03318           ; mirror to extended bus
+ *     0006dd08  st       r14, 0x0059c318
+ *     0006dd10  st       r15, 0x01d0331c           ; mirror r15 (unchanged) to extended bus
+ *     0006dd18  st       r15, 0x0059c31c
+ *   block_0006dd20:
+ *     0006dd20  ret
+ *
+ * Shape: short Model 2A register-cluster switch. When the byte at
+ * 0x50002b is 16 or 17 (a "do not touch" sentinel), the function
+ * is a pure ret. Otherwise it reads the 32-bit word at 0x59c318,
+ * increments it by 1, and mirrors the new value to the extended
+ * bus at 0x1d03318. The original byte is mirrored to the second
+ * half of the pair at 0x1d0331c / 0x59c31c.
+ *
+ * Characterisation: v0734k (decomp/i960/notes/
+ * phase_1_3b_gap_characterisation_v0734k.md) listed this as
+ * `sub_0006dccc` and described it as a "register-cluster switch"
+ * in the v0734k gap run 0x6cb0c..0x6dcb8. The function extent
+ * is 88 B in 4 blocks. The name is provisional pending a
+ * second-source signal (per v0734i / v0734b naming policy).
+ */
+static vf2_status hybrid_execute_model2a_register_switch_6dccc(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    vf2_status status;
+    uint8_t r15_byte = 0u;
+    uint32_t r14_u32 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006dccc)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* ldob 0x0050002b -> r15. */
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x0050002b), &r15_byte, sizeof(r15_byte));
+    if (status != VF2_OK) return status;
+
+    /* cmpobe 16, r15: skip to ret.
+     * cmpobe 17, r15: skip to ret.
+     * Both literals are encoded in the i960 instruction and the
+     * disasm gives 0x10 = 16, 0x11 = 17 for the cmpobe literals.
+     * On skip, the i960 jumps to block_0006dd20 (the entry's
+     * ret). The ret at 0x6dd24 (the next byte) pops the
+     * caller's frame, so the post-call IP is the address the
+     * caller supplies via enter_procedure's g14. The recovery
+     * simulates the whole branch-then-ret by setting
+     * cpu->ip directly to the post-ret slot. */
+    if (r15_byte == UINT8_C(16) || r15_byte == UINT8_C(17)) {
+        cpu->ip = UINT32_C(0x0006dd24);
+        cpu->executed_instructions += UINT64_C(4);
+        return VF2_OK;
+    }
+
+    /* ldl 0x0059c318 -> r14. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0059c318), &r14_u32);
+    if (status != VF2_OK) return status;
+
+    /* cmpo 1, g0; addc 1, r14, r14 - net effect: r14 += 1.
+     * cmpo 1, g0 sets carry based on 1 - 0 = 1 (no borrow), so
+     * addc adds exactly 1 to r14. */
+    r14_u32 = r14_u32 + UINT32_C(1);
+
+    /* addc 0, r15, r15 - net effect: r15 unchanged
+     * (carry is 0 from the cmpo above; r15 = r15 + 0 + 0). */
+    /* r15_byte is already loaded from 0x50002b above. */
+
+    /* st r14 -> 0x01d03318 (extended bus mirror). */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x01d03318), r14_u32);
+    if (status != VF2_OK) return status;
+    /* st r14 -> 0x0059c318 (Model 2A register). */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0059c318), r14_u32);
+    if (status != VF2_OK) return status;
+    /* st r15 -> 0x01d0331c (extended bus mirror). */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x01d0331c), (uint32_t)r15_byte);
+    if (status != VF2_OK) return status;
+    /* st r15 -> 0x0059c31c (Model 2A register). */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0059c31c), (uint32_t)r15_byte);
+    if (status != VF2_OK) return status;
+
+    /* Ret: set cpu->ip to the post-ret slot 0x6dd24. */
+    cpu->ip = UINT32_C(0x0006dd24);
+    cpu->executed_instructions += UINT64_C(14);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_model2a_register_switch_6dccc_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    return hybrid_execute_model2a_register_switch_6dccc(machine, cpu);
+}
+
