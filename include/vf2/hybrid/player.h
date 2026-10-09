@@ -273,6 +273,40 @@ vf2_status vf2_hybrid_kill_osage_evaluate_record_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover task_object 0x6ca64 + cluster (v0767). The task_object
+ * dispatcher (20 B) reads the instance-index byte at g13+0x4 and
+ * looks up a 4-byte jump table at 0x6ca78; the looked-up entry
+ * becomes the new g13+0xc (next-entry pointer). Three init stubs
+ * follow (init0 0x6cae0 sets next to 0x6caf0; init1 0x6caf4 sets
+ * next to 0x6cb04; init2 0x6cb08 is itself a bare ret). The two
+ * "init ret" slots 0x6caf0 and 0x6cb04 are bare rets. All 5
+ * entries are fall-through only (no call refs); they exercise as
+ * stand-alone execute hooks. */
+vf2_status vf2_hybrid_task_object_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+vf2_status vf2_hybrid_task_object_init0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+vf2_status vf2_hybrid_task_object_init0_ret_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+vf2_status vf2_hybrid_task_object_init1_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+vf2_status vf2_hybrid_task_object_init1_ret_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+vf2_status vf2_hybrid_task_object_init2_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

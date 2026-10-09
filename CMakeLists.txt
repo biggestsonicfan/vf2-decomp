@@ -526,6 +526,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_kill_osage_evaluate_record_tests)
     add_test(NAME vf2_kill_osage_evaluate_record COMMAND vf2_kill_osage_evaluate_record_tests)
 
+    add_executable(vf2_task_object_cluster_tests tests/recovered/test_task_object_cluster_native.c)
+    target_link_libraries(vf2_task_object_cluster_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_task_object_cluster_tests)
+    add_test(NAME vf2_task_object_cluster COMMAND vf2_task_object_cluster_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)

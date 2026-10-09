@@ -35815,3 +35815,210 @@ vf2_status vf2_hybrid_kill_osage_evaluate_record_execute(
     return hybrid_execute_kill_osage_evaluate_record(machine, cpu);
 }
 
+/* ====================================================================
+ * task_object 0x6ca64 + cluster (v0767)
+ *
+ * The task_object family is a per-instance object init stub family
+ * keyed by g13's byte at offset 0x4. It dispatches via a small
+ * jump table at 0x6ca78, then each init either sets the next-entry
+ * pointer to a bare-ret slot or is itself a bare ret.
+ *
+ * All 5 entries per functions.csv lines 96-101:
+ *
+ *   0x6ca64..0x6ca78 task_object          (20 B, 1 block)
+ *   0x6cae0..0x6caf0 task_object_init0    (16 B, 1 block)
+ *   0x6caf0..0x6caf4 task_object_init0_ret (4 B, 1 block, bare ret)
+ *   0x6caf4..0x6cb04 task_object_init1    (16 B, 1 block)
+ *   0x6cb04..0x6cb08 task_object_init1_ret (4 B, 1 block, bare ret)
+ *   0x6cb08..0x6cb0c task_object_init2    (4 B, 1 block, bare ret)
+ *
+ * Disassembly (per vf2i960 disasm):
+ *
+ *   block_0006ca64 (task_object):
+ *     0006ca64  ldob    0x00000004(g13), r3  ; r3 = *(byte)(g13 + 0x4)
+ *     0006ca68  ld      0x0006ca78[r3*4], r5 ; r5 = *(uint32_t)(0x6ca78 + r3*4)
+ *     0006ca70  st      r5, 0x0000000c(g13)  ; *(g13 + 0xc) = r5
+ *     0006ca74  ret
+ *
+ *   block_0006cae0 (task_object_init0):
+ *     0006cae0  lda     0x0006caf0, r15
+ *     0006cae8  st      r15, 0x0000000c(g13) ; *(g13 + 0xc) = 0x6caf0
+ *     0006caec  ret
+ *
+ *   block_0006caf0 (task_object_init0_ret): ret
+ *
+ *   block_0006caf4 (task_object_init1):
+ *     0006caf4  lda     0x0006cb04, r15
+ *     0006cafc  st      r15, 0x0000000c(g13) ; *(g13 + 0xc) = 0x6cb04
+ *     0006cb00  ret
+ *
+ *   block_0006cb04 (task_object_init1_ret): ret
+ *
+ *   block_0006cb08 (task_object_init2): ret
+ *
+ * Shape: task_object reads an instance-index byte at g13+0x4,
+ * looks up a 4-byte dispatch table entry at 0x6ca78[r3*4], and
+ * writes it to g13+0xc (the "next entry" pointer). The init
+ * targets are tied to specific bucket indices in that table:
+ *   - index 0 -> init0 -> sets next to a bare ret at 0x6caf0
+ *   - index 1 -> init1 -> sets next to a bare ret at 0x6cb04
+ *   - index 2 -> init2 -> is itself a bare ret
+ *
+ * The 3 init stubs are singleton dispatch stubs per functions.csv
+ * note ("fa_object0/1/2 dispatcher: instance-indexed table at
+ * 0x6ca78 rewrites registry+0x0c").
+ */
+static vf2_status hybrid_execute_task_object(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint8_t r3 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t g13 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006ca64)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+
+    /* r3 = *(byte)(g13 + 0x4). */
+    status = vf2_model2a_read(
+        machine, g13 + UINT32_C(0x4), &r3, sizeof(r3));
+    if (status != VF2_OK) return status;
+
+    /* r5 = *(uint32_t)(0x6ca78 + r3*4). */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x6ca78) + (uint32_t)r3 * UINT32_C(4),
+        &r5);
+    if (status != VF2_OK) return status;
+
+    /* *(g13 + 0xc) = r5. */
+    status = vf2_model2a_write_u32(
+        machine, g13 + UINT32_C(0xc), r5);
+    if (status != VF2_OK) return status;
+
+    cpu->ip = UINT32_C(0x0006ca78);
+    cpu->executed_instructions += UINT64_C(4);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_task_object_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_task_object(machine, cpu);
+}
+
+static vf2_status hybrid_execute_task_object_init0(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t g13 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006cae0)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+
+    /* *(g13 + 0xc) = 0x6caf0 (the init0_ret bare-ret slot). */
+    status = vf2_model2a_write_u32(
+        machine, g13 + UINT32_C(0xc), UINT32_C(0x0006caf0));
+    if (status != VF2_OK) return status;
+
+    cpu->ip = UINT32_C(0x0006caf0);
+    cpu->executed_instructions += UINT64_C(3);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_task_object_init0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_task_object_init0(machine, cpu);
+}
+
+static vf2_status hybrid_execute_task_object_init1(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t g13 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006caf4)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+
+    /* *(g13 + 0xc) = 0x6cb04 (the init1_ret bare-ret slot). */
+    status = vf2_model2a_write_u32(
+        machine, g13 + UINT32_C(0xc), UINT32_C(0x0006cb04));
+    if (status != VF2_OK) return status;
+
+    cpu->ip = UINT32_C(0x0006cb04);
+    cpu->executed_instructions += UINT64_C(3);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_task_object_init1_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_task_object_init1(machine, cpu);
+}
+
+/* task_object_init2 is a bare ret at 0x6cb08..0x6cb0c.
+ * task_object_init0_ret (0x6caf0..0x6caf4) and
+ * task_object_init1_ret (0x6cb04..0x6cb08) are also bare
+ * rets. The three are functionally identical: set
+ * cpu->ip = post_ret_ip (the byte after the ret) and return
+ * VF2_OK. We expose them as a single function `bare_ret`
+ * since the only difference is the post_ret_ip constant. */
+static vf2_status hybrid_execute_task_object_bare_ret(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    uint32_t expected_ip)
+{
+    if (machine == NULL || cpu == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (cpu->ip != expected_ip) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    cpu->ip = expected_ip + UINT32_C(4);
+    cpu->executed_instructions += UINT64_C(1);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_task_object_init0_ret_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_task_object_bare_ret(
+        machine, cpu, UINT32_C(0x0006caf0));
+}
+
+vf2_status vf2_hybrid_task_object_init1_ret_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_task_object_bare_ret(
+        machine, cpu, UINT32_C(0x0006cb04));
+}
+
+vf2_status vf2_hybrid_task_object_init2_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_task_object_bare_ret(
+        machine, cpu, UINT32_C(0x0006cb08));
+}
+
