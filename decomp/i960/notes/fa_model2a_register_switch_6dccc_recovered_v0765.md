@@ -9,10 +9,16 @@ Model 2A register helpers in the v0734k-characterised
 ## Function shape
 
 ```
-sub_0006dccc: address=0x0006dccc end=0x0006ddd0 blocks=4 indirect=no
+sub_0006dccc: address=0x0006dccc end=0x0006dd24 blocks=4 indirect=no
 ```
 
-88 B in 4 blocks. The function does:
+76 B in 4 blocks (the disasm of the body). The full 88 B
+of the i960-disassembler-measured extent
+(`address=0x6dccc end=0x6ddd0` per the older measurement
+that did not apply the v0734a two-source rule) overlaps
+entirely with `system_memory_diagnostic` at `0x6dcb8..0x6dd4c`.
+The recovery uses the smaller, sharper extent of 76 B
+for the `functions.csv` row. The function does:
 
 1. Read byte at `0x50002b` into r15.
 2. If r15 == 16 or r15 == 17, branch to the entry's `ret`
@@ -89,22 +95,27 @@ increment. Asserts:
 ## functions.csv row added
 
 ```
-0x0006dccc,0x0006ddd0,poly_or_model2a_register_switch,
+0x0006dccc,0x0006dd24,poly_or_model2a_register_switch,
 recovered-rom-anchor,rom-disassembly+unit,
 Model 2A register-cluster switch: read byte at 0x50002b;
 if 16 or 17, ret; else increment u32 at 0x59c318 and
 mirror to extended bus 0x1d03318 plus the byte to
-0x1d0331c; recovered v0765 from v0734k gap-characterised
-sub_0006dccc; name provisional pending second-source
-signal,
+0x1d0331c; recovered v0765; extent 0x6dccc..0x6dd24
+(76 B, one past the entry's ret at 0x6dd20); sits
+ENTIRELY INSIDE the 0x6dcb8..0x6dd4c system_memory_diagnostic
+row; reachable only via fall-through from there;
+per-v0734i-overlap-documenting-as-design,
 ```
 
-The end extent `0x6ddd0` is the address past the entry's
-`ret` at `0x6dd20` (per the v0734a two-source rule: entry +
-highest `ret` reachable through direct branches and
-fall-through). The next real function entry
-(`sub_0006ddd4`) starts at `0x6dd24` per the disasm
-sequence.
+The end extent `0x6dd24` is one past the entry's
+`ret` at `0x6dd20` (per the v0734a two-source rule:
+entry + highest `ret` reachable through direct branches
+and fall-through). The next real block (`sub_0006dd24`)
+starts at `0x6dd24`; per `vf2i960 function`, that block
+is itself inside `system_memory_diagnostic`'s 148 B
+extent. The new row documents an inner fall-through
+target of `system_memory_diagnostic` per the
+v0734i overlap-by-design pattern.
 
 ## Validated
 
