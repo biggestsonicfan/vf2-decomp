@@ -260,6 +260,19 @@ vf2_status vf2_hybrid_model2a_register_switch_6dccc_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x65838: kill_osage_evaluate_record (108 B, 7 blocks).
+ * IP must be 0x65838 with a pushed frame. Reads g7 as a worker
+ * record pointer; if (*(g7 + 0xc) == 0x6428c) and (*(g7) bit 0
+ * clear) and (*(g7) bit 2 set) and (*(g7 + 0x128) + g6) >= 0x4268,
+ * the function sets bit 3 of *(g7) and increments the global
+ * counter at 0x500164. Otherwise it clears bit 3 of *(g7) and
+ * accumulates *(g7 + 0x128) into g6. Two callers per vf2i960
+ * xrefs (0x65828 and 0x65830). */
+vf2_status vf2_hybrid_kill_osage_evaluate_record_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

@@ -521,6 +521,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_model2a_register_switch_6dccc_tests)
     add_test(NAME vf2_model2a_register_switch_6dccc COMMAND vf2_model2a_register_switch_6dccc_tests)
 
+    add_executable(vf2_kill_osage_evaluate_record_tests tests/recovered/test_kill_osage_evaluate_record_native.c)
+    target_link_libraries(vf2_kill_osage_evaluate_record_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_kill_osage_evaluate_record_tests)
+    add_test(NAME vf2_kill_osage_evaluate_record COMMAND vf2_kill_osage_evaluate_record_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)

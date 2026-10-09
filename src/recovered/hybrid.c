@@ -35640,3 +35640,178 @@ vf2_status vf2_hybrid_model2a_register_switch_6dccc_execute(
     return hybrid_execute_model2a_register_switch_6dccc(machine, cpu);
 }
 
+/* ====================================================================
+ * fa_player 0x65838 - kill_osage_evaluate_record (v0766)
+ *
+ * Disassembly (per vf2i960 disasm, 108 B, 7 blocks, indirect=no):
+ *
+ *   block_00065838:
+ *     00065838  mov      0, r7
+ *     0006583c  ld       0x0000000c(g7), r3
+ *     00065840  lda      0x0006428c, r4
+ *     00065848  cmpobne  r3, r4, 0x00065890    ; if (*(g7+0xc) != 0x6428c) -> no_path
+ *
+ *   block_0006584c:
+ *     0006584c  ld       (g7), r3              ; r3 = *(g7)
+ *     00065850  bbs      0, r3, 0x00065890     ; if (bit 0 set) -> no_path
+ *
+ *   block_00065854:
+ *     00065854  bbc      2, r3, 0x00065890     ; if (bit 2 clear) -> no_path
+ *
+ *   block_00065858:
+ *     00065858  ld       0x00000128(g7), r7   ; r7 = *(g7 + 0x128)
+ *     0006585c  lda      0x00004268, r6
+ *     00065864  addo     r7, g6, r3            ; r3 = r7 + g6
+ *     00065868  cmpobl   r3, r6, 0x00065890    ; if (r3 < 0x4268) -> no_path
+ *
+ *   block_0006586c:
+ *     0006586c  ld       (g7), r15
+ *     00065870  setbit   3, r15, r15           ; r15 |= (1 << 3)
+ *     00065874  st       r15, (g7)
+ *     00065878  ld       0x00500164, r15
+ *     00065880  lda      0x00000001(r15), r15  ; r15 += 1
+ *     00065884  st       r15, 0x00500164
+ *     0006588c  b        0x000658a0            ; -> ret (skip no_path)
+ *
+ *   block_00065890:
+ *     00065890  ld       (g7), r15
+ *     00065894  clrbit   3, r15, r15           ; r15 &= ~(1 << 3)
+ *     00065898  st       r15, (g7)
+ *     0006589c  addo     r7, g6, g6            ; g6 += r7
+ *
+ *   block_000658a0:
+ *     000658a0  ret
+ *
+ * Shape: 4-branch dispatch. g7 is a worker record (the "osage"
+ * record pointed to by the dispatcher). The function decides
+ * whether to "kill" the record:
+ *
+ *   YES path (block 0x6586c) - conditions all met:
+ *     - *(g7 + 0xc) == 0x6428c (the magic task-handler constant);
+ *     - *(g7) bit 0 clear;
+ *     - *(g7) bit 2 set;
+ *     - (*(g7 + 0x128) + g6) >= 0x4268.
+ *     Then: set bit 3 of *(g7) and increment 0x500164 counter.
+ *
+ *   NO path (block 0x65890) - any condition fails:
+ *     Clear bit 3 of *(g7) and accumulate (*(g7 + 0x128)) into g6.
+ *
+ * Two callers per vf2i960 xrefs (0x65828, 0x65830); both inside
+ * the same caller's dispatch (function at 0x65800..0x65838).
+ *
+ * Stand-alone execute hook. Naming `kill_osage_evaluate_record`
+ * follows functions.csv.
+ */
+static vf2_status hybrid_execute_kill_osage_evaluate_record(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    vf2_status status;
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r7 = 0u;
+    uint32_t r15 = 0u;
+    uint32_t g6 = 0u;
+    uint32_t g7 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00065838)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    g6 = cpu->registers[VF2_I960_G0_REGISTER + 6u];
+
+    /* mov r7, 0 (r7 stays 0 unless updated later). */
+    r7 = 0u;
+
+    /* ld 0xc(g7), r3 -> r3 = *(g7 + 0xc). */
+    status = vf2_model2a_read_u32(
+        machine, g7 + UINT32_C(0xc), &r3);
+    if (status != VF2_OK) return status;
+    /* r4 = 0x6428c (literal in the cmpobne). */
+    r4 = UINT32_C(0x6428c);
+
+    /* if (r3 != r4) -> no_path. */
+    if (r3 != r4) {
+        goto block_no;
+    }
+
+    /* ld (g7), r3 -> r3 = *(g7). */
+    status = vf2_model2a_read_u32(
+        machine, g7, &r3);
+    if (status != VF2_OK) return status;
+    /* if bit 0 of r3 set -> no_path. */
+    if ((r3 & (UINT32_C(1) << 0u)) != 0u) {
+        goto block_no;
+    }
+    /* if bit 2 of r3 clear -> no_path. */
+    if ((r3 & (UINT32_C(1) << 2u)) == 0u) {
+        goto block_no;
+    }
+
+    /* r7 = *(g7 + 0x128). */
+    status = vf2_model2a_read_u32(
+        machine, g7 + UINT32_C(0x128), &r7);
+    if (status != VF2_OK) return status;
+    /* r6 = 0x4268. */
+    r6 = UINT32_C(0x4268);
+    /* r3 = r7 + g6. */
+    r3 = r7 + g6;
+    /* if (r3 < r6) -> no_path. */
+    if (r3 < r6) {
+        goto block_no;
+    }
+
+    /* YES path (kill applied). */
+    /* r15 = *(g7); r15 |= (1 << 3); *(g7) = r15. */
+    status = vf2_model2a_read_u32(
+        machine, g7, &r15);
+    if (status != VF2_OK) return status;
+    r15 |= (UINT32_C(1) << 3u);
+    status = vf2_model2a_write_u32(
+        machine, g7, r15);
+    if (status != VF2_OK) return status;
+
+    /* r15 = *(0x500164); r15 += 1; *(0x500164) = r15. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500164), &r15);
+    if (status != VF2_OK) return status;
+    r15 = r15 + UINT32_C(1);
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x00500164), r15);
+    if (status != VF2_OK) return status;
+
+    /* b to ret (skip the no_path). */
+    goto block_ret;
+
+block_no:
+    /* r15 = *(g7); r15 &= ~(1 << 3); *(g7) = r15. */
+    status = vf2_model2a_read_u32(
+        machine, g7, &r15);
+    if (status != VF2_OK) return status;
+    r15 &= ~(UINT32_C(1) << 3u);
+    status = vf2_model2a_write_u32(
+        machine, g7, r15);
+    if (status != VF2_OK) return status;
+    /* g6 += r7. */
+    g6 = g6 + r7;
+    cpu->registers[VF2_I960_G0_REGISTER + 6u] = g6;
+    /* fall through to ret. */
+
+block_ret:
+    cpu->ip = UINT32_C(0x000658a4);
+    cpu->executed_instructions += UINT64_C(15);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_kill_osage_evaluate_record_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    return hybrid_execute_kill_osage_evaluate_record(machine, cpu);
+}
+
