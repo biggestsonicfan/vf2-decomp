@@ -307,6 +307,19 @@ vf2_status vf2_hybrid_task_object_init2_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x6d10c: slot_increment_helper (56 B, 3 blocks).
+ * IP must be 0x6d10c with a pushed frame. Computes the slot
+ * index r7 = max(20, g0 / 1920); reads the bus pointer at
+ * *(0x50016c); increments the 32-bit slot at
+ * *(bus_ptr + 0x3520 + r7*4) by 1; mirrors the result to both
+ * the Model 2A pair at 0x59c520[r7*4] and the extended bus at
+ * 0x1d03520[r7*4]. Shared-epilogue leaf in the v0734k gap run
+ * 0x6cb0c..0x6dcb8; fall-through target only. */
+vf2_status vf2_hybrid_slot_increment_helper_6d10c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by
