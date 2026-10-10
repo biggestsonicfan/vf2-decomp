@@ -405,6 +405,31 @@ vf2_status vf2_hybrid_timer_fuse_94d0_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x5427c: 156 B / 8 blocks polygon record loader.
+ * 1-to-1 C translation. Zero-fills 256 bytes of dst at
+ * 0x01d03100 (a 16-byte x 16-slot sprite descriptor
+ * table), then runs an 18-iteration loop (r10 = 0..17)
+ * that:
+ *   - for r10 < 6: calls 0x94d0 (timer_fuse) via
+ *     vf2_hybrid_timer_fuse_94d0_execute to allocate a
+ *     free 5-bit slot in a 32-bit bitmap;
+ *   - for r10 >= 6: uses r10 directly as the slot index;
+ *   - writes 9 bytes per iter to dst[16*r10]:
+ *       offset 0:  4 bytes from src+12*r10 (src stride 12)
+ *       offset 4:  4 bytes from *(polygon_table[slot])
+ *       offset 10: 1 byte from src+12*r10+6
+ * src base is 0x0201ea24, polygon pointer table is at
+ * 0x0201eafc (32 entries of 4 bytes each).
+ *
+ * Two callers (per vf2i960 xrefs): 0x6de50 and 0x6dea4,
+ * both inside 0x6de3c (one of the v0771 / 0x9480 callers).
+ * Refuses (returns VF2_ERROR_UNSUPPORTED) if the v0775
+ * sub-recovery returns non-OK. */
+vf2_status vf2_hybrid_poly_record_load_5427c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

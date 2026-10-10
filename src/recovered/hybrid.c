@@ -36836,3 +36836,247 @@ vf2_status vf2_hybrid_timer_fuse_94d0_execute(
 }
 
 
+/* ====================================================================
+ * Recovered 0x5427c (156 B, 8 blocks) - polygon record loader.
+ *
+ * Per vf2i960 disasm ../../roms/vf2 0x5427c (8 blocks, 31 instructions):
+ *
+ *   block_0005427c (init):
+ *     0005427c  lda     0x01d03100, r3      ; r3 = dst base
+ *     00054284  lda     0x0201ea24, r4      ; r4 = src base
+ *     0005428c  mov     0, r5               ; r5 = 0
+ *     00054290  mov     0, r6               ; r6 = slot bitmap (32 bits)
+ *     00054294  mov     0, r8               ; r8 = src byte index
+ *     00054298  mov     0, r10              ; r10 = iter counter
+ *     0005429c  mov     0, r14              ; r14 = 0 (zero byte)
+ *     000542a0  lda     0x1ff, r15          ; r15 = 0x1ff
+ *
+ *   block_000542a4 (zero-fill loop, 256 bytes):
+ *     000542a4  stob    r14, (r3)[r15]      ; dst[r15] = 0
+ *     000542a8  cmpdeco 0, r15, r15         ; r15 = r15-1 if r15>0 else 0
+ *                                          ; CC: LESS if r15>0, EQUAL if r15==0
+ *     000542ac  bl      0x000542a4          ; branch back if LESS
+ *
+ *   block_000542b0 (main loop top):
+ *     000542b0  muli    16, r10, r9         ; r9 = r10 * 16 (struct stride)
+ *     000542b4  cmpobl  6, r10, 0x542c8     ; if r10<6 -> alloc path
+ *
+ *   block_000542b8 (prealloc path, r10>=6):
+ *     000542b8  setbit  r10, r6, r6         ; r6 |= 1<<r10
+ *     000542bc  ld      0x0201eafc[r10*4], r11  ; r11 = polygon_table[r10]
+ *     000542c4  b       0x000542e0          ; -> common body
+ *
+ *   block_000542c8 (alloc path, r10<6):
+ *     000542c8  call    0x000094d0          ; v0775 timer_fuse
+ *     000542cc  and     31, g0, r5          ; r5 = g0 & 0x1f (5-bit slot)
+ *     000542d0  bbs     r5, r6, 0x542c8     ; while bit r5 set in r6, retry
+ *
+ *   block_000542d4 (alloc success):
+ *     000542d4  setbit  r5, r6, r6          ; r6 |= 1<<r5
+ *     000542d8  ld      0x0201eafc[r5*4], r11   ; r11 = polygon_table[r5]
+ *
+ *   block_000542e0 (common body):
+ *     000542e0  ld      (r11), r11          ; r11 = *r11 (deref polygon ptr)
+ *     000542e4  st      r11, 0x4(r3)[r9]    ; dst[r9+4] = r11
+ *     000542ec  ld      (r4)[r8], r11       ; r11 = *(src+r8)
+ *     000542f0  st      r11, (r3)[r9]       ; dst[r9] = r11
+ *     000542f8  ldob    0x6(r4)[r8], r11    ; r11 = *(byte)(src+r8+6)
+ *     00054300  stob    r11, 0xa(r3)[r9]    ; dst[r9+10] = r11
+ *     00054308  cmpinco 17, r10, r10        ; if r10<=17 r10++ else r10=17
+ *     0005430c  addo    12, r8, r8          ; r8 += 12 (src stride)
+ *     00054310  bg      0x000542b0          ; if r10>17 branch back
+ *
+ *   block_00054314: ret
+ *
+ * The function zero-fills 256 bytes of dst (16 16-byte sprite
+ * descriptor slots, room for 16 entries though only 18 are
+ * filled), then loops 18 times (r10 = 0..17). The first 6
+ * iterations call 0x94d0 (timer_fuse) to allocate a free
+ * 5-bit slot in the r6 bitmap. The remaining 12 iterations
+ * use r10 directly as the slot index (prealloc).
+ *
+ * Each iteration writes 9 bytes to dst at offset 16*r10:
+ *   - offset 0:  4 bytes from src+r8 (src stride 12)
+ *   - offset 4:  4 bytes from *(polygon_table[slot])
+ *   - offset 10: 1 byte from src+r8+6
+ * The other 7 bytes of the 16-byte struct stay zero from the
+ * prior zero-fill (for r10 <= 15) or stay whatever was there
+ * (for r10 > 15, since the zero-fill only covers 256 bytes).
+ *
+ * Two callers per vf2i960 xrefs (0x6de50, 0x6dea4), both
+ * inside 0x6de3c (one of the v0771 callers). The function
+ * is the entry point for the polygon "record table" rebuild
+ * sequence (clear + load + hash) called once per frame by
+ * the dispatcher.
+ *
+ * 1-to-1 C translation. Calls v0775 (0x94d0 timer_fuse) for
+ * the alloc path; refuses (returns VF2_ERROR_UNSUPPORTED)
+ * if the sub-recovery returns non-OK.
+ */
+static vf2_status hybrid_execute_poly_record_load_5427c(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r3 = UINT32_C(0x01d03100);
+    uint32_t r4 = UINT32_C(0x0201ea24);
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r8 = 0u;
+    uint32_t r10 = 0u;
+    uint32_t r11 = 0u;
+    uint32_t r14 = 0u;
+    uint32_t r15 = UINT32_C(0x1ff);
+    uint32_t g0 = 0u;
+    uint32_t slot = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0005427c)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* ---------- block_000542a4 (zero-fill loop) ----------
+     * stob r14, (r3)[r15]; cmpdeco 0, r15, r15; bl 0x542a4
+     * The cmpdeco semantics in this repo: compare_unsigned(0, r15)
+     * sets CC (LESS if r15>0, EQUAL if r15==0); dst = r15 - 1.
+     * bl branches back if CC == LESS.
+     *
+     * Iteration trace:
+     *   r15=0x1ff..0x001 (256 iters): write dst[r15] = 0,
+     *     r15 -= 1, bl branches back.
+     *   r15=0x000 (1 iter): write dst[0] = 0,
+     *     r15 = 0 - 1 = 0xffffffff, bl no branch, fall through.
+     *
+     * Net effect: dst[0..0x1ff] (256 bytes) zeroed. */
+    for (;;) {
+        status = vf2_model2a_write(
+            machine, r3 + r15, &r14, sizeof(uint8_t));
+        if (status != VF2_OK) return status;
+        if (r15 == 0u) {
+            r15 = UINT32_C(0xffffffff);
+            break;
+        }
+        r15 -= 1u;
+    }
+
+    /* ---------- block_000542b0..00054310 (main loop) ----------
+     * 18 iterations: r10 = 0..17 (bg at 0x54310 branches back
+     * after cmpinco if old_r10 < 17, i.e. CC=GREATER).
+     *
+     * Each iteration:
+     *   r9 = r10 * 16
+     *   if r10 < 6: alloc path (call 0x94d0, mask to 5 bits,
+     *                          retry while bit set in r6 bitmap)
+     *   if r10 >= 6: prealloc (setbit r10 in r6, r11 = polygon_table[r10])
+     *   common body:
+     *     r11 = *r11 (deref polygon pointer)
+     *     dst[r9 + 4] = r11
+     *     dst[r9 + 0] = *(src + r8)         (4 bytes)
+     *     dst[r9 + 10] = *(byte)(src + r8 + 6)
+     *     r10++ (clamped at 17)
+     *     r8 += 12 */
+    for (;;) {
+        uint32_t r9 = r10 * UINT32_C(16);
+
+        if (r10 < 6u) {
+            /* ---------- alloc path (r10 < 6) ---------- */
+            /* call 0x94d0; and 31, g0, r5; bbs r5, r6, 0x542c8 */
+            for (;;) {
+                uint32_t bit;
+                cpu->ip = UINT32_C(0x000094d0);
+                status = vf2_hybrid_timer_fuse_94d0_execute(
+                    machine, cpu);
+                if (status != VF2_OK) return status;
+                g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+                r5 = g0 & UINT32_C(0x1f);
+                bit = (r6 >> r5) & UINT32_C(1);
+                if (bit == 0u) break;
+                /* bit set: retry (loop back) */
+            }
+            slot = r5;
+            r6 |= (UINT32_C(1) << slot);
+            /* r11 = polygon_table[slot] = *(0x0201eafc + slot*4) */
+            status = vf2_model2a_read_u32(
+                machine,
+                UINT32_C(0x0201eafc) + slot * UINT32_C(4),
+                &r11);
+            if (status != VF2_OK) return status;
+        } else {
+            /* ---------- prealloc path (r10 >= 6) ---------- */
+            slot = r10;
+            r6 |= (UINT32_C(1) << slot);
+            /* r11 = polygon_table[r10] = *(0x0201eafc + r10*4) */
+            status = vf2_model2a_read_u32(
+                machine,
+                UINT32_C(0x0201eafc) + slot * UINT32_C(4),
+                &r11);
+            if (status != VF2_OK) return status;
+        }
+
+        /* ---------- common body (block_000542e0) ---------- */
+        /* r11 = *r11 (deref polygon pointer) */
+        status = vf2_model2a_read_u32(machine, r11, &r11);
+        if (status != VF2_OK) return status;
+        /* dst[r9 + 4] = r11 (4 bytes) */
+        status = vf2_model2a_write_u32(
+            machine, r3 + r9 + UINT32_C(4), r11);
+        if (status != VF2_OK) return status;
+        /* r11 = *(src + r8) (4 bytes) */
+        status = vf2_model2a_read_u32(
+            machine, r4 + r8, &r11);
+        if (status != VF2_OK) return status;
+        /* dst[r9 + 0] = r11 (4 bytes) */
+        status = vf2_model2a_write_u32(
+            machine, r3 + r9, r11);
+        if (status != VF2_OK) return status;
+        /* r11 = *(byte)(src + r8 + 6) */
+        {
+                uint8_t b = 0u;
+                status = vf2_model2a_read(
+                    machine, r4 + r8 + UINT32_C(6),
+                    &b, sizeof(b));
+                if (status != VF2_OK) return status;
+                /* dst[r9 + 10] = b (1 byte) */
+                status = vf2_model2a_write(
+                    machine, r3 + r9 + UINT32_C(10),
+                    &b, sizeof(b));
+                if (status != VF2_OK) return status;
+        }
+
+        /* cmpinco 17, r10, r10: r10 = r10+1 if r10<=17 else 17
+         * bg 0x54310: branch back if CC=GREATER (i.e. 17>old_r10) */
+        {
+            uint32_t old_r10 = r10;
+            if (r10 <= 17u) {
+                r10 += 1u;
+                if (old_r10 < 17u) {
+                    /* CC = GREATER; bg branches back */
+                    r8 += 12u;
+                    continue;
+                }
+                /* CC = EQUAL (old_r10 == 17, r10 became 18);
+                 * bg no branch, fall through to ret */
+            } else {
+                r10 = 17u;
+                /* CC = LESS (old_r10 > 17); bg no branch */
+            }
+            r8 += 12u;
+            break;
+        }
+    }
+
+    cpu->ip = UINT32_C(0x00054318);
+    /* 8 init instrs + 256 zero-fill iters + 18 main iters *
+     * 13 instrs each + 1 ret. We don't pin instruction
+     * count since the loops have data-dependent iteration
+     * counts (256/18 here) and the diff test verifies
+     * observable state, not instruction count. */
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_poly_record_load_5427c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_poly_record_load_5427c(machine, cpu);
+}
