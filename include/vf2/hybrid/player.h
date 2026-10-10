@@ -378,6 +378,18 @@ vf2_status vf2_hybrid_frame_end_tick_6d0a0_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x60330: tiny (220 B, 1 block) record-clear.
+ * 1-to-1 C translation. Writes 0 to backup_sram 0x01d03320..0x01d03328
+ * (4 bytes as u32 + 5 bytes), writes 2 to 0x01d03329..0x01d0332e
+ * (6 bytes), and mirrors every write to extended work_ram
+ * 0x59c320..0x59c32e. No sub-calls. Single caller is 0x6dea0
+ * inside the 0x6de3c function (one of the 0x9480 callers in
+ * the v0734k 0x4d2c0..0x4e808 gap run). */
+vf2_status vf2_hybrid_poly_record_clear_60330_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

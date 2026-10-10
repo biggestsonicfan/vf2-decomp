@@ -36618,3 +36618,116 @@ vf2_status vf2_hybrid_frame_end_tick_6d0a0_execute(
 }
 
 
+/*
+ * Recovered 0x60330 (220 B, 1 block) - tiny record-clear
+ * function. 56 instructions, no control flow, no sub-calls.
+ *
+ * Per vf2i960 disasm ../../roms/vf2 0x60330 60:
+ *   00060330  xor      r3, r3, r3
+ *   00060334  st       r3, 0x01d03320
+ *   0006033c  st       r3, 0x0059c320
+ *   ... [pattern: write 0 to backup_sram 0x01d03320..0x01d03328 (4-byte u32 + 5 bytes) and mirror to 0x59c320..0x59c328]
+ *   00060394  mov      2, r15
+ *   00060398  stob     r15, 0x01d03329
+ *   000603a0  stob     r15, 0x0059c329
+ *   ... [pattern: write 2 to 0x01d03329..0x01d0332e and mirror]
+ *   0006040c  ret
+ *
+ * The address range 0x01d03320..0x01d0332e (15 bytes) is
+ * in backup_sram and is the slot-20 polygon record area
+ * adjacent to the 0x01d03304 hash result written by 0x5ff7c.
+ * The 6 trailing bytes get value 2 (an init flag, not zero).
+ * The mirror range 0x59c320..0x59c32e is in extended work_ram.
+ *
+ * 1-to-1 C translation. 56 byte stores, no sub-calls.
+ */
+static vf2_status hybrid_execute_poly_record_clear_60330(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t zero = 0u;
+    uint8_t two = UINT8_C(2);
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00060330)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* Write 0 to 0x01d03320..0x01d03323 (u32) and mirror. */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x01d03320), zero);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0059c320), zero);
+    if (status != VF2_OK) return status;
+
+    /* Write 0 to 0x01d03324..0x01d03328 (5 bytes) and mirror. */
+    {
+        const uint32_t clear_addrs[5] = {
+            UINT32_C(0x01d03324),
+            UINT32_C(0x01d03325),
+            UINT32_C(0x01d03326),
+            UINT32_C(0x01d03327),
+            UINT32_C(0x01d03328)
+        };
+        const uint32_t clear_mirrors[5] = {
+            UINT32_C(0x0059c324),
+            UINT32_C(0x0059c325),
+            UINT32_C(0x0059c326),
+            UINT32_C(0x0059c327),
+            UINT32_C(0x0059c328)
+        };
+        uint32_t i;
+        for (i = 0u; i < 5u; ++i) {
+            status = vf2_model2a_write(
+                machine, clear_addrs[i], &zero, sizeof(uint8_t));
+            if (status != VF2_OK) return status;
+            status = vf2_model2a_write(
+                machine, clear_mirrors[i], &zero, sizeof(uint8_t));
+            if (status != VF2_OK) return status;
+        }
+    }
+
+    /* Write 2 to 0x01d03329..0x01d0332e (6 bytes) and mirror. */
+    {
+        const uint32_t two_addrs[6] = {
+            UINT32_C(0x01d03329),
+            UINT32_C(0x01d0332a),
+            UINT32_C(0x01d0332b),
+            UINT32_C(0x01d0332c),
+            UINT32_C(0x01d0332d),
+            UINT32_C(0x01d0332e)
+        };
+        const uint32_t two_mirrors[6] = {
+            UINT32_C(0x0059c329),
+            UINT32_C(0x0059c32a),
+            UINT32_C(0x0059c32b),
+            UINT32_C(0x0059c32c),
+            UINT32_C(0x0059c32d),
+            UINT32_C(0x0059c32e)
+        };
+        uint32_t i;
+        for (i = 0u; i < 6u; ++i) {
+            status = vf2_model2a_write(
+                machine, two_addrs[i], &two, sizeof(uint8_t));
+            if (status != VF2_OK) return status;
+            status = vf2_model2a_write(
+                machine, two_mirrors[i], &two, sizeof(uint8_t));
+            if (status != VF2_OK) return status;
+        }
+    }
+
+    cpu->ip = UINT32_C(0x00060410);
+    cpu->executed_instructions += UINT64_C(56);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_poly_record_clear_60330_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_poly_record_clear_60330(machine, cpu);
+}
+
+
