@@ -500,6 +500,22 @@ vf2_status vf2_hybrid_assignment_init_6010c_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x6de3c: 912 B / 9 blocks record-rebuild
+ * dispatcher. Closes the v0770 cascade.
+ * 1-to-1 C translation. Ties together all the v0771-v0781
+ * sub-calls (0x9480 hash, 0x6010c init, 0x5427c load,
+ * 0x60330 clear) plus a 0x3fe0 byte backup_sram ->
+ * extended_work_ram mirror copy and a "VIRTUA FIGHTER 2"
+ * signature write at bus+0x3306..0x3317. Sub-calls:
+ *   - 0x9480 (v0771) x3 (initial + 2 rebuilds)
+ *   - 0x6010c (v0781) x1 (assignment rebuild)
+ *   - 0x5427c (v0776) x2 (load after rebuild)
+ *   - 0x60330 (v0774) x1 (poly record clear) */
+vf2_status vf2_hybrid_record_rebuild_dispatcher_6de3c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

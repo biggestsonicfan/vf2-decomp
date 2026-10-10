@@ -37746,6 +37746,326 @@ static vf2_status hybrid_execute_assignment_init_6010c(
     return VF2_OK;
 }
 
+/* ====================================================================
+ * Recovered 0x6de3c (912 B, 9 blocks, 56 instr) - record-rebuild
+ * dispatcher. Closes the v0770 cascade.
+ *
+ * The dispatcher:
+ *   1. Calls 0x9480 (v0771 crc16_step_hash) with the caller's
+ *      g0/g1/g2 (base / stride-1 / count+1) -> g0 = hash1.
+ *   2. Compares hash1 to stored at backup_sram 0x01d03302.
+ *      If different, rebuilds the assignment block:
+ *        a. call 0x6010c (v0781 assignment_init) -- writes
+ *           29 hardcoded default bytes to 0x01d03340..0x35c.
+ *        b. call 0x5427c (v0776 poly_record_load) -- mirrors
+ *           the 29 bytes to extended_work_ram.
+ *        c. Recomputes the hash over bus+0x3340 (29 bytes),
+ *           stores to 0x01d03302.
+ *   3. Computes hash2 of bus+0x3320 (15 bytes) via 0x9480.
+ *   4. Compares hash2 to stored at 0x01d03300.
+ *      If different, rebuilds the poly record:
+ *        a. call 0x60330 (v0774 poly_record_clear) -- zeros
+ *           0x01d03320..0x332e.
+ *        b. call 0x5427c (v0776 poly_record_load) -- mirrors
+ *           to extended_work_ram.
+ *        c. Recomputes the hash over bus+0x3320 (15 bytes),
+ *           stores to 0x01d03300.
+ *   5. Sets bus_ptr = 0x01d00000 (shlo 20, 29, r15).
+ *   6. Sets bit 0 of work_ram byte 0x500171 (sync flag).
+ *   7. Copies 0x3fe0 bytes (1022 quad-words) from backup_sram
+ *      0x01d00000 to extended_work_ram 0x00599000 via
+ *      ldq/stq cmpdeci+bl loop.
+ *   8. Writes the "VIRTUA FIGHTER 2" signature (count=24 +
+ *      4 little-endian dwords) at bus+0x3306..0x3317.
+ *   9. Sets bus_ptr = 0x00599000.
+ *  10. Zeros work_ram 0x500148..0x50014b (4 bytes).
+ *  11. ret.
+ *
+ * Per vf2i960 disasm (912 B, 9 blocks, 56 instr):
+ *   block_0006de3c: call 0x9480, ldos 0x01d03302, cmpobe g0, r15
+ *   block_0006de4c: call 0x6010c, call 0x5427c, set up + call
+ *                   0x9480, stos g0, 0x01d03302
+ *   block_0006de78: set up + call 0x9480, ldos 0x01d03300,
+ *                   cmpobe g0, r15
+ *   block_0006dea0: call 0x60330, call 0x5427c, set up + call
+ *                   0x9480, stos g0, 0x01d03300
+ *   block_0006decc: b 0x6df6c
+ *   block_0006df6c: setup (bus_ptr, flag bit, copy pointers)
+ *   block_0006dfa8: ldq/stq copy loop (cmpdeci+bl)
+ *   block_0006dfc0: b 0x6e140
+ *   block_0006e140: signature write + bus_ptr reset + zero +
+ *                   ret
+ *
+ * All sub-calls are recovered. Sub-call IP must be set
+ * before each invocation (matches the v0779 / v0781
+ * pattern).
+ */
+static vf2_status hybrid_execute_record_rebuild_dispatcher_6de3c(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r15 = 0u;
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r8 = 0u;
+    uint8_t byte = 0u;
+    uint16_t shalf = 0u;
+    uint8_t quad[16];
+    int i;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006de3c)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* === block_0006de3c === */
+    /* call 0x9480 (v0771) with caller-supplied g0/g1/g2. */
+    cpu->ip = UINT32_C(0x00009480);
+    status = vf2_hybrid_crc16_step_hash_9480_execute(machine, cpu);
+    if (status != VF2_OK) return status;
+
+    /* ldos 0x01d03302, r15. The ldos is a 16-bit load that
+     * zero-extends to 32 bits. Read into a uint16_t then
+     * widen. */
+    {
+        uint16_t stored;
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x01d03302), &stored, sizeof(stored));
+        if (status != VF2_OK) return status;
+        r15 = (uint32_t)stored;
+    }
+    /* cmpobe g0, r15, 0x6de78. v0771 returned g0 as a
+     * zero-extended 16-bit hash. If equal, skip rebuild. */
+    {
+        uint32_t g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+        if (g0 == r15) {
+            goto block_0006de78;
+        }
+    }
+
+    /* === block_0006de4c: rebuild assignment block === */
+    /* call 0x6010c (v0781). */
+    cpu->ip = UINT32_C(0x0006010c);
+    status = vf2_hybrid_assignment_init_6010c_execute(
+        machine, cpu);
+    if (status != VF2_OK) return status;
+    /* call 0x5427c (v0776). */
+    cpu->ip = UINT32_C(0x0005427c);
+    status = vf2_hybrid_poly_record_load_5427c_execute(
+        machine, cpu);
+    if (status != VF2_OK) return status;
+    /* ld 0x50016c, r15. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r15);
+    if (status != VF2_OK) return status;
+    /* lda 0x3340(r15), g0 -> g0 = bus + 0x3340. */
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] = r15 + UINT32_C(0x3340);
+    /* mov 29, g2. */
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(29);
+    /* mov 0, g1. */
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0);
+    /* call 0x9480. */
+    cpu->ip = UINT32_C(0x00009480);
+    status = vf2_hybrid_crc16_step_hash_9480_execute(machine, cpu);
+    if (status != VF2_OK) return status;
+    /* stos g0, 0x01d03302 (16-bit store). */
+    {
+        uint16_t g0_lo = (uint16_t)
+            cpu->registers[VF2_I960_G0_REGISTER + 0u];
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x01d03302), &g0_lo, sizeof(g0_lo));
+        if (status != VF2_OK) return status;
+    }
+
+block_0006de78:
+    /* === block_0006de78: compute hash of 0x3320 block === */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r15);
+    if (status != VF2_OK) return status;
+    /* lda 0x3320(r15), g0. */
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] = r15 + UINT32_C(0x3320);
+    /* mov 15, g2. */
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(15);
+    /* mov 0, g1. */
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0);
+    /* call 0x9480. */
+    cpu->ip = UINT32_C(0x00009480);
+    status = vf2_hybrid_crc16_step_hash_9480_execute(machine, cpu);
+    if (status != VF2_OK) return status;
+    /* ldos 0x01d03300, r15 (16-bit zero-extended). */
+    {
+        uint16_t stored;
+        status = vf2_model2a_read(
+            machine, UINT32_C(0x01d03300), &stored, sizeof(stored));
+        if (status != VF2_OK) return status;
+        r15 = (uint32_t)stored;
+    }
+    {
+        uint32_t g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+        if (g0 == r15) {
+            goto block_0006df6c;
+        }
+    }
+
+    /* === block_0006dea0: rebuild poly record === */
+    /* call 0x60330 (v0774). */
+    cpu->ip = UINT32_C(0x00060330);
+    status = vf2_hybrid_poly_record_clear_60330_execute(
+        machine, cpu);
+    if (status != VF2_OK) return status;
+    /* call 0x5427c (v0776). */
+    cpu->ip = UINT32_C(0x0005427c);
+    status = vf2_hybrid_poly_record_load_5427c_execute(
+        machine, cpu);
+    if (status != VF2_OK) return status;
+    /* ld 0x50016c, r15. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r15);
+    if (status != VF2_OK) return status;
+    /* lda 0x3320(r15), g0. */
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] = r15 + UINT32_C(0x3320);
+    /* mov 15, g2. */
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] = UINT32_C(15);
+    /* mov 0, g1. */
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0);
+    /* call 0x9480. */
+    cpu->ip = UINT32_C(0x00009480);
+    status = vf2_hybrid_crc16_step_hash_9480_execute(machine, cpu);
+    if (status != VF2_OK) return status;
+    /* stos g0, 0x01d03300. */
+    {
+        uint16_t g0_lo = (uint16_t)
+            cpu->registers[VF2_I960_G0_REGISTER + 0u];
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x01d03300), &g0_lo, sizeof(g0_lo));
+        if (status != VF2_OK) return status;
+    }
+
+block_0006df6c:
+    /* === block_0006df6c: setup mirror copy === */
+    /* shlo 20, 29, r15 -> r15 = 29 << 20 = 0x1d00000. */
+    r15 = UINT32_C(29) << UINT32_C(20);
+    /* st r15, 0x50016c. */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0050016c), r15);
+    if (status != VF2_OK) return status;
+    /* ldob 0x500171, r3. */
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00500171), &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    r3 = (uint32_t)byte;
+    /* setbit 0, r3, r3. */
+    r3 = r3 | UINT32_C(1);
+    /* stob r3, 0x500171. */
+    byte = (uint8_t)(r3 & 0xffu);
+    status = vf2_model2a_write(
+        machine, UINT32_C(0x00500171), &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    /* lda 0x1d00000, r3. */
+    r3 = UINT32_C(0x01d00000);
+    /* lda 0x599000, r4. */
+    r4 = UINT32_C(0x00599000);
+    /* lda 0x3fe0, r5. */
+    r5 = UINT32_C(0x3fe0);
+    /* shro 4, r5, r5 -> r5 = 0x3fe. */
+    r5 = r5 >> UINT32_C(4);
+
+    /* === block_0006dfa8: copy loop === */
+    while (1) {
+        /* ldq (r3), r8. */
+        status = vf2_model2a_read(
+            machine, r3, quad, sizeof(quad));
+        if (status != VF2_OK) return status;
+        memcpy(&r8, quad, sizeof(r8));
+        /* addo 16, r3, r3. */
+        r3 = r3 + UINT32_C(16);
+        /* stq r8, (r4). */
+        memcpy(quad, &r8, sizeof(r8));
+        status = vf2_model2a_write(
+            machine, r4, quad, sizeof(quad));
+        if (status != VF2_OK) return status;
+        /* addo 16, r4, r4. */
+        r4 = r4 + UINT32_C(16);
+        /* cmpdeci 1, r5, r5. */
+        if (r5 == 1u) {
+            r5 = 0u;
+            break;  /* CC = EQUAL, bl not taken */
+        }
+        r5 = r5 - UINT32_C(1);
+        /* bl back: r5 > 1 -> CC = LESS, bl taken */
+    }
+
+    /* === block_0006e140: signature + reset === */
+    /* ld 0x50016c, r8. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r8);
+    if (status != VF2_OK) return status;
+    /* st "VIRT" at 0x3308(r8) = 0x54524956. */
+    r15 = UINT32_C(0x54524956);
+    status = vf2_model2a_write_u32(
+        machine, r8 + UINT32_C(0x3308), r15);
+    if (status != VF2_OK) return status;
+    /* st "UA F" at 0x330c(r8) = 0x46204155. */
+    r15 = UINT32_C(0x46204155);
+    status = vf2_model2a_write_u32(
+        machine, r8 + UINT32_C(0x330c), r15);
+    if (status != VF2_OK) return status;
+    /* st "IGHT" at 0x3310(r8) = 0x54484749. */
+    r15 = UINT32_C(0x54484749);
+    status = vf2_model2a_write_u32(
+        machine, r8 + UINT32_C(0x3310), r15);
+    if (status != VF2_OK) return status;
+    /* st "ER 2" at 0x3314(r8) = 0x32205245. */
+    r15 = UINT32_C(0x32205245);
+    status = vf2_model2a_write_u32(
+        machine, r8 + UINT32_C(0x3314), r15);
+    if (status != VF2_OK) return status;
+    /* mov 24, r4. */
+    r4 = UINT32_C(24);
+    /* stos r4, 0x3306(r8) -- 16-bit store. The disasm
+     * uses stos (store short), NOT st (store long). Using
+     * a 4-byte write here would clobber the first 2 bytes
+     * of the "VIRT" signature dword at 0x3308. */
+    {
+        uint16_t count16 = (uint16_t)(r4 & 0xffffu);
+        status = vf2_model2a_write(
+            machine, r8 + UINT32_C(0x3306),
+            &count16, sizeof(count16));
+        if (status != VF2_OK) return status;
+    }
+    /* lda 0x599000, r15. */
+    r15 = UINT32_C(0x00599000);
+    /* st r15, 0x50016c. */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0050016c), r15);
+    if (status != VF2_OK) return status;
+    /* mov 0, r3. */
+    r3 = 0u;
+    /* stob r3, 0x500148, 0x500149, 0x50014a, 0x50014b. */
+    byte = 0u;
+    for (i = 0; i < 4; ++i) {
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x00500148) + (uint32_t)i,
+            &byte, sizeof(byte));
+        if (status != VF2_OK) return status;
+    }
+
+    (void)shalf;  /* unused, keep compiler happy */
+
+    cpu->ip = UINT32_C(0x0006e1cc);
+    cpu->executed_instructions += UINT64_C(56);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_record_rebuild_dispatcher_6de3c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_record_rebuild_dispatcher_6de3c(machine, cpu);
+}
+
 vf2_status vf2_hybrid_assignment_init_6010c_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu)
