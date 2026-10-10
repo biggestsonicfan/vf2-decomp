@@ -320,6 +320,17 @@ vf2_status vf2_hybrid_slot_increment_helper_6d10c_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x6d1b4: sibling_slot_increment_helper (56 B, 3 blocks).
+ * Structurally identical to 0x6d10c but with array offset
+ * 0x393c (vs 0x3520) and mirror pair 0x1d0393c / 0x59c93c (vs
+ * 0x1d03520 / 0x59c520). Computes r7 = max(20, g0 / 1920);
+ * increments *(bus_ptr + 0x393c + r7*4) by 1; mirrors to the
+ * two addresses. Sibling leaf in the same v0734k gap run. */
+vf2_status vf2_hybrid_sibling_slot_increment_helper_6d1b4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

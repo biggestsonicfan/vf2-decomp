@@ -36123,3 +36123,97 @@ vf2_status vf2_hybrid_slot_increment_helper_6d10c_execute(
     return hybrid_execute_slot_increment_helper_6d10c(machine, cpu);
 }
 
+/* ====================================================================
+ * Model 2A 0x6d1b4 - sibling_slot_increment_helper (v0769)
+ *
+ * Disassembly (per vf2i960 disasm, 56 B, 3 blocks):
+ *
+ *   block_0006d1b4:
+ *     0006d1b4  shlo     7, 15, r15            ; r15 = 15 << 7 = 1920
+ *     0006d1b8  divo     r15, g0, r7           ; r7 = g0 / 1920
+ *     0006d1bc  cmpobge  20, r7, 0x0006d1c4   ; if (20 >= r7) skip
+ *
+ *   block_0006d1c0:
+ *     0006d1c0  mov      20, r7                ; r7 = 20 (clamp)
+ *
+ *   block_0006d1c4:
+ *     0006d1c4  ld       0x0050016c, r3        ; r3 = *(0x50016c) bus ptr
+ *     0006d1cc  ld       0x0000393c(r3)[r7*4], r4  ; r4 = *(r3 + 0x393c + r7*4)
+ *     0006d1d4  addo     1, r4, r4             ; r4 += 1
+ *     0006d1d8  st       r4, 0x01d0393c[r7*4]  ; mirror ext-bus
+ *     0006d1e0  st       r4, 0x0059c93c[r7*4]  ; mirror Model 2A
+ *     0006d1e8  ret
+ *
+ * Shape: structurally identical to sub_0006d10c (v0768). The
+ * only difference is the array offset (0x393c here vs 0x3520
+ * there) and the mirror addresses (0x1d0393c/0x59c93c here vs
+ * 0x1d03520/0x59c520 there). This is the second slot-array
+ * helper in the same Model 2A family.
+ *
+ * Also in the v0734k-characterised gap run 0x6cb0c..0x6dcb8
+ * (per phase_1_3b_gap_characterisation_v0734k.md). Shared-
+ * epilogue leaf; fall-through target only (zero call xrefs).
+ */
+static vf2_status hybrid_execute_sibling_slot_increment_helper_6d1b4(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r7_index = 0u;
+    uint32_t g0 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006d1b4)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+
+    /* Compute r7_index = g0 / 1920, clamp to >= 20. */
+    r7_index = g0 / UINT32_C(1920);
+    if (r7_index < UINT32_C(20)) {
+        r7_index = UINT32_C(20);
+    }
+
+    /* r3 = *(0x50016c) bus pointer. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r3);
+    if (status != VF2_OK) return status;
+
+    /* r4 = *(r3 + 0x393c + r7_index*4). */
+    status = vf2_model2a_read_u32(
+        machine,
+        r3 + UINT32_C(0x393c) + r7_index * UINT32_C(4),
+        &r4);
+    if (status != VF2_OK) return status;
+
+    /* r4 += 1. */
+    r4 = r4 + UINT32_C(1);
+
+    /* Mirror to extended bus and Model 2A. */
+    status = vf2_model2a_write_u32(
+        machine,
+        UINT32_C(0x01d0393c) + r7_index * UINT32_C(4),
+        r4);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine,
+        UINT32_C(0x0059c93c) + r7_index * UINT32_C(4),
+        r4);
+    if (status != VF2_OK) return status;
+
+    cpu->ip = UINT32_C(0x0006d1ec);
+    cpu->executed_instructions += UINT64_C(8);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_sibling_slot_increment_helper_6d1b4_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_sibling_slot_increment_helper_6d1b4(
+        machine, cpu);
+}
+
