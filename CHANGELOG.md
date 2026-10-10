@@ -1,5 +1,42 @@
 # Changelog
 
+## v0764-v0782: post-0x29414 cascade and the record-rebuild chain
+
+(This entry backfills the log gap: the previous entry below is v0734g. The
+v0734h-v0763 work is recorded in the AGENTS.md handoff and under
+`decomp/i960/notes/`.)
+
+Nine recoveries extended the post-`0x29414` player corridor and the v0734k
+gap-run siblings across v0764-v0773: `0x6dccc`
+`poly_or_model2a_register_switch` (v0765), `0x65838`
+`kill_osage_evaluate_record` (v0766), the `task_object` 5-entry cluster at
+`0x6ca64..0x6cb0c` (v0767), `0x6d10c` `slot_increment_helper` (v0768),
+`0x6d1b4` `sibling_slot_increment_helper` (v0769) and the
+`0x9480` -> `0x5ff7c` -> `0x6d0a0` chain (v0771-v0773). The 3-leaf hash
+sub-chain (table-based CRC16, block-hash wrapper, frame-end tick) is complete
+end-to-end with 4-leg ctest coverage on `0x9480`/`0x5ff7c` and 2-leg coverage
+on `0x6d0a0`.
+
+Nine more recoveries, v0774-v0782, close the v0770 record-rebuild cascade:
+`0x60330` `poly_record_clear` (v0774; shipped symbol
+`sram_clear_for_coin_assign`), `0x94d0` `timer_fuse` (v0775), `0x5427c`
+`poly_record_load` (v0776), `0x1b780` `slot3_table_lookup` (v0777),
+`0x5a460` `color_table_snapshot` (v0778), `0x6cf00`
+`frame_end_tick_33f0` (v0779), `0x53750` `display_profile_load` (v0780),
+`0x6010c` `assignment_init` (v0781; shipped symbol
+`sram_clear_for_game_assign`) and `0x6de3c` `record_rebuild_dispatcher`
+(v0782). Each carries a dedicated ctest entry (ctest #65-#73).
+
+Also on master: PR #120 (merged) adds `decomp/i960/original_symbols.csv` —
+the 301 shipped Sega i960 symbol names — with `docs/ORIGINAL_SYMBOLS.md`
+recording where the shipped names contradict the provisional names still
+present in `decomp/i960/{symbols,functions}.csv` (including `assignment_init`
+and `poly_record_clear` above). A follow-up repair fixed malformed
+`functions.csv` rows from v0775-v0782 caught by the
+`vf2_python_factory_block_coverage` gate.
+
+## v0734d-v0734e: pinned supersedence notice
+
 > **v0734d supersedes the commit immediately below it** (`db0dbcf6`), which
 > claimed the live-leg condition state is the `subr` at `0x23864`. That claim was
 > **disproved** by measurement — `g8 + 0x650` is `0` on both legs, so the `subr`

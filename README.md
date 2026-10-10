@@ -10,65 +10,19 @@ The goal is to recover the original game/runtime behavior into portable, readabl
 
 ## Project status
 
-As of v0.1.4, the project contains a substantial recovered native runtime,
-ROM validation/reconstruction tools, Intel i960 analysis tooling, a bounded
-Model 2A hardware model, snapshot/resume support and strict differential
-validation between recovered C and the original program.
+The project includes:
 
-The validated native corridor now preserves exact CPU, condition-code,
-procedure-count and mutable-memory state through the repeated scheduler and
-gameplay dispatches, with measured `native-nth-dispatch` coverage through
-dispatch 40 and CTest pins at dispatches 11 and 12 (the strict sixth-dispatch
-base ends at the tenth `fa_game_info` entry, so dispatches 7-10 are covered
-per-block inside the sixth command and `native-nth-dispatch 11` proves one
-further 37-block / 2,166-instruction cycle exact). The strict post-scheduler
-corridor contains 1,270,824 recovered instructions and zero interpreted
-instructions.
+- a recovered native runtime that preserves exact CPU, condition-code, procedure-count and mutable-memory state through the repeated scheduler and gameplay dispatches (measured `native-nth-dispatch` coverage through dispatch 40, with CTest pins at dispatches 11-12; the strict post-scheduler corridor contains 1,270,824 recovered instructions with zero interpreted instructions);
+- ROM validation/reconstruction tools and Intel i960 analysis tooling;
+- a bounded Sega Model 2A hardware model (measured common bus behavior for one-shot 25 MHz timers/IRQ requests, video frame status, render-mode control, TGP program-upload accounting);
+- snapshot/resume support; and
+- strict differential validation between the recovered C and the original program at controlled boundaries.
 
-Recent recovery work has completed the measured `fa_coli` bilateral
-`field_0821` scan matrix: every composition except 6/6 is native under the
-additive per-side rule `9520 + delta(F0) + delta(F1)` with full live-state
-equality through `0x10dcc`, while bilateral 6/6 stays pinned fail-closed
-pending the 20-step scan-6 ordering-fail child tail. The `fa_player` `0x19ef8`
-49-value mask family is audited and continuously proven, and the
-model2recomp-guided interrupt acknowledge at `0x0000d30` is recovered. These
-are accepted only for the measured combinations; neighboring or unverified
-branches still return `VF2_ERROR_UNSUPPORTED`. The TEST MENU / COIN
-ASSIGNMENT corridor (rows 1-4 in COMMON and INDIVIDUAL modes) is recovered
-natively, and the F4 INDIVIDUAL post-edit release is pinned FULL MATCH
-(4293/38, 4293/38, 4294/38) on the reference and native legs. 14 sibling
-player functions (0x29598, 0x439ac, 0x43888, 0xcf04, 0x1fcc0 with the rest
-in its call chain, 0x1fee4, 0x1ff0c, 0x1fffc, 0x4b410, 0x11704, 0x2eab8,
-0x323fc, 0x32284, 0x4421c, 0x7ef0, 0xa154, 0x4ad40) are unit-tested, plus
-the v0765-v0773 post-0x29414 cascade (`0x6dccc`
-`poly_or_model2a_register_switch`, `0x65838`
-`kill_osage_evaluate_record`, the `task_object` 5-entry cluster at
-`0x6ca64..0x6cb0c`, `0x6d10c` `slot_increment_helper`,
-`0x6d1b4` `sibling_slot_increment_helper`, the
-`0x9480` -> `0x5ff7c` -> `0x6d0a0` hash sub-chain). See
-[`docs/UNCOVERED_BRANCHES.md`](docs/UNCOVERED_BRANCHES.md) for the current
-frontier.
+Areas already recovered natively include the boot and phase corridors, model2recomp-guided interrupt handling, the measured `fa_coli`/`fa_player` branch matrices, the TEST MENU / COIN ASSIGNMENT editor (rows 1-4 in COMMON and INDIVIDUAL modes, F4 INDIVIDUAL post-edit release pinned FULL MATCH on both legs) and a growing post-`0x29414` player corridor (hash and record-rebuild sub-chains among them). Unverified neighbors remain fail-closed with `VF2_ERROR_UNSUPPORTED`.
 
-The project is still a clean-room recovery and validation effort, not a
-complete playable port. Character/arena selection, the complete match state
-machine, fighter physics and combat, ring-out behavior, CPU decision logic,
-and substantial geometry, audio and hardware behavior remain open. The
-Model 2A boundary includes the measured common bus behavior for one-shot
-25 MHz timers/IRQ requests, video frame status, render-mode control, TGP
-program-upload accounting. Full TGP firmware execution,
-polygon rasterization, tile/video timing and SCSP FM/DSP behavior remain
-explicitly outside that bounded model.
+The project is still a clean-room recovery and validation effort, not a complete playable port. Character/arena selection, the complete match state machine, fighter physics and combat, ring-out behavior, CPU decision logic, and substantial geometry, audio and hardware behavior remain open. Full TGP firmware execution, polygon rasterization, tile/video timing and SCSP FM/DSP behavior remain explicitly outside the bounded hardware model.
 
-The v0764-v0773 cascade has added 9 more function recoveries to the
-post-29414 player corridor and the v0734k gap-run siblings:
-`0x6dccc` `poly_or_model2a_register_switch` (v0765),
-`0x65838` `kill_osage_evaluate_record` (v0766), the `task_object` 5-entry
-cluster at `0x6ca64..0x6cb0c` (v0767), `0x6d10c` `slot_increment_helper`
-(v0768), `0x6d1b4` `sibling_slot_increment_helper` (v0769), the
-`0x9480` -> `0x5ff7c` -> `0x6d0a0` chain (v0771, v0772, v0773). The
-3-leaf hash sub-chain (table-based CRC16, block-hash wrapper,
-frame-end tick) is now complete end-to-end with 4-leg ctest coverage
-on `0x9480` and `0x5ff7c`, and 2-leg ctest coverage on `0x6d0a0`.
+For release-by-release history see [`CHANGELOG.md`](CHANGELOG.md); for the current recovery frontier see [`docs/UNCOVERED_BRANCHES.md`](docs/UNCOVERED_BRANCHES.md).
 
 ### Progress toward a playable Virtua Fighter 2 port
 
@@ -81,16 +35,12 @@ scheduler / runtime     ██████████  validated native corrido
 input                    ████████░░  game-facing input path; platform adapter open
 camera                   ████████░░
 HUD / game_disp          █████████░  TEST / COIN ASSIGNMENT / F2-F4 post-edit menu corridors
-fighter / game logic     ████████░░  post-29414 player corridor; 0x9480→0x5ff7c→0x6d0a0 hash sub-chain; 22 sibling function recoveries; F4 INDIVIDUAL post-edit FULL MATCH
+fighter / game logic     ████████░░  post-29414 player corridor; hash + record-rebuild sub-chains recovered
 geometry / rendering     ███████░░░  TGP/object paths recovered; rasterizer open
 audio                    █████░░░░░  68000/SCSP/PCM path partly recovered; FM/DSP open
 complete game flow       █████░░░░░  boot/menu/phase corridors; F2/F3/F4 post-edit; match flow open
 fully playable match     ██░░░░░░░░  combat/physics/AI still open
 ```
-
-For detailed development history, recovered branches and release-by-release progress, see [`CHANGELOG.md`](CHANGELOG.md).
-
-For known remaining boundaries, see [`docs/UNCOVERED_BRANCHES.md`](docs/UNCOVERED_BRANCHES.md).
 
 ## Principles
 
@@ -250,7 +200,7 @@ See [`docs/NATIVE_DIFFERENTIAL.md`](docs/NATIVE_DIFFERENTIAL.md), [`docs/NATIVE_
 
 ```text
 config/                 supported ROM manifest and configuration
-decomp/i960/            symbols, task descriptors and recovery evidence
+decomp/i960/            original/provisional symbols, task descriptors and recovery evidence
 docs/                   architecture, execution, status and recovery docs
 include/vf2/            public C APIs
 src/analysis/           CFG, xrefs, semantics and pseudocode generation
@@ -263,7 +213,7 @@ tools/vf2probe/         machine-readable controlled experiments
 tools/vf2recover/       human-readable recovery reports
 tools/vf2cycles/        repeated recovered/reference cycle runner
 tools/python/           analysis-only sweep/explore/trace/frontier tooling
-tests/                   ROM-independent and optional ROM-backed tests
+tests/                  ROM-independent and optional ROM-backed tests
 ```
 
 The automated probing workflow (`make_game_info_probe_scenario.py`,
