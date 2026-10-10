@@ -581,6 +581,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_color_table_snapshot_5a460_tests)
     add_test(NAME vf2_color_table_snapshot_5a460 COMMAND vf2_color_table_snapshot_5a460_tests)
 
+    add_executable(vf2_frame_end_tick_33f0_6cf00_tests tests/recovered/test_frame_end_tick_33f0_6cf00_native.c)
+    target_link_libraries(vf2_frame_end_tick_33f0_6cf00_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_frame_end_tick_33f0_6cf00_tests)
+    add_test(NAME vf2_frame_end_tick_33f0_6cf00 COMMAND vf2_frame_end_tick_33f0_6cf00_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)

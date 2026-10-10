@@ -461,6 +461,18 @@ vf2_status vf2_hybrid_color_table_snapshot_5a460_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x6cf00: 524 B / 2 blocks frame-end tick sibling
+ * (bus+0x33f0 counter variant of v0773 0x6d0a0). 1-to-1 C
+ * translation. Increments bus[0x33f0] counter mirrored to
+ * backup_sram 0x01d033f0 and extended work_ram 0x0059c3f0,
+ * saves the sp-4 scratch word (i960 SP=r1 NOT r3), masks
+ * r3 to 16 bits and stores to 0x005000e4, then calls v0772
+ * (0x5ff7c block_hash_apply). */
+vf2_status vf2_hybrid_frame_end_tick_33f0_6cf00_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

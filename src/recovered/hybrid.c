@@ -37311,3 +37311,109 @@ vf2_status vf2_hybrid_color_table_snapshot_5a460_execute(
 {
     return hybrid_execute_color_table_snapshot_5a460(machine, cpu);
 }
+/* ====================================================================
+ * Recovered 0x6cf00 (524 B, 2 blocks, 13 instr) - frame-end tick
+ * sibling (0x33f0 counter variant of v0773).
+ *
+ * Per vf2i960 disasm:
+ *   block_0006cf00 (block 1, 7 instr):
+ *     0006cf00  ld       0x0050016c, r15      ; r15 = bus_ptr
+ *     0006cf08  ld       0x000033f0(r15), r15  ; r15 = bus[0x33f0]
+ *     0006cf10  addo     1, r15, r15          ; r15 += 1
+ *     0006cf14  st       r15, 0x01d033f0      ; backup_sram mirror
+ *     0006cf1c  st       r15, 0x0059c3f0      ; extended work_ram mirror
+ *     0006cf24  ld       0xfffffffc(sp), r15  ; r15 = sp-4 scratch
+ *     0006cf2c  subo     4, sp, sp
+ *     0006cf30  b        0x0006d0f0           ; -> block 2
+ *
+ *   block_0006d0f0 (block 2, 6 instr):
+ *     0006d0f0  lda      0x0000ffff, r15      ; r15 = 0xffff mask
+ *     0006d0f8  and      r3, r15, r3          ; r3 &= 0xffff (low 16)
+ *     0006d0fc  st       r3, 0x005000e4      ; store low-16 bus ptr
+ *     0006d104  call     0x0005ff7c          ; v0772 block_hash_apply
+ *     0006d108  ret
+ *
+ * Compared to v0773 (frame_end_tick 0x6d0a0):
+ *   - v0773 increments bus+0x33fc, v0779 increments bus+0x33f0.
+ *   - v0773 has its own epilogue (r15 restore, sp adjustments);
+ *     v0779 jumps to the shared epilogue at 0x6d0f0.
+ *   - Both call v0772 (0x5ff7c block_hash_apply).
+ *
+ * 1-to-1 C translation. Calls v0772 (0x5ff7c block_hash_apply)
+ * via vf2_hybrid_block_hash_apply_5ff7c_execute. The sp-4
+ * scratch load is preserved (matches i960 SP=r1 semantics).
+ */
+static vf2_status hybrid_execute_frame_end_tick_33f0_6cf00(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r3 = 0u;
+    uint32_t r15 = 0u;
+    uint32_t sp = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006cf00)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* ld 0x50016c, r15 -> r15 = bus_ptr. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r15);
+    if (status != VF2_OK) return status;
+
+    /* ld 0x33f0(r15), r15 -> r15 = bus[0x33f0]. */
+    status = vf2_model2a_read_u32(
+        machine, r15 + UINT32_C(0x33f0), &r15);
+    if (status != VF2_OK) return status;
+
+    /* addo 1, r15, r15. */
+    r15 = r15 + UINT32_C(1);
+
+    /* st r15, 0x01d033f0 + 0x0059c3f0 (mirrors). */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x01d033f0), r15);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0059c3f0), r15);
+    if (status != VF2_OK) return status;
+
+    /* ld 0xfffffffc(sp), r15 -> i960 SP=r1, NOT r3. */
+    sp = cpu->registers[1u];
+    status = vf2_model2a_read_u32(
+        machine, sp - UINT32_C(4), &r15);
+    if (status != VF2_OK) return status;
+
+    /* subo 4, sp, sp. */
+    cpu->registers[1u] = sp - UINT32_C(4);
+
+    /* b 0x6d0f0 -> block 2. */
+
+    /* block_0006d0f0: */
+    /* r3 = r3 & 0xffff (low 16 bits). */
+    r3 = cpu->registers[3u] & UINT32_C(0xffff);
+    cpu->registers[3u] = r3;
+
+    /* st r3, 0x005000e4. */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x005000e4), r3);
+    if (status != VF2_OK) return status;
+
+    /* call 0x5ff7c (v0772 block_hash_apply). */
+    cpu->ip = UINT32_C(0x0005ff7c);
+    status = vf2_hybrid_block_hash_apply_5ff7c_execute(
+        machine, cpu);
+    if (status != VF2_OK) return status;
+
+    /* ret at 0x6d108 -> 0x6d10c (one past). */
+    cpu->ip = UINT32_C(0x0006d10c);
+    cpu->executed_instructions += UINT64_C(13);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_frame_end_tick_33f0_6cf00_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_frame_end_tick_33f0_6cf00(machine, cpu);
+}
