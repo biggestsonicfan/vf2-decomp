@@ -37417,3 +37417,156 @@ vf2_status vf2_hybrid_frame_end_tick_33f0_6cf00_execute(
 {
     return hybrid_execute_frame_end_tick_33f0_6cf00(machine, cpu);
 }
+/* ====================================================================
+ * Recovered 0x53750 (108 B, 3 blocks, 22 instr) - 16-byte
+ * quad-copy loop + post-init zero/fill.
+ *
+ * Per vf2i960 disasm:
+ *   block_00053750 (init, 4 instr):
+ *     00053750  ld       0x0201fe68, g3      ; g3 = src_base (in main_data)
+ *     00053758  lda      0x00560000, g4      ; g4 = dst_base (in work_ram)
+ *     00053760  mov      0, r3
+ *     00053764  shlo     8, 11, r4          ; r4 = 11 << 8 = 0xb00
+ *
+ *   block_00053768 (16-byte quad-copy loop, 4 instr):
+ *     00053768  ldq      (g3)[r3*16], r8     ; r8 = src[r3*16] (16B quad)
+ *     0005376c  stq      r8, (g4)[r3*16]    ; dst[r3*16] = r8
+ *     00053770  cmpinco  r4, r3, r3        ; r3 = (r3 <= r4) ? r3+1 : r4
+ *     00053774  bg       0x00053768         ; if r3 < r4 (CC=GREATER) loop
+ *
+ *   block_00053778 (post-init, 11 instr):
+ *     00053778  mov      0, r15
+ *     0005377c  st       r15, 0x005001a0    ; work_ram 0x1a0 = 0
+ *     00053784  st       r15, 0x005001b0    ; work_ram 0x1b0 = 0
+ *     0005378c  lda      0x7f7f7f7f, r14
+ *     00053794  st       r14, 0x005001a4    ; work_ram 0x1a4 = 0x7f7f7f7f
+ *     0005379c  st       r14, 0x005001b4    ; work_ram 0x1b4 = 0x7f7f7f7f
+ *     000537a4  mov      0, r14
+ *     000537a8  stl      r14, 0x005001a8    ; work_ram 0x1a8..0x1af = 0 (64-bit)
+ *     000537b0  stl      r14, 0x005001b8    ; work_ram 0x1b8..0x1bf = 0 (64-bit)
+ *     000537b8  ret
+ *
+ * The loop copies r4+1 (= 0xb01) quads (0xb010 = 45072 bytes)
+ * from main_data at the src_base pointer to work_ram at
+ * 0x00560000. The bg condition is compare_unsigned(r4, r3):
+ * CC=GREATER iff r4 > r3, so the loop runs while r3 < r4
+ * (i.e. r3 = 0..0xaff). When r3 == r4, cmpinco sets r3 = r4+1
+ * and bg sees CC==EQUAL and falls through. When r3 > r4 (never
+ * in this loop), cmpinco clamps r3 = r4 and bg falls through.
+ *
+ * The post-init tail writes 32 bytes to work_ram
+ * 0x5001a0..0x5001bf (two 16-byte regions, 4 st + 4 st + 8 stl
+ * each).
+ *
+ * 1-to-1 C translation. No sub-calls. Reads src_base from
+ * main_data at 0x0201fe68 (must be pre-set by the test).
+ *
+ * Sole caller (per vf2i960 xrefs): 0x98e4 in the main-loop
+ * inline call table at 0x98a0..0x98ec.
+ */
+static vf2_status hybrid_execute_display_profile_load_53750(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t src_base = 0u;
+    uint8_t quad[16];
+    uint32_t r3 = 0u;
+    uint32_t r4 = UINT32_C(11) << 8u;  /* r4 = 0xb00 */
+    uint32_t r15 = 0u;
+    uint32_t r14 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00053750)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* ld 0x0201fe68, g3 -> g3 = src_base. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0201fe68), &src_base);
+    if (status != VF2_OK) return status;
+    cpu->registers[VF2_I960_G0_REGISTER + 3u] = src_base;
+
+    /* lda 0x00560000, g4 -> g4 = 0x00560000 (work_ram). */
+    cpu->registers[VF2_I960_G0_REGISTER + 4u] =
+        UINT32_C(0x00560000);
+
+    /* Loop: r3 = 0..0xb00 inclusive (0xb01 quads = 0xb010 bytes).
+     * cmpinco r4, r3, r3: if r3 <= r4 then r3 = r3+1 else r3 = r4.
+     * bg: if CC == GREATER (r4 > r3) loop back.
+     * - r3 <  r4: r3 = r3+1, CC = GREATER, bg taken, continue.
+     * - r3 == r4: r3 = r3+1, CC = EQUAL,   bg not taken, break.
+     * - r3 >  r4: r3 = r4,   CC = LESS,    bg not taken, break. */
+    r3 = 0u;
+    while (1) {
+        /* ldq (g3)[r3*16], r8 */
+        status = vf2_model2a_read(
+            machine,
+            src_base + r3 * UINT32_C(16),
+            quad, sizeof(quad));
+        if (status != VF2_OK) return status;
+        /* stq r8, (g4)[r3*16] */
+        status = vf2_model2a_write(
+            machine,
+            UINT32_C(0x00560000) + r3 * UINT32_C(16),
+            quad, sizeof(quad));
+        if (status != VF2_OK) return status;
+
+        if (r3 < r4) {
+            r3 = r3 + UINT32_C(1);
+            /* CC = GREATER, bg branches back */
+            continue;
+        } else if (r3 == r4) {
+            r3 = r3 + UINT32_C(1);
+            /* CC = EQUAL, bg falls through */
+        } else {
+            r3 = r4;
+            /* CC = LESS, bg falls through */
+        }
+        break;
+    }
+
+    /* Post-init: zero/fill 0x5001a0..0x5001bf (32 bytes).
+     *   st  r15, 0x005001a0   (4B)
+     *   st  r14, 0x005001a4   (4B, 0x7f7f7f7f)
+     *   stl r14, 0x005001a8   (8B, 0)
+     *   st  r15, 0x005001b0   (4B)
+     *   st  r14, 0x005001b4   (4B, 0x7f7f7f7f)
+     *   stl r14, 0x005001b8   (8B, 0) */
+    r15 = 0u;
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x005001a0), r15);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x005001b0), r15);
+    if (status != VF2_OK) return status;
+    r14 = UINT32_C(0x7f7f7f7f);
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x005001a4), r14);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x005001b4), r14);
+    if (status != VF2_OK) return status;
+    r14 = 0u;
+    /* Two stl writes: 8 bytes each. */
+    {
+        uint64_t zero64 = 0u;
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005001a8), &zero64, sizeof(zero64));
+        if (status != VF2_OK) return status;
+        status = vf2_model2a_write(
+            machine, UINT32_C(0x005001b8), &zero64, sizeof(zero64));
+        if (status != VF2_OK) return status;
+    }
+
+    cpu->ip = UINT32_C(0x000537bc);
+    cpu->executed_instructions += UINT64_C(22);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_display_profile_load_53750_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_display_profile_load_53750(machine, cpu);
+}

@@ -473,6 +473,20 @@ vf2_status vf2_hybrid_frame_end_tick_33f0_6cf00_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x53750: 108 B / 3 blocks display-profile load.
+ * 1-to-1 C translation. Reads src_base from main_data
+ * 0x0201fe68 into g3, sets g4 = 0x00560000 (work_ram),
+ * copies 0xb01 16-byte quads (0xb010 = 45072 bytes) from
+ * (g3)[r3*16] to (g4)[r3*16] via cmpinco/bg loop
+ * (r3=0..0xb00, r4=0xb00), then post-inits work_ram
+ * 0x5001a0..0x5001bf (zero/0x7f7f7f7f pattern, two 16B
+ * regions). No sub-calls. Sole caller: 0x98e4 in main-loop
+ * inline call table. */
+vf2_status vf2_hybrid_display_profile_load_53750_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by
