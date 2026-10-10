@@ -51,3 +51,6 @@ Thumbs.db
 # Python bytecode
 __pycache__/
 *.pyc
+
+# CTest / Visual Studio test runner artifacts
+/Testing/

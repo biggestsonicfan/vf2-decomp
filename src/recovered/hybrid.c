@@ -36217,3 +36217,162 @@ vf2_status vf2_hybrid_sibling_slot_increment_helper_6d1b4_execute(
         machine, cpu);
 }
 
+/* ====================================================================
+ * Model 2A 0x9480 - poly_or_crc16_step_hash (v0771)
+ *
+ * Disassembly (per vf2i960 disasm, 80 B, 3 blocks, indirect=no):
+ *
+ *   block_00009480:
+ *     00009480  mov      0, r3                  ; r3 = 0 (running sum)
+ *     00009484  lda      0x0000ff00, r10       ; r10 = 0xff00 (high-byte mask)
+ *     0000948c  lda      0x000000ff, r11       ; r11 = 0xff (low-byte mask)
+ *     00009490  subo     1, g2, r9             ; r9 = g2 - 1 (loop counter)
+ *
+ *   block_00009494 (loop body):
+ *     00009494  shlo     8, r3, r5            ; r5 = r3 << 8
+ *     00009498  and      r10, r5, r5          ; r5 &= 0xff00
+ *     0000949c  shro     8, r3, r3            ; r3 >>= 8 (high byte down)
+ *     000094a0  ldob     (g0), r6             ; r6 = next byte
+ *     000094a4  addo     1, g0, g0            ; g0 += 1
+ *     000094a8  addo     g1, g0, g0           ; g0 += g1 (effective stride = g1 + 1)
+ *     000094ac  xor      r6, r3, r3           ; r3 = old_high_byte XOR byte
+ *     000094b0  and      r11, r3, r3          ; r3 &= 0xff (low byte only)
+ *     000094b4  ldos     0x02000000[r3*2], r3 ; r3 = table[low_byte] (16-bit)
+ *     000094bc  xor      r5, r3, r3           ; r3 = table_value XOR prev_low_byte_positioned
+ *     000094c0  cmpdeci  0, r9, r9            ; r9 -= 1; continue if r9 was >= 2
+ *     000094c4  bl       0x00009494           ; loop
+ *
+ *   block_000094c8:
+ *     000094c8  mov      r3, g0              ; return value in g0
+ *     000094cc  ret
+ *
+ * Shape: 16-bit-table-based accumulator hash. Arguments:
+ *   g0 = input pointer (byte string)
+ *   g1 = effective stride minus 1 (so per-iteration g0 += 1 + g1)
+ *   g2 = iteration count + 1 (loop runs g2-1 times when g2 >= 1)
+ *
+ * The result is a 16-bit value returned in g0. Each iteration:
+ *   1. Split the previous accumulator into low-byte (in r5's middle
+ *      byte position via `r3 << 8 & 0xff00`) and high-byte (in r3's
+ *      low position via `r3 >> 8`).
+ *   2. XOR the high-byte position with the next input byte.
+ *   3. Mask to the low byte (the table index).
+ *   4. Look up a 16-bit value from the table at VF2_MAIN_DATA_BASE
+ *      (0x02000000) + index*2 (so two bytes per entry, 256 entries
+ *      covering index 0..255).
+ *   5. XOR the table value with r5's preserved low-byte to combine.
+ *   6. The combined 16-bit value becomes the new accumulator.
+ *
+ * Four callers per vf2i960 xrefs: 0x6de3c, 0x6de6c, 0x6de90,
+ * 0x6dec0. All four are inside the v0734k-characterised gap run
+ * 0x4d2c0..0x4e808 region (sub_0004df10 et al.). Validatable
+ * against vf2i960 execute as oracle.
+ */
+static vf2_status hybrid_execute_crc16_step_hash_9480(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r3 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r9 = 0u;
+    uint32_t r10 = 0u;
+    uint32_t r11 = 0u;
+    uint8_t table_idx = 0u;
+    uint16_t table_val = 0u;
+    uint32_t g0 = 0u;
+    uint32_t g1 = 0u;
+    uint32_t g2 = 0u;
+    int32_t  g2_signed = 0;  /* signed version for cmpdeci sim */
+    int32_t  r9_signed = 0;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00009480)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+    g1 = cpu->registers[VF2_I960_G0_REGISTER + 1u];
+    g2 = cpu->registers[VF2_I960_G0_REGISTER + 2u];
+
+    /* r3 = 0 (mov 0, r3). */
+    r3 = 0u;
+    /* r10 = 0xff00. */
+    r10 = UINT32_C(0xff00);
+    /* r11 = 0xff. */
+    r11 = UINT32_C(0xff);
+    /* r9 = g2 - 1 (subo 1, g2, r9). */
+    r9 = g2 - UINT32_C(1);
+    /* Capture signed view for the cmpdeci semantics. */
+    g2_signed = (int32_t)g2;
+    r9_signed = (int32_t)r9;
+
+    /* Loop body (decrements r9 per iteration; continues while
+     * r9 was >= 2 entering the comparison, equivalent to the
+     * i960 cmpdeci semantics "dst := src2 - 1; branch if
+     * dst > src1 (signed)" with src1 = 0). When g2 = N > 0
+     * the loop runs N iterations. */
+    while (1) {
+        /* shlo 8, r3, r5 - r5 = r3 << 8. */
+        r5 = (r3 << 8);
+        /* and r10, r5, r5 - r5 &= 0xff00. */
+        r5 = r5 & r10;
+        /* shro 8, r3, r3 - r3 >>= 8. */
+        r3 = r3 >> 8;
+
+        /* ldob (g0), r6 - read byte; g0 += 1; g0 += g1. */
+        status = vf2_model2a_read(
+            machine, g0, &r6, sizeof(uint8_t));
+        if (status != VF2_OK) return status;
+        g0 = g0 + UINT32_C(1);
+        g0 = g0 + g1;
+
+        /* xor r6, r3, r3 - r3 = (r3 from shift) XOR byte. */
+        r3 = r3 ^ r6;
+        /* and r11, r3, r3 - r3 &= 0xff. */
+        r3 = r3 & r11;
+
+        /* ldos 0x02000000[r3*2], r3 - table lookup. */
+        table_idx = (uint8_t)r3;
+        status = vf2_model2a_read(
+            machine,
+            UINT32_C(0x02000000) +
+                (uint32_t)table_idx * UINT32_C(2),
+            &table_val, sizeof(table_val));
+        if (status != VF2_OK) return status;
+        r3 = (uint32_t)table_val;
+
+        /* xor r5, r3, r3 - combine. */
+        r3 = r3 ^ r5;
+
+        /* cmpdeci 0, r9, r9 - decrements r9 (result = dst - 1)
+         * and sets CC for signed (result - src) = (r9 - 1) - 0.
+         * Following bl 0x9494 branches if CC == LESS, i.e., if
+         * signed(r9 - 1) < 0, i.e., r9 > 1 BEFORE the
+         * decrement. Equivalently: decrement first, then
+         * continue if signed(r9) > 0. */
+        r9_signed = r9_signed - 1;
+        (void)g2_signed; /* silence unused warning */
+        if (r9_signed > 0) {
+            continue;
+        }
+        break;
+    }
+
+    /* mov r3, g0 - return value. */
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] =
+        (uint32_t)((uint16_t)r3);
+    /* ret at 0x94cc -> ret slot. */
+    cpu->ip = UINT32_C(0x000094d0);
+    cpu->executed_instructions += UINT64_C(17);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_crc16_step_hash_9480_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_crc16_step_hash_9480(machine, cpu);
+}
+

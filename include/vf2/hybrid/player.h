@@ -331,6 +331,21 @@ vf2_status vf2_hybrid_sibling_slot_increment_helper_6d1b4_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x9480: poly_or_crc16_step_hash (80 B, 3 blocks).
+ * IP must be 0x9480 with a pushed frame. Reads byte string
+ * from g0 (with per-iteration stride 1+g1), runs over
+ * g2 iterations, and folds a 256-entry table at VF2_MAIN_DATA_BASE
+ * (0x02000000) into a 16-bit accumulator. The result is
+ * returned in g0. Four callers per vf2i960 xrefs: 0x6de3c,
+ * 0x6de6c, 0x6de90, 0x6dec0. The accumulator is split between
+ * r5 (low byte in middle-byte position via r3<<8&0xff00) and
+ * r3 (high byte in low-byte position via r3>>8) each iteration,
+ * XOR'd with the next input byte and looked up via the table. */
+vf2_status vf2_hybrid_crc16_step_hash_9480_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by
