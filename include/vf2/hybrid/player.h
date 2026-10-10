@@ -362,6 +362,22 @@ vf2_status vf2_hybrid_block_hash_apply_5ff7c_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x6d0a0: 27-instruction tick function calling the
+ * v0769 queue dedup-append (0x6d1b4) and the v0772 block_hash
+ * wrapper (0x5ff7c). 1-to-1 C translation. Reads base ptr
+ * from 0x50016c, increments the counter at base+0x33fc (and
+ * mirrors it to 0x01d033fc + 0x0059c3fc), masks the bus
+ * pointer's low 16 bits and stores to 0x5000e4, then calls
+ * 0x5ff7c. The original i960 body uses sp-relative scratch
+ * (st r15,sp-4; ld sp-4,r15) to preserve r15 across the
+ * 0x6d1b4 sub-call; the recovery reads/writes work_ram at
+ * sp-4 via vf2_model2a_read/write_u32. The test must set
+ * cpu->registers[3] (sp) to a work_ram address. */
+vf2_status vf2_hybrid_frame_end_tick_6d0a0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

@@ -36456,3 +36456,165 @@ vf2_status vf2_hybrid_block_hash_apply_5ff7c_execute(
 }
 
 
+/*
+ * Recovered 0x6d0a0 (27 instructions, 108 B / 4 blocks) -
+ * a "frame-end tick" that calls v0769 (0x6d1b4) then
+ * v0772 (0x5ff7c) with a base+0x33fc counter increment
+ * and a low-16-bits bus pointer store to 0x5000e4.
+ *
+ * Per vf2i960 disasm ../../roms/vf2 0x6d0a0 32:
+ *   0x6d0a0: mov      r14, g0           ; g0 = return address
+ *   0x6d0a4: call     0x0006d1b4        ; v0769 queue dedup-append
+ *   0x6d0a8: ld       0xfffffffc(sp), g0 ; g0 = sp-4 scratch
+ *   0x6d0b0: subo     4, sp, sp         ; (canceled)
+ *   0x6d0b4: addo     4, sp, sp         ;
+ *   0x6d0b8: st       r15, 0xfffffffc(sp); r15 -> sp-4 scratch
+ *   0x6d0c0: ld       0x0050016c, r15   ; r15 = bus ptr
+ *   0x6d0c8: ld       0x33fc(r15), r15  ; r15 = bus[0x33fc]
+ *   0x6d0d0: addo     1, r15, r15       ; r15 += 1
+ *   0x6d0d4: st       r15, 0x01d033fc   ; backup_sram mirror
+ *   0x6d0dc: st       r15, 0x0059c3fc   ; extended mirror
+ *   0x6d0e4: ld       0xfffffffc(sp), r15; r15 <- sp-4 scratch
+ *   0x6d0ec: subo     4, sp, sp         ;
+ *   0x6d0f0: lda      0xffff, r15       ; r15 = 0xffff mask
+ *   0x6d0f8: and      r3, r15, r3       ; r3 &= 0xffff
+ *   0x6d0fc: st       r3, 0x005000e4    ; r3 (bus ptr) low16
+ *   0x6d104: call     0x0005ff7c        ; v0772 block_hash
+ *   0x6d108: ret
+ *
+ * 1-to-1 C translation. Calls the v0769 and v0772 recovered
+ * sub-functions via the v0775g pattern: temporarily set
+ * cpu->ip, call the sub-recovery, restore cpu->ip.
+ */
+static vf2_status hybrid_execute_frame_end_tick_6d0a0(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r3 = 0u;
+    uint32_t r15 = 0u;
+    uint32_t sp = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006d0a0)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* mov r14, g0: g0 = return address (set by enter_procedure
+     * into cpu->registers[2]). r14 is the saved RIP. */
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] =
+        cpu->registers[2u];
+
+    /* call 0x6d1b4 (v0769 queue dedup-append) */
+    cpu->ip = UINT32_C(0x0006d1b4);
+    status = vf2_hybrid_sibling_slot_increment_helper_6d1b4_execute(
+        machine, cpu);
+    if (status != VF2_OK) {
+        return status;
+    }
+    /* The v0769 sub-recovery doesn't write its local r3
+     * (the bus pointer it loaded from 0x50016c) back to
+     * cpu->registers[3]. Re-read 0x50016c so the subsequent
+     * 'and r3, 0xffff, r3' has the bus pointer. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r3);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[3u] = r3;
+
+    /* ld 0xfffffffc(sp), g0: g0 = sp-4 scratch word. The
+     * original code reads from the caller's local storage.
+     * In i960, SP = r1 (NOT r3 which is a local register). */
+    sp = cpu->registers[1u];
+    status = vf2_model2a_read_u32(machine, sp - UINT32_C(4), &r3);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] = r3;
+
+    /* subo 4, sp, sp / addo 4, sp, sp: net zero - no-op. */
+
+    /* st r15, 0xfffffffc(sp): r15 -> sp-4 scratch (overwrites
+     * the just-loaded g0 with r15 for later restore). */
+    r15 = cpu->registers[VF2_I960_FP_REGISTER];
+    status = vf2_model2a_write_u32(
+        machine, sp - UINT32_C(4), r15);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* ld 0x50016c, r15: r15 = bus ptr */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r15);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* ld 0x33fc(r15), r15: r15 = bus[0x33fc] */
+    status = vf2_model2a_read_u32(
+        machine, r15 + UINT32_C(0x33fc), &r15);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* addo 1, r15, r15: r15++ */
+    r15 = r15 + UINT32_C(1);
+
+    /* st r15, 0x01d033fc / 0x0059c3fc: mirror */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x01d033fc), r15);
+    if (status != VF2_OK) {
+        return status;
+    }
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0059c3fc), r15);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* ld 0xfffffffc(sp), r15: r15 <- sp-4 (restore) */
+    status = vf2_model2a_read_u32(
+        machine, sp - UINT32_C(4), &r15);
+    if (status != VF2_OK) {
+        return status;
+    }
+    cpu->registers[VF2_I960_FP_REGISTER] = r15;
+
+    /* subo 4, sp, sp: sp-=4 (no follow-up addo, sp stays -4) */
+
+    /* lda 0xffff, r15: r15 = 0xffff mask */
+    /* and r3, r15, r3: r3 (bus ptr from 0x6d1b4) &= 0xffff */
+    r3 = cpu->registers[3u] & UINT32_C(0xffff);
+    cpu->registers[3u] = r3;
+    (void)r15;  /* r15 was loaded with 0xffff just to be used in 'and' */
+
+    /* st r3, 0x005000e4: low 16 bits of bus ptr */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x005000e4), r3);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* call 0x5ff7c (v0772 block_hash wrapper) */
+    cpu->ip = UINT32_C(0x0005ff7c);
+    status = vf2_hybrid_block_hash_apply_5ff7c_execute(
+        machine, cpu);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* ret at 0x6d108 -> 0x6d10c (one past the ret) */
+    cpu->ip = UINT32_C(0x0006d10c);
+    cpu->executed_instructions += UINT64_C(27);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_frame_end_tick_6d0a0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_frame_end_tick_6d0a0(machine, cpu);
+}
+
+
