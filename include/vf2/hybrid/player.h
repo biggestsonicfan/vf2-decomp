@@ -390,6 +390,21 @@ vf2_status vf2_hybrid_poly_record_clear_60330_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x94d0: tiny (88 B, 1 block) 4-timer fuse.
+ * 1-to-1 C translation. Reads the running "fuse" state at
+ * 0x500098, adds the 4 Model 2A timer values (at 0xF00000,
+ * 0xF00004, 0xF00008, 0xF0000C) shifted by 4, 8, 12, 16,
+ * stores the accumulated value back to 0x500098, and
+ * returns (state >> 4) & 0xffff as the new "next" value
+ * (callers use the low 5 bits as a bit position in a
+ * 32-bit bitmap at 0x1b780 / 0x5427c). No sub-calls. Two
+ * callers: 0x1b780 and 0x542c8 (in the slot-allocator loop
+ * of 0x5427c). */
+vf2_status vf2_hybrid_timer_fuse_94d0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

@@ -36731,3 +36731,108 @@ vf2_status vf2_hybrid_poly_record_clear_60330_execute(
 }
 
 
+/*
+ * Recovered 0x94d0 (88 B, 1 block) - 4-timer fuse.
+ *
+ * Per vf2i960 disasm ../../roms/vf2 0x94d0 24:
+ *   000094d0  ld       0x00500098, r15   ; r15 = fuse_state
+ *   000094d8  shlo     20, 15, r14      ; r14 = 0xF00000 (timer base)
+ *   000094dc  ld       (r14), r13       ; r13 = timer[0]
+ *   000094e0  shlo     4, r13, r13      ; r13 <<= 4
+ *   000094e4  addi     r13, r15, r15    ; r15 += r13
+ *   000094e8  ld       0x00000004(r14), r13  ; r13 = timer[1]
+ *   000094ec  shlo     8, r13, r13
+ *   000094f0  addi     r13, r15, r15
+ *   000094f4  ld       0x00000008(r14), r13  ; r13 = timer[2]
+ *   000094f8  shlo     12, r13, r13
+ *   000094fc  addi     r13, r15, r15
+ *   00009500  ld       0x0000000c(r14), r13  ; r13 = timer[3]
+ *   00009504  shlo     16, r13, r13
+ *   00009508  addi     r13, r15, r15
+ *   0000950c  st       r15, 0x00500098   ; fuse_state = r15
+ *   00009514  shro     4, r15, g0        ; g0 = r15 >> 4
+ *   00009518  lda      0x0000ffff, r15
+ *   00009520  and      r15, g0, g0       ; g0 = (r15 >> 4) & 0xffff
+ *   00009524  ret
+ *
+ * Packs the 4 Model 2A timer values into a running "fuse"
+ * state, returns the low 16 bits of (state >> 4) which the
+ * callers (0x1b780 and 0x5427c) use as a 5-bit slot index.
+ * The Model 2A timer region is at 0xF00000 (4 timers,
+ * 0x10 bytes total per model2a.h:62). Work_ram 0x500098
+ * is the persistent fuse state, automatically zeroed by
+ * vf2_model2a_initialize.
+ *
+ * 1-to-1 C translation. 22 instructions, no sub-calls.
+ */
+static vf2_status hybrid_execute_timer_fuse_94d0(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t fuse_state = 0u;
+    uint32_t timer_val[4] = {0u, 0u, 0u, 0u};
+    uint32_t r15 = 0u;
+    uint32_t r13 = 0u;
+    uint32_t g0 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x000094d0)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* r15 = *(0x500098) — persistent fuse state. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00500098), &fuse_state);
+    if (status != VF2_OK) return status;
+    r15 = fuse_state;
+
+    /* Load 4 timer values from 0xF00000..0xF0000C. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00F00000), &timer_val[0]);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00F00004), &timer_val[1]);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00F00008), &timer_val[2]);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00F0000C), &timer_val[3]);
+    if (status != VF2_OK) return status;
+
+    /* timer[0] << 4, add to r15. */
+    r13 = timer_val[0] << 4;
+    r15 = r15 + r13;
+    /* timer[1] << 8, add to r15. */
+    r13 = timer_val[1] << 8;
+    r15 = r15 + r13;
+    /* timer[2] << 12, add to r15. */
+    r13 = timer_val[2] << 12;
+    r15 = r15 + r13;
+    /* timer[3] << 16, add to r15. */
+    r13 = timer_val[3] << 16;
+    r15 = r15 + r13;
+
+    /* fuse_state = r15. */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x00500098), r15);
+    if (status != VF2_OK) return status;
+
+    /* g0 = (r15 >> 4) & 0xffff. */
+    g0 = (r15 >> 4) & UINT32_C(0xffff);
+
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] = g0;
+    cpu->ip = UINT32_C(0x00009528);
+    cpu->executed_instructions += UINT64_C(22);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_timer_fuse_94d0_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_timer_fuse_94d0(machine, cpu);
+}
+
+
