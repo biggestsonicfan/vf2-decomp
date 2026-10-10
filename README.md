@@ -39,9 +39,15 @@ natively, and the F4 INDIVIDUAL post-edit release is pinned FULL MATCH
 (4293/38, 4293/38, 4294/38) on the reference and native legs. 14 sibling
 player functions (0x29598, 0x439ac, 0x43888, 0xcf04, 0x1fcc0 with the rest
 in its call chain, 0x1fee4, 0x1ff0c, 0x1fffc, 0x4b410, 0x11704, 0x2eab8,
-0x323fc, 0x32284, 0x4421c, 0x7ef0, 0xa154, 0x4ad40) are unit-tested. See
+0x323fc, 0x32284, 0x4421c, 0x7ef0, 0xa154, 0x4ad40) are unit-tested, plus
+the v0765-v0773 post-0x29414 cascade (`0x6dccc`
+`poly_or_model2a_register_switch`, `0x65838`
+`kill_osage_evaluate_record`, the `task_object` 5-entry cluster at
+`0x6ca64..0x6cb0c`, `0x6d10c` `slot_increment_helper`,
+`0x6d1b4` `sibling_slot_increment_helper`, the
+`0x9480` -> `0x5ff7c` -> `0x6d0a0` hash sub-chain). See
 [`docs/UNCOVERED_BRANCHES.md`](docs/UNCOVERED_BRANCHES.md) for the current
-frontier (v0760).
+frontier.
 
 The project is still a clean-room recovery and validation effort, not a
 complete playable port. Character/arena selection, the complete match state
@@ -52,6 +58,17 @@ Model 2A boundary includes the measured common bus behavior for one-shot
 program-upload accounting. Full TGP firmware execution,
 polygon rasterization, tile/video timing and SCSP FM/DSP behavior remain
 explicitly outside that bounded model.
+
+The v0764-v0773 cascade has added 9 more function recoveries to the
+post-29414 player corridor and the v0734k gap-run siblings:
+`0x6dccc` `poly_or_model2a_register_switch` (v0765),
+`0x65838` `kill_osage_evaluate_record` (v0766), the `task_object` 5-entry
+cluster at `0x6ca64..0x6cb0c` (v0767), `0x6d10c` `slot_increment_helper`
+(v0768), `0x6d1b4` `sibling_slot_increment_helper` (v0769), the
+`0x9480` -> `0x5ff7c` -> `0x6d0a0` chain (v0771, v0772, v0773). The
+3-leaf hash sub-chain (table-based CRC16, block-hash wrapper,
+frame-end tick) is now complete end-to-end with 4-leg ctest coverage
+on `0x9480` and `0x5ff7c`, and 2-leg ctest coverage on `0x6d0a0`.
 
 ### Progress toward a playable Virtua Fighter 2 port
 
@@ -64,7 +81,7 @@ scheduler / runtime     ██████████  validated native corrido
 input                    ████████░░  game-facing input path; platform adapter open
 camera                   ████████░░
 HUD / game_disp          █████████░  TEST / COIN ASSIGNMENT / F2-F4 post-edit menu corridors
-fighter / game logic     ███████░░░  post-29414 player corridor; 14 sibling function recoveries; F4 INDIVIDUAL post-edit FULL MATCH
+fighter / game logic     ████████░░  post-29414 player corridor; 0x9480→0x5ff7c→0x6d0a0 hash sub-chain; 22 sibling function recoveries; F4 INDIVIDUAL post-edit FULL MATCH
 geometry / rendering     ███████░░░  TGP/object paths recovered; rasterizer open
 audio                    █████░░░░░  68000/SCSP/PCM path partly recovered; FM/DSP open
 complete game flow       █████░░░░░  boot/menu/phase corridors; F2/F3/F4 post-edit; match flow open
