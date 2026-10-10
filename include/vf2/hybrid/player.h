@@ -346,6 +346,22 @@ vf2_status vf2_hybrid_crc16_step_hash_9480_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x5ff7c: thin wrapper around the CRC16 step hash
+ * (0x9480). 7 instructions, 1 block, 40 B. Loads a 32-bit base
+ * pointer from 0x50016c (work_ram), sets up g0 = base+0x33a8
+ * (1603-byte input buffer), g1 = 0 (stride), g2 = 0x644
+ * (1603 iters), calls 0x9480, then stos the 32-bit result
+ * to 0x01d03304 (backup_sram) and returns.
+ *
+ * 1-to-1 C translation: emits the call to the recovered
+ * 0x9480 directly via vf2_hybrid_crc16_step_hash_9480_execute
+ * after temporarily setting cpu->ip = 0x9480. Refused if the
+ * sub-recovery returns non-OK. */
+vf2_status vf2_hybrid_block_hash_apply_5ff7c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

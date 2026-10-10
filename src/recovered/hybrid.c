@@ -36376,3 +36376,83 @@ vf2_status vf2_hybrid_crc16_step_hash_9480_execute(
     return hybrid_execute_crc16_step_hash_9480(machine, cpu);
 }
 
+/*
+ * Recovered 0x5ff7c (40 B, 1 block) - thin wrapper that hashes
+ * 1603 bytes and stores the 32-bit result to backup_sram.
+ *
+ * Per vf2i960 disasm ../../roms/vf2 0x5ff7c 16:
+ *   ld       0x0050016c, r15
+ *   lda      0x000033a8(r15), g0
+ *   lda      0x00000644, g2
+ *   mov      0, g1
+ *   call     0x00009480
+ *   stos     g0, 0x01d03304
+ *   ret
+ *
+ * 1-to-1 C translation. Calls the recovered 0x9480 hash via
+ * vf2_hybrid_crc16_step_hash_9480_execute after temporarily
+ * setting cpu->ip = 0x9480 (the 0x9480 recovery requires that
+ * exact IP for its entry check). The 0x9480 recovery returns
+ * with cpu->ip = 0x94d0; we overwrite that to the post-call
+ * location (0x5ff98) and continue with the stos + ret.
+ */
+static vf2_status hybrid_execute_block_hash_apply_5ff7c(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r15 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0005ff7c)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* ld 0x0050016c, r15 - load base pointer from work_ram. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &r15);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* lda 0x33a8(r15), g0 - input buffer base = r15 + 0x33a8. */
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] =
+        r15 + UINT32_C(0x33a8);
+    /* lda 0x644, g2 - iteration count + 1 = 0x644 (1603 iters). */
+    cpu->registers[VF2_I960_G0_REGISTER + 2u] =
+        UINT32_C(0x644);
+    /* mov 0, g1 - stride - 1 = 0. */
+    cpu->registers[VF2_I960_G0_REGISTER + 1u] = UINT32_C(0);
+
+    /* call 0x9480 - dispatch to the recovered CRC16 hash.
+     * Temporarily set cpu->ip = 0x9480 (the 0x9480 recovery
+     * enforces that exact IP). After the call, g0 is the
+     * 16-bit hash (zero-extended to 32 bits via mov r3, g0). */
+    cpu->ip = UINT32_C(0x00009480);
+    status = vf2_hybrid_crc16_step_hash_9480_execute(machine, cpu);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* stos g0, 0x01d03304 - store 32-bit result to backup_sram. */
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x01d03304),
+        cpu->registers[VF2_I960_G0_REGISTER + 0u]);
+    if (status != VF2_OK) {
+        return status;
+    }
+
+    /* ret at 0x5ffa0 -> 0x5ffa4 (one past the ret). */
+    cpu->ip = UINT32_C(0x0005ffa4);
+    cpu->executed_instructions += UINT64_C(7);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_block_hash_apply_5ff7c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_block_hash_apply_5ff7c(machine, cpu);
+}
+
+

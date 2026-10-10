@@ -546,6 +546,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_crc16_step_hash_9480_tests)
     add_test(NAME vf2_crc16_step_hash_9480 COMMAND vf2_crc16_step_hash_9480_tests)
 
+    add_executable(vf2_block_hash_apply_5ff7c_tests tests/recovered/test_block_hash_apply_5ff7c_native.c)
+    target_link_libraries(vf2_block_hash_apply_5ff7c_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_block_hash_apply_5ff7c_tests)
+    add_test(NAME vf2_block_hash_apply_5ff7c COMMAND vf2_block_hash_apply_5ff7c_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)
