@@ -487,6 +487,19 @@ vf2_status vf2_hybrid_display_profile_load_53750_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x6010c: 548 B / 1 block assignment-block
+ * INITIALIZE factory-default writer.
+ * 1-to-1 C translation. Reads g6 (production value 6) as
+ * sole input. Writes hardcoded defaults to backup_sram
+ * 0x01d03340..0x01d0335c (29 bytes) and extended_work_ram
+ * mirror 0x0059c340..0x0059c35c. Calls 0x5a460 (v0778
+ * color_table_snapshot) at the end. Sole caller: 0x6de4c
+ * in 0x6de3c record-rebuild dispatcher. */
+vf2_status vf2_hybrid_assignment_init_6010c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

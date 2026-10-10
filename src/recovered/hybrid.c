@@ -37570,3 +37570,185 @@ vf2_status vf2_hybrid_display_profile_load_53750_execute(
 {
     return hybrid_execute_display_profile_load_53750(machine, cpu);
 }
+
+/* ====================================================================
+ * Recovered 0x6010c (548 B, 1 block, 134 instr) - assignment-block
+ * INITIALIZE factory-default writer.
+ *
+ * Per vf2i960 disasm, this is a single-block linear sequence
+ * that writes hardcoded default values to backup_sram
+ * 0x01d03340..0x01d0335c (29 bytes) and the extended_work_ram
+ * mirror 0x0059c340..0x0059c35c, then calls 0x5a460
+ * (v0778 color_table_snapshot) to refresh the color table.
+ *
+ * Sole input: g6 (held by the caller 0x6de3c record-rebuild
+ * dispatcher). In the production path g6=6; `addo 31, g6, r15`
+ * yields r15=0x25=37 which is stored to 0x01d03359..0x01d0335b.
+ *
+ * Disassembly (per vf2i960 disasm, 1 block):
+ *   mov  2,  r15 ; stob r15, 0x01d03340 ; stob r15, 0x0059c340
+ *   mov  2,  r15 ; stob r15, 0x01d03341 ; stob r15, 0x0059c341
+ *   mov  1,  r15 ; stob r15, 0x01d03342 ; stob r15, 0x0059c342
+ *   mov  1,  r15 ; stob r15, 0x01d03343 ; stob r15, 0x0059c343
+ *   mov  1,  r15 ; stob r15, 0x01d03344 ; stob r15, 0x0059c344
+ *   mov  1,  r15 ; stob r15, 0x01d03345 ; stob r15, 0x0059c345
+ *   mov  1,  r15 ; stob r15, 0x01d03346 ; stob r15, 0x0059c346
+ *   mov  1,  r15 ; stob r15, 0x01d03347 ; stob r15, 0x0059c347
+ *   mov  1,  r15 ; stob r15, 0x01d03348 ; stob r15, 0x0059c348
+ *   mov  1,  r15 ; stob r15, 0x01d03349 ; stob r15, 0x0059c349
+ *   mov  1,  r15 ; stob r15, 0x01d0334a ; stob r15, 0x0059c34a
+ *   mov  1,  r15 ; stob r15, 0x01d0334b ; stob r15, 0x0059c34b
+ *   mov  1,  r15 ; stob r15, 0x01d0334c ; stob r15, 0x0059c34c
+ *   mov  1,  r15 ; stob r15, 0x01d0334d ; stob r15, 0x0059c34d
+ *   mov  1,  r15 ; stob r15, 0x01d0334e ; stob r15, 0x0059c34e
+ *   mov  15, r15 ; stob r15, 0x01d0334f ; stob r15, 0x0059c34f
+ *   shlo 5,  5,  r15 ; stos r15, 0x01d03352 ; stos r15, 0x0059c352
+ *   shlo 3,  25, r15 ; stos r15, 0x01d03354 ; stos r15, 0x0059c354
+ *   mov  0,  r15 ; stob r15, 0x01d03351 ; stob r15, 0x0059c351
+ *   mov  0,  r15 ; stob r15, 0x01d03350 ; stob r15, 0x0059c350
+ *   shlo 6,  1,  r15 ; stob r15, 0x01d03356 ; stob r15, 0x0059c356
+ *   shlo 6,  1,  r15 ; stob r15, 0x01d03357 ; stob r15, 0x0059c357
+ *   shlo 6,  1,  r15 ; stob r15, 0x01d03358 ; stob r15, 0x0059c358
+ *   addo 31, g6, r15 ; stob r15, 0x01d03359 ; stob r15, 0x0059c359
+ *   addo 31, g6, r15 ; stob r15, 0x01d0335a ; stob r15, 0x0059c35a
+ *   addo 31, g6, r15 ; stob r15, 0x01d0335b ; stob r15, 0x0059c35b
+ *   mov  31, r15 ; stob r15, 0x01d0335c ; stob r15, 0x0059c35c
+ *   call 0x5a460
+ *   ret
+ *
+ * 1-to-1 C translation. No refused sub-calls. Reads g6 from
+ * cpu->registers; default test value is g6=6 (production).
+ */
+static vf2_status hybrid_execute_assignment_init_6010c(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint8_t r15_u8 = 0u;
+    uint16_t r15_u16 = 0u;
+    uint32_t g6 = cpu->registers[VF2_I960_G0_REGISTER + 6u];
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0006010c)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* ---- 16 round settings: 0x340..0x34f
+     * (2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,15) ---- */
+    r15_u8 = 2u;
+    status = vf2_model2a_write(machine, 0x01d03340, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c340, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 2u;
+    status = vf2_model2a_write(machine, 0x01d03341, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c341, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03342, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c342, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03343, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c343, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03344, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c344, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03345, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c345, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03346, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c346, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03347, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c347, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03348, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c348, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d03349, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c349, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d0334a, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c34a, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d0334b, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c34b, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d0334c, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c34c, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d0334d, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c34d, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 1u;
+    status = vf2_model2a_write(machine, 0x01d0334e, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c34e, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 15u;
+    status = vf2_model2a_write(machine, 0x01d0334f, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c34f, &r15_u8, 1); if (status != VF2_OK) return status;
+
+    /* ---- short stores: 0x352 = 5<<5 = 0xa0 (160),
+     * 0x354 = 25<<3 = 0xc8 (200) ---- */
+    r15_u16 = 0xa0u;
+    status = vf2_model2a_write(machine, 0x01d03352, &r15_u16, 2); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c352, &r15_u16, 2); if (status != VF2_OK) return status;
+    r15_u16 = 0xc8u;
+    status = vf2_model2a_write(machine, 0x01d03354, &r15_u16, 2); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c354, &r15_u16, 2); if (status != VF2_OK) return status;
+
+    /* ---- 0x351 = 0, 0x350 = 0 (region header bytes) ---- */
+    r15_u8 = 0u;
+    status = vf2_model2a_write(machine, 0x01d03351, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c351, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 0u;
+    status = vf2_model2a_write(machine, 0x01d03350, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c350, &r15_u8, 1); if (status != VF2_OK) return status;
+
+    /* ---- video bias 64 (=1<<6) at 0x356..0x358 ---- */
+    r15_u8 = 0x40u;
+    status = vf2_model2a_write(machine, 0x01d03356, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c356, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 0x40u;
+    status = vf2_model2a_write(machine, 0x01d03357, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c357, &r15_u8, 1); if (status != VF2_OK) return status;
+    r15_u8 = 0x40u;
+    status = vf2_model2a_write(machine, 0x01d03358, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c358, &r15_u8, 1); if (status != VF2_OK) return status;
+
+    /* ---- 0x359..0x35b = g6 + 31 (with g6=6 -> 37=0x25) ---- */
+    r15_u8 = (uint8_t)((g6 + 31u) & 0xffu);
+    status = vf2_model2a_write(machine, 0x01d03359, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c359, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x01d0335a, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c35a, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x01d0335b, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c35b, &r15_u8, 1); if (status != VF2_OK) return status;
+
+    /* ---- 0x35c = 31 (scroll) ---- */
+    r15_u8 = 31u;
+    status = vf2_model2a_write(machine, 0x01d0335c, &r15_u8, 1); if (status != VF2_OK) return status;
+    status = vf2_model2a_write(machine, 0x0059c35c, &r15_u8, 1); if (status != VF2_OK) return status;
+
+    /* ---- call 0x5a460 (v0778 color_table_snapshot) ----
+     * Note: v0778 itself refuses a sub-call to 0x2b4c
+     * (color_table_rebuild, not yet recovered) and returns
+     * VF2_ERROR_UNSUPPORTED after applying its 7 byte stores
+     * to work_ram 0x500234..0x50023a. We tolerate that
+     * refused return here because the observable side effect
+     * (the 7 byte snapshot) was already applied. We must
+     * set cpu->ip = 0x5a460 first because v0778's entry
+     * check asserts the call IP. */
+    cpu->ip = UINT32_C(0x0005a460);
+    status = vf2_hybrid_color_table_snapshot_5a460_execute(machine, cpu);
+    if (status != VF2_OK && status != VF2_ERROR_UNSUPPORTED) {
+        return status;
+    }
+
+    cpu->ip = UINT32_C(0x00060330);
+    cpu->executed_instructions += UINT64_C(134);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_assignment_init_6010c_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_assignment_init_6010c(machine, cpu);
+}

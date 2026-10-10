@@ -591,6 +591,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_display_profile_load_53750_tests)
     add_test(NAME vf2_display_profile_load_53750 COMMAND vf2_display_profile_load_53750_tests)
 
+    add_executable(vf2_assignment_init_6010c_tests tests/recovered/test_assignment_init_6010c_native.c)
+    target_link_libraries(vf2_assignment_init_6010c_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_assignment_init_6010c_tests)
+    add_test(NAME vf2_assignment_init_6010c COMMAND vf2_assignment_init_6010c_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)
