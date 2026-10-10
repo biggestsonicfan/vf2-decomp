@@ -37183,3 +37183,131 @@ vf2_status vf2_hybrid_slot3_table_lookup_1b780_execute(
 {
     return hybrid_execute_slot3_table_lookup_1b780(machine, cpu);
 }
+/* ====================================================================
+ * Recovered 0x5a460 (176 B, 1 block, 26 instr) - bus-table snapshot.
+ *
+ * Per vf2i960 disasm:
+ *   block_0005a460:
+ *     0005a460  ld       0x0050016c, r3           ; r3 = bus_ptr
+ *     0005a468  ldob     0x00003356(r3), r3       ; r3 = bus[0x3356]
+ *     0005a470  ld       0x0050016c, r4           ; r4 = bus_ptr
+ *     0005a478  ldob     0x00003359(r4), r4       ; r4 = bus[0x3359]
+ *     0005a480  ld       0x0050016c, r5           ; r5 = bus_ptr
+ *     0005a488  ldob     0x00003357(r5), r5       ; r5 = bus[0x3357]
+ *     0005a490  ld       0x0050016c, r6           ; r6 = bus_ptr
+ *     0005a498  ldob     0x0000335a(r6), r6       ; r6 = bus[0x335a]
+ *     0005a4a0  ld       0x0050016c, r7           ; r7 = bus_ptr
+ *     0005a4a8  ldob     0x00003358(r7), r7       ; r7 = bus[0x3358]
+ *     0005a4b0  ld       0x0050016c, r8           ; r8 = bus_ptr
+ *     0005a4b8  ldob     0x0000335b(r8), r8       ; r8 = bus[0x335b]
+ *     0005a4c0  ld       0x0050016c, r9           ; r9 = bus_ptr
+ *     0005a4c8  ldob     0x0000335c(r9), r9       ; r9 = bus[0x335c]
+ *     0005a4d0  stob     r3, 0x00500234           ; dst[0x234] = bus[0x3356]
+ *     0005a4d8  stob     r4, 0x00500235           ; dst[0x235] = bus[0x3359]
+ *     0005a4e0  stob     r5, 0x00500236           ; dst[0x236] = bus[0x3357]
+ *     0005a4e8  stob     r6, 0x00500237           ; dst[0x237] = bus[0x335a]
+ *     0005a4f0  stob     r7, 0x00500238           ; dst[0x238] = bus[0x3358]
+ *     0005a4f8  stob     r8, 0x00500239           ; dst[0x239] = bus[0x335b]
+ *     0005a500  stob     r9, 0x0050023a           ; dst[0x23a] = bus[0x335c]
+ *     0005a508  call     0x00002b4c               ; v0x2b4c sub-call
+ *     0005a50c  ret
+ *
+ * Reads 7 bytes from bus-relative offsets 0x3356, 0x3359,
+ * 0x3357, 0x335a, 0x3358, 0x335b, 0x335c (a "shuffled"
+ * snapshot of 7 consecutive bytes at 0x3356..0x335c).
+ * Stores them to work_ram 0x500234..0x50023a. Then calls
+ * 0x2b4c (the color_table_rebuild sub-call, deferred per
+ * v0751 - complex mulo/divo/shlo/shro chains).
+ *
+ * 1-to-1 C translation. Sub-call to 0x2b4c is REFUSED (not
+ * yet recovered). The 7 byte stores happen BEFORE the
+ * refusal; if the dispatcher wires the recovery up it can
+ * fall back to interpretation for the 0x2b4c sub-call.
+ *
+ * Sole caller (per vf2i960 xrefs): 0x6010c inside 0x6de3c
+ * (the record-rebuild dispatcher, called for v0774's
+ * successor sibling 0x6010c).
+ */
+static vf2_status hybrid_execute_color_table_snapshot_5a460(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t bus_ptr = 0u;
+    uint8_t bytes[7] = {0u, 0u, 0u, 0u, 0u, 0u, 0u};
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0005a460)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* Read the bus pointer (a u32 at 0x50016c). */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050016c), &bus_ptr);
+    if (status != VF2_OK) return status;
+
+    /* Read the 7 bytes from the bus-relative offsets. */
+    status = vf2_model2a_read(
+        machine, bus_ptr + UINT32_C(0x3356),
+        &bytes[0], sizeof(uint8_t));
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read(
+        machine, bus_ptr + UINT32_C(0x3359),
+        &bytes[1], sizeof(uint8_t));
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read(
+        machine, bus_ptr + UINT32_C(0x3357),
+        &bytes[2], sizeof(uint8_t));
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read(
+        machine, bus_ptr + UINT32_C(0x335a),
+        &bytes[3], sizeof(uint8_t));
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read(
+        machine, bus_ptr + UINT32_C(0x3358),
+        &bytes[4], sizeof(uint8_t));
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read(
+        machine, bus_ptr + UINT32_C(0x335b),
+        &bytes[5], sizeof(uint8_t));
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read(
+        machine, bus_ptr + UINT32_C(0x335c),
+        &bytes[6], sizeof(uint8_t));
+    if (status != VF2_OK) return status;
+
+    /* Store the 7 bytes to work_ram 0x500234..0x50023a. */
+    {
+        const uint32_t dst_addrs[7] = {
+            UINT32_C(0x00500234),
+            UINT32_C(0x00500235),
+            UINT32_C(0x00500236),
+            UINT32_C(0x00500237),
+            UINT32_C(0x00500238),
+            UINT32_C(0x00500239),
+            UINT32_C(0x0050023a),
+        };
+        uint32_t i;
+        for (i = 0u; i < 7u; ++i) {
+            status = vf2_model2a_write(
+                machine, dst_addrs[i], &bytes[i], sizeof(uint8_t));
+            if (status != VF2_OK) return status;
+        }
+    }
+
+    /* REFUSE the sub-call to 0x2b4c (color_table_rebuild). The
+     * sub-recovery is not yet implemented; the 7 byte stores
+     * have already been applied; cpu->ip is set to the post-call
+     * address so the dispatcher can fall back to interpretation
+     * for the 0x2b4c sub-call. */
+    cpu->ip = UINT32_C(0x0005a510);
+    cpu->executed_instructions += UINT64_C(26);
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+vf2_status vf2_hybrid_color_table_snapshot_5a460_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_color_table_snapshot_5a460(machine, cpu);
+}

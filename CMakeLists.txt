@@ -576,6 +576,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_slot3_table_lookup_1b780_tests)
     add_test(NAME vf2_slot3_table_lookup_1b780 COMMAND vf2_slot3_table_lookup_1b780_tests)
 
+    add_executable(vf2_color_table_snapshot_5a460_tests tests/recovered/test_color_table_snapshot_5a460_native.c)
+    target_link_libraries(vf2_color_table_snapshot_5a460_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_color_table_snapshot_5a460_tests)
+    add_test(NAME vf2_color_table_snapshot_5a460 COMMAND vf2_color_table_snapshot_5a460_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)

@@ -447,6 +447,20 @@ vf2_status vf2_hybrid_slot3_table_lookup_1b780_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x5a460: 176 B / 1 block bus-table snapshot.
+ * 1-to-1 C translation. Reads 7 bytes from bus-relative
+ * offsets 0x3356, 0x3359, 0x3357, 0x335a, 0x3358, 0x335b,
+ * 0x335c (a "shuffled" snapshot of 7 consecutive bytes at
+ * 0x3356..0x335c) where bus_ptr = *(0x50016c). Stores them
+ * to work_ram 0x500234..0x50023a. Then calls 0x2b4c
+ * (color_table_rebuild, deferred per v0751 - returns
+ * UNSUPPORTED for the sub-call so the dispatcher falls
+ * back to interpretation). */
+vf2_status vf2_hybrid_color_table_snapshot_5a460_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by
