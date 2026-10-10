@@ -571,6 +571,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_poly_record_load_5427c_tests)
     add_test(NAME vf2_poly_record_load_5427c COMMAND vf2_poly_record_load_5427c_tests)
 
+    add_executable(vf2_slot3_table_lookup_1b780_tests tests/recovered/test_slot3_table_lookup_1b780_native.c)
+    target_link_libraries(vf2_slot3_table_lookup_1b780_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_slot3_table_lookup_1b780_tests)
+    add_test(NAME vf2_slot3_table_lookup_1b780 COMMAND vf2_slot3_table_lookup_1b780_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)

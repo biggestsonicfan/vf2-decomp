@@ -430,6 +430,23 @@ vf2_status vf2_hybrid_poly_record_load_5427c_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x1b780: 20 B / 1 block 3-bit slot table lookup.
+ * 1-to-1 C translation. Three comparison gates decide between
+ * a lookup path (call 0x94d0 timer_fuse, mask to 3 bits,
+ * read 16-bit word from table at 0x0201cb8c + g0*2) and a
+ * default path returning 0x282. The gates are:
+ *   - cmpobe r3, r7 (default if r3 > r7)
+ *   - cmpobne r3, r4 (lookup if r3 != r4)
+ *   - cmpobl r5, r6 (default if r5 < r6)
+ * All three must hold for the lookup path. Calls v0775
+ * (0x94d0 timer_fuse) for the lookup; refuses
+ * (returns VF2_ERROR_UNSUPPORTED) if the sub-recovery returns
+ * non-OK. */
+vf2_status vf2_hybrid_slot3_table_lookup_1b780_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Per-step hook instrumentation (v0755c).
  *
  * Read-only access to the per-hook fire counters maintained by

@@ -37080,3 +37080,106 @@ vf2_status vf2_hybrid_poly_record_load_5427c_execute(
 {
     return hybrid_execute_poly_record_load_5427c(machine, cpu);
 }
+/* ====================================================================
+ * Recovered 0x1b780 (20 B, 1 block) - 3-bit slot table lookup.
+ *
+ * Per vf2i960 disasm (function reports start at 0x1b780 because
+ * that's the explicit branch target; the 3 cmpobl gates at
+ * 0x1b774..0x1b77c fall through into 0x1b780 when all 3
+ * conditions hold):
+ *
+ *   block_0001b774 (gate, falls through to 0x1b780 on success):
+ *     0001b774  cmpobe   r3, r7, 0x1b794  ; if r3 > r7 -> default
+ *     0001b778  cmpobne  r3, r4, 0x1b780  ; if r3 != r4 -> look up
+ *     0001b77c  cmpobl   r5, r6, 0x1b794  ; if r5 < r6 -> default
+ *
+ *   block_0001b780 (lookup body):
+ *     0001b780  call     0x000094d0        ; v0775 timer_fuse
+ *     0001b784  and      7, g0, g0         ; g0 = g0 & 0x7 (3-bit slot)
+ *     0001b788  ldos     0x0201cb8c[g0*2], g0  ; g0 = table[g0*2] (16-bit)
+ *     0001b790  ret
+ *
+ *   block_0001b794 (default):
+ *     0001b794  lda      0x00000282, g0    ; g0 = 0x282
+ *     0001b798  ret
+ *
+ * Two paths:
+ *   - "lookup" path (3 gates all hold): call 0x94d0, mask to 3
+ *     bits, look up 16-bit word in main_data table at
+ *     0x0201cb8c, return it as g0.
+ *   - "default" path (any gate fails): return 0x282.
+ *
+ * The 3-bit mask (& 7) gives slots 0..7, so the table has
+ * up to 8 entries (16 bytes). 0x0201cb8c is within
+ * main_data (offset 0x1cb8c < 64 KB), so the test can pre-fill
+ * via a 64 KB main_data buffer.
+ *
+ * 1-to-1 C translation. Calls v0775 (0x94d0 timer_fuse) for
+ * the lookup path; refuses (returns VF2_ERROR_UNSUPPORTED)
+ * if the sub-recovery returns non-OK.
+ */
+static vf2_status hybrid_execute_slot3_table_lookup_1b780(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r6 = 0u;
+    uint32_t r7 = 0u;
+    uint32_t g0 = 0u;
+    uint16_t table_val = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x0001b780)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    /* Read the 5 comparison registers. */
+    r3 = cpu->registers[3u];
+    r4 = cpu->registers[4u];
+    r5 = cpu->registers[5u];
+    r6 = cpu->registers[6u];
+    r7 = cpu->registers[7u];
+
+    /* Three gates (unsigned, in original i960 cmpob order):
+     *   cmpobe r3, r7, 0x1b794   -> if r3 > r7, default
+     *   cmpobne r3, r4, 0x1b780  -> if r3 != r4, look up
+     *   cmpobl r5, r6, 0x1b794   -> if r5 < r6, default
+     * The fall-through to 0x1b780 occurs when all 3 conditions
+     * match the original disasm's intent:
+     *   r3 <= r7 (skip cmpobe branch)
+     *   r3 != r4 (take cmpobne branch to 0x1b780)
+     *   r5 >= r6 (skip cmpobl branch) */
+    if (r3 > r7 || r3 == r4 || r5 < r6) {
+        /* Default path: return 0x282. */
+        g0 = UINT32_C(0x282);
+    } else {
+        /* Lookup path: call v0775 timer_fuse, mask to 3 bits,
+         * read 16-bit table[g0*2] from main_data. */
+        cpu->ip = UINT32_C(0x000094d0);
+        status = vf2_hybrid_timer_fuse_94d0_execute(
+            machine, cpu);
+        if (status != VF2_OK) return status;
+        g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+        g0 = g0 & UINT32_C(0x7);
+        status = vf2_model2a_read(
+            machine,
+            UINT32_C(0x0201cb8c) + g0 * UINT32_C(2),
+            &table_val, sizeof(table_val));
+        if (status != VF2_OK) return status;
+        g0 = (uint32_t)table_val;
+    }
+
+    cpu->registers[VF2_I960_G0_REGISTER + 0u] = g0;
+    cpu->ip = UINT32_C(0x0001b79c);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_slot3_table_lookup_1b780_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_slot3_table_lookup_1b780(machine, cpu);
+}
