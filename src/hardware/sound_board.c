@@ -1072,12 +1072,15 @@ static vf2_status sound_board_dispatch_90(
     uint8_t *descriptor,
     uint8_t command,
     uint8_t payload,
+    uint8_t ring_byte2,
     vf2_sound_dispatch_report *report
 )
 {
     const uint8_t selector = descriptor[2u];
-    const uint16_t base_current = (uint16_t)((uint16_t)(payload & 0x7fu) +
-                                             read_be16(descriptor + 4u));
+    /* ROM 0x858: base = payload + descriptor[4] byte, no 0x7f mask,
+       16-bit word add. */
+    const uint16_t base_current =
+        (uint16_t)((uint16_t)payload + descriptor[4u]);
     uint16_t current = base_current;
     uint16_t lookup = 0u;
     uint16_t auxiliary = 0u;
@@ -1094,9 +1097,11 @@ static vf2_status sound_board_dispatch_90(
     report->handler_address = UINT32_C(0x00000858);
     board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)current;
 
-    if (payload != 0u) {
+    /* ROM 0x866: the mode table is indexed by ring byte 2 (the byte
+       after payload), and skipped when it is zero. */
+    if (ring_byte2 != 0u) {
         if (read_audio_byte_absolute(
-                board, UINT32_C(0x60c6a6) + payload, &lookup_mode
+                board, UINT32_C(0x60c6a6) + ring_byte2, &lookup_mode
             ) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
@@ -1584,7 +1589,8 @@ vf2_status vf2_sound_board_dispatch_next(
             index * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
         ++local.descriptors_scanned;
         if ((descriptor[0] & 0x80u) == 0u ||
-            read_be16(descriptor + 1u) != (uint16_t)local.command) {
+            read_be16(descriptor + 1u) !=
+                (uint16_t)(local.command & 0x0fu)) {
             continue;
         }
         ++local.descriptors_matched;
@@ -1609,7 +1615,9 @@ vf2_status vf2_sound_board_dispatch_next(
                     local.command_class != 0xc0u &&
                     local.command_class != 0xe0u)) {
             vf2_status status = sound_board_dispatch_90(
-                board, descriptor, local.command, local.payload, &local
+                board, descriptor, local.command, local.payload,
+                ram[VF2_SOUND_COMMAND_RING_BASE +
+                    ((cursor + 2u) & UINT16_C(0x0fffu))], &local
             );
             if (status != VF2_OK) {
                 *report = local;

@@ -110,7 +110,7 @@ int main(void)
 
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xc1u;
+        descriptor[2] = 0x01u;
         voice[0] = 0u;
         voice[1] = 3u;
         voice[2] = 0x40u;
@@ -146,11 +146,11 @@ int main(void)
         EXPECT_TRUE((value & 0x0800u) == 0u);
 
         descriptor[1] = 0u;
-        descriptor[2] = 0x90u;
-        audio_rom[0x53eau] = 0x00u;
-        audio_rom[0x53ebu] = 0x61u;
-        audio_rom[0x53ecu] = 0x00u;
-        audio_rom[0x53edu] = 0x00u;
+        descriptor[2] = 0u;
+        audio_rom[0x53aau] = 0x00u;
+        audio_rom[0x53abu] = 0x60u;
+        audio_rom[0x53acu] = 0x00u;
+        audio_rom[0x53adu] = 0x00u;
         audio_rom[0x10000u] = 0x00u;
         audio_rom[0x10003u] = 0x00u;
         audio_rom[0x10004u] = 0x12u;
@@ -171,29 +171,32 @@ int main(void)
         vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom));
         memset(audio_rom, 0, sizeof(audio_rom));
-        audio_rom[0x53eau] = 0x00u;
-        audio_rom[0x53ebu] = 0x61u;
-        audio_rom[0x53ecu] = 0x00u;
-        audio_rom[0x53edu] = 0x00u;
+        audio_rom[0x53aau] = 0x00u;
+        audio_rom[0x53abu] = 0x61u;
+        audio_rom[0x53acu] = 0x00u;
+        audio_rom[0x53adu] = 0x00u;
         audio_rom[0x10000u] = 0x00u;
-        audio_rom[0x10001u] = 0x10u;
+        audio_rom[0x10001u] = 0x80u;
         audio_rom[0x10002u] = 0x22u;
         audio_rom[0x10003u] = 0x00u;
         audio_rom[0x10004u] = 0x12u;
         audio_rom[0x10005u] = 0x34u;
         audio_rom[0xc6a6u + 2u] = 0x44u;
         audio_rom[0xc3e6u + 0x14u] = 0x55u;
+        audio_rom[0xc3e6u + 0x17u] = 0x55u;
+        audio_rom[0xc3e6u + 0x74u] = 0x55u;
+        audio_rom[0xc3e6u + 0x77u] = 0x55u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x90u;
-        descriptor[4] = 0u;
+        descriptor[2] = 0u;
+        descriptor[4] = 0x60u;
         descriptor[5] = 0u;
         descriptor[6] = 0x33u;
         descriptor[12] = 0u;
         descriptor[13] = 0u;
         {
-            const uint8_t packet[4] = {0x90u, 0x02u, 0u, 0u};
+            const uint8_t packet[4] = {0x90u, 0x05u, 0x02u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
@@ -215,7 +218,7 @@ int main(void)
         voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x90u;
+        descriptor[2] = 0u;
         descriptor[4] = 0u;
         descriptor[5] = 0u;
         descriptor[6] = 0x33u;
@@ -246,23 +249,26 @@ int main(void)
         vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom));
         memset(audio_rom, 0, sizeof(audio_rom));
-        audio_rom[0x53eau] = 0x00u;
-        audio_rom[0x53ebu] = 0x61u;
-        audio_rom[0x53ecu] = 0x00u;
-        audio_rom[0x53edu] = 0x00u;
+        audio_rom[0x53aau] = 0x00u;
+        audio_rom[0x53abu] = 0x61u;
+        audio_rom[0x53acu] = 0x00u;
+        audio_rom[0x53adu] = 0x00u;
         audio_rom[0x10000u] = 0x00u;
-        audio_rom[0x10001u] = 0x10u;
+        audio_rom[0x10001u] = 0x80u;
         audio_rom[0x10002u] = 0x22u;
         audio_rom[0x10003u] = 0x00u;
         audio_rom[0x10004u] = 0x12u;
         audio_rom[0x10005u] = 0x34u;
         audio_rom[0xc6a6u + 2u] = 0x44u;
         audio_rom[0xc3e6u + 0x14u] = 0x55u;
+        audio_rom[0xc3e6u + 0x17u] = 0x55u;
+        audio_rom[0xc3e6u + 0x74u] = 0x55u;
+        audio_rom[0xc3e6u + 0x77u] = 0x55u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x90u;
+        descriptor[2] = 0u;
         descriptor[4] = 0u;
         descriptor[5] = 0u;
         descriptor[6] = 0x33u;
@@ -277,7 +283,7 @@ int main(void)
         voice[0] = 0u;
         voice[1] = 3u;
         {
-            const uint8_t packet[4] = {0x90u, 0x02u, 0u, 0u};
+            const uint8_t packet[4] = {0x90u, 0x02u, 0x02u, 0u};
             uint8_t slot_byte = 0u;
             uint16_t slot_word = 0u;
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -330,7 +336,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xa0u;
+        descriptor[2] = 0u;
         {
             const uint8_t packet[4] = {0xa0u, 0x01u, 0x01u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -353,7 +359,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xa0u;
+        descriptor[2] = 0u;
         {
             const uint8_t packet[4] = {0xa0u, 0x01u, 0x01u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -677,7 +683,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xe9u;
+        descriptor[2] = 0x09u;
         descriptor[7] = 0u;
         {
             const uint8_t packet[4] = {0xe9u, 0u, 0u, 0u};
@@ -699,7 +705,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xb1u;
+        descriptor[2] = 0x01u;
         {
             const uint8_t packet[4] = {0xb1u, 0x01u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -711,7 +717,7 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + 1u] == 0u);
 
         descriptor[1] = 0u;
-        descriptor[2] = 0xb2u;
+        descriptor[2] = 0x02u;
         {
             const uint8_t packet[4] = {0xb2u, 0x02u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -729,7 +735,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xb1u;
+        descriptor[2] = 0x01u;
         {
             uint8_t *live_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
             uint8_t register_value = 0u;
@@ -756,7 +762,7 @@ int main(void)
             live_voice[4] = 0u;
             live_voice[5] = 2u;
         }
-        descriptor[2] = 0xb2u;
+        descriptor[2] = 0x02u;
         {
             uint8_t register_value = 0u;
             const uint8_t packet[4] = {0xb2u, 0x02u, 0u, 0u};
@@ -772,7 +778,7 @@ int main(void)
         }
 
         descriptor[1] = 0u;
-        descriptor[2] = 0xb7u;
+        descriptor[2] = 0x07u;
         descriptor[0] = 0x80u;
         board.sound_ram[VF2_SOUND_SHARED_FACTOR_151F] = 0xffu;
         {
@@ -785,7 +791,7 @@ int main(void)
         EXPECT_TRUE(descriptor[3] == 0x0fu && descriptor[10] == 0x0fu);
 
         descriptor[1] = 0u;
-        descriptor[2] = 0xb1u;
+        descriptor[2] = 0x01u;
         {
             const uint8_t packet[4] = {0xb1u, 0x0au, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -796,7 +802,7 @@ int main(void)
         EXPECT_TRUE(descriptor[6] == 0x1cu);
 
         descriptor[1] = 0u;
-        descriptor[2] = 0xb1u;
+        descriptor[2] = 0x01u;
         descriptor[0] = 0x80u;
         board.sound_ram[VF2_SOUND_SHARED_FACTOR_151F] = 0x80u;
         {
@@ -809,7 +815,7 @@ int main(void)
         EXPECT_TRUE(descriptor[3] == 0x21u && descriptor[10] == 0x11u);
 
         descriptor[1] = 0u;
-        descriptor[2] = 0xb1u;
+        descriptor[2] = 0x01u;
         descriptor[0] = 0x80u;
         descriptor += VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
         descriptor[1] = 0u;
@@ -822,15 +828,17 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x1912u);
-        EXPECT_TRUE(dispatch.descriptors_updated == 1u);
+        EXPECT_TRUE(dispatch.descriptors_updated == 2u);
         EXPECT_TRUE(descriptor[13] == 0x4au);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 13u] ==
+                    0x4au);
 
         vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom));
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xb3u;
+        descriptor[2] = 0x03u;
         {
             const uint8_t packet[4] = {0xb3u, 0x40u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -851,8 +859,10 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x194au);
-        EXPECT_TRUE(dispatch.descriptors_updated == 1u);
+        EXPECT_TRUE(dispatch.descriptors_updated == 2u);
         EXPECT_TRUE(descriptor[12] == 0x7au);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 12u] ==
+                    0x02u);
 
         {
             const uint8_t packet[4] = {0xb3u, 0x2bu, 0u, 0u};
@@ -860,15 +870,17 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x1986u);
-        EXPECT_TRUE(dispatch.descriptors_updated == 1u);
+        EXPECT_TRUE(dispatch.descriptors_updated == 2u);
         EXPECT_TRUE(descriptor[12] == 0x5au);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 12u] ==
+                    0x5au);
 
         vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom));
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xb3u;
+        descriptor[2] = 0x03u;
         {
             uint8_t *cleanup_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
             cleanup_voice[0] = 0u;
@@ -909,7 +921,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x81u;
+        descriptor[2] = 0x01u;
         descriptor[4] = 0u;
         descriptor[5] = 0u;
         {
@@ -941,7 +953,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x81u;
+        descriptor[2] = 0x01u;
         descriptor[4] = 0u;
         descriptor[5] = 0u;
         board.sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + 1u] = 0x80u;
@@ -970,7 +982,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xb3u;
+        descriptor[2] = 0x03u;
         {
             uint8_t *cleanup_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
             cleanup_voice[0] = 0u;
@@ -997,7 +1009,7 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xb3u;
+        descriptor[2] = 0x03u;
         {
             uint8_t *cleanup_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
             cleanup_voice[0] = 0u;
@@ -1027,13 +1039,12 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0xd3u;
-        /* Low-path row for selector 0xd3 must point somewhere readable;
-           zeros give limit 0 so the scan stops at record 0. */
-        audio_rom[0x54f6u] = 0x00u;
-        audio_rom[0x54f7u] = 0x60u;
-        audio_rom[0x54f8u] = 0x00u;
-        audio_rom[0x54f9u] = 0x00u;
+        descriptor[2] = 0x03u;
+        /* Low-path row for selector 3 must point somewhere readable. */
+        audio_rom[0x53b6u] = 0x00u;
+        audio_rom[0x53b7u] = 0x60u;
+        audio_rom[0x53b8u] = 0x00u;
+        audio_rom[0x53b9u] = 0x00u;
         {
             const uint8_t packet[4] = {0xd3u, 0u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
