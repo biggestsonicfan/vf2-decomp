@@ -38508,3 +38508,241 @@ vf2_status vf2_hybrid_set_mmode_7b18_execute(
 {
     return hybrid_execute_set_mmode_7b18(machine, cpu);
 }
+/* ====================================================================
+ * Recovered 0x7c60 (180 B, 5 blocks, ~40 instr) - set_obj.
+ *
+ * Shipped Sega symbol (original_symbols.csv record 34); no
+ * provisional name ever covered this address. Called from the
+ * v0784-refused 0x61ba0 body (0x61ba4, 0x61cc8) and from seven
+ * object/display sites (0x1efdc, 0x1e468, 0x1e4a4, 0x21af0,
+ * 0x21aac, 0x21a9c, 0x21b30, 0x21b50), so recovering it is the
+ * second cascade step toward admitting v0784 path B end-to-end
+ * (what still refuses that body afterwards is its own display
+ * stores, not another sub-call).
+ *
+ * Per vf2i960 disasm (extent 0x7c60..0x7d14, ret at 0x7d10):
+ *   block_00007c60:
+ *     00007c60  ld       0x00501018, r4
+ *     00007c68  ld       0x0050101c, r5
+ *     00007c70  cmpobg   r5, r4, 0x00007d10
+ *   block_00007c74:
+ *     00007c74  mov      0, r15
+ *     00007c78  st       r15, 0x000000b0(g10)
+ *     00007c7c  lda      0x1a003434, r15
+ *     00007c84  st       r15, (g11)[g12]
+ *     00007c88  ld       0x00002008(g10), r15
+ *     00007c90  lda      0x00000030(r15), r14
+ *     00007c94  st       r14, 0x00001008(g10)
+ *     00007c9c  st       r15, (g11)[g12]
+ *     00007ca0  ld       (g11)[g12], r15
+ *     00007ca4  ld       0x00501010, r4
+ *     00007cac  addo     1, r4, r4
+ *     00007cb0  st       r4, 0x00501010
+ *     00007cb8  lda      0x020e0004[g0*16], g0
+ *     00007cc0  ldq      (g0), r8
+ *     00007cc4  shro     16, r11, r3
+ *     00007cc8  lda      0x0000ffff, r4
+ *     00007cd0  and      r4, r11, r11
+ *     00007cd4  cmpobe   0, g1, 0x00007cf0
+ *   block_00007cd8:
+ *     00007cd8  lda      (r9)[r3*4], r9
+ *     00007cdc  ld       0x005010d0, r4
+ *     00007ce4  addo     r11, r4, r4
+ *     00007ce8  st       r4, 0x005010d0
+ *   block_00007cf0:
+ *     00007cf0  ld       0x0050101c, r4
+ *     00007cf8  addo     r11, r4, r4
+ *     00007cfc  st       r4, 0x0050101c
+ *     00007d04  subo     1, 0, r11
+ *     00007d08  st       r8, 0x00000010(g10)
+ *     00007d0c  stq      r8, (g10)[g12]
+ *   block_00007d10:
+ *     00007d10  ret
+ *
+ * Three paths, all admitted (the body's own display/FIFO stores
+ * are plain RAM accesses under the model, not sub-calls):
+ *   - early (r5 > r4, unsigned): ret with no stores, +4 instr,
+ *     final CC GREATER.
+ *   - g1 == 0: full body minus block 0x7cd8, +28 instr, final
+ *     CC EQUAL.
+ *   - g1 != 0: full body, +32 instr, final CC LESS (0 < g1).
+ *
+ * Verified-against-source semantics (each then oracle-proved):
+ *   - `cmpobg r5, r4` is compare-ordinal-and-branch (the `b`
+ *     is "branch", not "byte"): taken iff r5 > r4 unsigned.
+ *     `cmpobe 0, g1` taken iff g1 == 0. Direction confirmed in
+ *     executor_arch.c:61-120 and arbitrated by the legs.
+ *   - `subo s1, s2, d` computes s2 - s1 (executor.c:752-753),
+ *     so `subo 1, 0, r11` yields 0xFFFFFFFF (the v0755f
+ *     executor-semantics finding, re-verified here).
+ *   - `shro 16, r11, r3` is logical (executor.c:776-777);
+ *     `and` masks r11 to 16 bits AFTER r3 is derived.
+ *   - The entry r9 is DEAD: `ldq (g0), r8` fills r8-r11
+ *     (including r9) before block 0x7cd8 reads r9, so no
+ *     caller live-in is needed beyond g0/g1/g10/g11/g12.
+ *   - `lda` forms are pure address math (no CC, no access).
+ *   - `bx`-family is absent; the exit is the dedicated `ret`,
+ *     and the callers use `call`, so the frame is popped via
+ *     vf2_i960_cpu_return_procedure and no local is written
+ *     back. g0 IS written back (clobbered to the table
+ *     address); g1/g10/g11/g12 are read-only.
+ *   - Final CC/AC published via hybrid_publish_compare_result
+ *     on every path. The body uses cmpobg/cmpobe, whose
+ *     arch_set_compare is identical to the legacy
+ *     set_compare_result (both: LESS->4, EQUAL->2,
+ *     GREATER->1, high AC bits preserved), so unlike the
+ *     bbs/bbc bit-test forms at issue in v0733f/v0733g, both
+ *     steppers agree here exactly.
+ */
+static vf2_status hybrid_execute_set_obj_7c60(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t g0 = 0u;
+    uint32_t g1 = 0u;
+    uint32_t g10 = 0u;
+    uint32_t g11 = 0u;
+    uint32_t g12 = 0u;
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint32_t r8 = 0u;
+    uint32_t r9 = 0u;
+    uint32_t r10 = 0u;
+    uint32_t r11 = 0u;
+    uint32_t r14 = 0u;
+    uint32_t r15 = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00007c60)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+    g1 = cpu->registers[VF2_I960_G0_REGISTER + 1u];
+    g10 = cpu->registers[VF2_I960_G0_REGISTER + 10u];
+    g11 = cpu->registers[VF2_I960_G0_REGISTER + 11u];
+    g12 = cpu->registers[VF2_I960_G0_REGISTER + 12u];
+
+    /* 00007c60 ld 0x501018, r4; 00007c68 ld 0x50101c, r5. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00501018), &r4);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050101c), &r5);
+    if (status != VF2_OK) return status;
+
+    /* 00007c70 cmpobg r5, r4, 0x7d10: taken iff r5 > r4. */
+    if (r5 > r4) {
+        /* Early path: no stores, no register writes, +4 instr. */
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+        cpu->executed_instructions += UINT64_C(4);
+        return vf2_i960_cpu_return_procedure(cpu, machine);
+    }
+
+    /* 00007c74 mov 0, r15; 00007c78 st r15, 0xb0(g10). */
+    r15 = UINT32_C(0);
+    status = vf2_model2a_write_u32(
+        machine, g10 + UINT32_C(0xb0), r15);
+    if (status != VF2_OK) return status;
+    /* 00007c7c lda 0x1a003434, r15; 00007c84 st r15, (g11)[g12]. */
+    r15 = UINT32_C(0x1a003434);
+    status = vf2_model2a_write_u32(machine, g11 + g12, r15);
+    if (status != VF2_OK) return status;
+    /* 00007c88 ld 0x2008(g10), r15. */
+    status = vf2_model2a_read_u32(machine, g10 + UINT32_C(0x2008), &r15);
+    if (status != VF2_OK) return status;
+    /* 00007c90 lda 0x30(r15), r14; 00007c94 st r14, 0x1008(g10). */
+    r14 = r15 + UINT32_C(0x30);
+    status = vf2_model2a_write_u32(
+        machine, g10 + UINT32_C(0x1008), r14);
+    if (status != VF2_OK) return status;
+    /* 00007c9c st r15, (g11)[g12]; 00007ca0 ld (g11)[g12], r15. */
+    status = vf2_model2a_write_u32(machine, g11 + g12, r15);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(machine, g11 + g12, &r15);
+    if (status != VF2_OK) return status;
+    /* 00007ca4 ld 0x501010, r4; addo 1; st. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x00501010), &r4);
+    if (status != VF2_OK) return status;
+    r4 += UINT32_C(1);
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x00501010), r4);
+    if (status != VF2_OK) return status;
+    /* 00007cb8 lda 0x020e0004[g0*16], g0 (main-data table). */
+    g0 = UINT32_C(0x020e0004) + g0 * UINT32_C(16);
+    /* 00007cc0 ldq (g0), r8: fills r8, r9, r10, r11. */
+    status = vf2_model2a_read_u32(machine, g0, &r8);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(machine, g0 + UINT32_C(4), &r9);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(machine, g0 + UINT32_C(8), &r10);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_read_u32(machine, g0 + UINT32_C(12), &r11);
+    if (status != VF2_OK) return status;
+    /* 00007cc4 shro 16, r11, r3 (before the mask). */
+    r3 = r11 >> UINT32_C(16);
+    /* 00007cc8 lda 0xffff, r4; 00007cd0 and r4, r11, r11. */
+    r4 = UINT32_C(0xffff);
+    r11 &= r4;
+
+    /* 00007cd4 cmpobe 0, g1, 0x7cf0: skip iff g1 == 0. */
+    if (g1 != UINT32_C(0)) {
+        /* 00007cd8 lda (r9)[r3*4], r9 (r9 is the ldq value). */
+        r9 = r9 + r3 * UINT32_C(4);
+        /* 00007cdc ld 0x5010d0, r4; addo r11; st. */
+        status = vf2_model2a_read_u32(
+            machine, UINT32_C(0x005010d0), &r4);
+        if (status != VF2_OK) return status;
+        r4 += r11;
+        status = vf2_model2a_write_u32(
+            machine, UINT32_C(0x005010d0), r4);
+        if (status != VF2_OK) return status;
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_LESS);
+        cpu->registers[VF2_I960_G0_REGISTER + 0u] = g0;
+        cpu->executed_instructions += UINT64_C(32);
+    } else {
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        cpu->registers[VF2_I960_G0_REGISTER + 0u] = g0;
+        cpu->executed_instructions += UINT64_C(28);
+    }
+
+    /* 00007cf0 ld 0x50101c, r4; addo r11; st. */
+    status = vf2_model2a_read_u32(
+        machine, UINT32_C(0x0050101c), &r4);
+    if (status != VF2_OK) return status;
+    r4 += r11;
+    status = vf2_model2a_write_u32(
+        machine, UINT32_C(0x0050101c), r4);
+    if (status != VF2_OK) return status;
+    /* 00007d04 subo 1, 0, r11: r11 = 0 - 1. */
+    r11 = UINT32_C(0) - UINT32_C(1);
+    /* 00007d08 st r8, 0x10(g10). */
+    status = vf2_model2a_write_u32(
+        machine, g10 + UINT32_C(0x10), r8);
+    if (status != VF2_OK) return status;
+    /* 00007d0c stq r8, (g10)[g12]: quad r8, r9, r10, r11. */
+    status = vf2_model2a_write_u32(machine, g10 + g12, r8);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine, g10 + g12 + UINT32_C(4), r9);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine, g10 + g12 + UINT32_C(8), r10);
+    if (status != VF2_OK) return status;
+    status = vf2_model2a_write_u32(
+        machine, g10 + g12 + UINT32_C(12), r11);
+    if (status != VF2_OK) return status;
+
+    /* 00007d10 ret. */
+    return vf2_i960_cpu_return_procedure(cpu, machine);
+}
+
+vf2_status vf2_hybrid_set_obj_7c60_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_set_obj_7c60(machine, cpu);
+}

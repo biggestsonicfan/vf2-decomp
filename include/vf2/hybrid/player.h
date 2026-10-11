@@ -586,4 +586,18 @@ vf2_status vf2_hybrid_set_mmode_7b18_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu);
 
+/* Recover 0x7c60: 180 B / 5 blocks set_obj (shipped Sega symbol).
+ * 1-to-1 C translation, all three paths admitted, no sub-calls.
+ * Early exit iff *(0x50101c) > *(0x501018) unsigned (+4, CC GREATER,
+ * no stores); else display/FIFO stores, a main-data quad load at
+ * 0x020e0004+g0*16, masked accumulation into 0x5010d0/0x50101c,
+ * r8 + 0xFFFFFFFF quad store, ret via return_procedure. g0 is
+ * clobbered to the table address; g1/g10/g11/g12 read-only; no
+ * local written back. CC/AC published every path (cmpob forms
+ * agree across steppers). Called from the v0784-refused 0x61ba0
+ * body: second cascade step toward admitting it end-to-end. */
+vf2_status vf2_hybrid_set_obj_7c60_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu);
+
 #endif
