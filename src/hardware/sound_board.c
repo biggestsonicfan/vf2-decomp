@@ -847,12 +847,14 @@ static vf2_status sound_board_dispatch_80(
     vf2_sound_board *board,
     const uint8_t *descriptor,
     uint8_t command,
+    uint8_t payload,
     vf2_sound_dispatch_report *report
 )
 {
     const uint8_t selector = descriptor[2u];
     const uint8_t channel = (uint8_t)(command & 0x0fu);
-    const uint16_t base_current = (uint16_t)((uint16_t)(command & 0x7fu) +
+    /* ROM 0x10d0: base and the high-path row step key on payload. */
+    const uint16_t base_current = (uint16_t)((uint16_t)(payload & 0x7fu) +
                                              read_be16(descriptor + 4u));
     uint16_t current = base_current;
     uint16_t lookup = 0u;
@@ -871,7 +873,7 @@ static vf2_status sound_board_dispatch_80(
             ) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
-        table_pointer += (uint32_t)(command & 0x7fu) * 6u;
+        table_pointer += (uint32_t)(payload & 0x7fu) * 6u;
         if (read_audio_be16(board, table_pointer, &lookup) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
@@ -1363,12 +1365,15 @@ static vf2_status sound_board_dispatch_b0(
     uint8_t *descriptor,
     uint8_t command,
     uint8_t payload,
+    uint8_t ring_byte2,
     vf2_sound_dispatch_report *report
 )
 {
     const uint8_t channel = (uint8_t)(command & 0x0fu);
     const uint8_t entry = (uint8_t)(payload & 0x7fu);
-    const uint8_t value = (uint8_t)((payload >> 4u) & 0x07u);
+    /* ROM B0 head: d2 = payload, d0 = ring byte 2 (peeked).  Value,
+       scale, table-index and pack math all consume d0. */
+    const uint8_t value = (uint8_t)((ring_byte2 >> 4u) & 0x07u);
     const uint32_t table = entry == 1u
         ? VF2_SOUND_CHANNEL_CONTROL_BASE
         : VF2_SOUND_CHANNEL_CONTROL_ALT_BASE;
@@ -1457,8 +1462,8 @@ static vf2_status sound_board_dispatch_b0(
         return VF2_ERROR_UNSUPPORTED;
     }
     if (entry == 0x29u || entry == 0x2au || entry == 0x2bu) {
-        uint8_t packed = (uint8_t)(((payload & 0x0fu) << 3u) |
-                                    ((payload & 0x70u) >> 4u));
+        uint8_t packed = (uint8_t)(((ring_byte2 & 0x0fu) << 3u) |
+                                    ((ring_byte2 & 0x70u) >> 4u));
         size_t descriptor_index = 0u;
         for (descriptor_index = 0u;
              descriptor_index < VF2_SOUND_COMMAND_DESCRIPTOR_COUNT;
@@ -1473,7 +1478,7 @@ static vf2_status sound_board_dispatch_b0(
                 candidate[13u] = packed;
             } else if (entry == 0x2au) {
                 candidate[12u] = (uint8_t)((candidate[12u] & 0x78u) |
-                                           ((payload >> 4u) & 0x07u));
+                                           ((ring_byte2 >> 4u) & 0x07u));
             } else {
                 candidate[12u] = (uint8_t)((candidate[12u] & 0x07u) |
                                            (packed & 0x78u));
@@ -1490,7 +1495,7 @@ static vf2_status sound_board_dispatch_b0(
         return VF2_OK;
     }
     if (entry == 7u) {
-        uint16_t scaled = (uint16_t)((uint16_t)payload << 1u);
+        uint16_t scaled = (uint16_t)((uint16_t)ring_byte2 << 1u);
         if ((scaled & 0x00ffu) != 0u) {
             ++scaled;
             descriptor[3u] = (uint8_t)scaled;
@@ -1508,7 +1513,7 @@ static vf2_status sound_board_dispatch_b0(
         report->selected_value = descriptor[10u];
         report->handler_address = UINT32_C(0x000016ba);
     } else if (entry == 10u) {
-        descriptor[6u] = sound_board_b0_entry_10_table[payload & 0x7fu];
+        descriptor[6u] = sound_board_b0_entry_10_table[ring_byte2 & 0x7fu];
         report->selected_value = descriptor[6u];
         report->handler_address = UINT32_C(0x0000174c);
     } else if (entry == 16u) {
@@ -1607,7 +1612,7 @@ vf2_status vf2_sound_board_dispatch_next(
            fail-closed class gate in the original. */
         if (local.command_class == 0x80u) {
             vf2_status status = sound_board_dispatch_80(
-                board, descriptor, local.command, &local
+                board, descriptor, local.command, local.payload, &local
             );
             if (status != VF2_OK) {
                 *report = local;
@@ -1640,7 +1645,9 @@ vf2_status vf2_sound_board_dispatch_next(
             }
         } else if (local.command_class == 0xb0u) {
             vf2_status status = sound_board_dispatch_b0(
-                board, descriptor, local.command, local.payload, &local
+                board, descriptor, local.command, local.payload,
+                ram[VF2_SOUND_COMMAND_RING_BASE +
+                    ((cursor + 2u) & UINT16_C(0x0fffu))], &local
             );
             if (status != VF2_OK) {
                 *report = local;
@@ -1651,7 +1658,7 @@ vf2_status vf2_sound_board_dispatch_next(
             if (descriptor[2] >= 0x70u) {
                 descriptor[2] = (uint8_t)(descriptor[2] | 0x80u);
             }
-            local.handler_address = UINT32_C(0x00001e5c);
+            local.handler_address = UINT32_C(0x00001e5a);
             if (sound_board_clear_c0_voices(
                     board, (uint8_t)(local.command & 0x0fu), &local
                 ) != VF2_OK) {
