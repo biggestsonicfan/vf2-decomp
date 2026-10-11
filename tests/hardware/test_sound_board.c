@@ -152,6 +152,10 @@ int main(void)
         voice[4] = 0u;
         voice[5] = 1u;
         board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 1u;
+        board.sound_ram[0x2000u] = 0xaau;
+        EXPECT_TRUE(vf2_sound_board_write_u8(
+            &board, VF2_SCSP_CPU_BASE + 0u, 0xffu
+        ) == VF2_OK);
         {
             const uint8_t packet[4] = {0xc1u, 0x70u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
@@ -167,18 +171,19 @@ int main(void)
         EXPECT_TRUE(dispatch.descriptors_scanned == 20u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
         EXPECT_TRUE(dispatch.voices_cleared == 1u);
-        EXPECT_TRUE(dispatch.handler_address == 0x1e5au);
+        EXPECT_TRUE(dispatch.handler_address == 0x1e5cu);
         EXPECT_TRUE(dispatch.handled != 0);
-        EXPECT_TRUE(descriptor[2] == 0xf0u);
+        EXPECT_TRUE(descriptor[2] == 0xc1u);
         EXPECT_TRUE(voice[2] == 0u && voice[4] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] == 4u);
-        EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp,
-                                      3u * VF2_SCSP_SLOT_BYTES,
-                                      &value) == VF2_OK);
-        EXPECT_TRUE((value & 0x0800u) == 0u);
+        EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0u, &value) == VF2_OK);
+        EXPECT_TRUE(value == 0x1000u);
+        EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x0bu, &byte) == VF2_OK);
+        EXPECT_TRUE(byte == 0x1fu);
+        EXPECT_TRUE(board.sound_ram[0x2000u] == 0u);
 
         /* 90-class with a zero second byte traps at 0x866 (continues
            into the 80 body mid-instruction): base is stored, mode is not
@@ -314,81 +319,47 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
 
-        /* A0 stream initialization selects a ROM pointer table and fills the
-           primary 32-byte stream descriptor without touching SCSP. */
+        /* A0 refuses at entry (v0795b): the body splits on cmp.l
+           d2,d0 with d2 never loaded, so stale-vs-primary mis-splits by
+           history and the stale arm stores through residue-a2. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
-        audio_rom[0x8e92u] = 0x00u;
-        audio_rom[0x8e93u] = 0x60u;
-        audio_rom[0x8e94u] = 0x70u;
-        audio_rom[0x8e95u] = 0x00u;
-        audio_rom[0x7000u] = 0u;
-        audio_rom[0x7001u] = 2u;
-        audio_rom[0x7006u] = 0x00u;
-        audio_rom[0x7007u] = 0x60u;
-        audio_rom[0x7008u] = 0x80u;
-        audio_rom[0x7009u] = 0x00u;
-        audio_rom[0x8000u] = 0u;
-        audio_rom[0x8004u] = 0x00u;
-        audio_rom[0x8005u] = 0x60u;
-        audio_rom[0x8006u] = 0x01u;
-        audio_rom[0x8007u] = 0x23u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
         descriptor[2] = 0u;
         {
             const uint8_t packet[4] = {0xa0u, 0x01u, 0x01u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1e76u);
-        EXPECT_TRUE(dispatch.descriptors_updated == 1u);
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        EXPECT_TRUE(descriptor[0] == 0x88u);
-        EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0u &&
-                    descriptor[6] == 0u && descriptor[7] == 0u);
-        EXPECT_TRUE(descriptor[8] == 0u && descriptor[9] == 0x60u &&
-                    descriptor[10] == 0x80u && descriptor[11] == 4u);
-
-        /* The high-bit source flag takes the alternate six-descriptor path. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        audio_rom[0x8000u] = 0x80u;
-        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
-        descriptor[2] = 0u;
-        {
-            const uint8_t packet[4] = {0xa0u, 0x01u, 0x01u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1e76u);
-        EXPECT_TRUE(dispatch.descriptors_updated == 1u);
-        descriptor = board.sound_ram + VF2_SOUND_STREAM_ALTERNATE_BASE;
-        EXPECT_TRUE(descriptor[0] == 0x80u);
-        EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 0x80u && descriptor[7] == 1u);
-
-        /* Payload above the table maximum takes the 0x1eae arm, which
-           initializes from a stale pointer: fail closed. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
-        descriptor[2] = 0u;
-        {
-            const uint8_t packet[4] = {0xa0u, 0x05u, 0x01u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x1e74u);
+        EXPECT_TRUE(dispatch.channel == 0u);
+        EXPECT_TRUE(dispatch.descriptors_matched == 1u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0u;
+        descriptor[2] = 5u;
+        {
+            const uint8_t packet[4] = {0xa5u, 0x02u, 0x03u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x1e74u);
+        EXPECT_TRUE(dispatch.channel == 5u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
         /* The bounded 0x1f7c C/D packet path emits a four-byte ring entry and
            reloads its timer from the following continuation byte. */
@@ -717,325 +688,288 @@ int main(void)
         descriptor[2] = 0x09u;
         descriptor[7] = 0u;
         {
+            /* A matching channel-9 voice must NOT trigger the tail: the
+               ROM falls into the benign B0-default rts instead. */
+            uint8_t *nine_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            nine_voice[2] = 0x01u;
+            nine_voice[4] = 0u;
+            nine_voice[5] = 9u;
+        }
+        {
             const uint8_t packet[4] = {0xe9u, 0u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x12b4u);
+        EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
         EXPECT_TRUE(dispatch.channel == 9u);
+        EXPECT_TRUE(dispatch.voices_matched == 0u);
         EXPECT_TRUE(dispatch.selected_value == 0x5au);
         EXPECT_TRUE(dispatch.signed_value == 0x5a);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 18u] == 0x00u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 19u] == 0x5au);
 
-        /* b1/b2 are the first two entries of the ROM jump table. Their
-           channel-table writes are complete when no live voice needs the
-           SCSP register tail. */
+        /* e0 stale word (v0795a): d0.upper = ((payload&0x7f)<<7)&0xff00
+           rides into the stored word on the odd path. Payload 0x42 ->
+           stale 0x2100; selected 0x05 at the un-negated index 0x0b. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0x2b26u] = 0x00u; audio_rom[0x2b27u] = 0x60u;
+        audio_rom[0x2b28u] = 0x40u; audio_rom[0x2b29u] = 0x00u;
+        audio_rom[0x4000u + 0x0bu] = 0x05u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x01u;
+        descriptor[2] = 2u;
+        descriptor[7] = 0u;
+        {
+            const uint8_t packet[4] = {0xe2u, 0x42u, 0u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
+        EXPECT_TRUE(dispatch.channel == 2u);
+        EXPECT_TRUE(dispatch.selected_value == 0x05u);
+        EXPECT_TRUE(dispatch.signed_value == (int16_t)0x2105);
+        EXPECT_TRUE(dispatch.voices_matched == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 6u] == 0x21u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 7u] == 0x05u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 4u] == 0x21u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 5u] == 0x05u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+
+        /* e0 voice tail (0x1356): per-match SCSP+0x10 and ram[0x601a]. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0x2b26u] = 0x00u; audio_rom[0x2b27u] = 0x60u;
+        audio_rom[0x2b28u] = 0x40u; audio_rom[0x2b29u] = 0x00u;
+        audio_rom[0x4000u + 0x0bu] = 0x05u;
+        audio_rom[0x2682u] = 0x00u; audio_rom[0x2683u] = 0x60u;
+        audio_rom[0x2684u] = 0x50u; audio_rom[0x2685u] = 0x00u;
+        audio_rom[0x924au] = 0x12u; audio_rom[0x924bu] = 0x34u;
+        audio_rom[0xc72eu] = 0x00u; audio_rom[0xc72fu] = 0x60u;
+        audio_rom[0xc730u] = 0x60u; audio_rom[0xc731u] = 0x00u;
+        audio_rom[0xa2aau] = 0xabu; audio_rom[0xa2abu] = 0xcdu;
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0u;
+        descriptor[2] = 2u;
+        descriptor[5] = 0u;
+        descriptor[6] = 0x10u;
+        descriptor[7] = 0u;
+        {
+            uint8_t *tail_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            tail_voice[2] = 0x01u;
+            tail_voice[3] = 0x23u;
+            tail_voice[4] = 0u;
+            tail_voice[5] = 2u;
+            tail_voice[10] = 0x10u;
+        }
+        {
+            const uint8_t packet[4] = {0xe2u, 0x42u, 0u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
+        EXPECT_TRUE(dispatch.voices_matched == 1u);
+        EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x10u, &value) == VF2_OK);
+        EXPECT_TRUE(value == 0x2234u);
+        EXPECT_TRUE(board.sound_ram[0x601au] == 0xabu);
+        EXPECT_TRUE(board.sound_ram[0x601bu] == 0xcdu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+
+        /* B0 default (v0795b): entry = command&0x7f; anything but 0x3a
+           takes the table-default rts: consume, no effects. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0u;
+        descriptor[2] = 1u;
         {
             const uint8_t packet[4] = {0xb1u, 0x01u, 0x50u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x15deu);
+        EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
         EXPECT_TRUE(dispatch.channel == 1u);
-        EXPECT_TRUE(dispatch.selected_value == 5u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + 1u] == 5u);
+        EXPECT_TRUE(dispatch.selected_value == 0x31u);
+        EXPECT_TRUE(dispatch.descriptors_matched == 1u);
+        EXPECT_TRUE(dispatch.handled != 0);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
-        descriptor[1] = 0u;
-        descriptor[2] = 0x02u;
-        {
-            const uint8_t packet[4] = {0xb2u, 0x02u, 0x50u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x164cu);
-        EXPECT_TRUE(dispatch.channel == 2u);
-        EXPECT_TRUE(dispatch.selected_value == 5u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_CONTROL_ALT_BASE + 2u] == 5u);
-
-        /* The 0x15de/0x164c tails update the packed SCSP register at slot
-           +0x13 while preserving the complementary bit field. */
+        /* B0 entry 0x3f is likewise default-rts: only 0x3a is special. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x01u;
+        descriptor[2] = 15u;
         {
-            uint8_t *live_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
-            uint8_t register_value = 0u;
-            live_voice[0] = 0u;
-            live_voice[1] = 3u;
-            live_voice[2] = 0x01u;
-            live_voice[4] = 0u;
-            live_voice[5] = 1u;
-            EXPECT_TRUE(vf2_scsp_write_u8(
-                &board.scsp, 3u * VF2_SCSP_SLOT_BYTES + 0x13u, 0x5au
-            ) == VF2_OK);
+            const uint8_t packet[4] = {0xbfu, 0x01u, 0x02u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
+        EXPECT_TRUE(dispatch.channel == 15u);
+        EXPECT_TRUE(dispatch.selected_value == 0x3fu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
+
+        /* B0 entry 0x3a with payload&0x7f == 0x7f traps (mid-dbf, stale
+           +2): staged bytes persist, packet held. */
+        {
+            static uint8_t rich_rom[0x10010u];
+            memset(rich_rom, 0, sizeof(rich_rom));
+            test_boot_rom(rich_rom);
+            rich_rom[0x5b26u] = 0x00u; rich_rom[0x5b27u] = 0x02u;
+            rich_rom[0x5b28u] = 0xaau; rich_rom[0x5b29u] = 0xbbu;
+            EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, sizeof(rich_rom),
+                                       sample_rom, sizeof(sample_rom)) == VF2_OK);
+            descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+            descriptor[0] = 0x80u;
+            descriptor[1] = 0u;
+            descriptor[2] = 10u;
             {
-                const uint8_t packet[4] = {0xb1u, 0x01u, 0u, 0u};
+                const uint8_t packet[4] = {0xbau, 0x7fu, 0u, 0u};
+                EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+            }
+            EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                        VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
+            EXPECT_TRUE(dispatch.channel == 10u);
+            EXPECT_TRUE(dispatch.selected_value == 0x3au);
+            EXPECT_TRUE(board.sound_ram[0x5000u] == 0xaau);
+            EXPECT_TRUE(board.sound_ram[0x5001u] == 0xbbu);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+            EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+        }
+
+        /* B0 entry 0x3a upload (payload 0x05): staged + record copy +
+           slot table, consumed. */
+        {
+            static uint8_t rich_rom[0x10010u];
+            memset(rich_rom, 0, sizeof(rich_rom));
+            test_boot_rom(rich_rom);
+            rich_rom[0x5b26u] = 0x00u; rich_rom[0x5b27u] = 0x00u;
+            rich_rom[0x5b28u] = 0x00u; rich_rom[0x5b29u] = 0x60u;
+            rich_rom[0x5b2au] = 0x7au; rich_rom[0x5b2bu] = 0x00u;
+            rich_rom[0x8df0u + 0x14u] = 0x00u; rich_rom[0x8df1u + 0x14u] = 0x60u;
+            rich_rom[0x8df2u + 0x14u] = 0x78u; rich_rom[0x8df3u + 0x14u] = 0x00u;
+            rich_rom[0x7800u] = 0x00u; rich_rom[0x7801u] = 0x01u;
+            rich_rom[0x7802u] = 0x00u; rich_rom[0x7803u] = 0x00u;
+            rich_rom[0x7a00u] = 0x00u; rich_rom[0x7a01u] = 0x60u;
+            rich_rom[0x7a02u] = 0x74u; rich_rom[0x7a03u] = 0x00u;
+            rich_rom[0x7a04u] = 0x00u; rich_rom[0x7a05u] = 0x00u;
+            rich_rom[0x7a06u] = 0xfeu; rich_rom[0x7a07u] = 0x04u;
+            rich_rom[0x7a08u] = 0x11u; rich_rom[0x7a09u] = 0x22u;
+            rich_rom[0x7a0au] = 0x33u; rich_rom[0x7a0bu] = 0x44u;
+            rich_rom[0x7400u] = 0xdeu; rich_rom[0x7401u] = 0xadu;
+            rich_rom[0x7402u] = 0xbeu; rich_rom[0x7403u] = 0xefu;
+            EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, sizeof(rich_rom),
+                                       sample_rom, sizeof(sample_rom)) == VF2_OK);
+            descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+            descriptor[0] = 0x80u;
+            descriptor[1] = 0u;
+            descriptor[2] = 10u;
+            {
+                const uint8_t packet[4] = {0xbau, 0x05u, 0u, 0u};
                 EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-            EXPECT_TRUE(dispatch.voices_updated == 1u);
-            EXPECT_TRUE(dispatch.voices_matched == 0u);
-            EXPECT_TRUE(vf2_scsp_read_u8(
-                &board.scsp, 3u * VF2_SCSP_SLOT_BYTES + 0x13u,
-                &register_value
-            ) == VF2_OK);
-            EXPECT_TRUE(register_value == 0x1au);
-            live_voice[4] = 0u;
-            live_voice[5] = 2u;
+            EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
+            EXPECT_TRUE(dispatch.channel == 10u);
+            EXPECT_TRUE(dispatch.selected_value == 0x3au);
+            EXPECT_TRUE(dispatch.handled != 0);
+            EXPECT_TRUE(board.sound_ram[0x6008u] == 0x11u);
+            EXPECT_TRUE(board.sound_ram[0x6009u] == 0x22u);
+            EXPECT_TRUE(board.sound_ram[0x600au] == 0x33u);
+            EXPECT_TRUE(board.sound_ram[0x600bu] == 0x44u);
+            EXPECT_TRUE(board.sound_ram[0x5000u] == 0x80u);
+            EXPECT_TRUE(board.sound_ram[0x50000u] == 0xdeu);
+            EXPECT_TRUE(board.sound_ram[0x50001u] == 0xadu);
+            EXPECT_TRUE(board.sound_ram[0x50002u] == 0xbeu);
+            EXPECT_TRUE(board.sound_ram[0x50003u] == 0xefu);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+            EXPECT_TRUE(dispatch.cursor_after == 4u);
         }
-        descriptor[2] = 0x02u;
-        {
-            uint8_t register_value = 0u;
-            const uint8_t packet[4] = {0xb2u, 0x02u, 0u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-            EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-            EXPECT_TRUE(dispatch.voices_updated == 1u);
-            EXPECT_TRUE(dispatch.voices_matched == 0u);
-            EXPECT_TRUE(vf2_scsp_read_u8(
-                &board.scsp, 3u * VF2_SCSP_SLOT_BYTES + 0x13u,
-                &register_value
-            ) == VF2_OK);
-            EXPECT_TRUE(register_value == 0x18u);
-        }
-
-        descriptor[1] = 0u;
-        descriptor[2] = 0x07u;
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u] == 0u);
+        /* 80 minimal (v0795a): d2 = command (primer skipped), base =
+           (command&0x7f) + desc[4..5]-word, then refuse. The low arm is
+           the only matchable shape (stale branch); the high arm cannot
+           match the drain. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        board.sound_ram[VF2_SOUND_SHARED_FACTOR_151F] = 0xffu;
-        {
-            const uint8_t packet[4] = {0xb7u, 0x07u, 0x50u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x16bau);
-        EXPECT_TRUE(dispatch.selected_value == 0xa1u);
-        EXPECT_TRUE(descriptor[3] == 0xa1u && descriptor[10] == 0xa1u);
-
-        descriptor[1] = 0u;
-        descriptor[2] = 0x01u;
-        {
-            const uint8_t packet[4] = {0xb1u, 0x0au, 0x03u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x174cu);
-        EXPECT_TRUE(dispatch.selected_value == 0x1eu);
-        EXPECT_TRUE(descriptor[6] == 0x1eu);
-
-        descriptor[1] = 0u;
-        descriptor[2] = 0x01u;
-        descriptor[0] = 0x80u;
-        board.sound_ram[VF2_SOUND_SHARED_FACTOR_151F] = 0x80u;
-        {
-            const uint8_t packet[4] = {0xb1u, 0x10u, 0u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x181cu);
-        EXPECT_TRUE(dispatch.selected_value == 0x11u);
-        EXPECT_TRUE(descriptor[3] == 0x21u && descriptor[10] == 0x11u);
-
-        descriptor[1] = 0u;
-        descriptor[2] = 0x01u;
-        descriptor[0] = 0x80u;
-        descriptor += VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
         descriptor[1] = 0u;
         descriptor[2] = 1u;
-        descriptor[12] = 0xf8u;
-        descriptor[13] = 0u;
-        {
-            const uint8_t packet[4] = {0xb1u, 0x29u, 0x17u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1912u);
-        EXPECT_TRUE(dispatch.descriptors_updated == 2u);
-        EXPECT_TRUE(descriptor[13] == 0x39u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 13u] ==
-                    0x39u);
-
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
-        descriptor[2] = 0x03u;
-        {
-            const uint8_t packet[4] = {0xb3u, 0x40u, 0u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1b4cu);
-        EXPECT_TRUE(dispatch.channel == 3u);
-        EXPECT_TRUE(dispatch.selected_value == 0x80u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + 3u] == 0x80u);
-
-        descriptor += VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
-        descriptor[1] = 0u;
-        descriptor[2] = 3u;
-        descriptor[12] = 0xf8u;
-        {
-            const uint8_t packet[4] = {0xb3u, 0x2au, 0x17u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x194au);
-        EXPECT_TRUE(dispatch.descriptors_updated == 2u);
-        EXPECT_TRUE(descriptor[12] == 0x79u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 12u] ==
-                    0x01u);
-
-        {
-            const uint8_t packet[4] = {0xb3u, 0x2bu, 0x17u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1986u);
-        EXPECT_TRUE(dispatch.descriptors_updated == 2u);
-        EXPECT_TRUE(descriptor[12] == 0x39u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 12u] ==
-                    0x39u);
-
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
-        descriptor[2] = 0x03u;
-        {
-            uint8_t *cleanup_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
-            cleanup_voice[0] = 0u;
-            cleanup_voice[1] = 5u;
-            cleanup_voice[2] = 0x40u;
-            cleanup_voice[4] = 2u;
-            board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 1u;
-            EXPECT_TRUE(vf2_sound_board_write_u16(
-                &board, VF2_SCSP_CPU_BASE + 5u * VF2_SCSP_SLOT_BYTES,
-                0x0800u
-            ) == VF2_OK);
-        }
-        {
-            const uint8_t packet[4] = {0xb3u, 0x7fu, 0u, 0u};
-            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
-        }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1c0au);
-        EXPECT_TRUE(dispatch.voices_cleared == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u] == 0u);
-
-        /* The 0x80 lookup boundary resolves the ROM range table and derived
-           lookup byte/word when no live voice reaches the programming tail. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x53aeu] = 0x00u;
-        audio_rom[0x53afu] = 0x61u;
-        audio_rom[0x53b0u] = 0x00u;
-        audio_rom[0x53b1u] = 0x00u;
-        audio_rom[0x10000u] = 0x00u;
-        audio_rom[0x10001u] = 0x01u;
-        audio_rom[0x10003u] = 0x00u;
-        audio_rom[0x10004u] = 0x12u;
-        audio_rom[0x10005u] = 0x34u;
-        audio_rom[0xc3e6u + 0x12u] = 0x55u;
-        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
-        descriptor[2] = 0x01u;
         descriptor[4] = 0u;
-        descriptor[5] = 0u;
+        descriptor[5] = 0x20u;
         {
             const uint8_t packet[4] = {0x81u, 0u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
-        EXPECT_TRUE(dispatch.selected_value == 0x55u);
-        EXPECT_TRUE(dispatch.lookup_word == 0x1234u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_BYTE] == 0x55u);
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x10d2u);
+        EXPECT_TRUE(dispatch.channel == 1u);
+        EXPECT_TRUE(dispatch.descriptors_matched == 1u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x21u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
-        /* The 0x11d0 channel-table fast path only marks the matching voice
-           when channel-control bit 7 is set; it does not reach SCSP writes. */
+        /* 80 base word-add with low truncation: 0x0f + 0x100 -> 0x0f. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
-        audio_rom[0x53aeu] = 0x00u;
-        audio_rom[0x53afu] = 0x61u;
-        audio_rom[0x53b0u] = 0x00u;
-        audio_rom[0x53b1u] = 0x00u;
-        audio_rom[0x10000u] = 0x00u;
-        audio_rom[0x10001u] = 0x01u;
-        audio_rom[0x10003u] = 0x00u;
-        audio_rom[0x10004u] = 0x12u;
-        audio_rom[0x10005u] = 0x34u;
-        audio_rom[0xc3e6u + 0x12u] = 0x55u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
-        descriptor[2] = 0x01u;
-        descriptor[4] = 0u;
+        descriptor[2] = 15u;
+        descriptor[4] = 1u;
         descriptor[5] = 0u;
-        board.sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + 1u] = 0x80u;
         {
-            uint8_t *fast_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
-            fast_voice[2] = 0x01u;
-            fast_voice[3] = 0x55u;
-            fast_voice[4] = 0u;
-            fast_voice[5] = 1u;
-            fast_voice[6] = 0u;
-            fast_voice[7] = 0u;
-            fast_voice[8] = 0x12u;
-            fast_voice[9] = 0x34u;
-        }
-        {
-            const uint8_t packet[4] = {0x81u, 0u, 0u, 0u};
+            const uint8_t packet[4] = {0x8fu, 0u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.voices_matched == 0u);
-        EXPECT_TRUE(dispatch.voices_updated == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u] == 0x03u);
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x10d2u);
+        EXPECT_TRUE(dispatch.channel == 15u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x0fu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
+        /* B0 entries 0x7d/0x7e are table-default (dead 0x1c0a): consume
+           with no voice effects. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
         descriptor[2] = 0x03u;
-        {
-            uint8_t *cleanup_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
-            cleanup_voice[0] = 0u;
-            cleanup_voice[1] = 6u;
-            cleanup_voice[2] = 0x40u;
-            cleanup_voice[4] = 10u;
-            board.sound_ram[VF2_SOUND_SHARED_COUNTER_152E] = 1u;
-            EXPECT_TRUE(vf2_sound_board_write_u16(
-                &board, VF2_SCSP_CPU_BASE + 6u * VF2_SCSP_SLOT_BYTES,
-                0x0800u
-            ) == VF2_OK);
-        }
         {
             const uint8_t packet[4] = {0xb3u, 0x7du, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.voices_cleared == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_152E] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u] == 0u);
+        EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
+        EXPECT_TRUE(dispatch.selected_value == 0x33u);
+        EXPECT_TRUE(dispatch.voices_cleared == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
@@ -1044,25 +978,15 @@ int main(void)
         descriptor[1] = 0u;
         descriptor[2] = 0x03u;
         {
-            uint8_t *cleanup_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
-            cleanup_voice[0] = 0u;
-            cleanup_voice[1] = 7u;
-            cleanup_voice[2] = 0x40u;
-            cleanup_voice[4] = 0x0fu;
-            board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 1u;
-            EXPECT_TRUE(vf2_sound_board_write_u16(
-                &board, VF2_SCSP_CPU_BASE + 7u * VF2_SCSP_SLOT_BYTES,
-                0x0800u
-            ) == VF2_OK);
-        }
-        {
             const uint8_t packet[4] = {0xb3u, 0x7eu, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.voices_cleared == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u] == 0u);
+        EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
+        EXPECT_TRUE(dispatch.selected_value == 0x33u);
+        EXPECT_TRUE(dispatch.voices_cleared == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
         /* The ROM class switch has no ignore arm: a 0xd3 command falls
            through into the 0x90 head at 0x858 (bne.w from 0x84e). With a

@@ -4,24 +4,6 @@
 
 /* ROM table addressed by the 0x174c B0 handler's PC-relative lookup at
    audio-CPU address 0x179e. */
-static const uint8_t sound_board_b0_entry_10_table[128] = {
-    0x1fu, 0x1fu, 0x1eu, 0x1eu, 0x1eu, 0x1eu, 0x1du, 0x1du,
-    0x1du, 0x1du, 0x1cu, 0x1cu, 0x1cu, 0x1cu, 0x1bu, 0x1bu,
-    0x1bu, 0x1bu, 0x1au, 0x1au, 0x1au, 0x1au, 0x19u, 0x19u,
-    0x19u, 0x19u, 0x18u, 0x18u, 0x18u, 0x18u, 0x17u, 0x17u,
-    0x17u, 0x17u, 0x16u, 0x16u, 0x16u, 0x16u, 0x15u, 0x15u,
-    0x15u, 0x15u, 0x14u, 0x14u, 0x14u, 0x14u, 0x13u, 0x13u,
-    0x13u, 0x13u, 0x12u, 0x12u, 0x12u, 0x12u, 0x11u, 0x11u,
-    0x11u, 0x11u, 0x10u, 0x10u, 0x10u, 0x10u, 0x00u, 0x00u,
-    0x00u, 0x00u, 0x01u, 0x01u, 0x01u, 0x01u, 0x02u, 0x02u,
-    0x02u, 0x02u, 0x03u, 0x03u, 0x03u, 0x03u, 0x04u, 0x04u,
-    0x04u, 0x04u, 0x05u, 0x05u, 0x05u, 0x05u, 0x06u, 0x06u,
-    0x06u, 0x06u, 0x07u, 0x07u, 0x07u, 0x07u, 0x08u, 0x08u,
-    0x08u, 0x08u, 0x09u, 0x09u, 0x09u, 0x09u, 0x0au, 0x0au,
-    0x0au, 0x0au, 0x0bu, 0x0bu, 0x0bu, 0x0bu, 0x0cu, 0x0cu,
-    0x0cu, 0x0cu, 0x0du, 0x0du, 0x0du, 0x0du, 0x0eu, 0x0eu,
-    0x0eu, 0x0eu, 0x0fu, 0x0fu, 0x0fu, 0x0fu, 0xe3u, 0x08u
-};
 
 static uint16_t read_be16(const uint8_t *data)
 {
@@ -973,123 +955,35 @@ static vf2_status sound_board_clear_c0_voices(
     uint8_t *voices = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
     size_t index = 0u;
 
+    /* ROM 0x1de0 head: channel control/table clear. d1 = channel
+       ($150e&0xf = packet command&0xf, set by the drain). */
+    board->sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + channel] = 0u;
+    board->sound_ram[VF2_SOUND_CHANNEL_CONTROL_ALT_BASE + channel] = 0u;
+    write_be16(board->sound_ram + VF2_SOUND_CHANNEL_TABLE_BASE +
+               (size_t)channel * 2u, 0u);
     for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
         uint8_t *voice = voices + index * VF2_SOUND_VOICE_BYTES;
         if ((voice[2u] & 0x40u) == 0u ||
             read_be16(voice + 4u) != (uint16_t)channel) {
             continue;
         }
-        if (sound_board_key_off(board, voice) != VF2_OK) {
+        /* ROM loads d4 = voice[0] but programs SCSP absolutely ($400b/
+           $4000 = offsets 0x0b/0x00), ignoring the slot; $4000(a3) with
+           a3 = $1000(a6) is sound_ram[0x2000]. The $151e decrement is
+           unconditional. */
+        if (vf2_scsp_write_u8(&board->scsp, UINT32_C(0x0b),
+                              UINT8_C(0x1f)) != VF2_OK ||
+            vf2_scsp_write_u8(&board->scsp, UINT32_C(0x00),
+                              UINT8_C(0x10)) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
+        board->sound_ram[UINT32_C(0x2000)] = 0u;
         voice[2u] = 0u;
         voice[4u] = 0u;
         --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
         ++report->voices_cleared;
     }
     return VF2_OK;
-}
-
-static int sound_board_voice_helper_fast_path(
-    vf2_sound_board *board,
-    uint8_t *voice,
-    uint8_t channel
-)
-{
-    /* 0x11d0 returns immediately when the channel table's bit 7 is set. */
-    if ((board->sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + channel] &
-         0x80u) == 0u) {
-        return 0;
-    }
-    voice[2u] |= 0x02u;
-    return 1;
-}
-
-static vf2_status sound_board_voice_helper_slow_path(
-    vf2_sound_board *board,
-    uint8_t *voice
-)
-{
-    uint8_t age = 0u;
-    size_t index = 0u;
-
-    if (board == NULL || voice == NULL) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-
-    /* 0x11e8 keeps a voice in the pending state while its per-voice
-       countdown is non-zero.  The ROM's 0x4000 command is the SCSP key-off
-       transition represented by the portable board boundary. */
-    if (voice[0x0bu] != 0u) {
-        if (sound_board_key_off(board, voice) != VF2_OK) {
-            return VF2_ERROR_OUT_OF_BOUNDS;
-        }
-        voice[2u] |= 1u;
-        return VF2_OK;
-    }
-
-    if (sound_board_key_off(board, voice) != VF2_OK) {
-        return VF2_ERROR_OUT_OF_BOUNDS;
-    }
-    if ((voice[2u] & 8u) == 0u) {
-        age = voice[9u];
-        voice[9u] = 0u;
-        --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
-        voice[2u] = 0u;
-        for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
-            uint8_t *candidate = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
-                index * VF2_SOUND_VOICE_BYTES;
-            if (candidate[9u] != 0xffu &&
-                (uint16_t)age < read_be16(candidate + 9u)) {
-                --candidate[9u];
-            }
-        }
-    } else {
-        age = voice[5u];
-        voice[9u] = 0u;
-        voice[5u] = 0u;
-        --board->sound_ram[VF2_SOUND_SHARED_COUNTER_152E];
-        voice[2u] = 0u;
-        for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
-            uint8_t *candidate = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
-                index * VF2_SOUND_VOICE_BYTES;
-            if (candidate[9u] == 0xffu &&
-                (uint16_t)age < read_be16(candidate + 5u)) {
-                --candidate[5u];
-            }
-        }
-    }
-    return VF2_OK;
-}
-
-static vf2_status sound_board_update_voice_packed_register(
-    vf2_sound_board *board,
-    const uint8_t *voice,
-    uint8_t entry,
-    uint8_t payload
-)
-{
-    const uint16_t slot = (uint16_t)(read_be16(voice) &
-                                     (VF2_SCSP_SLOT_COUNT - 1u));
-    const uint32_t address = (uint32_t)slot * VF2_SCSP_SLOT_BYTES + 0x13u;
-    uint8_t register_value = 0u;
-    vf2_status status = VF2_OK;
-
-    if (entry != 1u && entry != 2u) {
-        return VF2_ERROR_INVALID_ARGUMENT;
-    }
-    status = vf2_scsp_read_u8(&board->scsp, address, &register_value);
-    if (status != VF2_OK) {
-        return status;
-    }
-    if (entry == 1u) {
-        register_value = (uint8_t)((register_value & 0x1fu) |
-                                   ((uint8_t)(payload << 1u) & 0xe0u));
-    } else {
-        register_value = (uint8_t)((register_value & 0xf8u) |
-                                   ((payload >> 4u) & 0x07u));
-    }
-    return vf2_scsp_write_u8(&board->scsp, address, register_value);
 }
 
 static vf2_status sound_board_dispatch_80(
@@ -1100,96 +994,25 @@ static vf2_status sound_board_dispatch_80(
     vf2_sound_dispatch_report *report
 )
 {
-    const uint8_t selector = descriptor[2u];
     const uint8_t channel = (uint8_t)(command & 0x0fu);
-    /* ROM 0x10d0: base and the high-path row step key on payload. */
-    const uint16_t base_current = (uint16_t)((uint16_t)(payload & 0x7fu) +
-                                             read_be16(descriptor + 4u));
-    uint16_t current = base_current;
-    uint16_t lookup = 0u;
-    uint8_t lookup_byte = 0u;
-    uint8_t table_index = 0u;
-    uint32_t table_pointer = 0u;
-    size_t record = 0u;
-    size_t voice_index = 0u;
+    /* ROM 0x10d2 (the switch skips the fetch primer): d2 = command.
+       Base = (command&0x7f) + desc[4..5]-word; d0.upper is clean
+       (drain andi.l + move.b chain), so the word add is exact and the
+       low byte escapes to $150f. Payload/byte2 are never read. */
+    const uint16_t base =
+        (uint16_t)((uint16_t)(command & 0x7fu) + read_be16(descriptor + 4u));
 
-    board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)current;
-    if (selector >= 0xf0u) {
-        const uint8_t table_number = (uint8_t)((selector - 0xf0u) & 0x7fu);
-        if (read_audio_be32(
-                board, UINT32_C(0x6032c6) + (uint32_t)table_number * 4u,
-                &table_pointer
-            ) != VF2_OK) {
-            return VF2_ERROR_OUT_OF_BOUNDS;
-        }
-        table_pointer += (uint32_t)(payload & 0x7fu) * 6u;
-        if (read_audio_be16(board, table_pointer, &lookup) != VF2_OK) {
-            return VF2_ERROR_OUT_OF_BOUNDS;
-        }
-        table_index = (uint8_t)(current & 0x7fu);
-    } else {
-        if (read_audio_be32(
-                board,
-                UINT32_C(0x6053aa) + (uint32_t)(selector & 0x7fu) * 4u,
-                &table_pointer
-            ) != VF2_OK) {
-            return VF2_ERROR_OUT_OF_BOUNDS;
-        }
-        for (record = 0u; record < 128u; ++record) {
-            uint16_t limit = 0u;
-            if (read_audio_be16(board, table_pointer, &limit) != VF2_OK) {
-                return VF2_ERROR_OUT_OF_BOUNDS;
-            }
-            if (current <= limit) {
-                break;
-            }
-            table_pointer += 6u;
-        }
-        if (record == 128u ||
-            read_audio_be16(board, table_pointer + 4u, &lookup) != VF2_OK ||
-            read_audio_be16(board, table_pointer + 3u, &current) != VF2_OK) {
-            return VF2_ERROR_OUT_OF_BOUNDS;
-        }
-        current = (uint16_t)(base_current + current);
-        table_index = (uint8_t)(current & 0x7fu);
-    }
-    if (read_audio_byte_absolute(
-            board, UINT32_C(0x60c3e6) + table_index, &lookup_byte
-        ) != VF2_OK) {
-        return VF2_ERROR_OUT_OF_BOUNDS;
-    }
-    write_be16(board->sound_ram + VF2_SOUND_LOOKUP_WORD, lookup);
-    board->sound_ram[VF2_SOUND_LOOKUP_BYTE] = lookup_byte;
+    (void)payload;
+    report->handler_address = UINT32_C(0x000010d2);
     report->channel = channel;
-    report->selected_value = lookup_byte;
-    report->lookup_word = lookup;
-    report->signed_value = (int16_t)lookup;
-    report->handler_address = UINT32_C(0x000010d0);
-    for (voice_index = 0u; voice_index < VF2_SOUND_VOICE_COUNT;
-         ++voice_index) {
-        uint8_t *voice = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
-            voice_index * VF2_SOUND_VOICE_BYTES;
-        const uint32_t voice_value = ((uint32_t)voice[6u] << 24u) |
-            ((uint32_t)voice[7u] << 16u) |
-            ((uint32_t)voice[8u] << 8u) | voice[9u];
-        if (voice[3u] == lookup_byte &&
-            read_be16(voice + 4u) == (uint16_t)channel &&
-            voice_value == lookup && (voice[2u] & 0x12u) == 0u &&
-            (voice[2u] & 0x7fu) != 0u) {
-            vf2_status status = VF2_OK;
-            voice[2u] &= 0x7fu;
-            if (sound_board_voice_helper_fast_path(board, voice, channel)) {
-                ++report->voices_updated;
-            } else {
-                status = sound_board_voice_helper_slow_path(board, voice);
-                if (status != VF2_OK) {
-                    return status;
-                }
-                ++report->voices_updated;
-            }
-        }
-    }
-    return VF2_OK;
+    board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)base;
+    /* The only matchable shape (drain matches desc[1..2].w ==
+       channel <= 15, so desc[1] = 0 and desc[2] <= 15) takes the low
+       arm, which is a stale branch into mid-lea (bcs lands inside
+       the row-table lea). The high arm needs desc[2] >= 0xf0 and
+       cannot match the drain. Everything past (row/$1515/voice
+       update) is unreachable. Refuse. */
+    return VF2_ERROR_UNSUPPORTED;
 }
 
 static vf2_status sound_board_dispatch_90(
@@ -1250,68 +1073,89 @@ static vf2_status sound_board_dispatch_90(
 static vf2_status sound_board_dispatch_a0(
     vf2_sound_board *board,
     uint8_t command,
-    uint8_t payload,
     vf2_sound_dispatch_report *report
 )
 {
-    uint16_t maximum = 0u;
-    /* ROM 0x1e76: the row is keyed by command, and the maximum and the
-       row pointer by payload (ring byte 1). */
-    uint32_t table_address = UINT32_C(0x608e12) +
-        (uint32_t)(command & 0x7fu) * 4u;
-    uint32_t pointer_table = 0u;
-    uint32_t data_pointer = 0u;
-    uint32_t source_pointer = 0u;
-    uint8_t stream_flags = 0u;
-    uint8_t *descriptor = NULL;
-    size_t descriptor_index = 0u;
+    (void)board;
+    /* ROM switch jmps to the 0x1e74 fetch primer, but the body splits
+       on cmp.l d2,d0 with d2 never loaded on the A0 path: d2.upper is
+       main-loop/driver residue (worker chain-loads reach nonzero high
+       words), so stale-vs-primary mis-splits by history and the stale
+       arm then stores through residue-a2. Unmodelable: refuse at
+       entry. Formulas (row = payload&0x7f, value = byte2, no-op
+       primary, slot0-stale, bit7 trap) kept in the master note. */
+    report->handler_address = UINT32_C(0x00001e74);
+    report->channel = (uint8_t)(command & 0x0fu);
+    return VF2_ERROR_UNSUPPORTED;
+}
 
-    report->handler_address = UINT32_C(0x00001e76);
-    if (read_audio_be32(board, table_address, &pointer_table) != VF2_OK ||
-        read_audio_be16(board, pointer_table, &maximum) != VF2_OK) {
+/* ROM 0x1356 per-voice tail (e0, channel < 9 matches). Residue audit
+   (master note): d0/d2/d5/d6 lows are deterministic (mem, table, or
+   cleared); stale uppers die in andi.w masks or in the discarded d2/d4
+   words. Writes SCSP+0x10 and sound_ram[0x601a] (0x2000+0x401a: live
+   RAM, not ROM space). The lsl.b #5 offset wraps at the byte. */
+static vf2_status sound_board_e0_voice_tail(
+    vf2_sound_board *board,
+    const uint8_t *voice,
+    const uint8_t *descriptor,
+    uint16_t shared
+)
+{
+    int16_t addend = 0;
+    int32_t slide = 0;
+    uint8_t voice_nibble = 0u;
+    uint32_t table = 0u;
+    int64_t slot_at = 0;
+    uint16_t picker = 0u;
+    uint16_t shaped = 0u;
+    uint8_t row = 0u;
+    uint32_t row_table = 0u;
+    uint32_t offset = 0u;
+    int64_t store_at = 0;
+    uint16_t stored = 0u;
+
+    /* d3 = voice[10] + desc[5..6]-word, sign-extended; d5 = $1524-word
+       plus d3, sign-extended (ext.l drops the caller-upper). */
+    addend = (int16_t)(uint16_t)((uint16_t)voice[0x0au] +
+                                 read_be16(descriptor + 5u));
+    slide = (int32_t)(int16_t)(uint16_t)(shared + (uint16_t)addend);
+    voice_nibble = (uint8_t)(voice[3u] & 0x0fu);
+    if (read_audio_be32(board, UINT32_C(0x602676) +
+                        (uint32_t)voice_nibble * 4u, &table) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    if ((uint16_t)payload > maximum) {
-        /* The 0x1eae arm initializes from a stale pointer held in a2
-           (never loaded on this path), so it has no deterministic
-           function of the command: fail closed. */
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    table_address = pointer_table + 2u + (uint32_t)payload * 4u;
-    if (read_audio_be32(board, table_address, &data_pointer) != VF2_OK ||
-        read_audio_byte_absolute(board, data_pointer, &stream_flags) != VF2_OK) {
+    slot_at = (int64_t)table + 2LL * (int64_t)slide;
+    if (slot_at < (int64_t)VF2_SOUND_AUDIO_ROM_BASE ||
+        (uint64_t)slot_at + 2u >
+            (uint64_t)VF2_SOUND_AUDIO_ROM_BASE + board->audio_rom_size) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    if ((stream_flags & 0x80u) != 0u) {
-        for (descriptor_index = 0u;
-             descriptor_index < VF2_SOUND_STREAM_DESCRIPTOR_COUNT;
-             ++descriptor_index) {
-            descriptor = board->sound_ram + VF2_SOUND_STREAM_ALTERNATE_BASE +
-                descriptor_index * VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
-            if ((descriptor[0] & 0x80u) != 0u) {
-                continue;
-            }
-            memset(descriptor, 0, VF2_SOUND_STREAM_DESCRIPTOR_BYTES);
-            write_be32(descriptor + 4u, data_pointer + 1u);
-            write_be16(descriptor + 2u, 1u);
-            descriptor[0] = 0x80u;
-            ++report->descriptors_updated;
-            return VF2_OK;
-        }
-        return VF2_OK;
-    }
-    descriptor = board->sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-    source_pointer = data_pointer;
-    /* ROM 0x1eb8: descriptor[4] is the longword AT the data pointer
-       (a2 advances past it) and descriptor[8] the pointer past it. */
-    if (read_audio_be32(board, source_pointer, &data_pointer) != VF2_OK) {
+    if (read_audio_be16(board, (uint32_t)slot_at, &picker) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    write_be32(descriptor + 4u, data_pointer);
-    write_be32(descriptor + 8u, source_pointer + 4u);
-    write_be16(descriptor + 2u, 1u);
-    descriptor[0] = 0x88u;
-    ++report->descriptors_updated;
+    /* d0 = (voice[3]&0xf0)<<7; add.l table-word; andi.w #$7bff (upper
+       never escapes: only the low word is stored). */
+    shaped = (uint16_t)((((uint16_t)(voice[3u] & 0xf0u) << 7u) + picker) &
+                        UINT16_C(0x7bff));
+    if (vf2_scsp_write_u16(&board->scsp, UINT32_C(0x10), shaped) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    row = (uint8_t)(((uint8_t)(voice[3u] & 0xf0u) >> 2u) & 0x3cu);
+    if (read_audio_be32(board, UINT32_C(0x60c726) + row, &row_table) !=
+        VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    offset = ((uint32_t)(voice[3u] & 0x0fu) << 5u) & 0xffu;
+    store_at = (int64_t)row_table + (int64_t)offset + 2LL * (int64_t)slide;
+    if (store_at < (int64_t)VF2_SOUND_AUDIO_ROM_BASE ||
+        (uint64_t)store_at + 2u >
+            (uint64_t)VF2_SOUND_AUDIO_ROM_BASE + board->audio_rom_size) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (read_audio_be16(board, (uint32_t)store_at, &stored) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    write_be16(board->sound_ram + UINT32_C(0x601a), stored);
     return VF2_OK;
 }
 
@@ -1323,20 +1167,32 @@ static vf2_status sound_board_dispatch_e0(
     vf2_sound_dispatch_report *report
 )
 {
+    /* ROM switch enters at 0x12b6 (primer skipped): d2 = command,
+       d0 = payload peek. Combined = (command&0x7f)|((payload&0x7f)<<7),
+       >> 5. d0's upper at the table read is ((payload&0x7f)<<7)&0xff00
+       (drain-zeroed upper + move.b preserves): it rides into the
+       stored word on BOTH paths, negated on the even path. */
     uint16_t combined = (uint16_t)((command & 0x7fu) |
                                    ((uint32_t)(payload & 0x7fu) << 7u));
     uint16_t transformed = (uint16_t)(combined >> 5u);
+    uint16_t stale =
+        (uint16_t)(((uint32_t)(payload & 0x7fu) << 7u) & 0xff00u);
     uint8_t table_index = (uint8_t)transformed;
     uint8_t table_number = (uint8_t)(descriptor[7u] & 0x0fu);
     uint32_t table_pointer = 0u;
     uint8_t selected = 0u;
     uint16_t result = 0u;
+    uint16_t with_stale = 0u;
     uint8_t channel = (uint8_t)(command & 0x0fu);
     size_t index = 0u;
 
-    /* The zero case is the ROM's neg.b/subq.b normalization before lookup. */
-    if ((transformed & 1u) == 0u && table_index == 0u) {
-        table_index = UINT8_MAX;
+    /* ROM neg.b/subq.b normalization: the index is the POST-negation
+       low byte (0xFF when it normalizes to zero). */
+    if ((transformed & 1u) == 0u) {
+        table_index = (uint8_t)(0u - table_index);
+        if (table_index == 0u) {
+            table_index = UINT8_MAX;
+        }
     }
     if (read_audio_be32(
             board,
@@ -1348,9 +1204,10 @@ static vf2_status sound_board_dispatch_e0(
         ) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
+    with_stale = (uint16_t)(stale | selected);
     result = (transformed & 1u) != 0u
-        ? selected
-        : (uint16_t)(0u - selected);
+        ? with_stale
+        : (uint16_t)(0u - with_stale);
     board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 6u] =
         (uint8_t)(result >> 8u);
     board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 7u] =
@@ -1364,229 +1221,57 @@ static vf2_status sound_board_dispatch_e0(
     report->channel = channel;
     report->selected_value = selected;
     report->signed_value = (int16_t)result;
-    report->handler_address = UINT32_C(0x000012b4);
+    report->handler_address = UINT32_C(0x000012b6);
 
+    /* ROM bcc on channel >= 9 falls into the B0 primer, whose table
+       byte 0 is 0x00 on all 16 tables (measured): B0-default rts.
+       Benign; the early return stands on that evidence. */
     if (channel >= 9u) {
         return VF2_OK;
     }
     for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
-        const uint8_t *voice = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
+        uint8_t *voice = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
             index * VF2_SOUND_VOICE_BYTES;
         if (read_be16(voice + 4u) == channel &&
             (voice[2u] & 0x7fu) != 0u) {
+            vf2_status status =
+                sound_board_e0_voice_tail(board, voice, descriptor, result);
+            if (status != VF2_OK) {
+                return status;
+            }
             ++report->voices_matched;
         }
     }
-    /* The table-driven SCSP voice programming tail is kept explicit until
-       its wider register window is modeled; the common no-voice path above
-       is complete and deterministic. */
-    return report->voices_matched == 0u ? VF2_OK : VF2_ERROR_UNSUPPORTED;
+    return VF2_OK;
 }
 
 static vf2_status sound_board_dispatch_b0(
     vf2_sound_board *board,
-    uint8_t *descriptor,
     uint8_t command,
     uint8_t payload,
-    uint8_t ring_byte2,
     vf2_sound_dispatch_report *report
 )
 {
+    /* ROM switch enters at 0x13cc (primer skipped): d2 = command. The
+       table index is command&0x7f; for B0-class commands that is
+       0x30-0x3f, of which only 0x3a is live (-> 0x1ac0 sample-upload,
+       19-target table measured). Payload/byte2 select nothing here:
+       the 0x1ac0 body reads d0 = payload (the (a3) peek). */
     const uint8_t channel = (uint8_t)(command & 0x0fu);
-    const uint8_t entry = (uint8_t)(payload & 0x7fu);
-    /* ROM B0 head: d2 = payload, d0 = ring byte 2 (peeked).  Value,
-       scale, table-index and pack math all consume d0. */
-    const uint8_t value = (uint8_t)((ring_byte2 >> 4u) & 0x07u);
-    const uint32_t table = entry == 1u
-        ? VF2_SOUND_CHANNEL_CONTROL_BASE
-        : VF2_SOUND_CHANNEL_CONTROL_ALT_BASE;
-    uint8_t *voices = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
-    size_t index = 0u;
+    const uint8_t entry = (uint8_t)(command & 0x7fu);
 
-    if (entry == 0x40u) {
-        board->sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + channel] |= 0x80u;
-        report->channel = channel;
-        report->selected_value =
-            board->sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + channel];
-        report->handler_address = UINT32_C(0x00001b4c);
-        return VF2_OK;
-    }
-    if (entry == 0x7fu) {
-        size_t voice_index = 0u;
-        for (voice_index = 0u; voice_index < VF2_SOUND_VOICE_COUNT;
-             ++voice_index) {
-            uint8_t *voice = voices + voice_index * VF2_SOUND_VOICE_BYTES;
-            const uint8_t previous_status = voice[2u];
-            const uint8_t voice_channel = voice[4u];
-            if ((previous_status & 0x40u) == 0u) {
-                continue;
-            }
-            if (sound_board_key_off(board, voice) != VF2_OK) {
-                return VF2_ERROR_OUT_OF_BOUNDS;
-            }
-            voice[2u] = 0u;
-            voice[4u] = 0u;
-            if (voice_channel != 0x0fu &&
-                (previous_status & 0x10u) == 0u) {
-                --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
-            }
-            ++report->voices_cleared;
-        }
-        report->channel = channel;
-        report->selected_value = entry;
-        report->handler_address = UINT32_C(0x00001c0a);
-        return VF2_OK;
-    }
-    if (entry == 0x7du || entry == 0x7eu) {
-        const uint8_t first_channel = entry == 0x7du ? 9u : 0u;
-        const uint8_t last_channel = entry == 0x7du ? 14u : 8u;
-        size_t voice_index = 0u;
-        uint8_t channel_index = 0u;
-
-        for (voice_index = 0u; voice_index < VF2_SOUND_VOICE_COUNT;
-             ++voice_index) {
-            uint8_t *voice = voices + voice_index * VF2_SOUND_VOICE_BYTES;
-            const uint8_t voice_channel = voice[4u];
-            if ((voice[2u] & 0x40u) == 0u ||
-                (entry == 0x7du
-                    ? (voice_channel < 9u || voice_channel == 0x0fu)
-                    : voice_channel != 0x0fu)) {
-                continue;
-            }
-            if (sound_board_key_off(board, voice) != VF2_OK) {
-                return VF2_ERROR_OUT_OF_BOUNDS;
-            }
-            voice[2u] = 0u;
-            voice[4u] = 0u;
-            ++report->voices_cleared;
-        }
-        for (channel_index = first_channel;
-             channel_index <= last_channel; ++channel_index) {
-            board->sound_ram[VF2_SOUND_CHANNEL_CONTROL_BASE + channel_index] = 0u;
-            board->sound_ram[VF2_SOUND_CHANNEL_CONTROL_ALT_BASE + channel_index] = 0u;
-            board->sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE +
-                             (size_t)channel_index * 2u] = 0u;
-            board->sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE +
-                             (size_t)channel_index * 2u + 1u] = 0u;
-        }
-        if (entry == 0x7du) {
-            board->sound_ram[VF2_SOUND_SHARED_COUNTER_152E] = 0u;
-        } else {
-            board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 0u;
-        }
-        report->channel = channel;
-        report->selected_value = entry;
-        report->handler_address = UINT32_C(0x00001c0a);
-        return VF2_OK;
-    }
-    if (entry != 1u && entry != 2u && entry != 7u && entry != 10u &&
-        entry != 16u &&
-        entry != 0x29u && entry != 0x2au && entry != 0x2bu) {
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (entry == 0x29u || entry == 0x2au || entry == 0x2bu) {
-        uint8_t packed = (uint8_t)(((ring_byte2 & 0x0fu) << 3u) |
-                                    ((ring_byte2 & 0x70u) >> 4u));
-        size_t descriptor_index = 0u;
-        for (descriptor_index = 0u;
-             descriptor_index < VF2_SOUND_COMMAND_DESCRIPTOR_COUNT;
-             ++descriptor_index) {
-            uint8_t *candidate = board->sound_ram +
-                VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
-                descriptor_index * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
-            if (read_be16(candidate + 1u) != (uint16_t)channel) {
-                continue;
-            }
-            if (entry == 0x29u) {
-                candidate[13u] = packed;
-            } else if (entry == 0x2au) {
-                candidate[12u] = (uint8_t)((candidate[12u] & 0x78u) |
-                                           ((ring_byte2 >> 4u) & 0x07u));
-            } else {
-                candidate[12u] = (uint8_t)((candidate[12u] & 0x07u) |
-                                           (packed & 0x78u));
-            }
-            ++report->descriptors_updated;
-        }
-        report->handler_address = entry == 0x29u
-            ? UINT32_C(0x00001912)
-            : entry == 0x2au
-                ? UINT32_C(0x0000194a)
-                : UINT32_C(0x00001986);
-        report->channel = channel;
-        report->selected_value = packed;
-        return VF2_OK;
-    }
-    if (entry == 7u) {
-        uint16_t scaled = (uint16_t)((uint16_t)ring_byte2 << 1u);
-        if ((scaled & 0x00ffu) != 0u) {
-            ++scaled;
-            descriptor[3u] = (uint8_t)scaled;
-        }
-        if ((descriptor[0] & 1u) == 0u) {
-            scaled = (uint16_t)(((uint32_t)(scaled & 0xffu) *
-                                 board->sound_ram[VF2_SOUND_SHARED_FACTOR_151F])
-                                >> 8u);
-        } else {
-            scaled = (uint16_t)(((uint32_t)(scaled & 0xffu) * 0xffu) >> 8u);
-        }
-        if ((scaled & 0xffu) != 0u) {
-            descriptor[10u] = (uint8_t)(scaled + 1u);
-        }
-        report->selected_value = descriptor[10u];
-        report->handler_address = UINT32_C(0x000016ba);
-    } else if (entry == 10u) {
-        descriptor[6u] = sound_board_b0_entry_10_table[ring_byte2 & 0x7fu];
-        report->selected_value = descriptor[6u];
-        report->handler_address = UINT32_C(0x0000174c);
-    } else if (entry == 16u) {
-        uint16_t scaled = (uint16_t)((uint16_t)payload << 1u);
-        uint8_t factor = UINT8_C(0xff);
-        if (scaled != 0u) {
-            ++scaled;
-            descriptor[3u] = (uint8_t)scaled;
-        }
-        if ((descriptor[0] & 1u) == 0u) {
-            factor = board->sound_ram[VF2_SOUND_SHARED_FACTOR_151F];
-        }
-        scaled = (uint16_t)(((uint32_t)(scaled & 0xffu) * factor) >> 8u);
-        if ((scaled & 0xffu) != 0u) {
-            descriptor[10u] = (uint8_t)(scaled + 1u);
-        }
-        report->selected_value = descriptor[10u];
-        report->handler_address = UINT32_C(0x0000181c);
-    } else {
-        board->sound_ram[table + channel] =
-            (uint8_t)((board->sound_ram[table + channel] & 0x80u) | value);
-        report->selected_value = board->sound_ram[table + channel];
-        report->handler_address = entry == 1u
-            ? UINT32_C(0x000015de)
-            : UINT32_C(0x0000164c);
-    }
+    report->handler_address = UINT32_C(0x000013cc);
     report->channel = channel;
-    for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
-        uint8_t *voice = voices + index * VF2_SOUND_VOICE_BYTES;
-        const int voice_match = entry == 7u
-            ? ((voice[2u] & 0x40u) != 0u &&
-               read_be16(voice + 4u) == (uint16_t)channel)
-            : ((voice[2u] & 0x7fu) != 0u &&
-               read_be16(voice + 4u) == (uint16_t)channel);
-        if (voice_match) {
-            if (entry == 1u || entry == 2u) {
-                vf2_status status = sound_board_update_voice_packed_register(
-                    board, voice, entry, payload
-                );
-                if (status != VF2_OK) {
-                    return status;
-                }
-                ++report->voices_updated;
-            } else {
-                ++report->voices_matched;
-            }
-        }
+    report->selected_value = entry;
+    if (entry != 0x3au) {
+        /* Table default (0x13dc rts): consume, no effects. */
+        return VF2_OK;
     }
-    /* Entries 1/2 now include the ROM's packed per-voice SCSP write. */
-    return report->voices_matched == 0u ? VF2_OK : VF2_ERROR_UNSUPPORTED;
+    /* ROM 0x1ac0: andi.w #$7f, 0x7f-trap (mid-dbf, stale +2), row by
+       payload, shared sample uploader. */
+    return sound_board_sample_upload(
+        board, UINT32_C(0x608df0) + (uint32_t)(payload & 0x7fu) * 4u,
+        1, payload, 0);
 }
 
 vf2_status vf2_sound_board_dispatch_next(
@@ -1660,7 +1345,7 @@ vf2_status vf2_sound_board_dispatch_next(
             }
         } else if (local.command_class == 0xa0u) {
             vf2_status status = sound_board_dispatch_a0(
-                board, local.command, local.payload, &local
+                board, local.command, &local
             );
             if (status != VF2_OK) {
                 *report = local;
@@ -1668,20 +1353,18 @@ vf2_status vf2_sound_board_dispatch_next(
             }
         } else if (local.command_class == 0xb0u) {
             vf2_status status = sound_board_dispatch_b0(
-                board, descriptor, local.command, local.payload,
-                ram[VF2_SOUND_COMMAND_RING_BASE +
-                    ((cursor + 2u) & UINT16_C(0x0fffu))], &local
+                board, local.command, local.payload, &local
             );
             if (status != VF2_OK) {
                 *report = local;
                 return status;
             }
         } else if (local.command_class == 0xc0u) {
-            descriptor[2] = local.payload;
-            if (descriptor[2] >= 0x70u) {
-                descriptor[2] = (uint8_t)(descriptor[2] | 0x80u);
-            }
-            local.handler_address = UINT32_C(0x00001e5a);
+            /* ROM 0x1e5c (primer skipped): d2 = command. bset #7 for
+               command >= 0x70, always true for c0-class (the bcs arm
+               is unreachable by routing). */
+            descriptor[2] = (uint8_t)(local.command | 0x80u);
+            local.handler_address = UINT32_C(0x00001e5c);
             if (sound_board_clear_c0_voices(
                     board, (uint8_t)(local.command & 0x0fu), &local
                 ) != VF2_OK) {
