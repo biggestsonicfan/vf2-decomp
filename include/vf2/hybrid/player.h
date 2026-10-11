@@ -575,4 +575,15 @@ vf2_status vf2_hybrid_reject_sample_53884_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu);
 
+/* Recover 0x7b18: 16 B / 1 block set_mmode (shipped Sega symbol).
+ * 1-to-1 C translation, fully admitted, no sub-calls. Writes u32 0
+ * to g10+0x70 and u32 g0 to g10+g12, then returns via
+ * vf2_i960_cpu_return_procedure (call/ret frame discipline: all
+ * four callers use `call`, callee ends in `ret`). CC/AC untouched.
+ * Called from the v0784-refused 0x61ba0 body, so this is the first
+ * cascade step toward admitting that path end-to-end. */
+vf2_status vf2_hybrid_set_mmode_7b18_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu);
+
 #endif

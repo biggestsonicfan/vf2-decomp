@@ -38426,3 +38426,85 @@ vf2_status vf2_hybrid_reject_sample_53884_execute(
 {
     return hybrid_execute_reject_sample_53884(machine, cpu);
 }
+/* ====================================================================
+ * Recovered 0x7b18 (16 B, 1 block, 4 instr) - set_mmode.
+ *
+ * Shipped Sega symbol (original_symbols.csv record 33); no
+ * provisional name ever covered this address. Third gap-adjacent
+ * leaf: called from the v0784-refused 0x61ba0 body (0x61ba4,
+ * 0x61cf4) and from 0x117fc/0x11804, so recovering it is the first
+ * cascade step toward admitting v0784 path B end-to-end.
+ *
+ * Per vf2i960 disasm (extent 0x7b18..0x7b28 confirmed by
+ * `vf2i960 function`, ret at 0x7b24 = end - 4):
+ *     00007b18  mov      0, r3
+ *     00007b1c  st       r3, 0x00000070(g10)
+ *     00007b20  st       g0, (g10)[g12]
+ *     00007b24  ret
+ *
+ * Fully admitted: writes u32 0 to g10+0x70 and u32 g0 to
+ * g10+g12, then returns via vf2_i960_cpu_return_procedure
+ * (the same pop the reference's `ret` performs).
+ *
+ * Calling-convention evidence (checked, not assumed, after the
+ * v0785 bal/bx lesson): all four callers use the dedicated `call`
+ * instruction (0x117fc, 0x11804, 0x61ba4, 0x61cf4) and the callee
+ * ends in the dedicated `ret`, so the call/ret frame discipline
+ * applies -- the opposite of reject_sample's bal/bx shape. The
+ * `mov 0, r3` therefore evaporates with the popped frame and is
+ * not written back (same treatment as reject_sample's stale
+ * locals, for the opposite reason: here the frame is discarded).
+ *
+ * Indexed scale: `(g10)[g12]` prints with no `*N`, i.e. decoded
+ * scale 0 (decoder.c:558, executor.c:201-203), so the second
+ * store lands at g10+g12 -- the same plain-index form whose
+ * scale-0 reading the v0785 oracle legs proved for `[g1]`. The
+ * ROM-backed legs below prove this address empirically too (a
+ * wrong scale puts g0 where the memory diff reports red).
+ *
+ * No instruction here writes condition state (mov/st/ret in both
+ * steppers; the body has no compare or branch of any form), so
+ * CC/AC pass through untouched -- asserted, not published.
+ * Instruction count is 3 body + 1 ret; procedure_returns comes
+ * from return_procedure itself. Both counts are oracle-arbitrated
+ * by the differential legs.
+ */
+static vf2_status hybrid_execute_set_mmode_7b18(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t g10 = 0u;
+    uint32_t g12 = 0u;
+    uint32_t g0 = 0u;
+    uint32_t zero = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00007b18)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g10 = cpu->registers[VF2_I960_G0_REGISTER + 10u];
+    g12 = cpu->registers[VF2_I960_G0_REGISTER + 12u];
+    g0 = cpu->registers[VF2_I960_G0_REGISTER + 0u];
+
+    /* 00007b18 mov 0, r3: frame-local, evaporates on return. */
+    /* 00007b1c st r3, 0x70(g10): stores the zero. */
+    status = vf2_model2a_write_u32(
+        machine, g10 + UINT32_C(0x70), zero);
+    if (status != VF2_OK) return status;
+    /* 00007b20 st g0, (g10)[g12]. */
+    status = vf2_model2a_write_u32(machine, g10 + g12, g0);
+    if (status != VF2_OK) return status;
+
+    /* 00007b24 ret: pop the caller's frame, count body + ret. */
+    cpu->executed_instructions += UINT64_C(4);
+    return vf2_i960_cpu_return_procedure(cpu, machine);
+}
+
+vf2_status vf2_hybrid_set_mmode_7b18_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_set_mmode_7b18(machine, cpu);
+}
