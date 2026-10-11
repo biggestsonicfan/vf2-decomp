@@ -913,7 +913,7 @@ static vf2_status sound_board_dispatch_80(
     report->selected_value = lookup_byte;
     report->lookup_word = lookup;
     report->signed_value = (int16_t)lookup;
-    report->handler_address = UINT32_C(0x000010d2);
+    report->handler_address = UINT32_C(0x000010d0);
     for (voice_index = 0u; voice_index < VF2_SOUND_VOICE_COUNT;
          ++voice_index) {
         uint8_t *voice = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
@@ -1091,7 +1091,7 @@ static vf2_status sound_board_dispatch_90(
     size_t record = 0u;
     size_t voice_index = 0u;
 
-    report->handler_address = UINT32_C(0x0000085a);
+    report->handler_address = UINT32_C(0x00000858);
     board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)current;
 
     if (payload != 0u) {
@@ -1234,7 +1234,7 @@ static vf2_status sound_board_dispatch_a0(
     uint8_t *descriptor = NULL;
     size_t descriptor_index = 0u;
 
-    report->handler_address = UINT32_C(0x00001e74);
+    report->handler_address = UINT32_C(0x00001e76);
     if (read_audio_be32(board, table_address, &pointer_table) != VF2_OK ||
         read_audio_be16(board, pointer_table, &maximum) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
@@ -1327,7 +1327,7 @@ static vf2_status sound_board_dispatch_e0(
     report->channel = channel;
     report->selected_value = selected;
     report->signed_value = (int16_t)result;
-    report->handler_address = UINT32_C(0x000012b6);
+    report->handler_address = UINT32_C(0x000012b4);
 
     if (channel >= 9u) {
         return VF2_OK;
@@ -1588,15 +1588,10 @@ vf2_status vf2_sound_board_dispatch_next(
             continue;
         }
         ++local.descriptors_matched;
-        if (local.command_class != 0x80u &&
-            local.command_class != 0x90u &&
-            local.command_class != 0xa0u &&
-            local.command_class != 0xb0u &&
-            local.command_class != 0xc0u &&
-            local.command_class != 0xe0u) {
-            *report = local;
-            return VF2_ERROR_UNSUPPORTED;
-        }
+        /* The ROM class switch (0x81a) has no ignore arm: any class
+           other than 0x80/0xa0/0xb0/0xc0/0xe0 falls through into the
+           0x90 head at 0x858 (bne.w to 0x858).  There is no
+           fail-closed class gate in the original. */
         if (local.command_class == 0x80u) {
             vf2_status status = sound_board_dispatch_80(
                 board, descriptor, local.command, &local
@@ -1605,7 +1600,14 @@ vf2_status vf2_sound_board_dispatch_next(
                 *report = local;
                 return status;
             }
-        } else if (local.command_class == 0x90u) {
+        } else if (local.command_class == 0x90u ||
+                   /* ROM default arm: every other class, including
+                      0x70/0xd0/0xf0, enters the 0x90 head. */
+                   (local.command_class != 0x80u &&
+                    local.command_class != 0xa0u &&
+                    local.command_class != 0xb0u &&
+                    local.command_class != 0xc0u &&
+                    local.command_class != 0xe0u)) {
             vf2_status status = sound_board_dispatch_90(
                 board, descriptor, local.command, local.payload, &local
             );

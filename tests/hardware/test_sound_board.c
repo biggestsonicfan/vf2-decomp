@@ -197,7 +197,7 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x85au);
+        EXPECT_TRUE(dispatch.handler_address == 0x858u);
         EXPECT_TRUE(dispatch.selected_value == 0x55u);
         EXPECT_TRUE(dispatch.lookup_word == 0x1234u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x44u);
@@ -336,7 +336,7 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1e74u);
+        EXPECT_TRUE(dispatch.handler_address == 0x1e76u);
         EXPECT_TRUE(dispatch.descriptors_updated == 1u);
         descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
         EXPECT_TRUE(descriptor[0] == 0x88u);
@@ -359,7 +359,7 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x1e74u);
+        EXPECT_TRUE(dispatch.handler_address == 0x1e76u);
         EXPECT_TRUE(dispatch.descriptors_updated == 1u);
         descriptor = board.sound_ram + VF2_SOUND_STREAM_ALTERNATE_BASE;
         EXPECT_TRUE(descriptor[0] == 0x80u);
@@ -684,7 +684,7 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
+        EXPECT_TRUE(dispatch.handler_address == 0x12b4u);
         EXPECT_TRUE(dispatch.channel == 9u);
         EXPECT_TRUE(dispatch.selected_value == 0x5au);
         EXPECT_TRUE(dispatch.signed_value == 0x5a);
@@ -917,7 +917,7 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
-        EXPECT_TRUE(dispatch.handler_address == 0x10d2u);
+        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
         EXPECT_TRUE(dispatch.selected_value == 0x55u);
         EXPECT_TRUE(dispatch.lookup_word == 0x1234u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 1u);
@@ -1018,6 +1018,32 @@ int main(void)
         EXPECT_TRUE(dispatch.voices_cleared == 1u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u] == 0u);
+
+        /* The ROM class switch has no ignore arm: a 0xd3 command falls
+           through into the 0x90 head at 0x858 (bne.w from 0x84e) and the
+           packet is consumed normally. */
+        vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom));
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0u;
+        descriptor[2] = 0xd3u;
+        /* Low-path row for selector 0xd3 must point somewhere readable;
+           zeros give limit 0 so the scan stops at record 0. */
+        audio_rom[0x54f6u] = 0x00u;
+        audio_rom[0x54f7u] = 0x60u;
+        audio_rom[0x54f8u] = 0x00u;
+        audio_rom[0x54f9u] = 0x00u;
+        {
+            const uint8_t packet[4] = {0xd3u, 0u, 0u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.command_class == 0xd0u);
+        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        EXPECT_TRUE(dispatch.handled != 0);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
     }
     return failures == 0 ? 0 : 1;
 }
