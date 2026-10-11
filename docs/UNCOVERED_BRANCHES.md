@@ -4264,14 +4264,22 @@ condition-preserving return and its active 28-page RGB upload path.
 
 ## 5. Audio and platform
 
-Only the accepted deterministic sound-task buffer behavior, the SCSP
-register/sample/MIDI host boundary, and the ROM's 68000 voice-maintenance
-transition and command-dispatcher boundaries are recovered. The populated
-sample-table prefix of the `0x90` allocator is also covered. The Motorola
-68000 command handlers other than the bounded `0xc0`/`0xe0` paths, selected
-no-live-voice `0xb0` entries and that allocator prefix, live voice/DSP synthesis,
-native windowing, gamepad mappings,
-frame pacing and production platform integration remain unimplemented.
+The 68000 drain/dispatch layer is recovered with a full trap
+inventory (v0794-v0796): class-switch head+2 entries with d2 =
+command, boot init mirror (SCSP regs/volumes, descriptor images +
+precompute, voice slot words, stream records, sample uploader with
+$6FFFF guard), 90/80 prefix-and-refuse, e0 stale-word/post-neg
+index/0x1356 tail with the benign >=9 verdict, B0 command-keyed
+entry with the 0x3a upload only, c0 command source with the 0x1de0
+absolute-write body, A0 refuse-at-entry (residue-d2 split), and the
+sequence-engine dead verdict (no static driver entry; slots abort
+on zero +0x0c; per-frame stream maintenance is a documented
+no-op). Seventeen dead B0 handlers, the 90 allocator, the 80/90
+voice helpers, the B0 update helper and entry-10 table, and the
+stream worker fiction were removed. DRAM-sample playback (no live
+sample-start programming exists), SCSP FM/DSP synthesis, native
+windowing, gamepad mappings, frame pacing and production platform
+integration remain unimplemented.
 
 ## 6. Transactional rejection coverage
 

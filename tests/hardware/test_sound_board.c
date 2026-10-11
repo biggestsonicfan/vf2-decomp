@@ -25,9 +25,10 @@ static void test_boot_rom(uint8_t *rom)
     memset(rom, 0, 0x10010u);
     /* Historical fixture bytes (vector area, init doesn't read them). */
     rom[0x0000u] = 0x12u; rom[0x0001u] = 0x34u;
-    /* 0x28e wave-blob source -> 0x607000 (0x500 zero bytes follow). */
+    /* 0x28e wave-blob source -> 0x607000 (0x5a probe + zero tail). */
     rom[0x4940u] = 0x00u; rom[0x4941u] = 0x60u;
     rom[0x4942u] = 0x70u; rom[0x4943u] = 0x00u;
+    rom[0x7000u] = 0x5au;
     /* 0x336 descriptor images (zero) at 0x607100/0x607200. */
     rom[0x3066u] = 0x00u; rom[0x3067u] = 0x60u;
     rom[0x3068u] = 0x71u; rom[0x3069u] = 0x00u;
@@ -361,15 +362,33 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
-        /* The bounded 0x1f7c C/D packet path emits a four-byte ring entry and
-           reloads its timer from the following continuation byte. */
+        /* Stream maintenance is a documented no-op (v0796): the ROM
+           sequence engine (driver/worker/appliers) has no static entry
+           and every slot aborts on its zero +0x0c byte, so nothing on
+           ROM sequences per frame. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
-        audio_rom[0x8100u] = 0x12u;
-        audio_rom[0x8101u] = 0x34u;
-        audio_rom[0x8102u] = 0u;
+        EXPECT_TRUE(vf2_sound_board_maintain_streams(
+            &board, &stream_maintenance
+        ) == VF2_OK);
+        EXPECT_TRUE(stream_maintenance.descriptors_scanned == 0u);
+        EXPECT_TRUE(stream_maintenance.timers_expired == 0u);
+        EXPECT_TRUE(stream_maintenance.packets_emitted == 0u);
+        EXPECT_TRUE(stream_maintenance.escape_records == 0u);
+        EXPECT_TRUE(stream_maintenance.pointer_handoffs == 0u);
+        EXPECT_TRUE(stream_maintenance.bytes_consumed == 0u);
+        EXPECT_TRUE(stream_maintenance.write_cursor_before ==
+                    stream_maintenance.write_cursor_after);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+
+        /* Even an armed stream descriptor is untouched: no timers decay,
+           no packets emit, cursors hold. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
         descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0xc0u;
@@ -382,294 +401,14 @@ int main(void)
         EXPECT_TRUE(vf2_sound_board_maintain_streams(
             &board, &stream_maintenance
         ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.descriptors_scanned == 8u);
-        EXPECT_TRUE(stream_maintenance.timers_expired == 1u);
-        EXPECT_TRUE(stream_maintenance.packets_emitted == 1u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 2u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE] == 0xc0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 1u] == 0x12u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 2u] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 3u] == 0u);
-        EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 0x34u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 0x81u && descriptor[7] == 2u);
-
-        /* F7 is a counted source skip with no emitted command packet. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8200u] = 2u;
-        audio_rom[0x8203u] = 1u;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0xf7u;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x82u;
-        descriptor[7] = 0u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.escape_records == 1u);
         EXPECT_TRUE(stream_maintenance.packets_emitted == 0u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 4u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(stream_maintenance.timers_expired == 0u);
         EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
         EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 0x82u && descriptor[7] == 4u);
-        /* Stream files live at absolute 0x3000, not 0x2000 (driver a2
-           bases are 0x2000(a6) with A6 = 0x1000): pin both sides. */
-        EXPECT_TRUE(board.sound_ram[0x3000u] == 0x80u);
-        EXPECT_TRUE(board.sound_ram[0x2000u] == 0u);
-
-        /* F0 scans through source bytes to the next F7 marker, then reloads
-           the continuation timer without emitting a command packet. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8400u] = 0xf0u;
-        audio_rom[0x8401u] = 0x12u;
-        audio_rom[0x8402u] = 0xf7u;
-        audio_rom[0x8403u] = 1u;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0xf0u;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x84u;
-        descriptor[7] = 0u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.escape_records == 1u);
-        EXPECT_TRUE(stream_maintenance.packets_emitted == 0u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 4u);
+                    descriptor[6] == 0x81u && descriptor[7] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
-        EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 0x84u && descriptor[7] == 4u);
-
-        /* FF consumes a non-pointer marker, skips its counted payload, and
-           resumes at the continuation timer. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8500u] = 0xffu;
-        audio_rom[0x8501u] = 0x01u;
-        audio_rom[0x8502u] = 2u;
-        audio_rom[0x8505u] = 1u;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0xffu;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x85u;
-        descriptor[7] = 0u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.escape_records == 1u);
-        EXPECT_TRUE(stream_maintenance.packets_emitted == 0u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 6u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
-        EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 0x85u && descriptor[7] == 6u);
-
-        /* FF/2F chain sentinels are bounded: an exhausted chain clears the
-           descriptor without emitting a packet. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8600u] = 0xffu;
-        audio_rom[0x8601u] = 0x2fu;
-        audio_rom[0x8700u] = 0xffu;
-        audio_rom[0x8701u] = 0xffu;
-        audio_rom[0x8702u] = 0xffu;
-        audio_rom[0x8703u] = 0xffu;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x88u;
-        descriptor[1] = 0xffu;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x86u;
-        descriptor[7] = 0u;
-        descriptor[8] = 0u;
-        descriptor[9] = 0x60u;
-        descriptor[10] = 0x87u;
-        descriptor[11] = 0u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.escape_records == 1u);
-        EXPECT_TRUE(stream_maintenance.packets_emitted == 0u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 2u);
-        EXPECT_TRUE(descriptor[0] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
-
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8600u] = 0xffu;
-        audio_rom[0x8601u] = 0x2fu;
-        audio_rom[0x8700u] = 0xffu;
-        audio_rom[0x8701u] = 0xffu;
-        audio_rom[0x8702u] = 0xffu;
-        audio_rom[0x8703u] = 0xf2u;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x88u;
-        descriptor[1] = 0xffu;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x86u;
-        descriptor[7] = 0u;
-        descriptor[8] = 0u;
-        descriptor[9] = 0x60u;
-        descriptor[10] = 0x87u;
-        descriptor[11] = 0u;
-        board.sound_ram[VF2_SOUND_DESCRIPTOR_BASE + 0x20u] = 0x80u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.escape_records == 1u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 2u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_DESCRIPTOR_BASE] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_DESCRIPTOR_BASE + 0x20u] == 0u);
-
-        /* Ordinary 2F records consume one pointer longword, preserve the
-           next chain address, and re-enter the common packet decoder. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8800u] = 0xffu;
-        audio_rom[0x8801u] = 0x2fu;
-        audio_rom[0x8900u] = 0x00u;
-        audio_rom[0x8901u] = 0x60u;
-        audio_rom[0x8902u] = 0x8au;
-        audio_rom[0x8903u] = 0x00u;
-        audio_rom[0x8a00u] = 0xc0u;
-        audio_rom[0x8a01u] = 0x34u;
-        audio_rom[0x8a02u] = 0u;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x88u;
-        descriptor[1] = 0xffu;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x88u;
-        descriptor[7] = 0u;
-        descriptor[8] = 0u;
-        descriptor[9] = 0x60u;
-        descriptor[10] = 0x89u;
-        descriptor[11] = 0u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.pointer_handoffs == 1u);
-        EXPECT_TRUE(stream_maintenance.packets_emitted == 1u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 5u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE] == 0xc0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 1u] == 0x34u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 0x8au && descriptor[7] == 3u);
-        EXPECT_TRUE(descriptor[8] == 0u && descriptor[9] == 0x60u &&
-                    descriptor[10] == 0x89u && descriptor[11] == 4u);
-
-        /* F1 records consume a nested pointer and source longword, then
-           re-enter the common packet decoder at the pointed stream. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8b00u] = 0xffu;
-        audio_rom[0x8b01u] = 0x2fu;
-        audio_rom[0x8c00u] = 0xffu;
-        audio_rom[0x8c01u] = 0xffu;
-        audio_rom[0x8c02u] = 0xffu;
-        audio_rom[0x8c03u] = 0xf1u;
-        audio_rom[0x8c04u] = 0x00u;
-        audio_rom[0x8c05u] = 0x60u;
-        audio_rom[0x8c06u] = 0x8du;
-        audio_rom[0x8c07u] = 0x00u;
-        audio_rom[0x8d00u] = 0x00u;
-        audio_rom[0x8d01u] = 0x60u;
-        audio_rom[0x8d02u] = 0x8eu;
-        audio_rom[0x8d03u] = 0x00u;
-        audio_rom[0x8e00u] = 0xc0u;
-        audio_rom[0x8e01u] = 0x45u;
-        audio_rom[0x8e02u] = 0u;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x88u;
-        descriptor[1] = 0xffu;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x8bu;
-        descriptor[7] = 0u;
-        descriptor[8] = 0u;
-        descriptor[9] = 0x60u;
-        descriptor[10] = 0x8cu;
-        descriptor[11] = 0u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.pointer_handoffs == 1u);
-        EXPECT_TRUE(stream_maintenance.packets_emitted == 1u);
-        EXPECT_TRUE(stream_maintenance.bytes_consumed == 5u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE] == 0xc0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 1u] == 0x45u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 0x8eu && descriptor[7] == 3u);
-        EXPECT_TRUE(descriptor[8] == 0u && descriptor[9] == 0x60u &&
-                    descriptor[10] == 0x8du && descriptor[11] == 4u);
-
-        /* B0 stream control 0x10 updates descriptor +0x0e when +0x0c is clear. */
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
-                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
-        memset(audio_rom, 0, sizeof(audio_rom));
-        test_boot_rom(audio_rom);
-        audio_rom[0x8300u] = 0x10u;
-        audio_rom[0x8301u] = 0x85u;
-        audio_rom[0x8302u] = 1u;
-        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
-        descriptor[0] = 0x80u;
-        descriptor[1] = 0xb0u;
-        descriptor[2] = 0u;
-        descriptor[3] = 1u;
-        descriptor[4] = 0u;
-        descriptor[5] = 0x60u;
-        descriptor[6] = 0x83u;
-        descriptor[7] = 0u;
-        descriptor[12] = 0u;
-        descriptor[14] = 0u;
-        EXPECT_TRUE(vf2_sound_board_maintain_streams(
-            &board, &stream_maintenance
-        ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.control_updates == 1u);
-        EXPECT_TRUE(stream_maintenance.packets_emitted == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE] == 0xb0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 1u] == 0x10u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 2u] == 0x05u);
-        EXPECT_TRUE(descriptor[14] == 0x05u);
+        EXPECT_TRUE(stream_maintenance.write_cursor_before ==
+                    stream_maintenance.write_cursor_after);
 
         /* The instruction-aligned e0 handler completes its table lookup and
            channel result write when no live voice needs the wider SCSP tail. */
@@ -1063,6 +802,10 @@ int main(void)
         EXPECT_TRUE(level == 0xffu);
         EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x17u, &level) == VF2_OK);
         EXPECT_TRUE(level == 0x5au);
+        EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x700u, &level) == VF2_OK);
+        EXPECT_TRUE(level == 0x5au);
+        EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x701u, &level) == VF2_OK);
+        EXPECT_TRUE(level == 0u);
     }
     {
         /* Fail-closed init: a short ROM refuses instead of booting. */
