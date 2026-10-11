@@ -38188,3 +38188,241 @@ vf2_status vf2_hybrid_rob_kage_disp_outside_61b88_execute(
 {
     return hybrid_execute_rob_kage_disp_outside_61b88(machine, cpu);
 }
+/* Publishes an i960 compare outcome exactly the way the reference
+ * executor's set_compare_result does (executor.c:220-236):
+ * compare_result takes the enum while arithmetic_control keeps every
+ * bit except the low three, which become 4/2/1 for LESS/EQUAL/GREATER
+ * (0 when the outcome carries no condition, matching the executor's
+ * zero-initialised condition_bits). */
+static void hybrid_publish_compare_result(
+    vf2_i960_cpu *cpu,
+    vf2_i960_compare_result result)
+{
+    uint32_t condition_bits = 0u;
+    cpu->compare_result = result;
+    if (result == VF2_I960_COMPARE_LESS) {
+        condition_bits = UINT32_C(4);
+    } else if (result == VF2_I960_COMPARE_EQUAL) {
+        condition_bits = UINT32_C(2);
+    } else if (result == VF2_I960_COMPARE_GREATER) {
+        condition_bits = UINT32_C(1);
+    }
+    cpu->arithmetic_control =
+        (cpu->arithmetic_control & ~UINT32_C(7)) | condition_bits;
+}
+/* ====================================================================
+ * Recovered 0x53884 (96 B, 6 blocks, 18 instr) - reject_sample.
+ *
+ * Shipped Sega symbol (original_symbols.csv record 284); no
+ * provisional name ever covered this address, so the shipped name is
+ * adopted as-is. Second recovery from the v0783 87 KB gap slice.
+ * Sole caller: `bal 0x53884` at 0x5219c inside make_action_table
+ * (the xref tool labels the edge "call"; the disasm shows `bal`).
+ *
+ * Per vf2i960 disasm:
+ *   block_00053884:
+ *     00053884  ldob     0x0000005c(g13)[g1], r12
+ *     0005388c  cmpo     8, r12
+ *     00053890  be       0x000538e0
+ *   block_00053894:
+ *     00053894  ldob     0x00050910, r14
+ *     0005389c  ldob     0x00050911, r15
+ *     000538a4  cmpo     r15, r12
+ *     000538a8  concmpo  r14, r12
+ *     000538ac  be       0x000538d4
+ *   block_000538b0:
+ *     000538b0  ldob     0x000001b1(g7), r13
+ *     000538b4  ldob     0x00050912[r13*2], r14
+ *     000538bc  ldob     0x00050913[r13*2], r15
+ *     000538c4  cmpo     r15, r12
+ *     000538c8  concmpo  r14, r12
+ *     000538cc  be       0x000538d4
+ *   block_000538d0:
+ *     000538d0  b        0x000538e0
+ *   block_000538d4:
+ *     000538d4  lda      0x000000ff, r12
+ *     000538d8  stob     r12, 0x0000005c(g13)[g1]
+ *   block_000538e0:
+ *     000538e0  bx       (g14)
+ *
+ * Four paths, all admitted (no sub-calls, no refusals):
+ *   - sample == 8 (sentinel): keep, +4 instr, final CC EQUAL.
+ *   - sample matches the 0x50910/0x50911 pair: reject (store 0xff),
+ *     +11 instr, final CC EQUAL.
+ *   - sample matches the indexed 0x50912/0x50913 pair: reject,
+ *     +17 instr, final CC EQUAL.
+ *   - no match: keep, +16 instr, final CC is the unsigned compare
+ *     of mem[0x50912+idx*2] against the sample (LESS/GREATER).
+ *
+ * Load-bearing semantic notes (each verified against the executor
+ * source, then proved by the ROM-backed differential, not assumed):
+ *   - `concmpo` (executor.c:1071-1093): preserves a preceding EQUAL
+ *     (AC bit 1 set), else compares and replaces. So each
+ *     cmpo/concmpo/be chain branches iff the sample equals EITHER
+ *     table byte. All comparisons here are equalities, so operand
+ *     order is immaterial (no v0732 trap possible).
+ *   - Indexed scale: the disassembler's `[g1]` vs `[r13*2]` forms
+ *     print the decoded scale (decoder.c:558, executor.c:201-203):
+ *     sample at g13+0x5c+g1, table at 0x50912+r13*2. The ROM-backed
+ *     legs prove the addresses empirically (a wrong scale puts the
+ *     0xff somewhere the memory diff reports red).
+ *   - `bx (g14)` (executor.c:1219-1238) is a plain jump to g14 with
+ *     NO frame pop; the matching `bal` (executor.c:1211-1215) sets
+ *     g14 with NO frame push. So this function runs IN THE CALLER'S
+ *     FRAME: local r12-r15 writes persist (the caller re-loads r12
+ *     at 0x521a0, corroborating the clobber), procedure counters do
+ *     not move, and the exit ip is g14's entry value. The recovery
+ *     therefore writes locals back and returns g14, pushing/popping
+ *     no frame. (Contrast the enter/return_procedure convention used
+ *     for `call`/`ret` callees such as 0x61b88's neighbours.)
+ *   - Final CC/AC are published via hybrid_publish_compare_result
+ *     on every path. The cmpo/concmpo/be/bx body uses no
+ *     bbs/bbc/cmpob form, so the legacy/arch stepper asymmetry
+ *     (v0733f/v0733g, which only rewrites those forms) cannot
+ *     diverge here; both steppers execute this body identically.
+ */
+static vf2_status hybrid_execute_reject_sample_53884(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t g13 = 0u;
+    uint32_t g1 = 0u;
+    uint32_t g7 = 0u;
+    uint32_t ret_addr = 0u;
+    uint32_t sample_addr = 0u;
+    uint32_t r12 = 0u;
+    uint32_t r13 = 0u;
+    uint32_t r14 = 0u;
+    uint32_t r15 = 0u;
+    uint8_t byte = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00053884)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g13 = cpu->registers[VF2_I960_G0_REGISTER + 13u];
+    g1 = cpu->registers[VF2_I960_G0_REGISTER + 1u];
+    g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+    ret_addr = cpu->registers[VF2_I960_G14_REGISTER];
+    /* Locals persist in the caller's frame (bal/bx convention above),
+     * so paths that do not define one keep its entry value. */
+    r12 = cpu->registers[12u];
+    r13 = cpu->registers[13u];
+    r14 = cpu->registers[14u];
+    r15 = cpu->registers[15u];
+
+    sample_addr = g13 + UINT32_C(0x5c) + g1;
+
+    /* 00053884 ldob 0x5c(g13)[g1], r12. */
+    status = vf2_model2a_read(machine, sample_addr, &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    r12 = (uint32_t)byte;
+
+    /* 0005388c cmpo 8, r12; 00053890 be 0x538e0. */
+    if (r12 == UINT32_C(8)) {
+        /* Sentinel path: keep the sample, +4 instr. */
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        cpu->registers[12u] = r12;
+        cpu->registers[13u] = r13;
+        cpu->registers[14u] = r14;
+        cpu->registers[15u] = r15;
+        cpu->ip = ret_addr;
+        cpu->executed_instructions += UINT64_C(4);
+        return VF2_OK;
+    }
+
+    /* 00053894 ldob 0x50910, r14; 0005389c ldob 0x50911, r15.
+     * NOTE: 0x00050910 is a main-ROM constant table (below 2 MB), not
+     * work RAM: the 8-digit form is 0x00050910, not 0x00500910. */
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00050910), &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    r14 = (uint32_t)byte;
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00050911), &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    r15 = (uint32_t)byte;
+
+    /* 000538a4 cmpo r15, r12; 000538a8 concmpo r14, r12 (preserve an
+     * EQUAL, else compare); 000538ac be 0x538d4 on either match. */
+    if (r15 == r12 || r14 == r12) {
+        /* First-pair match: reject, +11 instr. */
+        byte = UINT8_C(0xff);
+        status = vf2_model2a_write(
+            machine, sample_addr, &byte, sizeof(byte));
+        if (status != VF2_OK) return status;
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        cpu->registers[12u] = UINT32_C(0xff);
+        cpu->registers[13u] = r13;
+        cpu->registers[14u] = r14;
+        cpu->registers[15u] = r15;
+        cpu->ip = ret_addr;
+        cpu->executed_instructions += UINT64_C(11);
+        return VF2_OK;
+    }
+
+    /* 000538b0 ldob 0x1b1(g7), r13. */
+    status = vf2_model2a_read(
+        machine, g7 + UINT32_C(0x1b1), &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    r13 = (uint32_t)byte;
+
+    /* 000538b4 ldob 0x50912[r13*2], r14;
+     * 000538bc ldob 0x50913[r13*2], r15 (same ROM table, see above). */
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00050912) + r13 * UINT32_C(2),
+        &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    r14 = (uint32_t)byte;
+    status = vf2_model2a_read(
+        machine, UINT32_C(0x00050913) + r13 * UINT32_C(2),
+        &byte, sizeof(byte));
+    if (status != VF2_OK) return status;
+    r15 = (uint32_t)byte;
+
+    /* 000538c4 cmpo r15, r12; 000538c8 concmpo r14, r12;
+     * 000538cc be 0x538d4 on either match, else b 0x538e0. */
+    if (r15 == r12 || r14 == r12) {
+        /* Second-pair match: reject, +17 instr. */
+        byte = UINT8_C(0xff);
+        status = vf2_model2a_write(
+            machine, sample_addr, &byte, sizeof(byte));
+        if (status != VF2_OK) return status;
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+        cpu->registers[12u] = UINT32_C(0xff);
+        cpu->registers[13u] = r13;
+        cpu->registers[14u] = r14;
+        cpu->registers[15u] = r15;
+        cpu->ip = ret_addr;
+        cpu->executed_instructions += UINT64_C(17);
+        return VF2_OK;
+    }
+
+    /* Full miss: keep the sample, +16 instr. The final instruction
+     * that wrote CC is the concmpo, which RAN (AC EQUAL bit was
+     * clear) with operands (r14, r12): publish that exact unsigned
+     * outcome, mirroring compare_unsigned(tbl0, sample). */
+    if (r14 < r12) {
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_LESS);
+    } else if (r14 > r12) {
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_GREATER);
+    } else {
+        hybrid_publish_compare_result(cpu, VF2_I960_COMPARE_EQUAL);
+    }
+    cpu->registers[12u] = r12;
+    cpu->registers[13u] = r13;
+    cpu->registers[14u] = r14;
+    cpu->registers[15u] = r15;
+    cpu->ip = ret_addr;
+    cpu->executed_instructions += UINT64_C(16);
+    return VF2_OK;
+}
+
+vf2_status vf2_hybrid_reject_sample_53884_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_reject_sample_53884(machine, cpu);
+}

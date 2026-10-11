@@ -563,4 +563,16 @@ vf2_status vf2_hybrid_rob_kage_disp_outside_61b88_execute(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu);
 
+/* Recover 0x53884: 96 B / 6 blocks reject_sample (shipped Sega
+ * symbol, second recovery from the v0783 87 KB gap slice).
+ * 1-to-1 C translation, all four paths admitted, no sub-calls.
+ * bal/bx (not call/ret) convention: runs in the caller's frame,
+ * so local r12-r15 writes persist, procedure counters do not move,
+ * and the exit ip is g14's entry value. Final CC/AC published on
+ * every path (the body uses no bbs/bbc/cmpob form, so both steppers
+ * agree). Sole caller: bal at 0x5219c in make_action_table. */
+vf2_status vf2_hybrid_reject_sample_53884_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu);
+
 #endif
