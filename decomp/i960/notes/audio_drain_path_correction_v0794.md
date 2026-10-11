@@ -101,28 +101,41 @@ $400d/$4004/$400c/$400e/$4010/$4012/$4016 + slot-indexed
 $13/$15/$08(a5,d4.w) with FULL d4.w. C's per-slot-everything is
 wrong except the (a5,d4.w) forms.
 
-## 8. 90-path live shape (no alloc!)
+## 8. 90-path live shape: prefix only, then refuse (revised -
+   high arm proven unreachable via drain-match)
 
-Base = command+desc[4] (low byte; d3mid-independent, proven).
-Mode/row/lookup per class role (default via primer: payload base,
-byte2 index). High row (cmd&0x7f)*6 + FFFF-empty-rts. Lookup
-words $1516/$1512 from row (clean). $152e<5 gate -> 0xf14.
-Scan never matches (pristine unreachable: nothing creates
-[9] = 0xff && [5] = 0) -> $152e = 0. Compact part1 ($151a-bump +
-memmove, clean) -> 0xf52 exit-scan ([9] != 0 -> refuse/trap-rule;
-else continue) -> b6/b8-kill (implement: absolute SCSP, unconditional
---151e, age dec-iff-candword<d2) -> exit. REMOVE: free-scan alloc,
-fresh/reuse fills, slot-SCSP alloc, 90 fast/slow voice-update,
-0x1014, sample-tail. Age direction: ROM dec-iff-cand<d2; C has it
-inverted (flip with plant).
+d2 = command (0x90-class) or payload (default primer); second byte
+= payload or ring byte 2. Base $150f = (d2+desc[4])&0xff (d3mid =
+0). second == 0 -> 0x10e4-mid trap (refuse). Mode $1510 =
+ROM[0x60c6a6 + (((d2+desc[4])>>8)<<16) + second] (exact long index).
+Then refuse unconditionally:
+
+- The only matchable shape (drain matches desc[1..2].w == channel
+  <= 15, so desc[1] = 0 and desc[2] = channel <= 15) takes the low
+  arm, which is a stale branch into mid-lea. Trap on HW.
+- The high arm needs desc[2] >= 0xf0, which cannot match the drain
+  (word >= 0x00f0 or >= 0x0100, never <= 15). Unreachable code;
+  row/empty/$1511/$1512/$1516 formulas kept in this note only.
+- Everything past (0x8d2 mid-instruction trap on desc[13] == 0,
+  which nothing live ever sets; scan/compact/kill/alloc with stale
+  exits at 0xb72/0xafc/0xf4c) is post-trap: no 90 packet completes
+  on ROM. C mirrors the deterministic prefix ($150f/$1510) and
+  refuses.
+
+REMOVED as fiction/dead: free-scan alloc, fresh/reuse fills,
+per-slot SCSP alloc writes, 90 fast/slow voice-update, 0x5000
+gate, 4-byte voice_value compare, 0x1014-sub, sample-tail,
+b6/b8-kill (dead entry), compact (post-trap), $1515 write
+(post-death). 80's own loops keep their (corrected) slow path
+(v0795a); 90 never calls the helpers.
 
 ## 9. Other bodies
 
-- 80: base = (command&0x7f)+desc[4..5]-word; high-row same;
-  $1515 = table[base&0x7f] (d2.mid = 0 proven); voice-update via
-  0x11d0-sub (fast: bit7->|2 keep; slow: 3 entries, absolute
-  writes, rewrite; match: bit4/1-clear + ([2]&0x7f != 0 AFTER
-  bit7-clear side effect) + word-only lookup compare).
+- 80: base = (command&0x7f)+desc[4..5]-word, then refuse: same
+  match-impossibility as 90 (high needs desc[2] >= 0xf0, low is a
+  stale branch into mid-lea). The row/$1515/voice-update code below
+  is unreachable via drain-match (kept in this note only); v0795a
+  reduces dispatch_80 to base + refuse.
 - e0: formula kept (command|payload<<7); ADD stale-word on neg
   path (result |= ((payload&0x7f)>>1)<<8, payload-derived,
   deterministic); index post-neg (already); tail 0x1356
