@@ -38072,3 +38072,119 @@ vf2_status vf2_hybrid_assignment_init_6010c_execute(
 {
     return hybrid_execute_assignment_init_6010c(machine, cpu);
 }
+/* ====================================================================
+ * Recovered 0x61b88 (24 B, 3 blocks, 6 instr) - rob_kage_disp_outside.
+ *
+ * Shipped Sega symbol (original_symbols.csv record 289); no provisional
+ * name ever covered this address, so the shipped name is adopted as-is.
+ * First recovery from the v0783 87 KB gap characterisation
+ * (gap_87kb_characterisation_v0783.md). Callers: six sites across
+ * 0x1dec4..0x1edbc (camera/display task family, attract-mode and
+ * character-portrait control).
+ *
+ * Per vf2i960 disasm:
+ *   block_00061b88:
+ *     00061b88  ldob     0x0000002a(g7), r3
+ *     00061b8c  cmpobne  0, r3, 0x00061b9c
+ *   block_00061b90:
+ *     00061b90  ld       0x00000684(g7), g4
+ *     00061b94  mov      2, g5
+ *     00061b98  call     0x00061ba0
+ *   block_00061b9c:
+ *     00061b9c  ret
+ *
+ * Two paths:
+ *   - Path A (byte at g7+0x2a != 0): cmpobne taken, straight to ret.
+ *     Fully admitted (2 instr, no sub-call, no persistent side effect;
+ *     the ldob's r3 write evaporates with the frame, so only ip and the
+ *     instruction count are published).
+ *   - Path B (byte == 0): fall through, set up the sub-call arguments
+ *     (g4 = word at g7+0x684, g5 = 2) and refuse at the call to 0x61ba0.
+ *
+ * The ne condition is symmetric, so the disassembler's operand order for
+ * cmpobne is immaterial: the branch is taken iff the byte is nonzero.
+ * (Cf. the v0732 operand-order trap for asymmetric three-operand forms;
+ * ne needs no such disambiguation.)
+ *
+ * Corroboration that g4/g5 are genuine call arguments, read off the
+ * callee's disasm (not game knowledge): 0x61ba0 tests a bit of g4
+ * (`bbc r4, g4, 0x61cd8`) and stores g5 into the display list
+ * (`st g5, (g11)[g12]` at 0x61cac).
+ *
+ * Refusal doctrine (path B): own-ret-slot refusal per the cf04 v0747
+ * design and the per-step-loop contract (hybrid.c:589-606): the body
+ * moves are applied, cpu->ip is set to this function's own ret slot
+ * (0x61b9c), 4 simulated instructions are counted, and
+ * VF2_ERROR_UNSUPPORTED is returned. The loop's next vf2_i960_step of
+ * that ret is then the frame-correct pop. This slice is strictly
+ * cleaner than cf04: there is no post-call tail, so the ONLY skipped
+ * behaviour is the unrecovered 0x61ba0 call itself (348 B, 12 blocks,
+ * its own sub-calls to 0x7b18/0x7c60, display-list stores through
+ * (g11)[g12] - measured via `vf2i960 function roms/vf2 0x61ba0`).
+ * Refusing at the 0x61b98 call slot instead would hand the callee to
+ * the interpretation fallback; that is NOT done here, per the v0761
+ * retraction (refusal belongs at a frame-correct IP, and the project
+ * doctrine since v0763 is the function's own ret slot).
+ *
+ * compare_result is deliberately NOT published on either path,
+ * matching the slot3_table_lookup v0777 precedent (whose three
+ * compare-branches likewise publish no CC). No caller evidence
+ * requires CC across this call, and the legacy/arch stepper CC
+ * asymmetry (v0733f/v0733g) makes hand-computed CC a fixture that
+ * cannot fail. Documented, not invented.
+ *
+ * Coincidence worth pinning so nobody "fixes" it: the post-ret marker
+ * (ret 0x61b9c + 4 = 0x61ba0) numerically equals the refused callee's
+ * entry. Path A legitimately lands on 0x61ba0 with the frame popped;
+ * path B never produces that ip (it refuses at 0x61b9c).
+ */
+static vf2_status hybrid_execute_rob_kage_disp_outside_61b88(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    vf2_status status;
+    uint32_t g7 = 0u;
+    uint8_t flag = 0u;
+
+    if (machine == NULL || cpu == NULL ||
+        cpu->ip != UINT32_C(0x00061b88)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+
+    g7 = cpu->registers[VF2_I960_G0_REGISTER + 7u];
+
+    /* 00061b88 ldob 0x2a(g7), r3. */
+    status = vf2_model2a_read(
+        machine, g7 + UINT32_C(0x2a), &flag, sizeof(flag));
+    if (status != VF2_OK) return status;
+
+    /* 00061b8c cmpobne 0, r3, 0x61b9c: taken iff the byte is nonzero. */
+    if (flag != UINT8_C(0)) {
+        /* Path A: skip the sub-call, ret. No persistent write. */
+        cpu->ip = UINT32_C(0x00061ba0);
+        cpu->executed_instructions += UINT64_C(2);
+        return VF2_OK;
+    }
+
+    /* Path B: set up the sub-call arguments. */
+    /* 00061b90 ld 0x684(g7), g4. */
+    status = vf2_model2a_read_u32(
+        machine, g7 + UINT32_C(0x684),
+        &cpu->registers[VF2_I960_G0_REGISTER + 4u]);
+    if (status != VF2_OK) return status;
+    /* 00061b94 mov 2, g5. */
+    cpu->registers[VF2_I960_G0_REGISTER + 5u] = UINT32_C(2);
+
+    /* REFUSE the sub-call to 0x61ba0 (unrecovered display-list
+     * builder). Own-ret-slot refusal per the cf04 doctrine above. */
+    cpu->ip = UINT32_C(0x00061b9c);
+    cpu->executed_instructions += UINT64_C(4);
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+vf2_status vf2_hybrid_rob_kage_disp_outside_61b88_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu)
+{
+    return hybrid_execute_rob_kage_disp_outside_61b88(machine, cpu);
+}

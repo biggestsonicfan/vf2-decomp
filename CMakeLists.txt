@@ -601,6 +601,11 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_record_rebuild_dispatcher_6de3c_tests)
     add_test(NAME vf2_record_rebuild_dispatcher_6de3c COMMAND vf2_record_rebuild_dispatcher_6de3c_tests)
 
+    add_executable(vf2_rob_kage_disp_outside_61b88_tests tests/recovered/test_rob_kage_disp_outside_61b88_native.c)
+    target_link_libraries(vf2_rob_kage_disp_outside_61b88_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_rob_kage_disp_outside_61b88_tests)
+    add_test(NAME vf2_rob_kage_disp_outside_61b88 COMMAND vf2_rob_kage_disp_outside_61b88_tests)
+
     add_executable(vf2_callee_hook_counters_tests tests/recovered/test_callee_hook_counters.c)
     target_link_libraries(vf2_callee_hook_counters_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_callee_hook_counters_tests)

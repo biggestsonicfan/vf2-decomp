@@ -552,4 +552,15 @@ vf2_status vf2_hybrid_run_interpreted_until(
     uint32_t entry_address,
     uint32_t stop_address);
 
+/* Recover 0x61b88: 24 B / 3 blocks rob_kage_disp_outside (shipped
+ * Sega symbol, first recovery from the v0783 87 KB gap slice).
+ * 1-to-1 C translation. Path A (byte at g7+0x2a != 0) is fully
+ * admitted (skips the call, ret). Path B (byte == 0) applies the
+ * g4 = *(g7+0x684) / g5 = 2 setup moves then refuses the sub-call
+ * to 0x61ba0 (unrecovered 348 B display-list builder) at this
+ * function's own ret slot, per the cf04 v0747 refusal doctrine. */
+vf2_status vf2_hybrid_rob_kage_disp_outside_61b88_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu);
+
 #endif
