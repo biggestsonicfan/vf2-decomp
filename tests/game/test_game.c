@@ -22,6 +22,30 @@ static uint32_t float_bits(float value)
     return bits;
 }
 
+/* Minimal ROM-measured boot image for vf2_game_attach_audio (v0794a):
+   structural tables consumed by boot inits; d1 < 0 skips upload. */
+static void test_boot_rom(uint8_t *rom)
+{
+    size_t voice = 0u;
+
+    memset(rom, 0, 0x9000u);
+    rom[0x4940u] = 0x00u; rom[0x4941u] = 0x60u;
+    rom[0x4942u] = 0x70u; rom[0x4943u] = 0x00u;
+    rom[0x3066u] = 0x00u; rom[0x3067u] = 0x60u;
+    rom[0x3068u] = 0x71u; rom[0x3069u] = 0x00u;
+    rom[0x30a6u] = 0x00u; rom[0x30a7u] = 0x60u;
+    rom[0x30a8u] = 0x72u; rom[0x30a9u] = 0x00u;
+    for (voice = 0u; voice < 32u; ++voice) {
+        rom[0x6e6u + voice * 2u] = (uint8_t)(((uint16_t)voice * 0x20u) >> 8u);
+        rom[0x6e6u + voice * 2u + 1u] =
+            (uint8_t)(((uint16_t)voice * 0x20u) & 0xffu);
+    }
+    rom[0x536au] = 0x00u; rom[0x536bu] = 0x60u;
+    rom[0x536cu] = 0x73u; rom[0x536du] = 0x00u;
+    rom[0x8df0u] = 0xffu; rom[0x8df1u] = 0xffu;
+    rom[0x8df2u] = 0xffu; rom[0x8df3u] = 0xffu;
+}
+
 static void test_native_attachment(void)
 {
     vf2_game game = {0};
@@ -94,7 +118,7 @@ int main(void)
     static uint8_t tables[VF2_TGP_TABLE_WORD_COUNT * sizeof(uint32_t)];
     vf2_game game = {0};
     vf2_tgp_geometry_stream_report report;
-    static uint8_t audio_rom[4u];
+    static uint8_t audio_rom[0x9000u];
     static uint8_t sample_rom[4u];
     int16_t audio_left[8u];
     int16_t audio_right[8u];
@@ -125,6 +149,7 @@ int main(void)
     EXPECT_TRUE(vf2_game_render_audio(
         &game, audio_left, audio_right, 1u
     ) != VF2_OK);
+    test_boot_rom(audio_rom);
     EXPECT_TRUE(vf2_game_attach_audio(
         &game, audio_rom, sizeof(audio_rom), sample_rom, sizeof(sample_rom)
     ) == VF2_OK);

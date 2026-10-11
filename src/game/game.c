@@ -258,6 +258,7 @@ vf2_status vf2_game_attach_audio(
 )
 {
     vf2_sound_board *sound;
+    vf2_status status;
 
     if (game == NULL || game->initialized == 0 || game->sound != NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
@@ -266,9 +267,13 @@ vf2_status vf2_game_attach_audio(
     if (sound == NULL) {
         return VF2_ERROR_OUT_OF_MEMORY;
     }
-    vf2_sound_board_initialize(
+    status = vf2_sound_board_initialize(
         sound, audio_rom, audio_rom_size, sample_rom, sample_rom_size
     );
+    if (status != VF2_OK) {
+        free(sound);
+        return status;
+    }
     game->sound = sound;
     return VF2_OK;
 }

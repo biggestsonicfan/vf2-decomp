@@ -143,7 +143,121 @@ static vf2_status read_audio_byte_absolute(
     );
 }
 
-void vf2_sound_board_initialize(
+/* ROM 0x1ac0/0x422 sample uploader, shared by boot init and B0 entry
+   0x3a. First-copy stages d7 bytes from ROM 0x605b28 to RAM $5000;
+   the second phase walks one row of the 0x608df0 table (row selected
+   by the caller) and copies sample records to RAM $50000 with the
+   $6FFFF guard. d1 < 0 skips the second phase (boot dance dropped:
+   it writes only an unmodeled system port). check_7f arms B0's
+   0x7f trap: first-copy effects persist, then UNSUPPORTED. */
+static vf2_status sound_board_sample_upload(
+    vf2_sound_board *board,
+    uint32_t row_address,
+    int check_7f,
+    uint8_t payload,
+    int check_gate
+)
+{
+    uint16_t first_count = 0u;
+    uint16_t record_index = 0u;
+    uint32_t table = 0u;
+    uint32_t row = 0u;
+    /* a2 is the fixed $5000 sample-slot table (absolute short). */
+    uint32_t slot_base = UINT32_C(0x5000);
+    uint32_t target = 0u;
+    int16_t gate = 0;
+    size_t index = 0u;
+
+    if (read_audio_be16(board, UINT32_C(0x605b26), &first_count) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (index = 0u; index < first_count; ++index) {
+        uint8_t staged = 0u;
+        if (read_audio_byte_absolute(
+                board, UINT32_C(0x605b28) + (uint32_t)index, &staged
+            ) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        if (UINT32_C(0x5000) + index >= VF2_SOUND_RAM_BYTES) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        board->sound_ram[0x5000u + index] = staged;
+    }
+    if (check_7f && (payload & 0x7fu) == 0x7fu) {
+        /* ROM beq lands mid-dbf (stale +2): trap on HW. The staged
+           bytes above are the only effects; refuse. */
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (read_audio_be32(board, row_address, &row) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    /* Boot gates on the row pointer's high word (the d1 = (a1)+ word
+       at 0x608df0); B0 has no gate (it has the 0x7f trap instead). */
+    gate = (int16_t)(row >> 16u);
+    if (check_gate && gate < 0) {
+        return VF2_OK;
+    }
+    if (read_audio_be32(board, UINT32_C(0x605b28), &table) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (read_audio_be16(board, row, &first_count) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    row += 2u;
+    target = UINT32_C(0x50000);
+    for (record_index = 0u; record_index < first_count; ++record_index) {
+        uint16_t selector = 0u;
+        uint32_t entry = 0u;
+        uint32_t source = 0u;
+        uint32_t length = 0u;
+        uint32_t stored = 0u;
+        uint16_t count = 0u;
+        if (read_audio_be16(board, row, &selector) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        row += 2u;
+        entry = (uint32_t)(uint16_t)selector * UINT32_C(0x14);
+        if (read_audio_be32(board, table + entry, &source) != VF2_OK ||
+            read_audio_be32(board, table + entry + 8u, &stored) != VF2_OK ||
+            read_audio_be32(board, table + entry + 4u, &length) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        length += UINT32_C(0x1ff);
+        stored = (stored & UINT32_C(0xffffff00)) |
+            ((stored - source) & UINT32_C(0xff));
+        if (slot_base + 0x1008u + 4u > VF2_SOUND_RAM_BYTES ||
+            slot_base + (uint16_t)entry + 4u > VF2_SOUND_RAM_BYTES) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        write_be32(board->sound_ram + slot_base + 0x1008u, stored);
+        write_be32(board->sound_ram + slot_base + (uint16_t)entry, target);
+        board->sound_ram[slot_base + (uint16_t)entry] |= 0x80u;
+        count = (uint16_t)(length & UINT32_C(0xffff));
+        for (index = 0u; ; ++index) {
+            uint8_t sample = 0u;
+            if (target >= VF2_SOUND_RAM_BYTES) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            if (vf2_sound_board_read_u8(board, source + (uint32_t)index,
+                                            &sample) !=
+                VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            board->sound_ram[target] = sample;
+            ++target;
+            if (index >= count) {
+                break;
+            }
+        }
+        /* ROM cmpa.l #$6ffff,a3 / bgt halt: fail closed. */
+        if (target > UINT32_C(0x6ffff)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    return VF2_OK;
+}
+
+vf2_status vf2_sound_board_initialize(
     vf2_sound_board *board,
     const uint8_t *audio_rom,
     size_t audio_rom_size,
@@ -151,8 +265,16 @@ void vf2_sound_board_initialize(
     size_t sample_rom_size
 )
 {
+    static const uint16_t scsp_block[7] = {0u, 0xc8u, 0u, 0x2c8u,
+                                           0x88u, 0x48u, 0u};
+    uint32_t blob = 0u;
+    uint32_t image = 0u;
+    uint32_t volume_table = 0u;
+    size_t index = 0u;
+    size_t voice = 0u;
+
     if (board == NULL) {
-        return;
+        return VF2_ERROR_INVALID_ARGUMENT;
     }
     memset(board, 0, sizeof(*board));
     board->audio_rom = audio_rom;
@@ -164,6 +286,133 @@ void vf2_sound_board_initialize(
         (void)vf2_scsp_attach_sample_rom(&board->scsp,
                                           sample_rom, sample_rom_size);
     }
+    /* ROM 0x28e SCSP init. $400001 writes are an unmodeled system
+       port outside the audio contract; $0405 reads are waste. */
+    if (vf2_scsp_write_u8(&board->scsp, UINT32_C(0x401), 0u) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (read_audio_be32(board, UINT32_C(0x604940), &blob) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (index = 0u; index < UINT32_C(0x500); ++index) {
+        uint8_t wave = 0u;
+        if (read_audio_byte_absolute(board, blob + (uint32_t)index, &wave) !=
+            VF2_OK ||
+            vf2_scsp_write_u8(&board->scsp, UINT32_C(0x700) + (uint32_t)index,
+                              wave) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+    }
+    if (vf2_scsp_write_u16(&board->scsp, UINT32_C(0x402), UINT16_C(0x138)) !=
+        VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (index = 0u; index < VF2_SCSP_SLOT_COUNT; ++index) {
+        uint32_t slot = (uint32_t)index * VF2_SCSP_SLOT_BYTES;
+        if (vf2_scsp_write_u8(&board->scsp, slot + 0x0bu, UINT8_C(0xff)) !=
+            VF2_OK ||
+            vf2_scsp_write_u8(&board->scsp, slot + 0x0du, UINT8_C(0xff)) !=
+            VF2_OK ||
+            vf2_scsp_write_u8(&board->scsp, slot, UINT8_C(0x10)) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+    }
+    for (index = 0u; index < 7u; ++index) {
+        if (vf2_scsp_write_u16(&board->scsp,
+                               UINT32_C(0x41c) + (uint32_t)index * 2u,
+                               scsp_block[index]) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+    }
+    if (vf2_scsp_write_u16(&board->scsp, UINT32_C(0x418), UINT16_C(0xce)) !=
+        VF2_OK ||
+        vf2_scsp_write_u16(&board->scsp, UINT32_C(0x41a), UINT16_C(0x3c0)) !=
+        VF2_OK ||
+        vf2_scsp_write_u16(&board->scsp, UINT32_C(0x422), UINT16_C(0x40)) !=
+        VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    /* ROM 0x320: the 0x1000+0x3F00 clear is subsumed by the memset
+       above; only $1526 = 0xef escapes it. */
+    board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 8u] = 0xefu;
+    /* ROM 0x336 command-descriptor images. */
+    if (read_audio_be32(board, UINT32_C(0x603066), &image) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (index = 0u; index < UINT32_C(0xa0); ++index) {
+        uint8_t staged = 0u;
+        if (read_audio_byte_absolute(board, image + (uint32_t)index, &staged) !=
+            VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        board->sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + index] = staged;
+    }
+    if (read_audio_be32(board, UINT32_C(0x6030a6), &image) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (index = 0u; index < UINT32_C(0xa0); ++index) {
+        uint8_t staged = 0u;
+        if (read_audio_byte_absolute(board, image + (uint32_t)index, &staged) !=
+            VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        board->sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 0xa0u + index] =
+            staged;
+    }
+    board->sound_ram[VF2_SOUND_SHARED_FACTOR_151F] = 0xffu;
+    for (index = 0u; index < 20u; ++index) {
+        uint8_t *descriptor = board->sound_ram +
+            VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
+            index * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
+        uint16_t scaled = (uint16_t)(((uint16_t)descriptor[3u] * 0xffu) >> 8u);
+        /* ROM d3 = 0xff either way ($151f was just stored). */
+        if ((scaled & 0xffu) != 0u) {
+            descriptor[0x0au] = (uint8_t)(scaled + 1u);
+        }
+    }
+    /* ROM $151a(a6): voice-table base pointer for the compactor. */
+    write_be32(board->sound_ram + UINT32_C(0x251a), UINT32_C(0x2800));
+    /* ROM 0x3a8 voice records: slot word = index*0x20, sample longs. */
+    for (voice = 0u; voice < VF2_SOUND_VOICE_COUNT; ++voice) {
+        uint8_t *record = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
+            voice * VF2_SOUND_VOICE_BYTES;
+        uint16_t slot = 0u;
+        uint32_t sample = 0u;
+        if (read_audio_be16(board, UINT32_C(0x6006e6) + (uint32_t)voice * 2u,
+                            &slot) != VF2_OK ||
+            read_audio_be32(board, UINT32_C(0x600726) + (uint32_t)voice * 4u,
+                            &sample) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        write_be16(record, slot);
+        write_be32(record + 0x0cu, sample);
+    }
+    /* ROM 0x3cc stream records. */
+    for (voice = 0u; voice < 32u; ++voice) {
+        uint8_t *record = board->sound_ram + UINT32_C(0x2000) +
+            voice * UINT32_C(0x20);
+        write_be32(record + 0x0eu,
+                   UINT32_C(0x10000) + (uint32_t)voice * UINT32_C(0x2000));
+        record[0x12u] = (uint8_t)((uint8_t)voice * 2u);
+        record[0x16u] = (uint8_t)(8u + (uint8_t)voice * 8u);
+    }
+    /* ROM 0x402 per-slot volumes from the 0x605368 table. */
+    if (read_audio_be32(board, UINT32_C(0x60536a), &volume_table) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (index = 0u; index < 16u; ++index) {
+        uint8_t level = 0u;
+        if (read_audio_byte_absolute(board, volume_table + (uint32_t)index,
+                                     &level) != VF2_OK ||
+            vf2_scsp_write_u8(&board->scsp,
+                              UINT32_C(0x17) + (uint32_t)index *
+                                  VF2_SCSP_SLOT_BYTES,
+                              level) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+    }
+    /* ROM 0x422 sample staging (d1 < 0 skips; dance has no RAM effect). */
+    return sound_board_sample_upload(board, UINT32_C(0x608df0), 0, 0u, 1);
 }
 
 vf2_status vf2_sound_board_read_u8(

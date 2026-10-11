@@ -103,7 +103,7 @@ typedef struct vf2_sound_board {
     vf2_scsp scsp;
 } vf2_sound_board;
 
-void vf2_sound_board_initialize(
+vf2_status vf2_sound_board_initialize(
     vf2_sound_board *board,
     const uint8_t *audio_rom,
     size_t audio_rom_size,
