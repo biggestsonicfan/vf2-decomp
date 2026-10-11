@@ -102,12 +102,6 @@ int main(void)
     voices[2u * VF2_SOUND_VOICE_BYTES + 9u] = 0xffu;
     board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 2u;
     board.sound_ram[VF2_SOUND_SHARED_COUNTER_152E] = 3u;
-    EXPECT_TRUE(vf2_sound_board_write_u16(
-        &board, VF2_SCSP_CPU_BASE + 3u * VF2_SCSP_SLOT_BYTES, 0x0800u
-    ) == VF2_OK);
-    EXPECT_TRUE(vf2_sound_board_write_u16(
-        &board, VF2_SCSP_CPU_BASE + 4u * VF2_SCSP_SLOT_BYTES, 0x0800u
-    ) == VF2_OK);
     EXPECT_TRUE(vf2_sound_board_maintain_voices(&board, &maintenance) == VF2_OK);
     EXPECT_TRUE(maintenance.voices_scanned == VF2_SOUND_VOICE_COUNT);
     EXPECT_TRUE(maintenance.voices_expired == 2u);
@@ -125,12 +119,14 @@ int main(void)
     EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 5u] == 0u);
     EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u * 0u + 9u] == 0u);
     EXPECT_TRUE(voices[2u * VF2_SOUND_VOICE_BYTES + 9u] == 0xffu);
-    EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 3u * VF2_SCSP_SLOT_BYTES,
-                                  &value) == VF2_OK);
-    EXPECT_TRUE((value & 0x0800u) == 0u);
-    EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 4u * VF2_SCSP_SLOT_BYTES,
-                                  &value) == VF2_OK);
-    EXPECT_TRUE((value & 0x0800u) == 0u);
+    /* ROM V1 key: SCSP[slotword+0x0b] = 0x1f, ram[0x2000+slotword] = 0
+       (slot words 0x0003/0x0004 above). No control-bit RMW exists. */
+    EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x000eu, &byte) == VF2_OK);
+    EXPECT_TRUE(byte == 0x1fu);
+    EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x000fu, &byte) == VF2_OK);
+    EXPECT_TRUE(byte == 0x1fu);
+    EXPECT_TRUE(board.sound_ram[0x2003u] == 0u);
+    EXPECT_TRUE(board.sound_ram[0x2004u] == 0u);
     EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x041au, &value) == VF2_OK);
     EXPECT_TRUE(value == 0x03c0u);
     EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x0422u, &value) == VF2_OK);
@@ -163,9 +159,6 @@ int main(void)
         }
         board.sound_ram[VF2_SOUND_COMMAND_CURSOR] = 0u;
         board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
-        EXPECT_TRUE(vf2_sound_board_write_u16(
-            &board, VF2_SCSP_CPU_BASE + 3u * VF2_SCSP_SLOT_BYTES, 0x0800u
-        ) == VF2_OK);
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.command == 0xc1u);
         EXPECT_TRUE(dispatch.payload == 0x70u);
@@ -181,10 +174,16 @@ int main(void)
         EXPECT_TRUE(dispatch.cursor_after == 4u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] == 4u);
         EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0u, &value) == VF2_OK);
-        EXPECT_TRUE(value == 0x1000u);
-        EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x0bu, &byte) == VF2_OK);
+        EXPECT_TRUE(value == 0xff00u);
+        /* ROM V5 key (d4 = voice[0] = 0x0003): SCSP[0x000e] = 0x1f,
+           SCSP[0x0003] = 0x10, ram[0x2003] = 0. ram[0x2000] keeps its
+           0xaa (untouched); SCSP[0] keeps the pre-write 0xff. */
+        EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x0eu, &byte) == VF2_OK);
         EXPECT_TRUE(byte == 0x1fu);
-        EXPECT_TRUE(board.sound_ram[0x2000u] == 0u);
+        EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x0003u, &byte) == VF2_OK);
+        EXPECT_TRUE(byte == 0x10u);
+        EXPECT_TRUE(board.sound_ram[0x2003u] == 0u);
+        EXPECT_TRUE(board.sound_ram[0x2000u] == 0xaau);
 
         /* 90-class with a zero second byte traps at 0x866 (continues
            into the 80 body mid-instruction): base is stored, mode is not

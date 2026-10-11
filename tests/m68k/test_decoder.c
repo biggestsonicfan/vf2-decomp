@@ -100,6 +100,11 @@ int main(void)
     static const uint8_t address_immediate[] = {
         0x99, 0xfc, 0x00, 0x00, 0x00, 0x20  /* suba.l #$20,a4 */
     };
+    static const uint8_t move_indexed_immediate[] = {
+        0x1b, 0xbc, 0x00, 0x1f, 0x40, 0x0b, /* move.b #$1f,$b(a5,d4.w) */
+        0x1b, 0xbc, 0x00, 0x10, 0x40, 0x00, /* move.b #$10,$0(a5,d4.w) */
+        0x1b, 0xbc, 0x00, 0x1f, 0x10, 0x0b  /* move.b #$1f,$b(a5,d1.w) */
+    };
 
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 0u, &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 2u);
@@ -306,6 +311,25 @@ int main(void)
                                 0u, &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 6u);
     EXPECT_TRUE(strcmp(instruction.text, "suba.l #$20,a4") == 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(move_indexed_immediate,
+                                sizeof(move_indexed_immediate), 0u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "move.b #$1f,$0b(a5,d4.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(move_indexed_immediate,
+                                sizeof(move_indexed_immediate), 6u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "move.b #$10,$00(a5,d4.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(move_indexed_immediate,
+                                sizeof(move_indexed_immediate), 12u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "move.b #$1f,$0b(a5,d1.w)") == 0);
 
     return failures == 0 ? 0 : 1;
 }

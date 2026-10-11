@@ -1058,11 +1058,29 @@ vf2_status vf2_m68k_decode(
                                            &extension);
             }
             if (status == VF2_OK) {
-                if (destination_mode == 5u || destination_mode == 6u) {
+                if (destination_mode == 5u) {
                     (void)snprintf(instruction->text, sizeof(instruction->text),
                                    "move.%c #$%x,$%04x(a%u)", size_name,
                                    (unsigned)immediate, (unsigned)extension,
                                    destination_register);
+                } else if (destination_mode == 6u) {
+                    /* Brief extension word: bit 15 selects a/d, bits 14-12
+                       the index register, bit 11 the index size, low byte
+                       the displacement. A raw-word print here misreports
+                       indexed SCSP writes as absolute displacements. */
+                    const unsigned index_is_address =
+                        (unsigned)((extension >> 15u) & 1u);
+                    const unsigned index_register =
+                        (unsigned)((extension >> 12u) & 7u);
+                    const char index_size =
+                        (extension & UINT16_C(0x0800)) != 0u ? 'l' : 'w';
+                    (void)snprintf(instruction->text, sizeof(instruction->text),
+                                   "move.%c #$%x,$%02x(a%u,%c%u.%c)",
+                                   size_name, (unsigned)immediate,
+                                   (unsigned)(extension & 0xffu),
+                                   destination_register,
+                                   index_is_address != 0u ? 'a' : 'd',
+                                   index_register, index_size);
                 } else if (destination_mode == 7u &&
                            destination_register == 0u) {
                     (void)snprintf(instruction->text, sizeof(instruction->text),

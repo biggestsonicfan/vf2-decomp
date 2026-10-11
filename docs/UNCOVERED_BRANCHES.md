@@ -4276,12 +4276,17 @@ sequence-engine dead verdict (no static driver entry; slots abort
 on zero +0x0c; per-frame stream maintenance is a documented
 no-op). Seventeen dead B0 handlers, the 90 allocator, the 80/90
 voice helpers, the B0 update helper and entry-10 table, and the
-stream worker fiction were removed. DRAM-sample playback (no live
+stream worker fiction were removed. Voice expiry is the level-1
+interrupt tick (0x5fe -> 0x602, entry $041a/$0422 pokes) with key
+forms SCSP[slot+0x0b] = 0x1f / SCSP[slot+0x00] = 0x10 /
+ram[0x2000+slot] = 0 shared by the primer, C0 and B0-sub scans; the
+level-2 stream tick (0x1f16) and level-3 MIDI ring-fill (0x526) are
+documented interrupt boundaries, and the stream countdown half
+stays dead (+0x0c never arms) while the worker-forward into the
+drain is the live path. DRAM-sample playback (no live
 sample-start programming exists), SCSP FM/DSP synthesis, native
 windowing, gamepad mappings, frame pacing and production platform
-integration remain unimplemented.
-
-## 6. Transactional rejection coverage
+integration remain unimplemented.## 6. Transactional rejection coverage
 
 The player interrupt composite now preserves CPU state when a nested player
 branch is rejected, and video input validation occurs before writes. Other

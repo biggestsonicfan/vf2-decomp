@@ -37,20 +37,25 @@ static vf2_status sound_board_key_off(
     const uint8_t *voice
 )
 {
-    const uint16_t slot = (uint16_t)(read_be16(voice) &
-                                     (VF2_SCSP_SLOT_COUNT - 1u));
-    uint16_t control = 0u;
-    vf2_status status = vf2_scsp_read_u16(
-        &board->scsp, (uint32_t)slot * VF2_SCSP_SLOT_BYTES, &control
-    );
-    if (status != VF2_OK) {
-        return status;
+    /* ROM L1-ISR key portion (0x636/0x684): d1 = voice[0], the slot
+       word (slot*0x20, v0794-proven, used directly as the SCSP/RAM
+       stride with no masking). SCSP[slot+0x0b] = 0x1f (max release
+       rate) and sound_ram[0x2000+slot] = 0. No slot-control
+       read-modify-write exists on ROM; the earlier control-bit form
+       came from a misread of indexed move.b #imm as absolute. */
+    const uint16_t slot_word = read_be16(voice);
+    const uint32_t scsp_address = (uint32_t)slot_word + 0x0bu;
+    const uint32_t ram_address =
+        UINT32_C(0x2000) + (uint32_t)slot_word;
+    if (vf2_scsp_write_u8(&board->scsp, scsp_address,
+                          UINT8_C(0x1f)) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    return vf2_scsp_write_u16(
-        &board->scsp,
-        (uint32_t)slot * VF2_SCSP_SLOT_BYTES,
-        (uint16_t)(control & (uint16_t)~UINT16_C(0x0800))
-    );
+    if (ram_address >= VF2_SOUND_RAM_BYTES) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    board->sound_ram[ram_address] = 0u;
+    return VF2_OK;
 }
 
 static vf2_status read_rom_byte(
@@ -526,7 +531,10 @@ vf2_status vf2_sound_board_maintain_voices(
     if (board == NULL || report == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
-    /* The ROM writes the SCSP timer/control words on entry. */
+    /* The ROM writes the SCSP timer/control words on entry (L1 ISR
+       0x602: $041a = 0x3c0, $0422 = 0x80; the L2 driver pokes $0418 /
+       $0422 per tick and is otherwise an unmodeled interrupt
+       boundary). */
     if (vf2_scsp_write_u16(
             &board->scsp, VF2_SCSP_MASTER_BASE + 0x001au, 0x03c0u
         ) != VF2_OK ||
@@ -573,6 +581,11 @@ vf2_status vf2_sound_board_maintain_voices(
             age = voice[9u];
             voice[9u] = 0u;
             --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
+            /* ROM compares the full d2.W (move.b-loaded age over
+               interrupt-residue high bytes) against the word at +9;
+               the C keeps the clean zero-extended age. Residue modeling
+               would need the guest register file, and no 68k oracle
+               exists to measure it: documented, not modeled. */
             for (other = 0u; other < VF2_SOUND_VOICE_COUNT; ++other) {
                 uint8_t *candidate = voices + other * VF2_SOUND_VOICE_BYTES;
                 if (candidate[9u] != 0xffu &&
@@ -646,21 +659,33 @@ static vf2_status sound_board_clear_c0_voices(
                (size_t)channel * 2u, 0u);
     for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
         uint8_t *voice = voices + index * VF2_SOUND_VOICE_BYTES;
+        uint16_t slot_word = 0u;
+        uint32_t scsp_base = 0u;
+        uint32_t stream_slot = 0u;
         if ((voice[2u] & 0x40u) == 0u ||
             read_be16(voice + 4u) != (uint16_t)channel) {
             continue;
         }
-        /* ROM loads d4 = voice[0] but programs SCSP absolutely ($400b/
-           $4000 = offsets 0x0b/0x00), ignoring the slot; $4000(a3) with
-           a3 = $1000(a6) is sound_ram[0x2000]. The $151e decrement is
-           unconditional. */
-        if (vf2_scsp_write_u8(&board->scsp, UINT32_C(0x0b),
+        /* ROM 0x1e24-0x1e38 (V5 key form): d4 = voice[0], the slot
+           word, used directly as the stride. SCSP[slot+0x0b] = 0x1f,
+           SCSP[slot+0x00] = 0x10, sound_ram[0x2000+slot] = 0 (a3 =
+           0x1000(a6)). The earlier absolute-write form came from the
+           same indexed-#imm decoder misread as the key_off fiction.
+           The $151e decrement is unconditional; there is no age
+           rebalance on this path. */
+        slot_word = read_be16(voice);
+        scsp_base = (uint32_t)slot_word;
+        stream_slot = UINT32_C(0x2000) + (uint32_t)slot_word;
+        if (vf2_scsp_write_u8(&board->scsp, scsp_base + 0x0bu,
                               UINT8_C(0x1f)) != VF2_OK ||
-            vf2_scsp_write_u8(&board->scsp, UINT32_C(0x00),
+            vf2_scsp_write_u8(&board->scsp, scsp_base,
                               UINT8_C(0x10)) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
-        board->sound_ram[UINT32_C(0x2000)] = 0u;
+        if (stream_slot >= VF2_SOUND_RAM_BYTES) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        board->sound_ram[stream_slot] = 0u;
         voice[2u] = 0u;
         voice[4u] = 0u;
         --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
