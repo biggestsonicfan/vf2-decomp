@@ -1224,14 +1224,16 @@ static vf2_status sound_board_dispatch_90(
 
 static vf2_status sound_board_dispatch_a0(
     vf2_sound_board *board,
-    uint8_t stream_selector,
-    uint8_t stream_index,
+    uint8_t command,
+    uint8_t payload,
     vf2_sound_dispatch_report *report
 )
 {
     uint16_t maximum = 0u;
+    /* ROM 0x1e76: the row is keyed by command, and the maximum and the
+       row pointer by payload (ring byte 1). */
     uint32_t table_address = UINT32_C(0x608e12) +
-        (uint32_t)(stream_selector & 0x7fu) * 4u;
+        (uint32_t)(command & 0x7fu) * 4u;
     uint32_t pointer_table = 0u;
     uint32_t data_pointer = 0u;
     uint32_t source_pointer = 0u;
@@ -1244,10 +1246,13 @@ static vf2_status sound_board_dispatch_a0(
         read_audio_be16(board, pointer_table, &maximum) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    if ((uint16_t)stream_index > maximum) {
-        return VF2_OK;
+    if ((uint16_t)payload > maximum) {
+        /* The 0x1eae arm initializes from a stale pointer held in a2
+           (never loaded on this path), so it has no deterministic
+           function of the command: fail closed. */
+        return VF2_ERROR_UNSUPPORTED;
     }
-    table_address = pointer_table + 2u + (uint32_t)stream_index * 4u;
+    table_address = pointer_table + 2u + (uint32_t)payload * 4u;
     if (read_audio_be32(board, table_address, &data_pointer) != VF2_OK ||
         read_audio_byte_absolute(board, data_pointer, &stream_flags) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
@@ -1272,11 +1277,13 @@ static vf2_status sound_board_dispatch_a0(
     }
     descriptor = board->sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
     source_pointer = data_pointer;
-    if (read_audio_be32(board, source_pointer + 4u, &data_pointer) != VF2_OK) {
+    /* ROM 0x1eb8: descriptor[4] is the longword AT the data pointer
+       (a2 advances past it) and descriptor[8] the pointer past it. */
+    if (read_audio_be32(board, source_pointer, &data_pointer) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
     write_be32(descriptor + 4u, data_pointer);
-    write_be32(descriptor + 8u, source_pointer + 8u);
+    write_be32(descriptor + 8u, source_pointer + 4u);
     write_be16(descriptor + 2u, 1u);
     descriptor[0] = 0x88u;
     ++report->descriptors_updated;
@@ -1625,9 +1632,7 @@ vf2_status vf2_sound_board_dispatch_next(
             }
         } else if (local.command_class == 0xa0u) {
             vf2_status status = sound_board_dispatch_a0(
-                board, local.payload,
-                ram[VF2_SOUND_COMMAND_RING_BASE +
-                    ((cursor + 2u) & UINT16_C(0x0fffu))], &local
+                board, local.command, local.payload, &local
             );
             if (status != VF2_OK) {
                 *report = local;

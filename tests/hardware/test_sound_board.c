@@ -318,10 +318,10 @@ int main(void)
         vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom));
         memset(audio_rom, 0, sizeof(audio_rom));
-        audio_rom[0x8e16u] = 0x00u;
-        audio_rom[0x8e17u] = 0x60u;
-        audio_rom[0x8e18u] = 0x70u;
-        audio_rom[0x8e19u] = 0x00u;
+        audio_rom[0x8e92u] = 0x00u;
+        audio_rom[0x8e93u] = 0x60u;
+        audio_rom[0x8e94u] = 0x70u;
+        audio_rom[0x8e95u] = 0x00u;
         audio_rom[0x7000u] = 0u;
         audio_rom[0x7001u] = 2u;
         audio_rom[0x7006u] = 0x00u;
@@ -347,10 +347,10 @@ int main(void)
         descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
         EXPECT_TRUE(descriptor[0] == 0x88u);
         EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
-        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
-                    descriptor[6] == 1u && descriptor[7] == 0x23u);
+        EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0u &&
+                    descriptor[6] == 0u && descriptor[7] == 0u);
         EXPECT_TRUE(descriptor[8] == 0u && descriptor[9] == 0x60u &&
-                    descriptor[10] == 0x80u && descriptor[11] == 8u);
+                    descriptor[10] == 0x80u && descriptor[11] == 4u);
 
         /* The high-bit source flag takes the alternate six-descriptor path. */
         vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
@@ -372,6 +372,21 @@ int main(void)
         EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
         EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
                     descriptor[6] == 0x80u && descriptor[7] == 1u);
+
+        /* Payload above the table maximum takes the 0x1eae arm, which
+           initializes from a stale pointer: fail closed. */
+        vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom));
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0u;
+        descriptor[2] = 0u;
+        {
+            const uint8_t packet[4] = {0xa0u, 0x05u, 0x01u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
 
         /* The bounded 0x1f7c C/D packet path emits a four-byte ring entry and
            reloads its timer from the following continuation byte. */
@@ -431,6 +446,10 @@ int main(void)
         EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
         EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
                     descriptor[6] == 0x82u && descriptor[7] == 4u);
+        /* Stream files live at absolute 0x3000, not 0x2000 (driver a2
+           bases are 0x2000(a6) with A6 = 0x1000): pin both sides. */
+        EXPECT_TRUE(board.sound_ram[0x3000u] == 0x80u);
+        EXPECT_TRUE(board.sound_ram[0x2000u] == 0u);
 
         /* F0 scans through source bytes to the next F7 marker, then reloads
            the continuation timer without emitting a command packet. */
