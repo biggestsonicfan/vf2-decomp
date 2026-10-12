@@ -4299,7 +4299,38 @@ cover the sound CPU), so 68k fixtures are C-vs-C
 self-consistency: planted gates prove only that the tests can
 fail. Every accepted 68k behavior is additionally verified at the
 byte level against the ROM disassembly (v0797-v0799 corrected
-three mode-6 print merges and two missing handlers this way).## 6. Transactional rejection coverage
+three mode-6 print merges and two missing handlers this way).
+
+### v0804 Loop-B dead verdict, walk map, DSP write-set, instrument fixes
+
+Loop-B (0x902) and the whole downstream voice-start body chain
+(0xa8e-0xc6a, SA/KEYON) are dead code, proven four ways: the
+stepper traps at the first dbf (`UNSUPPORTED` at `0x934` in 6/15
+steps, ctest #96 `vf2_m68k_loopb_probe`); silicon would run the
+ROM's own vector-4 crash stub (`0x6004d4` -> `0x4fe` halt) on the
+`0x00FF` word; a full-image branch xref finds no caller (the
+90-HIGH feeder needs `desc[2] >= 0xf0`, unmatchable via the drain
+and unproduced by any modeled writer); the beq arm sleds into a
+stack-misaligning `ori.b (a7)+`. P1b evaporates:
+refuse-before-Loop-B is complete, and staged-silence is the
+terminal correct state for drain-driven flow (not a stepping
+stone to KEYON). The walk head/interior is live and mapped to the
+`0x265e` epilogue in 21 steps on an active stream (timer check
+bypassed by the ori.b sled, `adda.w #$20` slot-stride loop);
+iteration 2+ always drains (bmi on epilogue residue); the twin
+tails need a `desc[1]!=0` fixture (open, P2 slice). The SCSP
+`0x400-0x43F` write set is closed at 7 addresses (6 modeled,
+`0x408` dead); no DSP-window traffic exists, so DSP stays a
+boundary for lack of evidence rather than an open question.
+Instrument fixes: jsr/jmp-(d16,PC) base `pc+2` -> `pc+4` (drain
+entry print label `$7a6` -> `$7a8`, fixtures repinned),
+ori/eori mode-1 and ROR-register admitted (ROXR and
+andi/subi/addi/cmpi mode-1 stay refused). A0 refuse-at-entry
+stands on two legs (residue-d2 split plus sled-riddled/crashing
+table targets, rows 64+ read code-as-pointers). Evidence:
+`p1b_loopb_dead_verdict_v0804.md`, `audio_dsp_write_set_v0804.md`.
+
+## 6. Transactional rejection coverage
 
 The player interrupt composite now preserves CPU state when a nested player
 branch is rejected, and video input validation occurs before writes. Other

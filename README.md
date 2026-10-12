@@ -37,7 +37,7 @@ camera                   ████████░░
 HUD / game_disp          █████████░  TEST / COIN ASSIGNMENT / F2-F4 post-edit menu corridors
 fighter / game logic     ████████░░  post-29414 player corridor; hash/record-rebuild + display-object cascade leaves
 geometry / rendering     ███████░░░  TGP/object paths recovered; rasterizer open
-audio                    █████░░░░░  68000 drain/dispatch/voice-tick recovered; start-trigger mapped post-refusal; FM/DSP open
+audio                    █████░░░░░  drain/dispatch/voice-tick recovered; Loop-B/body proven dead-end; walk mapped to epilogue, tails open; FM/DSP boundary
 complete game flow       █████░░░░░  boot/menu/phase corridors; F2/F3/F4 post-edit; match flow open
 fully playable match     ██░░░░░░░░  combat/physics/AI still open
 ```
