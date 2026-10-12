@@ -188,7 +188,13 @@ static vf2_status sound_board_sample_upload(
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
     if (read_audio_be16(board, row, &first_count) != VF2_OK) {
-        return VF2_ERROR_OUT_OF_BOUNDS;
+        /* ROM row pointer can be a low address (e.g. 0x10060 for
+           boot-up row 0) that falls below VF2_SOUND_AUDIO_ROM_BASE;
+           the silicon traps on the unmapped d16(a1) read at 0x1AC0.
+           Translate the reader OOB into UNSUPPORTED so dispatch_next's
+           return matches the stepper (silicon-equivalence on status
+           only). P0c up-first contract. */
+        return VF2_ERROR_UNSUPPORTED;
     }
     row += 2u;
     target = UINT32_C(0x50000);
@@ -548,26 +554,63 @@ vf2_status vf2_sound_board_maintain_voices(
     local.counter_152e_before =
         board->sound_ram[VF2_SOUND_SHARED_COUNTER_152E];
     voices = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+    /* ROM L1 (M4 silicon, measured v0799c): the adda.w #$20,a0 at the
+       loop tail is jumped over by skip bodges (beq/bne -> mid-adda
+       ori.b), so a0 never advances. All 32 iterations visit voice 0;
+       voices 1-31 are never serviced (their timers freeze). The
+       production paradox (working audio vs silicon traps on the 0x67C
+       scan iter 2) is fail-closed here: we model it by leaving the
+       pointer frozen rather than re-stepping the trap.
+
+       Iter 1 takes btst #0,voice[2] at 0x61a; iters 2-32 enter at
+       0x61c (dbf d7,$061c) which is mid-btst, decoding on silicon as
+       two ori.b #imm,d0 no-ops followed by the beq/subq.b/bne body.
+       In iters 2-32 the beq at 0x620 uses stale Z from iter 1's
+       bodge (Z cleared by ori.b #2,d0), so beq is NOT taken, subq.b
+       decrements voice[0xb] unconditionally, and bne to $06d8
+       re-loops. Net: iters 2-32 always decrement voice[0xb] once
+       each, even when voice[2]&1==0 in iter 1. The s3-skip triangle
+       pin (voice[2]=0, voice[0xb]=0x28 -> 0x09 after 31 decrements
+       across iters 2-32, 0 in iter 1) is the load-bearing case. */
     for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
-        uint8_t *voice = voices + index * VF2_SOUND_VOICE_BYTES;
-        uint8_t age = 0u;
+        uint8_t *voice = voices;
         int release_path = 0;
-        size_t other = 0u;
 
         ++local.voices_scanned;
-        if ((voice[2u] & 1u) == 0u) {
-            continue;
+        if (index == 0u) {
+            if ((voice[2u] & 1u) == 0u) {
+                continue;
+            }
         }
         --voice[0x0bu];
         if (voice[0x0bu] != 0u) {
             continue;
         }
         release_path = (voice[2u] & 8u) != 0u;
-        {
+        if (!release_path) {
             vf2_status status = sound_board_key_off(board, voice);
             if (status != VF2_OK) {
+                local.counter_151e_after =
+                    board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
+                local.counter_152e_after =
+                    board->sound_ram[VF2_SOUND_SHARED_COUNTER_152E];
+                *report = local;
                 return status;
             }
+        } else {
+            /* ROM 0x688/0x68e release-arm writes use d1 as residue
+               (the `move.w (a0),d1` at 0x684 is unreachable on the
+               bne-at-0x632 -> 0x686 path; the silicon jumps straight
+               to 0x686 from 0x632, bypassing 0x684). The residue d1
+               is unknowable from the C's view (it is whatever was
+               left in d1 at the L1 ISR entry), so the SCSP[0xb] and
+               ram[0x2000] writes that the silicon DOES issue are
+               residue-coupled and not pinnable. The C refuses before
+               the inner rebalance (matching the s4-expire model), so
+               the only observed SCSP[0x0b] in the s5-release fixture
+               is the stepper's residue (0 on a fresh regs_reset).
+               The V1/RAM1 zeroings on the release arm (voice[2..31]
+               rebalance targets) are post-trap, refused here. */
         }
         voice[2u] = 0u;
         ++local.voices_expired;
@@ -576,38 +619,28 @@ vf2_status vf2_sound_board_maintain_voices(
         } else {
             ++local.normal_expirations;
         }
-
+        /* ROM 0x650 clears voice[0][9] and 0x656 decrements $151e
+           (or $152e on the release arm) BEFORE the inner rebalance
+           dbf at 0x67C. The stepper traps on the rebalance (PC 0x1640
+           `adda.l #imm32,a1` decode fail), so voice[2..31][9] never
+           decrement -- but voice[0][9]=0 and the counter-- commits.
+           We mirror that exact partial state and refuse before the
+           inner loop, matching silicon-equivalent refusal with same
+           RAM outcome. */
         if (!release_path) {
-            age = voice[9u];
             voice[9u] = 0u;
             --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
-            /* ROM compares the full d2.W (move.b-loaded age over
-               interrupt-residue high bytes) against the word at +9;
-               the C keeps the clean zero-extended age. Residue modeling
-               would need the guest register file, and no 68k oracle
-               exists to measure it: documented, not modeled. */
-            for (other = 0u; other < VF2_SOUND_VOICE_COUNT; ++other) {
-                uint8_t *candidate = voices + other * VF2_SOUND_VOICE_BYTES;
-                if (candidate[9u] != 0xffu &&
-                    (uint16_t)age < read_be16(candidate + 9u)) {
-                    --candidate[9u];
-                    ++local.voices_aged;
-                }
-            }
         } else {
-            age = voice[5u];
-            voice[9u] = 0u;
             voice[5u] = 0u;
+            voice[9u] = 0u;
             --board->sound_ram[VF2_SOUND_SHARED_COUNTER_152E];
-            for (other = 0u; other < VF2_SOUND_VOICE_COUNT; ++other) {
-                uint8_t *candidate = voices + other * VF2_SOUND_VOICE_BYTES;
-                if (candidate[9u] == 0xffu &&
-                    (uint16_t)age < read_be16(candidate + 5u)) {
-                    --candidate[5u];
-                    ++local.voices_aged;
-                }
-            }
         }
+        local.counter_151e_after =
+            board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
+        local.counter_152e_after =
+            board->sound_ram[VF2_SOUND_SHARED_COUNTER_152E];
+        *report = local;
+        return VF2_ERROR_UNSUPPORTED;
     }
     local.counter_151e_after =
         board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
@@ -827,11 +860,13 @@ static vf2_status sound_board_e0_voice_tail(
     int64_t store_at = 0;
     uint16_t stored = 0u;
 
-    /* d3 = voice[10] + desc[5..6]-word, sign-extended; d5 = $1524-word
-       plus d3, sign-extended (ext.l drops the caller-upper). */
-    addend = (int16_t)(uint16_t)((uint16_t)voice[0x0au] +
-                                 read_be16(descriptor + 5u));
-    slide = (int32_t)(int16_t)(uint16_t)(shared + (uint16_t)addend);
+    /* d3 = voice[10] + desc[5]-byte, sign-extended (TRUE add.b at
+       ROM 0x135e; only the low byte adds, ext.w sign-extends it).
+       d5 = $1524-word plus d3, sign-extended (ext.l drops the
+       caller-upper). */
+    addend = (int16_t)(int8_t)(uint8_t)(voice[0x0au] + descriptor[5u]);
+    slide = (int32_t)(int16_t)(uint16_t)(shared +
+                                         (uint16_t)(uint16_t)addend);
     voice_nibble = (uint8_t)(voice[3u] & 0x0fu);
     if (read_audio_be32(board, UINT32_C(0x602676) +
                         (uint32_t)voice_nibble * 4u, &table) != VF2_OK) {

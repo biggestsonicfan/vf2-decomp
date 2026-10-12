@@ -352,6 +352,13 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "%s.%c #$%x,-(a%u)", operation, size_name,
                            (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 1u) {
+            /* (An) indirect, no extension word. Admitted for the
+               0x2256 walk-sled ori.b (a2); andi/subi/addi/cmpi stay
+               refused here until a path executes them. */
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "%s.%c #$%x,(a%u)", operation, size_name,
+                           (unsigned)immediate, register_number);
         } else if (status == VF2_OK && mode == 5u) {
             status = vf2_m68k_read_u16(
                 program, program_size,
@@ -1147,9 +1154,13 @@ vf2_status vf2_m68k_decode(
         const unsigned operation_mode = (unsigned)((opcode >> 6u) & 7u);
         const unsigned source_mode = (unsigned)((opcode >> 3u) & 7u);
         const unsigned source_register = (unsigned)(opcode & 7u);
-        const char size_name = operation_mode == 2u || operation_mode == 6u
-            ? 'b' : ((operation_mode == 1u || operation_mode == 5u ||
-                      operation_mode == 7u) ? 'l' : 'w');
+        /* Motorola size mapping: opmode 0/4=.B, 1/5=.W, 2/6=.L. The
+           pre-fix map printed 0->w, 1->l, 2->b (rotated by 1), which
+           mis-labeled e.g. 0x135e as "add.w" when the silicon executes
+           add.b. The C audit (triangle s1-clean, e0) depends on the
+           TRUE size; the print now matches the execution. */
+        const char size_name = operation_mode == 0u || operation_mode == 4u
+            ? 'b' : ((operation_mode == 1u || operation_mode == 5u) ? 'w' : 'l');
         uint16_t displacement = 0u;
         const int source_has_displacement = source_mode == 5u;
         const int destination_has_displacement =
@@ -1245,7 +1256,7 @@ vf2_status vf2_m68k_decode(
         if (status == VF2_OK) {
             set_branch_text(instruction,
                             opcode == UINT16_C(0x4eba) ? "jsr" : "jmp",
-                            address + 2u + (uint32_t)sign_extend16(extension));
+                            address + 4u + (uint32_t)sign_extend16(extension));
         }
     } else if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90)) {
         (void)snprintf(instruction->text, sizeof(instruction->text),

@@ -203,9 +203,14 @@ static vf2_status bus_read(
                  bus->ram[address + 3u];
         return VF2_OK;
     }
-    /* Unmodeled region (system ports): record and continue with zero. */
-    *value = 0u;
-    return log_event(bus, address, 0u, (uint8_t)size, 0u);
+    if (address == UINT32_C(0x400000) || address == UINT32_C(0x400001)) {
+        /* The $400000 system port is mapped but its behavior is
+           unmodeled: record and continue. Every other unmapped
+           address traps on silicon: refuse (fail closed). */
+        *value = 0u;
+        return log_event(bus, address, 0u, (uint8_t)size, 0u);
+    }
+    return VF2_ERROR_UNSUPPORTED;
 }
 
 static vf2_status bus_write(
@@ -270,7 +275,10 @@ static vf2_status bus_write(
         bus->ram[address + 3u] = (uint8_t)value;
         return VF2_OK;
     }
-    return log_event(bus, address, value, (uint8_t)size, 1u);
+    if (address == UINT32_C(0x400000) || address == UINT32_C(0x400001)) {
+        return log_event(bus, address, value, (uint8_t)size, 1u);
+    }
+    return VF2_ERROR_UNSUPPORTED;
 }
 
 /* Program-space read for fetch and PC-relative data. */
@@ -603,8 +611,49 @@ static vf2_status ea_write(
     return VF2_ERROR_UNSUPPORTED;
 }
 
-static vf2_status fetch_imm(
+/* Resolve a read-modify-write address ONCE. Extension words are
+ * consumed here only; the caller reads, computes, and writes back
+ * through the same address, post-incrementing (An)+ at the end.
+ * Using ea_read + ea_write for one operand would consume the
+ * extension twice and update An twice. Modes 0/1/7.2-7.4 refuse. */
+static vf2_status ea_rmw_addr(
     vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    unsigned mode,
+    unsigned reg,
+    unsigned size,
+    uint32_t pc,
+    size_t *off,
+    uint32_t *address
+)
+{
+    if (mode == 2u) {
+        *address = regs->a[reg];
+        return VF2_OK;
+    }
+    if (mode == 1u) {
+        /* (An) indirect: same address as (An) dereference, no stride
+           change. Admitted for the walk-sled ori.b (a2); the decoder
+           gates which ops may use it. */
+        *address = regs->a[reg];
+        return VF2_OK;
+    }
+    if (mode == 3u) {
+        *address = regs->a[reg];
+        return VF2_OK;
+    }
+    if (mode == 4u) {
+        regs->a[reg] -= an_stride(reg, size);
+        *address = regs->a[reg];
+        return VF2_OK;
+    }
+    if (mode == 5u || mode == 6u || (mode == 7u && reg <= 1u)) {
+        return ea_param_addr(bus, regs, mode, reg, pc, off, 0u, address);
+    }
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+static vf2_status fetch_imm(    vf2_m68k_bus *bus,
     uint32_t pc,
     size_t *off,
     unsigned size,
@@ -669,10 +718,12 @@ static int bcc_holds(const vf2_m68k_regs *regs, unsigned cond)
     }
 }
 
-/* True 68k sizes for the general ADD/SUB/CMP/OR forms. NOTE: the
- * disassembler prints these rotated (opmode 0->w, 1->l, 2->b); the
- * stepper executes Motorola sizes (0->b, 1->w, 2->l). The triangle
- * tests arbitrate per site; the print fix follows the C audit. */
+/* True 68k sizes for the general ADD/SUB/CMP/OR forms. Both the
+ * stepper and the disassembler (decoder.c:1155-1156, fixed v0803)
+ * now use the Motorola size mapping (opmode 0/4=.B, 1/5=.W, 2/6=.L).
+ * Earlier v0xxx versions had the decoder printing a rotated mapping
+ * (0->w, 1->l, 2->b); the stepper always used the Motorola mapping,
+ * so decoder prints diverged from stepper execution until v0803. */
 static unsigned true_alu_size(unsigned opmode)
 {
     if (opmode == 0u || opmode == 4u) {
@@ -789,14 +840,59 @@ static vf2_status step_imm_op(
         }
         return VF2_OK;
     }
-    if (mode != 0u && mode != 2u && mode != 3u && mode != 4u &&
+    /* Mode 1 ((An)) admitted for the walk-sled ori.b (a2); the decoder
+       gates which imm-ops may use it (ori/eori only). */
+    if (mode != 0u && mode != 1u && mode != 2u && mode != 3u && mode != 4u &&
         mode != 5u && mode != 6u &&
         !(mode == 7u && (reg == 0u || reg == 1u))) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    status = ea_read(bus, regs, mode, reg, size, pc, off, &dst);
-    if (status != VF2_OK) {
-        return status;
+    if (mode == 0u) {
+        status = ea_read(bus, regs, mode, reg, size, pc, off, &dst);
+        if (status != VF2_OK) {
+            return status;
+        }
+    } else {
+        uint32_t address = 0u;
+        status = ea_rmw_addr(bus, regs, mode, reg, size, pc, off,
+                             &address);
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = bus_read(bus, address, size, &dst);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (mode == 3u) {
+            regs->a[reg] = address + an_stride(reg, size);
+        }
+        if (kind == 4u) {
+            flags_sub(regs, size, dst, imm, (dst - imm) & size_mask(size),
+                      0);
+            return VF2_OK;
+        }
+        if (kind == 0u || kind == 5u) {
+            result = kind == 0u ? ((dst | imm) & size_mask(size))
+                                : ((dst ^ imm) & size_mask(size));
+        } else if (kind == 1u) {
+            result = (dst & imm) & size_mask(size);
+        } else if (kind == 3u) {
+            result = (dst + imm) & size_mask(size);
+        } else {
+            result = (dst - imm) & size_mask(size);
+        }
+        status = bus_write(bus, address, size, result);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (kind == 3u) {
+            flags_add(regs, size, dst, imm, result);
+        } else if (kind == 2u) {
+            flags_sub(regs, size, dst, imm, result, 1);
+        } else {
+            flags_logic(regs, size, result);
+        }
+        return VF2_OK;
     }
     if (kind == 0u || kind == 5u) {
         result = kind == 0u ? ((dst | imm) & size_mask(size))
@@ -940,9 +1036,44 @@ static vf2_status step_alu(
             return VF2_ERROR_UNSUPPORTED;
         }
         src = regs->d[dreg] & size_mask(size);
-        status = ea_read(bus, regs, smode, sreg, size, pc, off, &dst);
-        if (status != VF2_OK) {
-            return status;
+        if (smode == 0u) {
+            status = ea_read(bus, regs, smode, sreg, size, pc, off, &dst);
+            if (status != VF2_OK) {
+                return status;
+            }
+        } else {
+            uint32_t address = 0u;
+            status = ea_rmw_addr(bus, regs, smode, sreg, size, pc, off,
+                                 &address);
+            if (status != VF2_OK) {
+                return status;
+            }
+            status = bus_read(bus, address, size, &dst);
+            if (status != VF2_OK) {
+                return status;
+            }
+            if (smode == 3u) {
+                regs->a[sreg] = address + an_stride(sreg, size);
+            }
+            if (kind == 2u) {
+                result = (dst | src) & size_mask(size);
+            } else if (kind == 0u) {
+                result = (dst + src) & size_mask(size);
+            } else {
+                result = (dst - src) & size_mask(size);
+            }
+            status = bus_write(bus, address, size, result);
+            if (status != VF2_OK) {
+                return status;
+            }
+            if (kind == 2u) {
+                flags_logic(regs, size, result);
+            } else if (kind == 0u) {
+                flags_add(regs, size, dst, src, result);
+            } else {
+                flags_sub(regs, size, dst, src, result, 1);
+            }
+            return VF2_OK;
         }
         if (kind == 2u) {
             result = (dst | src) & size_mask(size);
@@ -1010,18 +1141,44 @@ static vf2_status step_quick(
         /* Memory quick operations are byte-only on this corridor. */
         return VF2_ERROR_UNSUPPORTED;
     }
-    status = ea_read(bus, regs, mode, reg, size, pc, off, &dst);
-    if (status != VF2_OK) {
-        return status;
-    }
-    if (is_sub != 0) {
-        result = (dst - amount) & size_mask(size);
+    if (mode == 0u) {
+        status = ea_read(bus, regs, mode, reg, size, pc, off, &dst);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (is_sub != 0) {
+            result = (dst - amount) & size_mask(size);
+        } else {
+            result = (dst + amount) & size_mask(size);
+        }
+        status = ea_write(bus, regs, mode, reg, size, pc, off, result);
+        if (status != VF2_OK) {
+            return status;
+        }
     } else {
-        result = (dst + amount) & size_mask(size);
-    }
-    status = ea_write(bus, regs, mode, reg, size, pc, off, result);
-    if (status != VF2_OK) {
-        return status;
+        /* Memory RMW: resolve once, read, postinc, write back. */
+        uint32_t address = 0u;
+        status = ea_rmw_addr(bus, regs, mode, reg, size, pc, off,
+                             &address);
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = bus_read(bus, address, size, &dst);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (mode == 3u) {
+            regs->a[reg] = address + an_stride(reg, size);
+        }
+        if (is_sub != 0) {
+            result = (dst - amount) & size_mask(size);
+        } else {
+            result = (dst + amount) & size_mask(size);
+        }
+        status = bus_write(bus, address, size, result);
+        if (status != VF2_OK) {
+            return status;
+        }
     }
     if (is_sub != 0) {
         flags_sub(regs, size, dst, amount, result, 1);
@@ -1069,6 +1226,36 @@ static vf2_status step_mulu(
     }
     regs->d[dreg] = result;
     flags_logic(regs, 2u, result);
+    return VF2_OK;
+}
+
+/* ROR Dn, immediate count only (ROXR stays refused). The walk-sled
+ * ror.l #8,d1 chain needs exactly this form: rotate right, C takes
+ * each bit shifted out of bit 0, X untouched, V cleared. */
+static vf2_status step_ror_reg(vf2_m68k_regs *regs, uint16_t opcode)
+{
+    unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+    unsigned count = (unsigned)((opcode >> 9u) & 7u);
+    unsigned reg = (unsigned)(opcode & 7u);
+    unsigned width = size_code == 0u ? 8u : (size_code == 1u ? 16u : 32u);
+    uint32_t mask =
+        width == 8u ? UINT32_C(0xff) :
+        (width == 16u ? UINT32_C(0xffff) : UINT32_C(0xffffffff));
+    uint32_t value = regs->d[reg] & mask;
+    unsigned i = 0u;
+    if (count == 0u) {
+        count = 8u;
+    }
+    for (i = 0u; i < count; ++i) {
+        uint32_t bit = value & 1u;
+        value = (value >> 1u) | (bit << (width - 1u));
+        regs->c = (uint8_t)bit;
+    }
+    value &= mask;
+    regs->d[reg] = (regs->d[reg] & ~mask) | value;
+    regs->n = (value & (UINT32_C(1) << (width - 1u))) != 0u ? 1u : 0u;
+    regs->z = value == 0u ? 1u : 0u;
+    regs->v = 0u;
     return VF2_OK;
 }
 
@@ -1166,22 +1353,34 @@ static vf2_status step_bit(
         return VF2_OK;
     }
     bit = bitword & 7u;
-    status = ea_read(bus, regs, mode, reg, 0u, pc, off, &dst);
-    if (status != VF2_OK) {
-        return status;
-    }
-    regs->z = ((dst >> bit) & 1u) == 0u ? 1u : 0u;
-    if (type == 1u) {
-        dst ^= (uint32_t)(1u << bit);
-    } else if (type == 2u) {
-        dst &= (uint32_t)~(1u << bit);
-    } else if (type == 3u) {
-        dst |= (uint32_t)(1u << bit);
-    }
-    if (type != 0u) {
-        status = ea_write(bus, regs, mode, reg, 0u, pc, off, dst);
+    {
+        /* Memory bitop: resolve once (see ea_rmw_addr). A pure test
+           still post-increments (An)+ on the access. */
+        uint32_t address = 0u;
+        status = ea_rmw_addr(bus, regs, mode, reg, 0u, pc, off, &address);
         if (status != VF2_OK) {
             return status;
+        }
+        status = bus_read(bus, address, 0u, &dst);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (mode == 3u) {
+            regs->a[reg] = address + an_stride(reg, 0u);
+        }
+        regs->z = ((dst >> bit) & 1u) == 0u ? 1u : 0u;
+        if (type == 1u) {
+            dst ^= (uint32_t)(1u << bit);
+        } else if (type == 2u) {
+            dst &= (uint32_t)~(1u << bit);
+        } else if (type == 3u) {
+            dst |= (uint32_t)(1u << bit);
+        }
+        if (type != 0u) {
+            status = bus_write(bus, address, 0u, dst);
+            if (status != VF2_OK) {
+                return status;
+            }
         }
     }
     return VF2_OK;
@@ -1403,8 +1602,8 @@ static vf2_status step_jsr_jmp(
             return status;
         }
         *off += 2u;
-        /* Mirrors the decoder: base is the opcode address + 2. */
-        target = pc + 2u + (uint32_t)(int32_t)(int16_t)ext;
+        /* Motorola base: address past the ext word (opcode + 2). */
+        target = pc + 4u + (uint32_t)(int32_t)(int16_t)ext;
     } else if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90) ||
                (opcode & UINT16_C(0xfff8)) == UINT16_C(0x4ed0)) {
         target = regs->a[opcode & 7u];
@@ -1457,6 +1656,7 @@ vf2_status vf2_m68k_run(
         opcode = first;
         status = vf2_m68k_decode(bus->rom, bus->rom_size, pc, &instruction);
         if (status != VF2_OK || instruction.supported == 0) {
+            *steps_done = done;
             return VF2_ERROR_UNSUPPORTED;
         }
         new_pc = pc + (uint32_t)instruction.length;
@@ -1544,6 +1744,27 @@ vf2_status vf2_m68k_run(
                 unsigned size = size_code == 0u ? 0u
                     : (size_code == 1u ? 1u : 2u);
                 status = step_imm_op(bus, regs, opcode, pc, &off, size, 4u);
+            }
+        } else if ((opcode & UINT16_C(0xf1ff)) == UINT16_C(0xd0fc) ||
+                   (opcode & UINT16_C(0xf1ff)) == UINT16_C(0xd1fc) ||
+                   (opcode & UINT16_C(0xf1ff)) == UINT16_C(0x90fc) ||
+                   (opcode & UINT16_C(0xf1ff)) == UINT16_C(0x91fc)) {
+            /* ADDA/SUBA #imm: word sign-extends, long is full, no
+               flags. Placed before SUB/ADD: 0x90FC would otherwise
+               die in the SUB narrow-mode guard. */
+            unsigned dreg = (unsigned)((opcode >> 9u) & 7u);
+            int is_long = (opcode & UINT16_C(0x0100)) != 0;
+            int is_sub = (opcode & UINT16_C(0xf000)) == UINT16_C(0x9000);
+            uint32_t imm = 0u;
+            status = fetch_imm(bus, pc, &off, is_long ? 2u : 1u, &imm);
+            if (status == VF2_OK) {
+                uint32_t delta =
+                    is_long ? imm : (uint32_t)(int32_t)(int16_t)imm;
+                if (is_sub != 0) {
+                    regs->a[dreg] = regs->a[dreg] - delta;
+                } else {
+                    regs->a[dreg] = regs->a[dreg] + delta;
+                }
             }
         } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x8000)) {
             /* OR: decoder admits opmode 0-2 with src 0/2/3/5/6. */
@@ -1636,9 +1857,15 @@ vf2_status vf2_m68k_run(
         } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0xe000) &&
                    ((opcode >> 6u) & 3u) != 3u &&
                    (opcode & UINT16_C(0x0020)) == 0u &&
-                   ((opcode >> 3u) & 3u) <= 1u) {
-            /* Immediate-count arithmetic/logical shifts only. */
-            status = step_shift(regs, opcode);
+                   ((((opcode >> 3u) & 3u) <= 1u) ||
+                    (((opcode >> 3u) & 3u) == 3u))) {
+            /* Immediate-count arithmetic/logical shifts + ROR only
+               (ROXR stays refused). */
+            if (((opcode >> 3u) & 3u) == 3u) {
+                status = step_ror_reg(regs, opcode);
+            } else {
+                status = step_shift(regs, opcode);
+            }
         } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x6000)) {
             status = step_bcc(regs, bus, opcode, pc, &off, &new_pc);
         } else if ((opcode & UINT16_C(0xf0f8)) == UINT16_C(0x50c8)) {
@@ -1674,6 +1901,20 @@ vf2_status vf2_m68k_run(
             return VF2_OK;
         } else if (opcode == UINT16_C(0x4e71)) {
             status = VF2_OK;
+        } else if (opcode == UINT16_C(0x46fc)) {
+            /* move.w #imm,sr: the CCR takes the low 5 bits; the
+               supervisor upper has no stepper model. Logged so the
+               poke is visible (uploader prologue/epilogue). */
+            uint32_t imm = 0u;
+            status = fetch_imm(bus, pc, &off, 1u, &imm);
+            if (status == VF2_OK) {
+                regs->x = (uint8_t)((imm >> 4u) & 1u);
+                regs->n = (uint8_t)((imm >> 3u) & 1u);
+                regs->z = (uint8_t)((imm >> 2u) & 1u);
+                regs->v = (uint8_t)((imm >> 1u) & 1u);
+                regs->c = (uint8_t)(imm & 1u);
+                status = log_event(bus, pc, imm, 1u, 1u);
+            }
         } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x7000) &&
                    (opcode & UINT16_C(0x0100)) == 0u) {
             /* MOVEQ: bits 11-9 are Dn, bit 8 is fixed 0. */
@@ -1784,9 +2025,11 @@ vf2_status vf2_m68k_run(
             status = VF2_ERROR_UNSUPPORTED;
         }
         if (status != VF2_OK) {
+            *steps_done = done;
             return status;
         }
         if (off != instruction.length) {
+            *steps_done = done;
             /* Stepper/decoder length divergence tripwire. */
             return VF2_ERROR_UNSUPPORTED;
         }

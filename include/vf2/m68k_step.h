@@ -21,8 +21,11 @@
  *   0x800000 + sample size      -> sample_rom reads (writes refuse)
  *   0x100000 + 0x1000           -> scsp model (with its semantics)
  *   below ram_size              -> ram
- *   anywhere else               -> event log (reads give 0, writes are
- *                                  recorded) and execution continues.
+ *   $400000/$400001             -> event log (mapped port, unmodeled
+ *                                  behavior; reads give 0, writes are
+ *                                  recorded) and execution continues
+ *   anywhere else               -> VF2_ERROR_UNSUPPORTED (silicon
+ *                                  traps unmapped accesses: fail closed).
  * Triangle tests assert the event log they expect (usually empty).
  */
 

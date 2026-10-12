@@ -45,7 +45,7 @@ int main(void)
         0x02, 0x00, 0x00, 0x0f,             /* andi.b #$f,d0 */
         0x58, 0x6e, 0x15, 0x08,             /* addq.w #4,$1508(a6) */
         0x02, 0x6e, 0x0f, 0xff, 0x15, 0x08, /* andi.w #$fff,$1508(a6) */
-        0xd0, 0x28, 0x00, 0x04,             /* add.w $4(a0),d0 */
+        0xd0, 0x28, 0x00, 0x04,             /* add.b $4(a0),d0 */
         0xd5, 0xc0                          /* adda.l d0,a2 */
     };
     static const uint8_t bit_operations[] = {
@@ -142,7 +142,9 @@ int main(void)
     EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(strcmp(instruction.text, "bra $00000006") == 0);
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 6u, &instruction) == VF2_OK);
-    EXPECT_TRUE(strcmp(instruction.text, "jsr $00000000") == 0);
+    /* jsr (d16,PC): Motorola base is past the ext word (pc+4), so -8
+       from 6 lands at 2. (Pre-fix print said $00000000: pc+2 base.) */
+    EXPECT_TRUE(strcmp(instruction.text, "jsr $00000002") == 0);
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 10u, &instruction) == VF2_OK);
     EXPECT_TRUE(strcmp(instruction.text, "nop") == 0);
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program) - 1u, 10u,
@@ -204,7 +206,7 @@ int main(void)
     EXPECT_TRUE(strcmp(instruction.text, "andi.w #$fff,$1508(a6)") == 0);
     EXPECT_TRUE(vf2_m68k_decode(dispatcher, sizeof(dispatcher), 24u,
                                 &instruction) == VF2_OK);
-    EXPECT_TRUE(strcmp(instruction.text, "add.w $0004(a0),d0") == 0);
+    EXPECT_TRUE(strcmp(instruction.text, "add.b $0004(a0),d0") == 0);
     EXPECT_TRUE(vf2_m68k_decode(dispatcher, sizeof(dispatcher), 28u,
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(strcmp(instruction.text, "adda.l d0,a2") == 0);

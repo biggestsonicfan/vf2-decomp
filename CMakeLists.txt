@@ -271,6 +271,14 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_m68k_step_tests)
     add_test(NAME vf2_m68k_step COMMAND vf2_m68k_step_tests)
 
+    add_executable(vf2_m68k_triangle_tests tests/m68k/test_triangle.c)
+    target_link_libraries(vf2_m68k_triangle_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_triangle_tests)
+
+    add_executable(vf2_m68k_loopb_probe_tests tests/m68k/test_loopb_probe.c)
+    target_link_libraries(vf2_m68k_loopb_probe_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_loopb_probe_tests)
+
     add_executable(vf2_orchestrator_scan_tests tests/analysis/test_orchestrator_scan.c)
     target_link_libraries(vf2_orchestrator_scan_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_orchestrator_scan_tests)
@@ -711,6 +719,8 @@ if(VF2_BUILD_TESTS)
     add_test(NAME vf2_player_14640_compare_tail_live COMMAND vf2_player_14640_compare_tail_live_tests)
 
     if(EXISTS "${VF2_ROM_DIR}")
+        add_test(NAME vf2_m68k_triangle_differential COMMAND vf2_m68k_triangle_tests "${VF2_ROM_DIR}")
+        add_test(NAME vf2_m68k_loopb_probe COMMAND vf2_m68k_loopb_probe_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_phase17_zero_differential COMMAND vf2_phase17_zero_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_post_boot_input_profiles_differential COMMAND vf2_post_boot_input_profile_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_object_handlers_differential COMMAND vf2_object_handler_tests "${VF2_ROM_DIR}")

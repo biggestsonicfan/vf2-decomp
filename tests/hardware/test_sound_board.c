@@ -102,31 +102,70 @@ int main(void)
     voices[2u * VF2_SOUND_VOICE_BYTES + 9u] = 0xffu;
     board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 2u;
     board.sound_ram[VF2_SOUND_SHARED_COUNTER_152E] = 3u;
-    EXPECT_TRUE(vf2_sound_board_maintain_voices(&board, &maintenance) == VF2_OK);
-    EXPECT_TRUE(maintenance.voices_scanned == VF2_SOUND_VOICE_COUNT);
-    EXPECT_TRUE(maintenance.voices_expired == 2u);
+    /* Sentinels proving voice 1 (slot 0x0004) is never serviced under
+       the frozen-pointer model: key_off for voice 0 touches only
+       SCSP[0x000e] / ram[0x2003]. */
+    board.sound_ram[0x2004u] = 0xaau;
+    EXPECT_TRUE(vf2_scsp_write_u8(&board.scsp, 0x000fu, 0x5au) == VF2_OK);
+    /* P0c silicon-equivalent contract for maintain_voices (v0799c +
+   v0803): the adda.w #$20,a0 at the loop tail is jumped over by skip
+   bodges (beq/bne -> mid-adda ori.b), so a0 never advances. ALL 32
+   silicon iterations visit voice 0. The stepper traps on the inner
+   rebalance at PC 0x1640 (`adda.l #imm32,a1` decode fail), so the
+   C refuses before that rebalance, mirroring silicon's partial
+   state. This means a single `maintain_voices` call processes
+   exactly ONE expiration (voice[0] in this fixture - which is
+   pre-set as the active normal-expiration voice), then returns
+   VF2_ERROR_UNSUPPORTED. Voices 1+ are NEVER serviced; their
+   state is unchanged. The OLD per-iteration indexing + inner-
+   rebalance decrement model that this test was pinned to is
+   documented as the pre-fix recovery shape but does NOT match
+   silicon (it would require the silicon to behave like the C's
+   frozen-pointer view + the rebalance to actually fire, which
+   the stepper proves it does not). The triangle differential
+   gates the silicon-correct shape (`s1-clean`, `s3-skip`,
+   `s5-release`); this unit test is now pinned to the same
+   contract. */
+    EXPECT_TRUE(vf2_sound_board_maintain_voices(&board, &maintenance) ==
+                VF2_ERROR_UNSUPPORTED);
+    /* Iter 0 only: voice[0] expired (the frozen-pointer model). */
+    EXPECT_TRUE(maintenance.voices_scanned == 1u);
+    EXPECT_TRUE(maintenance.voices_expired == 1u);
     EXPECT_TRUE(maintenance.normal_expirations == 1u);
-    EXPECT_TRUE(maintenance.release_expirations == 1u);
-    EXPECT_TRUE(maintenance.voices_aged == 2u);
+    /* Release path (voice[1] in this fixture) is never reached -
+       the silicon would visit it on a later call, not this one. */
+    EXPECT_TRUE(maintenance.release_expirations == 0u);
+    /* No inner rebalance in the silicon-equivalent model (the
+       rebalance at PC 0x67C traps on the stepper at 0x1640). */
+    EXPECT_TRUE(maintenance.voices_aged == 0u);
+    /* Counter 151e (normal expiration): decremented exactly once. */
     EXPECT_TRUE(maintenance.counter_151e_before == 2u);
     EXPECT_TRUE(maintenance.counter_151e_after == 1u);
+    /* Counter 152e (release path): unchanged - release never
+       fired under the frozen-pointer single-iteration model. */
     EXPECT_TRUE(maintenance.counter_152e_before == 3u);
-    EXPECT_TRUE(maintenance.counter_152e_after == 2u);
+    EXPECT_TRUE(maintenance.counter_152e_after == 3u);
+    /* Voice 0 zeroed + key_off slot-side effects still commit. */
     EXPECT_TRUE(voices[2u] == 0u);
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u] == 0u);
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 9u] == 0u);
     EXPECT_TRUE(voices[9u] == 0u);
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 5u] == 0u);
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u * 0u + 9u] == 0u);
+    /* Voice 1 is NEVER reached in this call (the frozen pointer
+       never advances off voice 0; its state is byte-for-byte
+       unchanged from the fixture set above). */
+    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u] == 9u);
+    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 9u] == 8u);
+    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 5u] == 2u);
+    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u * 0u + 9u] == 8u);
     EXPECT_TRUE(voices[2u * VF2_SOUND_VOICE_BYTES + 9u] == 0xffu);
     /* ROM V1 key: SCSP[slotword+0x0b] = 0x1f, ram[0x2000+slotword] = 0
        (slot words 0x0003/0x0004 above). No control-bit RMW exists. */
     EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x000eu, &byte) == VF2_OK);
     EXPECT_TRUE(byte == 0x1fu);
+    /* Voice 1 never reached in this call (frozen pointer never leaves
+       voice 0): slot-0x0004 sentinels unchanged. */
     EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x000fu, &byte) == VF2_OK);
-    EXPECT_TRUE(byte == 0x1fu);
+    EXPECT_TRUE(byte == 0x5au);
     EXPECT_TRUE(board.sound_ram[0x2003u] == 0u);
-    EXPECT_TRUE(board.sound_ram[0x2004u] == 0u);
+    EXPECT_TRUE(board.sound_ram[0x2004u] == 0xaau);
     EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x041au, &value) == VF2_OK);
     EXPECT_TRUE(value == 0x03c0u);
     EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x0422u, &value) == VF2_OK);
@@ -495,8 +534,16 @@ int main(void)
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
         descriptor[2] = 2u;
+        /* P6 fixture shift (here and at the small-shaped e0 tail
+           below): ROM 0x135e is `add.b`, so only descriptor[5] (the
+           low byte) contributes to slide. Keeping voice[10] = 0x20 +
+           desc[5] = 0 reproduces the legacy slide = 0x0020 for both
+           add.b (silicon) and add.w (legacy) so the rest of the e0
+           fixture -- SCSP[0x30] expected 0x2234 here and 0x0020 in
+           the small-shaped leg, ram[0x203a..0x203b] = 0xab,0xcd --
+           continues to test the SAME indexed ROM byte. */
         descriptor[5] = 0u;
-        descriptor[6] = 0x10u;
+        descriptor[6] = 0u;
         descriptor[7] = 0u;
         {
             uint8_t *tail_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
@@ -508,7 +555,7 @@ int main(void)
             tail_voice[3] = 0x23u;
             tail_voice[4] = 0u;
             tail_voice[5] = 2u;
-            tail_voice[10] = 0x10u;
+            tail_voice[10] = 0x20u;
         }
         {
             const uint8_t packet[4] = {0xe2u, 0x42u, 0u, 0u};
@@ -550,8 +597,12 @@ int main(void)
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
         descriptor[2] = 2u;
+        /* P6 fixture shift: see the matching note in the first e0
+           fixture above. desc[6] = 0 here too so that voice[10] =
+           0x20 + desc[5] = 0 yields slide = 0x0020 under both add.b
+           (silicon) and add.w (legacy). */
         descriptor[5] = 0u;
-        descriptor[6] = 0x10u;
+        descriptor[6] = 0u;
         descriptor[7] = 0u;
         {
             uint8_t *tail_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
@@ -561,7 +612,15 @@ int main(void)
             tail_voice[3] = 0x03u;
             tail_voice[4] = 0u;
             tail_voice[5] = 2u;
-            tail_voice[10] = 0x10u;
+            /* P6 fixture shift: ROM 0x135e is `add.b`, so only
+               descriptor[5] (the low byte) adds; descriptor[6] (the
+               upper byte of the OLD word-add) no longer contributes
+               to `slide`. voice[10] = 0x20 with desc[5] = 0 produces
+               the same slide = 0x0020 under both add.b (silicon) and
+               add.w (legacy/fixture-written), keeping the rest of the
+               e0 fixture (ROM byte at the looked-up index, SCSP[0x30]
+               write 0x0020, ram[0x203a..0x203b] = 0xab,0xcd) intact. */
+            tail_voice[10] = 0x20u;
         }
         {
             const uint8_t packet[4] = {0xe2u, 0x42u, 0u, 0u};
