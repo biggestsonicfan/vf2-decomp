@@ -47,3 +47,22 @@ target printed by the old decoder (all such `$xxxx` are +2 too high).
   timeslices is not always an instruction start, so only the branch-target
   test is evidence.
 - Open: stepper coverage gaps (movem to memory, addq to memory d16(An)).
+
+## Slice-2 preview: the voice maintenance ISR (0x5fe) under the corrected decode
+Disassembly with the +2 base (a6=0x1000, voice table 0x1800(a6)=0x2800, stride 0x10):
+`0x61a` loop over 32 voices: skip unless `btst #0,+2`; `subq.b #1,+0x0b`; on zero,
+`btst #3,+2` picks the normal arm (0x636) or the release arm (0x684). Both arms
+write 0x1f to SCSP `0x0b(a5,d1.w)` and 0 to `ram[0x2000+d1]` (d1 = `move.w (a0),d1`,
+voice word 0 -- now reachable, the old "0x684 is bypassed, d1 is residue" claim was a
+mid-instruction artefact), clear +2 and +9 (release arm also +5), decrement `$151e`
+(normal) or `$152e` (release), then rebalance the other voices (inner loop with
+`cmp.w (a2),d2`; `bcc` skips the `subq.b`). The outer `adda.l #$10,a0` / `dbf d7,$61a`
+advance a0 normally, so all 32 voices are serviced.
+- `vf2_sound_board_maintain_voices` models "voice 0 visited 32 times" and refuses at the
+  rebalance with "decode fail"; its own comment calls this a production paradox
+  (working audio vs silicon traps). With the corrected decode the paradox disappears:
+  there is no trap and no frozen pointer.
+- Residual non-determinism to settle before re-recovering the C: the rebalance compares
+  `d2.w` (byte loaded by `move.b`, upper byte = ISR-entry residue) with the word at
+  `voice+9`. Whether the idle loop leaves d2 in a known state at interrupt time should be
+  checked (e.g. in MAME at the ISR entry) before the C commits to a rule.
