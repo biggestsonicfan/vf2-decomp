@@ -66,3 +66,13 @@ advance a0 normally, so all 32 voices are serviced.
   `d2.w` (byte loaded by `move.b`, upper byte = ISR-entry residue) with the word at
   `voice+9`. Whether the idle loop leaves d2 in a known state at interrupt time should be
   checked (e.g. in MAME at the ISR entry) before the C commits to a rule.
+
+### Measured in MAME: d2 at the voice ISR entry (2026-10-12)
+Read tap on the fetch of 0x5fe over ~1500 frames of attract (2555 hits, a6=0x1000,
+a1=0x608e04, a4=0x2506 constant): D2 takes several hundred distinct values (0 in 195
+hits, 0x00a898b6 in 221, 0x00a800ff in 99, then a long tail). The upper byte of `d2.w`
+used by the rebalance `cmp.w (a2),d2` is therefore unpredictable residue from the
+interrupted main loop. A faithful C must take d2 as an explicit input (or an
+interrupt-context model) rather than assume a value; it cannot be a constant. Caveat:
+the tap also reports the PC as 0x64 (vector fetch), so these are register values at
+ISR entry, not inside the routine.
