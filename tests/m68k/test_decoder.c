@@ -105,6 +105,23 @@ int main(void)
         0x27, 0x85, 0x40, 0x0a,             /* move.l d5,$a(a3,d4.w) */
         0x2c, 0x0a                          /* move.l a2,d6 (ROM 0xc86) */
     };
+    static const uint8_t imm_indexed[] = {
+        0x02, 0x72, 0x00, 0xff, 0x30, 0x07, /* andi.w #$ff,$7(a2,d3.w) */
+        0x04, 0x35, 0x00, 0x0f, 0x10, 0x01, /* subi.b #$f,$1(a5,d1.w) */
+        0x0c, 0xb2, 0x00, 0x00, 0x00, 0x09, /* cmpi.l #$9,$4(a2,d2.w) */
+        0x20, 0x04,
+        0x02, 0x5a, 0x00, 0xff,             /* andi.w #$ff,(a2)+ */
+        0x02, 0x78, 0x00, 0xff, 0x12, 0x34, /* andi.w #$ff,$1234 */
+        0x04, 0x25, 0x00, 0x0f,             /* subi.b #$f,-(a5) */
+        0x04, 0x3b, 0x00, 0x0f, 0x10, 0x01, /* subi.b #$f,$1(pc,d1.w) */
+        0x06, 0x1d, 0x00, 0x50,             /* addi.b #$50,(a5)+ */
+        0x06, 0x3a, 0x00, 0x50, 0x00, 0x10, /* addi.b #$50,$10(pc) */
+        0x0c, 0x1b, 0x00, 0xf7,             /* cmpi.b #$f7,(a3)+ (ROM) */
+        0x0c, 0x25, 0x00, 0x09,             /* cmpi.b #$9,-(a5) */
+        0x0c, 0x39, 0x00, 0x09, 0x00, 0x12, /* cmpi.b #$9,$00120034 */
+        0x00, 0x34,
+        0x00, 0x38, 0x00, 0xff, 0x12, 0x34  /* ori.b #$ff,$1234 */
+    };
     static const uint8_t indexed_quick[] = {
         0x06, 0x31, 0x00, 0x50, 0x10, 0x0b, /* addi.b #$50,$b(a1,d1.w) */
         0x56, 0x31, 0x10, 0x0b              /* addq.b #3,$b(a1,d1.w) */
@@ -346,6 +363,62 @@ int main(void)
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(strcmp(instruction.text, "move.l a2,d6") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 0u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "andi.w #$ff,$07(a2,d3.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 6u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "subi.b #$f,$01(a5,d1.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 12u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 8u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "cmpi.l #$9,$04(a2,d2.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 20u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "andi.w #$ff,(a2)+") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 24u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text, "andi.w #$ff,$1234") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 30u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "subi.b #$f,-(a5)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 34u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "subi.b #$f,$01(pc,d1.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 40u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "addi.b #$50,(a5)+") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 44u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text, "addi.b #$50,$0010(pc)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 50u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "cmpi.b #$f7,(a3)+") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 54u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "cmpi.b #$9,-(a5)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 58u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 8u);
+    EXPECT_TRUE(strcmp(instruction.text, "cmpi.b #$9,$00120034") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_indexed, sizeof(imm_indexed), 66u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text, "ori.b #$ff,$1234") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(indexed_quick, sizeof(indexed_quick), 0u,
                                 &instruction) == VF2_OK);

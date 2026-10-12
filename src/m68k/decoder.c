@@ -169,6 +169,75 @@ static vf2_status format_bit_ea(
     return VF2_ERROR_UNSUPPORTED;
 }
 
+/* Brief extension word for (d8,An,Xn): bit 15 selects a/d, bits 14-12
+   the index register, bit 11 the index size, low byte the
+   displacement. Centralizes the print that three handlers previously
+   open-coded (and two more got wrong by printing the raw word). */
+static void format_indexed_operand(char *text, size_t text_size,
+                                   unsigned base_register, uint16_t extension)
+{
+    const unsigned index_is_address =
+        (unsigned)((extension >> 15u) & 1u);
+    const unsigned index_register = (unsigned)((extension >> 12u) & 7u);
+    const char index_size =
+        (extension & UINT16_C(0x0800)) != 0u ? 'l' : 'w';
+    (void)snprintf(text, text_size, "$%02x(a%u,%c%u.%c)",
+                   (unsigned)(extension & 0xffu), base_register,
+                   index_is_address != 0u ? 'a' : 'd',
+                   index_register, index_size);
+}
+
+/* Absolute and PC-relative forms for #imm handlers (mode 7, regs
+   0-3): abs.W / abs.L / d16-PC / brief-indexed-PC. Reports OOB so a
+   truncated tail fails closed instead of printing garbage. */
+static vf2_status format_imm_absolute(const uint8_t *program,
+                                      size_t program_size,
+                                      uint32_t extension_address,
+                                      unsigned submode, const char *operation,
+                                      char size_name, uint32_t immediate,
+                                      char *text, size_t text_size)
+{
+    if (submode == 1u) {
+        uint32_t absolute = 0u;
+        if (vf2_m68k_read_u32(program, program_size, extension_address,
+                              &absolute) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        (void)snprintf(text, text_size, "%s.%c #$%x,$%08x", operation,
+                       size_name, (unsigned)immediate, (unsigned)absolute);
+        return VF2_OK;
+    }
+    {
+        uint16_t extension = 0u;
+        if (vf2_m68k_read_u16(program, program_size, extension_address,
+                              &extension) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        if (submode == 0u) {
+            (void)snprintf(text, text_size, "%s.%c #$%x,$%04x", operation,
+                           size_name, (unsigned)immediate,
+                           (unsigned)extension);
+        } else if (submode == 2u) {
+            (void)snprintf(text, text_size, "%s.%c #$%x,$%04x(pc)",
+                           operation, size_name, (unsigned)immediate,
+                           (unsigned)extension);
+        } else {
+            const unsigned index_is_address =
+                (unsigned)((extension >> 15u) & 1u);
+            const unsigned index_register =
+                (unsigned)((extension >> 12u) & 7u);
+            const char index_size =
+                (extension & UINT16_C(0x0800)) != 0u ? 'l' : 'w';
+            (void)snprintf(text, text_size, "%s.%c #$%x,$%02x(pc,%c%u.%c)",
+                           operation, size_name, (unsigned)immediate,
+                           (unsigned)(extension & 0xffu),
+                           index_is_address != 0u ? 'a' : 'd',
+                           index_register, index_size);
+        }
+        return VF2_OK;
+    }
+}
+
 vf2_status vf2_m68k_decode(
     const uint8_t *program,
     size_t program_size,
@@ -243,7 +312,9 @@ vf2_status vf2_m68k_decode(
         uint32_t immediate = 0u;
         uint16_t displacement = 0u;
         instruction->length = 2u + immediate_bytes +
-                              ((mode == 5u || mode == 6u) ? 2u : 0u);
+                              ((mode == 5u || mode == 6u) ? 2u :
+                               (mode == 7u && register_number <= 3u) ?
+                               (register_number == 1u ? 4u : 2u) : 0u);
         if (immediate_bytes == 4u) {
             status = vf2_m68k_read_u32(program, program_size, address + 2u,
                                        &immediate);
@@ -308,38 +379,14 @@ vf2_status vf2_m68k_decode(
                                index_is_address != 0u ? 'a' : 'd',
                                index_register, index_size);
             }
-        } else if (status == VF2_OK) {
-            status = vf2_m68k_read_u16(
-                program, program_size,
-                address + 2u + (uint32_t)immediate_bytes, &displacement
-            );
-            if (status == VF2_OK) {
-                (void)snprintf(instruction->text, sizeof(instruction->text),
-                               "%s.%c #$%x,$%04x(a%u)", operation, size_name,
-                               (unsigned)immediate, (unsigned)displacement,
-                               register_number);
-            }
-        } else if (status == VF2_OK && mode == 6u) {
-            uint16_t extension = 0u;
-            status = vf2_m68k_read_u16(
-                program, program_size,
-                address + 2u + (uint32_t)immediate_bytes, &extension
-            );
-            if (status == VF2_OK) {
-                const unsigned index_is_address =
-                    (unsigned)((extension >> 15u) & 1u);
-                const unsigned index_register =
-                    (unsigned)((extension >> 12u) & 7u);
-                const char index_size =
-                    (extension & UINT16_C(0x0800)) != 0u ? 'l' : 'w';
-                (void)snprintf(instruction->text, sizeof(instruction->text),
-                               "%s.%c #$%x,$%02x(a%u,%c%u.%c)", operation,
-                               size_name, (unsigned)immediate,
-                               (unsigned)(extension & 0xffu),
-                               register_number,
-                               index_is_address != 0u ? 'a' : 'd',
-                               index_register, index_size);
-            }
+        } else if (status == VF2_OK && mode == 7u && register_number <= 3u) {
+            status = format_imm_absolute(program, program_size,
+                                         address + 2u +
+                                             (uint32_t)immediate_bytes,
+                                         register_number, operation,
+                                         size_name, immediate,
+                                         instruction->text,
+                                         sizeof(instruction->text));
         } else if (status == VF2_OK) {
             instruction->supported = 0;
             (void)snprintf(instruction->text, sizeof(instruction->text),
@@ -428,7 +475,9 @@ vf2_status vf2_m68k_decode(
         uint32_t immediate = 0u;
         uint16_t displacement = 0u;
         instruction->length = 2u + immediate_bytes +
-                              ((mode == 5u || mode == 6u) ? 2u : 0u);
+                              ((mode == 5u || mode == 6u) ? 2u :
+                               (mode == 7u && register_number <= 3u) ?
+                               (register_number == 1u ? 4u : 2u) : 0u);
         if (immediate_bytes == 4u) {
             status = vf2_m68k_read_u32(program, program_size, address + 2u,
                                        &immediate);
@@ -457,6 +506,39 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "andi.%c #$%x,(a%u)", size_name,
                            (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 3u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "andi.%c #$%x,(a%u)+", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 4u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "andi.%c #$%x,-(a%u)", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 6u) {
+            uint16_t extension = 0u;
+            status = vf2_m68k_read_u16(program, program_size,
+                                       address + 2u +
+                                           (uint32_t)immediate_bytes,
+                                       &extension);
+            if (status == VF2_OK) {
+                char indexed[64];
+                format_indexed_operand(indexed, sizeof(indexed),
+                                       register_number, extension);
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "andi.%c #$%x,%s", size_name,
+                               (unsigned)immediate, indexed);
+            }
+        } else if (status == VF2_OK && mode == 7u && register_number <= 3u) {
+            status = format_imm_absolute(program, program_size,
+                                         address + 2u +
+                                             (uint32_t)immediate_bytes,
+                                         register_number, "andi", size_name,
+                                         immediate, instruction->text,
+                                         sizeof(instruction->text));
+        } else if (status == VF2_OK) {
+            instruction->supported = 0;
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           ".word $%04x", (unsigned)opcode);
         }
     } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0400) ||
                (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0440) ||
@@ -469,7 +551,10 @@ vf2_status vf2_m68k_decode(
         const size_t immediate_bytes = size_code == 2u ? 4u : 2u;
         uint32_t immediate = 0u;
         uint16_t displacement = 0u;
-        instruction->length = 2u + immediate_bytes + (mode == 5u ? 2u : 0u);
+        instruction->length = 2u + immediate_bytes +
+                              ((mode == 5u || mode == 6u) ? 2u :
+                               (mode == 7u && register_number <= 3u) ?
+                               (register_number == 1u ? 4u : 2u) : 0u);
         if (immediate_bytes == 4u) {
             status = vf2_m68k_read_u32(program, program_size, address + 2u,
                                        &immediate);
@@ -483,6 +568,20 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "subi.%c #$%x,d%u", size_name,
                            (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 6u) {
+            uint16_t extension = 0u;
+            status = vf2_m68k_read_u16(program, program_size,
+                                       address + 2u +
+                                           (uint32_t)immediate_bytes,
+                                       &extension);
+            if (status == VF2_OK) {
+                char indexed[64];
+                format_indexed_operand(indexed, sizeof(indexed),
+                                       register_number, extension);
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "subi.%c #$%x,%s", size_name,
+                               (unsigned)immediate, indexed);
+            }
         } else if (status == VF2_OK && mode == 5u) {
             status = vf2_m68k_read_u16(
                 program, program_size,
@@ -498,6 +597,25 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "subi.%c #$%x,(a%u)", size_name,
                            (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 3u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "subi.%c #$%x,(a%u)+", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 4u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "subi.%c #$%x,-(a%u)", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 7u && register_number <= 3u) {
+            status = format_imm_absolute(program, program_size,
+                                         address + 2u +
+                                             (uint32_t)immediate_bytes,
+                                         register_number, "subi", size_name,
+                                         immediate, instruction->text,
+                                         sizeof(instruction->text));
+        } else if (status == VF2_OK) {
+            instruction->supported = 0;
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           ".word $%04x", (unsigned)opcode);
         }
     } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0600) ||
                (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0640) ||
@@ -511,7 +629,9 @@ vf2_status vf2_m68k_decode(
         uint32_t immediate = 0u;
         uint16_t displacement = 0u;
         instruction->length = 2u + immediate_bytes +
-                              ((mode == 5u || mode == 6u) ? 2u : 0u);
+                              ((mode == 5u || mode == 6u) ? 2u :
+                               (mode == 7u && register_number <= 3u) ?
+                               (register_number == 1u ? 4u : 2u) : 0u);
         if (immediate_bytes == 4u) {
             status = vf2_m68k_read_u32(program, program_size, address + 2u,
                                        &immediate);
@@ -540,6 +660,14 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "addi.%c #$%x,(a%u)", size_name,
                            (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 3u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "addi.%c #$%x,(a%u)+", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 4u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "addi.%c #$%x,-(a%u)", size_name,
+                           (unsigned)immediate, register_number);
         } else if (status == VF2_OK && mode == 6u) {
             uint16_t extension = 0u;
             status = vf2_m68k_read_u16(
@@ -554,6 +682,17 @@ vf2_status vf2_m68k_decode(
                                (unsigned)((extension >> 12u) & 7u),
                                (extension & UINT16_C(0x0800)) != 0u ? 'l' : 'w');
             }
+        } else if (status == VF2_OK && mode == 7u && register_number <= 3u) {
+            status = format_imm_absolute(program, program_size,
+                                         address + 2u +
+                                             (uint32_t)immediate_bytes,
+                                         register_number, "addi", size_name,
+                                         immediate, instruction->text,
+                                         sizeof(instruction->text));
+        } else if (status == VF2_OK) {
+            instruction->supported = 0;
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           ".word $%04x", (unsigned)opcode);
         }
     } else if ((opcode & UINT16_C(0xf100)) == UINT16_C(0x5100) &&
                (((opcode >> 3u) & 7u) == 0u ||
@@ -814,7 +953,10 @@ vf2_status vf2_m68k_decode(
                                (size_code == 1u ? 'w' : 'l');
         const size_t immediate_bytes = size_code == 2u ? 4u : 2u;
         uint32_t immediate = 0u;
-        instruction->length = 2u + immediate_bytes + (mode == 5u ? 2u : 0u);
+        instruction->length = 2u + immediate_bytes +
+                              ((mode == 5u || mode == 6u) ? 2u :
+                               (mode == 7u && register_number <= 3u) ?
+                               (register_number == 1u ? 4u : 2u) : 0u);
         if (immediate_bytes == 4u) {
             status = vf2_m68k_read_u32(program, program_size, address + 2u,
                                        &immediate);
@@ -824,14 +966,36 @@ vf2_status vf2_m68k_decode(
                                        &value);
             immediate = value;
         }
-        if (status == VF2_OK && mode == 2u) {
-            (void)snprintf(instruction->text, sizeof(instruction->text),
-                           "cmpi.%c #$%x,(a%u)", size_name,
-                           (unsigned)immediate, register_number);
-        } else if (status == VF2_OK && mode == 0u) {
+        if (status == VF2_OK && mode == 0u) {
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "cmpi.%c #$%x,d%u", size_name,
                            (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 2u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "cmpi.%c #$%x,(a%u)", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 3u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "cmpi.%c #$%x,(a%u)+", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 4u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "cmpi.%c #$%x,-(a%u)", size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 6u) {
+            uint16_t extension = 0u;
+            status = vf2_m68k_read_u16(program, program_size,
+                                       address + 2u +
+                                           (uint32_t)immediate_bytes,
+                                       &extension);
+            if (status == VF2_OK) {
+                char indexed[64];
+                format_indexed_operand(indexed, sizeof(indexed),
+                                       register_number, extension);
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "cmpi.%c #$%x,%s", size_name,
+                               (unsigned)immediate, indexed);
+            }
         } else if (status == VF2_OK && mode == 5u) {
             uint16_t displacement = 0u;
             status = vf2_m68k_read_u16(program, program_size,
@@ -843,6 +1007,17 @@ vf2_status vf2_m68k_decode(
                                (unsigned)immediate, (unsigned)displacement,
                                register_number);
             }
+        } else if (status == VF2_OK && mode == 7u && register_number <= 3u) {
+            status = format_imm_absolute(program, program_size,
+                                         address + 2u +
+                                             (uint32_t)immediate_bytes,
+                                         register_number, "cmpi", size_name,
+                                         immediate, instruction->text,
+                                         sizeof(instruction->text));
+        } else if (status == VF2_OK) {
+            instruction->supported = 0;
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           ".word $%04x", (unsigned)opcode);
         }
     } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x9000)) {
         const unsigned destination_register = (unsigned)((opcode >> 9u) & 7u);
