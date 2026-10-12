@@ -324,6 +324,11 @@ vf2_status vf2_m68k_decode(
                                        &value);
             immediate = value;
         }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if (size_code == 0u) {
+            immediate &= 0xffu;
+        }
         if (status == VF2_OK && mode == 7u && register_number == 4u &&
             size_code != 2u) {
             /* ori/eori #imm,ccr (byte) or #,sr (word). */
@@ -487,6 +492,11 @@ vf2_status vf2_m68k_decode(
                                        &value);
             immediate = value;
         }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if (size_code == 0u) {
+            immediate &= 0xffu;
+        }
         if (status == VF2_OK && mode == 0u) {
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "andi.%c #$%x,d%u", size_name,
@@ -564,6 +574,11 @@ vf2_status vf2_m68k_decode(
                                        &value);
             immediate = value;
         }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if (size_code == 0u) {
+            immediate &= 0xffu;
+        }
         if (status == VF2_OK && mode == 0u) {
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "subi.%c #$%x,d%u", size_name,
@@ -640,6 +655,11 @@ vf2_status vf2_m68k_decode(
             status = vf2_m68k_read_u16(program, program_size, address + 2u,
                                        &value);
             immediate = value;
+        }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if (size_code == 0u) {
+            immediate &= 0xffu;
         }
         if (status == VF2_OK && mode == 0u) {
             (void)snprintf(instruction->text, sizeof(instruction->text),
@@ -965,6 +985,11 @@ vf2_status vf2_m68k_decode(
             status = vf2_m68k_read_u16(program, program_size, address + 2u,
                                        &value);
             immediate = value;
+        }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if (size_code == 0u) {
+            immediate &= 0xffu;
         }
         if (status == VF2_OK && mode == 0u) {
             (void)snprintf(instruction->text, sizeof(instruction->text),
@@ -1347,6 +1372,11 @@ vf2_status vf2_m68k_decode(
                                        &value);
             immediate = value;
         }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if (size_code != 2u && size_code != 3u) {
+            immediate &= 0xffu;
+        }
         if (destination_mode == 5u || destination_mode == 6u ||
             (destination_mode == 7u && destination_register == 0u)) {
             extension_bytes = 2u;
@@ -1628,6 +1658,11 @@ vf2_status vf2_m68k_decode(
                                        &value);
             immediate = value;
         }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x1000)) {
+            immediate &= 0xffu;
+        }
         instruction->length = immediate_bytes + 2u;
         if (status == VF2_OK) {
             const char size_name = (opcode & UINT16_C(0xf000)) == UINT16_C(0x2000)
@@ -1722,6 +1757,11 @@ vf2_status vf2_m68k_decode(
         } else if (status == VF2_OK) {
             status = vf2_m68k_read_u32(program, program_size,
                                        address + 2u, &immediate);
+        }
+        /* Byte immediates use the extension word's low byte; the CPU
+           ignores the high byte (nonzero in ROM, e.g. ori.b 0x25f8). */
+        if (opcode == UINT16_C(0x13fc)) {
+            immediate &= 0xffu;
         }
         instruction->length = immediate_bytes + 6u;
         if (status == VF2_OK) {

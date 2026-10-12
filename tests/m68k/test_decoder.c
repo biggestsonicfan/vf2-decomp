@@ -441,6 +441,61 @@ int main(void)
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 4u);
     EXPECT_TRUE(strcmp(instruction.text, "move.b $0010(pc),d1") == 0);
+    /* Byte immediates use the extension word's low byte; ROM carries
+       nonzero high bytes (0x25f8 ori.b #$e8,(a4), 0x265e ori.b
+       #$8,(a6)). Every handler with a byte #imm form is covered. */
+    static const uint8_t imm_byte_high[] = {
+        0x00, 0x14, 0x08, 0xe8,                   /* ori.b #$e8,(a4) */
+        0x0a, 0x14, 0x08, 0xe8,                   /* eori.b #$e8,(a4) */
+        0x02, 0x14, 0x08, 0xe8,                   /* andi.b #$e8,(a4) */
+        0x04, 0x14, 0x08, 0xe8,                   /* subi.b #$e8,(a4) */
+        0x06, 0x14, 0x08, 0xe8,                   /* addi.b #$e8,(a4) */
+        0x0c, 0x14, 0x08, 0xe8,                   /* cmpi.b #$e8,(a4) */
+        0x18, 0x3c, 0x08, 0xe8,                   /* move.b #$e8,d4 */
+        0x18, 0xbc, 0x08, 0xe8,                   /* move.b #$e8,(a4) */
+        0x13, 0xfc, 0x08, 0xe8, 0x00, 0x00, 0x12, 0x34, /* move.b #$e8,abs */
+        0x00, 0x16, 0x04, 0x08                    /* ori.b #$8,(a6) ROM 0x265e */
+    };
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 0u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "ori.b #$e8,(a4)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 4u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "eori.b #$e8,(a4)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 8u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "andi.b #$e8,(a4)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 12u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "subi.b #$e8,(a4)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 16u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "addi.b #$e8,(a4)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 20u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "cmpi.b #$e8,(a4)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 24u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.b #$e8,d4") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 28u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.b #$e8,(a4)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 32u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 8u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.b #$e8,$00001234") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(imm_byte_high, sizeof(imm_byte_high), 40u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "ori.b #$8,(a6)") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(indexed_quick, sizeof(indexed_quick), 0u,
                                 &instruction) == VF2_OK);
