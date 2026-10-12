@@ -500,6 +500,10 @@ int main(void)
         descriptor[7] = 0u;
         {
             uint8_t *tail_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            /* Slot word 0x0020 (voice[0..1]) proves the stores are
+               slot-indexed: SCSP[0x0030], ram[0x203a]. */
+            tail_voice[0] = 0u;
+            tail_voice[1] = 0x20u;
             tail_voice[2] = 0x01u;
             tail_voice[3] = 0x23u;
             tail_voice[4] = 0u;
@@ -513,19 +517,20 @@ int main(void)
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
         EXPECT_TRUE(dispatch.voices_matched == 1u);
-        /* ROM 0x1396 scatter: shaped 0x2234 -> SCSP[0x2244], beyond the
-           file: tolerated no-op. SCSP+0x10 keeps init zero (the old
-           absolute-write fiction is gone). */
-        EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x10u, &value) == VF2_OK);
-        EXPECT_TRUE(value == 0x0000u);
-        /* ROM 0x13c4: ram[0x201a+d4] (d4 = voice[0..1] = 0 here), the
-           stream-slot timer word, not ram[0x601a]. */
-        EXPECT_TRUE(board.sound_ram[0x201au] == 0xabu);
-        EXPECT_TRUE(board.sound_ram[0x201bu] == 0xcdu);
+        /* ROM 0x1396: SCSP[d4+0x10] = shaped with d4 = 0x0020, so
+           SCSP[0x0030] = 0x2234. A d4 of 0 would coincide with the
+           old absolute-write misreading; the nonzero slot word
+           proves the indexing. */
+        EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x30u, &value) == VF2_OK);
+        EXPECT_TRUE(value == 0x2234u);
+        /* ROM 0x13c4: ram[0x201a+d4] = ram[0x203a], the stream-slot
+           timer word, not ram[0x601a]. */
+        EXPECT_TRUE(board.sound_ram[0x203au] == 0xabu);
+        EXPECT_TRUE(board.sound_ram[0x203bu] == 0xcdu);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
 
-        /* e0 voice tail, small shaped value: the SCSP scatter lands
-           in the file. voice[3] = 0x03 keeps nibble 3 (same tables)
+        /* e0 voice tail, small shaped value: SCSP[d4+0x10] with
+           d4 = 0x0020. voice[3] = 0x03 keeps nibble 3 (same tables)
            with high 0x00; picker 0x0020 -> shaped 0x0020 ->
            SCSP[0x0030] = 0x0020. Row base repatched for row 0. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
@@ -550,6 +555,8 @@ int main(void)
         descriptor[7] = 0u;
         {
             uint8_t *tail_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            tail_voice[0] = 0u;
+            tail_voice[1] = 0x20u;
             tail_voice[2] = 0x01u;
             tail_voice[3] = 0x03u;
             tail_voice[4] = 0u;
@@ -565,8 +572,8 @@ int main(void)
         EXPECT_TRUE(dispatch.voices_matched == 1u);
         EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x0030u, &value) == VF2_OK);
         EXPECT_TRUE(value == 0x0020u);
-        EXPECT_TRUE(board.sound_ram[0x201au] == 0xabu);
-        EXPECT_TRUE(board.sound_ram[0x201bu] == 0xcdu);
+        EXPECT_TRUE(board.sound_ram[0x203au] == 0xabu);
+        EXPECT_TRUE(board.sound_ram[0x203bu] == 0xcdu);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
 
         /* B0 default (v0795b): entry = command&0x7f; anything but 0x3a

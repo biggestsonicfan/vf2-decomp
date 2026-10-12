@@ -801,14 +801,12 @@ static vf2_status sound_board_dispatch_a0(
    (master note): d0/d2/d5/d6 lows are deterministic (mem, table, or
    cleared); stale uppers die in andi.w masks or in the discarded d2/d4
    words (`move.w` uses the low word for value and index alike). d4 =
-   voice[0] is the slot word; the two stores are d4/d0-indexed, not
-   absolute (the old absolute forms came from the indexed-dst decoder
-   misread): SCSP[d0+0x10] = d0 (d0-scattered far write) and
-   ram[0x201a+d4] = picked word (stream-slot timer). The SCSP scatter
-   is attempted VDP1-style: odd addresses fail closed (address-error
-   shape on ROM), beyond-file addresses are an unmodeled-device
-   no-op, in-range stores land in the file exactly as addressed. The
-   lsl.b #5 offset wraps at the byte. */
+   voice[0] is the slot word; both stores are d4-indexed (the old
+   absolute forms, and a later d0-scatter misread of the same ext
+   word, came from indexed-dst print bugs): SCSP[d4+0x10] = d0 and
+   ram[0x201a+d4] = picked word (stream-slot timer). An odd slot word
+   fails closed (address-error shape on ROM). The lsl.b #5 offset
+   wraps at the byte. */
 static vf2_status sound_board_e0_voice_tail(
     vf2_sound_board *board,
     const uint8_t *voice,
@@ -853,19 +851,17 @@ static vf2_status sound_board_e0_voice_tail(
     shaped = (uint16_t)((((uint16_t)(voice[3u] & 0xf0u) << 7u) + picker) &
                         UINT16_C(0x7bff));
     {
-        /* ROM 0x1396: move.w d0,$10(a5,d0.w). */
-        const uint32_t scatter =
-            (uint32_t)shaped + UINT32_C(0x10);
-        vf2_status scatter_status = VF2_OK;
-        if ((scatter & 1u) != 0u) {
+        /* ROM 0x1396: move.w d0,$10(a5,d4.w). Slot+0x10 word = d0. */
+        const uint32_t slot_base = (uint32_t)read_be16(voice);
+        vf2_status voice_status = VF2_OK;
+        if ((slot_base & 1u) != 0u) {
             return VF2_ERROR_UNSUPPORTED;
         }
-        if (scatter <= (uint32_t)VF2_SCSP_REGISTER_BYTES - 2u) {
-            scatter_status =
-                vf2_scsp_write_u16(&board->scsp, scatter, shaped);
-            if (scatter_status != VF2_OK) {
-                return scatter_status;
-            }
+        voice_status =
+            vf2_scsp_write_u16(&board->scsp, slot_base + UINT32_C(0x10),
+                               shaped);
+        if (voice_status != VF2_OK) {
+            return voice_status;
         }
     }
     row = (uint8_t)(((uint8_t)(voice[3u] & 0xf0u) >> 2u) & 0x3cu);
