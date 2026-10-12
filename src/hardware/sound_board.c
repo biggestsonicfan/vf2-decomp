@@ -800,8 +800,15 @@ static vf2_status sound_board_dispatch_a0(
 /* ROM 0x1356 per-voice tail (e0, channel < 9 matches). Residue audit
    (master note): d0/d2/d5/d6 lows are deterministic (mem, table, or
    cleared); stale uppers die in andi.w masks or in the discarded d2/d4
-   words. Writes SCSP+0x10 and sound_ram[0x601a] (0x2000+0x401a: live
-   RAM, not ROM space). The lsl.b #5 offset wraps at the byte. */
+   words (`move.w` uses the low word for value and index alike). d4 =
+   voice[0] is the slot word; the two stores are d4/d0-indexed, not
+   absolute (the old absolute forms came from the indexed-dst decoder
+   misread): SCSP[d0+0x10] = d0 (d0-scattered far write) and
+   ram[0x201a+d4] = picked word (stream-slot timer). The SCSP scatter
+   is attempted VDP1-style: odd addresses fail closed (address-error
+   shape on ROM), beyond-file addresses are an unmodeled-device
+   no-op, in-range stores land in the file exactly as addressed. The
+   lsl.b #5 offset wraps at the byte. */
 static vf2_status sound_board_e0_voice_tail(
     vf2_sound_board *board,
     const uint8_t *voice,
@@ -845,8 +852,21 @@ static vf2_status sound_board_e0_voice_tail(
        never escapes: only the low word is stored). */
     shaped = (uint16_t)((((uint16_t)(voice[3u] & 0xf0u) << 7u) + picker) &
                         UINT16_C(0x7bff));
-    if (vf2_scsp_write_u16(&board->scsp, UINT32_C(0x10), shaped) != VF2_OK) {
-        return VF2_ERROR_OUT_OF_BOUNDS;
+    {
+        /* ROM 0x1396: move.w d0,$10(a5,d0.w). */
+        const uint32_t scatter =
+            (uint32_t)shaped + UINT32_C(0x10);
+        vf2_status scatter_status = VF2_OK;
+        if ((scatter & 1u) != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (scatter <= (uint32_t)VF2_SCSP_REGISTER_BYTES - 2u) {
+            scatter_status =
+                vf2_scsp_write_u16(&board->scsp, scatter, shaped);
+            if (scatter_status != VF2_OK) {
+                return scatter_status;
+            }
+        }
     }
     row = (uint8_t)(((uint8_t)(voice[3u] & 0xf0u) >> 2u) & 0x3cu);
     if (read_audio_be32(board, UINT32_C(0x60c726) + row, &row_table) !=
@@ -863,7 +883,16 @@ static vf2_status sound_board_e0_voice_tail(
     if (read_audio_be16(board, (uint32_t)store_at, &stored) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    write_be16(board->sound_ram + UINT32_C(0x601a), stored);
+    {
+        /* ROM 0x13c4: move.w d2,$1a(a2,d4.w) with a2 = 0x2000 and d4
+           = voice[0] (slot word). Stream-slot timer, not ram[0x601a]. */
+        const uint32_t timer_at = UINT32_C(0x201a) +
+            (uint32_t)read_be16(voice);
+        if (timer_at + 2u > (uint32_t)VF2_SOUND_RAM_BYTES) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        write_be16(board->sound_ram + timer_at, stored);
+    }
     return VF2_OK;
 }
 

@@ -1331,11 +1331,31 @@ vf2_status vf2_m68k_decode(
         status = vf2_m68k_read_u16(program, program_size, address + 2u,
                                    &displacement);
         instruction->length = 4u;
-        if (status == VF2_OK) {
+        if (status == VF2_OK &&
+            (((opcode >> 6u) & 7u) == 5u)) {
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "move.%c d%u,$%04x(a%u)", size_name,
                            source_register, (unsigned)displacement,
                            destination_register);
+        } else if (status == VF2_OK) {
+            /* Mode 6: the word at address+2 is the brief extension
+               word, not a displacement. Same print bug as the #imm
+               handler had: dropping the index reg misreports indexed
+               voice/SCSP writes as absolute. Length stays 4u
+               (opcode + extension). */
+            const unsigned index_is_address =
+                (unsigned)((displacement >> 15u) & 1u);
+            const unsigned index_register =
+                (unsigned)((displacement >> 12u) & 7u);
+            const char index_size =
+                (displacement & UINT16_C(0x0800)) != 0u ? 'l' : 'w';
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "move.%c d%u,$%02x(a%u,%c%u.%c)", size_name,
+                           source_register,
+                           (unsigned)(displacement & 0xffu),
+                           destination_register,
+                           index_is_address != 0u ? 'a' : 'd',
+                           index_register, index_size);
         }
     } else if (((opcode & UINT16_C(0xf000)) == UINT16_C(0x1000) ||
                 (opcode & UINT16_C(0xf000)) == UINT16_C(0x2000) ||

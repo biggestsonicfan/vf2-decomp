@@ -513,10 +513,60 @@ int main(void)
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
         EXPECT_TRUE(dispatch.voices_matched == 1u);
+        /* ROM 0x1396 scatter: shaped 0x2234 -> SCSP[0x2244], beyond the
+           file: tolerated no-op. SCSP+0x10 keeps init zero (the old
+           absolute-write fiction is gone). */
         EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x10u, &value) == VF2_OK);
-        EXPECT_TRUE(value == 0x2234u);
-        EXPECT_TRUE(board.sound_ram[0x601au] == 0xabu);
-        EXPECT_TRUE(board.sound_ram[0x601bu] == 0xcdu);
+        EXPECT_TRUE(value == 0x0000u);
+        /* ROM 0x13c4: ram[0x201a+d4] (d4 = voice[0..1] = 0 here), the
+           stream-slot timer word, not ram[0x601a]. */
+        EXPECT_TRUE(board.sound_ram[0x201au] == 0xabu);
+        EXPECT_TRUE(board.sound_ram[0x201bu] == 0xcdu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+
+        /* e0 voice tail, small shaped value: the SCSP scatter lands
+           in the file. voice[3] = 0x03 keeps nibble 3 (same tables)
+           with high 0x00; picker 0x0020 -> shaped 0x0020 ->
+           SCSP[0x0030] = 0x0020. Row base repatched for row 0. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0x2b26u] = 0x00u; audio_rom[0x2b27u] = 0x60u;
+        audio_rom[0x2b28u] = 0x40u; audio_rom[0x2b29u] = 0x00u;
+        audio_rom[0x4000u + 0x0bu] = 0x05u;
+        audio_rom[0x2682u] = 0x00u; audio_rom[0x2683u] = 0x60u;
+        audio_rom[0x2684u] = 0x50u; audio_rom[0x2685u] = 0x00u;
+        audio_rom[0x924au] = 0x00u; audio_rom[0x924bu] = 0x20u;
+        audio_rom[0xc726u] = 0x00u; audio_rom[0xc727u] = 0x60u;
+        audio_rom[0xc728u] = 0x60u; audio_rom[0xc729u] = 0x00u;
+        audio_rom[0xa2aau] = 0xabu; audio_rom[0xa2abu] = 0xcdu;
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0u;
+        descriptor[2] = 2u;
+        descriptor[5] = 0u;
+        descriptor[6] = 0x10u;
+        descriptor[7] = 0u;
+        {
+            uint8_t *tail_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            tail_voice[2] = 0x01u;
+            tail_voice[3] = 0x03u;
+            tail_voice[4] = 0u;
+            tail_voice[5] = 2u;
+            tail_voice[10] = 0x10u;
+        }
+        {
+            const uint8_t packet[4] = {0xe2u, 0x42u, 0u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
+        EXPECT_TRUE(dispatch.voices_matched == 1u);
+        EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x0030u, &value) == VF2_OK);
+        EXPECT_TRUE(value == 0x0020u);
+        EXPECT_TRUE(board.sound_ram[0x201au] == 0xabu);
+        EXPECT_TRUE(board.sound_ram[0x201bu] == 0xcdu);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
 
         /* B0 default (v0795b): entry = command&0x7f; anything but 0x3a
