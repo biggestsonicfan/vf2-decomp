@@ -419,6 +419,28 @@ int main(void)
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 6u);
     EXPECT_TRUE(strcmp(instruction.text, "ori.b #$ff,$1234") == 0);
+    static const uint8_t move_src_abs[] = {
+        0x16, 0x20,                         /* move.b -(a0),d3 (ROM 0x854) */
+        0x38, 0x38, 0x12, 0x34,             /* move.w $1234,d4 */
+        0x26, 0x39, 0x00, 0x12, 0x00, 0x34, /* move.l $00120034,d3 */
+        0x12, 0x3a, 0x00, 0x10              /* move.b $10(pc),d1 */
+    };
+    EXPECT_TRUE(vf2_m68k_decode(move_src_abs, sizeof(move_src_abs), 0u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 2u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.b -(a0),d3") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(move_src_abs, sizeof(move_src_abs), 2u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.w $1234,d4") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(move_src_abs, sizeof(move_src_abs), 6u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.l $00120034,d3") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(move_src_abs, sizeof(move_src_abs), 12u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.b $0010(pc),d1") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(indexed_quick, sizeof(indexed_quick), 0u,
                                 &instruction) == VF2_OK);

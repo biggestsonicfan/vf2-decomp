@@ -1432,7 +1432,7 @@ vf2_status vf2_m68k_decode(
                ((opcode >> 3u) & 7u) >= 2u &&
                 ((((opcode >> 3u) & 7u) <= 6u) ||
                  (((opcode >> 3u) & 7u) == 7u &&
-                  (opcode & 7u) == 3u)) &&
+                  (opcode & 7u) <= 3u)) &&
                (((opcode >> 6u) & 7u) == 0u ||
                 ((opcode >> 6u) & 7u) == 1u)) {
         const unsigned destination_register = (unsigned)((opcode >> 9u) & 7u);
@@ -1441,13 +1441,17 @@ vf2_status vf2_m68k_decode(
         const char size_name = (opcode & UINT16_C(0xf000)) == UINT16_C(0x2000)
             ? 'l' : ((opcode & UINT16_C(0xf000)) == UINT16_C(0x3000) ? 'w' : 'b');
         uint16_t displacement = 0u;
+        uint32_t absolute = 0u;
         instruction->length = source_mode == 5u || source_mode == 6u ||
-                              (source_mode == 7u && source_register == 3u)
-            ? 4u : 2u;
-        if (source_mode == 5u || source_mode == 6u ||
-            (source_mode == 7u && source_register == 3u)) {
+                              (source_mode == 7u && source_register <= 3u)
+            ? ((source_mode == 7u && source_register == 1u) ? 6u : 4u) : 2u;
+        if (source_mode == 7u && source_register == 1u) {
+            status = vf2_m68k_read_u32(program, program_size, address + 2u,
+                                        &absolute);
+        } else if (source_mode == 5u || source_mode == 6u ||
+                   (source_mode == 7u && source_register <= 3u)) {
             status = vf2_m68k_read_u16(program, program_size, address + 2u,
-                                       &displacement);
+                                        &displacement);
         }
         if (status == VF2_OK) {
             if (source_mode == 2u) {
@@ -1459,6 +1463,12 @@ vf2_status vf2_m68k_decode(
             } else if (source_mode == 3u) {
                 (void)snprintf(instruction->text, sizeof(instruction->text),
                                "move.%c (a%u)+,%c%u", size_name,
+                               source_register,
+                               ((opcode >> 6u) & 7u) == 1u ? 'a' : 'd',
+                               destination_register);
+            } else if (source_mode == 4u) {
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "move.%c -(a%u),%c%u", size_name,
                                source_register,
                                ((opcode >> 6u) & 7u) == 1u ? 'a' : 'd',
                                destination_register);
@@ -1478,6 +1488,26 @@ vf2_status vf2_m68k_decode(
                                (displacement & UINT16_C(0x0800)) != 0u ? 'l' : 'w',
                                ((opcode >> 6u) & 7u) == 1u ? 'a' : 'd',
                                destination_register);
+            } else if (source_mode == 7u && source_register <= 2u) {
+                if (source_register == 1u) {
+                    (void)snprintf(instruction->text, sizeof(instruction->text),
+                                   "move.%c $%08x,%c%u", size_name,
+                                   (unsigned)absolute,
+                                   ((opcode >> 6u) & 7u) == 1u ? 'a' : 'd',
+                                   destination_register);
+                } else if (source_register == 0u) {
+                    (void)snprintf(instruction->text, sizeof(instruction->text),
+                                   "move.%c $%04x,%c%u", size_name,
+                                   (unsigned)displacement,
+                                   ((opcode >> 6u) & 7u) == 1u ? 'a' : 'd',
+                                   destination_register);
+                } else {
+                    (void)snprintf(instruction->text, sizeof(instruction->text),
+                                   "move.%c $%04x(pc),%c%u", size_name,
+                                   (unsigned)displacement,
+                                   ((opcode >> 6u) & 7u) == 1u ? 'a' : 'd',
+                                   destination_register);
+                }
             } else {
                 (void)snprintf(instruction->text, sizeof(instruction->text),
                                "move.%c $%04x(a%u),%c%u", size_name,
