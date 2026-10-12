@@ -102,7 +102,8 @@ int main(void)
     };
     static const uint8_t move_data_indexed[] = {
         0x1d, 0x41, 0x15, 0x0d,             /* move.b d1,$150e(a6) */
-        0x27, 0x85, 0x40, 0x0a              /* move.l d5,$a(a3,d4.w) */
+        0x27, 0x85, 0x40, 0x0a,             /* move.l d5,$a(a3,d4.w) */
+        0x2c, 0x0a                          /* move.l a2,d6 (ROM 0xc86) */
     };
     static const uint8_t indexed_quick[] = {
         0x06, 0x31, 0x00, 0x50, 0x10, 0x0b, /* addi.b #$50,$b(a1,d1.w) */
@@ -340,6 +341,11 @@ int main(void)
     EXPECT_TRUE(instruction.length == 4u);
     EXPECT_TRUE(strcmp(instruction.text,
                        "move.l d5,$0a(a3,d4.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(move_data_indexed,
+                                sizeof(move_data_indexed), 8u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 2u);
+    EXPECT_TRUE(strcmp(instruction.text, "move.l a2,d6") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(indexed_quick, sizeof(indexed_quick), 0u,
                                 &instruction) == VF2_OK);

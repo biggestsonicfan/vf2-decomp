@@ -1105,6 +1105,20 @@ vf2_status vf2_m68k_decode(
                 (opcode & UINT16_C(0xf000)) == UINT16_C(0x2000) ||
                 (opcode & UINT16_C(0xf000)) == UINT16_C(0x3000)) &&
                ((opcode >> 3u) & 7u) == 1u &&
+               ((opcode >> 6u) & 7u) == 0u) {
+        /* move An,Dn sat undecoded (seen as .word in the 0xc30 voice
+           setup: move.l a2,d6). Length 2, no extension words. */
+        const char size_name = (opcode & UINT16_C(0xf000)) == UINT16_C(0x2000)
+            ? 'l'
+            : ((opcode & UINT16_C(0xf000)) == UINT16_C(0x3000) ? 'w' : 'b');
+        (void)snprintf(instruction->text, sizeof(instruction->text),
+                       "move.%c a%u,d%u", size_name,
+                       (unsigned)(opcode & 7u),
+                       (unsigned)((opcode >> 9u) & 7u));
+    } else if (((opcode & UINT16_C(0xf000)) == UINT16_C(0x1000) ||
+                (opcode & UINT16_C(0xf000)) == UINT16_C(0x2000) ||
+                (opcode & UINT16_C(0xf000)) == UINT16_C(0x3000)) &&
+               ((opcode >> 3u) & 7u) == 1u &&
                ((opcode >> 6u) & 7u) == 1u) {
         const char size_name = (opcode & UINT16_C(0xf000)) == UINT16_C(0x2000)
             ? 'l' : ((opcode & UINT16_C(0xf000)) == UINT16_C(0x3000) ? 'w' : 'b');
