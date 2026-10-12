@@ -4283,10 +4283,23 @@ ram[0x2000+slot] = 0 shared by the primer, C0 and B0-sub scans; the
 level-2 stream tick (0x1f16) and level-3 MIDI ring-fill (0x526) are
 documented interrupt boundaries, and the stream countdown half
 stays dead (+0x0c never arms) while the worker-forward into the
-drain is the live path. DRAM-sample playback (no live
+drain is the live path. Voice-start programs staged-sample
+addresses (slot+8 from the $5000 table) and KEYON (slot+0 =
+0x103000XX) on the post-refusal 90/80 path; the C stages via the
+modeled uploader but programs no slots. Main-loop activation
+tails are live-unrecovered. DRAM-sample playback (no live
 sample-start programming exists), SCSP FM/DSP synthesis, native
 windowing, gamepad mappings, frame pacing and production platform
-integration remain unimplemented.## 6. Transactional rejection coverage
+integration remain unimplemented.
+
+A standing methodological note for this section: 68k audio
+recoveries are static-match, not differential-proven. No 68k
+execution oracle exists (the i960 differential machinery does not
+cover the sound CPU), so 68k fixtures are C-vs-C
+self-consistency: planted gates prove only that the tests can
+fail. Every accepted 68k behavior is additionally verified at the
+byte level against the ROM disassembly (v0797-v0799 corrected
+three mode-6 print merges and two missing handlers this way).## 6. Transactional rejection coverage
 
 The player interrupt composite now preserves CPU state when a nested player
 branch is rejected, and video input validation occurs before writes. Other
