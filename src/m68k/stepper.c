@@ -453,13 +453,13 @@ static vf2_status ea_param_addr(
         return VF2_OK;
     }
     if (mode == 7u && reg == 2u) {
-        /* PC + displacement: base is the address past the ext word. */
-        uint32_t base = pc + (uint32_t)*off;
+        /* PC + displacement: base is the address of the ext word. */
+        uint32_t base = pc + (uint32_t)*off - 2u;
         *address = base + (uint32_t)(int32_t)(int16_t)ext;
         return VF2_OK;
     }
     if (mode == 7u && reg == 3u) {
-        uint32_t base = pc + (uint32_t)*off;
+        uint32_t base = pc + (uint32_t)*off - 2u;
         uint32_t index = 0u;
         int32_t disp = (int32_t)(int8_t)(ext & 0xffu);
         unsigned xn = (unsigned)((ext >> 12u) & 7u);
@@ -1533,9 +1533,11 @@ static vf2_status step_bcc(
     } else {
         disp = (int32_t)(int8_t)low;
     }
+    /* The displacement is relative to the address of the extension
+     * word, i.e. opcode address + 2, for both forms. */
     base = pc + (uint32_t)*off;
     if (bcc_holds(regs, cond)) {
-        *new_pc = base + (uint32_t)disp;
+        *new_pc = pc + 2u + (uint32_t)disp;
     } else {
         *new_pc = base;
     }
@@ -1571,7 +1573,7 @@ static vf2_status step_dbc(
     if (low == 0xffffu) {
         *new_pc = pc + (uint32_t)*off;
     } else {
-        *new_pc = pc + (uint32_t)*off + (uint32_t)disp;
+        *new_pc = pc + 2u + (uint32_t)disp;
     }
     return VF2_OK;
 }
@@ -1602,8 +1604,8 @@ static vf2_status step_jsr_jmp(
             return status;
         }
         *off += 2u;
-        /* Motorola base: address past the ext word (opcode + 2). */
-        target = pc + 4u + (uint32_t)(int32_t)(int16_t)ext;
+        /* Motorola base: the address of the ext word (opcode + 2). */
+        target = pc + 2u + (uint32_t)(int32_t)(int16_t)ext;
     } else if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90) ||
                (opcode & UINT16_C(0xfff8)) == UINT16_C(0x4ed0)) {
         target = regs->a[opcode & 7u];
