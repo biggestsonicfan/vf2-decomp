@@ -63,6 +63,7 @@ add_library(vf2_core STATIC
     src/hardware/sound_board.c
     src/hardware/tgp.c
     src/m68k/decoder.c
+    src/m68k/stepper.c
     src/i960/decoder.c
     src/i960/executor.c
     src/i960/executor_arch.c
@@ -264,6 +265,11 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_m68k_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_tests)
     add_test(NAME vf2_m68k COMMAND vf2_m68k_tests)
+
+    add_executable(vf2_m68k_step_tests tests/m68k/test_stepper.c)
+    target_link_libraries(vf2_m68k_step_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_step_tests)
+    add_test(NAME vf2_m68k_step COMMAND vf2_m68k_step_tests)
 
     add_executable(vf2_orchestrator_scan_tests tests/analysis/test_orchestrator_scan.c)
     target_link_libraries(vf2_orchestrator_scan_tests PRIVATE vf2_core)

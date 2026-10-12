@@ -1,0 +1,1798 @@
+#include "vf2/m68k_step.h"
+
+#include "vf2/m68k.h"
+
+#define VF2_STEP_SCSP_BASE UINT32_C(0x100000)
+#define VF2_STEP_ROM_MIRROR_BASE UINT32_C(0x600000)
+#define VF2_STEP_SAMPLE_BASE UINT32_C(0x800000)
+
+void vf2_m68k_regs_reset(vf2_m68k_regs *regs)
+{
+    size_t index = 0u;
+    if (regs == NULL) {
+        return;
+    }
+    for (index = 0u; index < 8u; ++index) {
+        regs->d[index] = 0u;
+        regs->a[index] = 0u;
+    }
+    regs->pc = 0u;
+    regs->x = 0u;
+    regs->n = 0u;
+    regs->z = 0u;
+    regs->v = 0u;
+    regs->c = 0u;
+}
+
+static vf2_status rom_u16(
+    const vf2_m68k_bus *bus,
+    uint32_t address,
+    uint16_t *value
+)
+{
+    if (bus == NULL || value == NULL ||
+        (uint64_t)address + 2u > (uint64_t)bus->rom_size) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    *value = (uint16_t)(((uint16_t)bus->rom[address] << 8u) |
+                        bus->rom[address + 1u]);
+    return VF2_OK;
+}
+
+static vf2_status rom_u32(
+    const vf2_m68k_bus *bus,
+    uint32_t address,
+    uint32_t *value
+)
+{
+    uint16_t high = 0u;
+    uint16_t low = 0u;
+    vf2_status status = rom_u16(bus, address, &high);
+    if (status != VF2_OK) {
+        return status;
+    }
+    status = rom_u16(bus, address + 2u, &low);
+    if (status != VF2_OK) {
+        return status;
+    }
+    *value = ((uint32_t)high << 16u) | low;
+    return VF2_OK;
+}
+
+static vf2_status log_event(
+    vf2_m68k_bus *bus,
+    uint32_t address,
+    uint32_t value,
+    uint8_t size,
+    uint8_t is_write
+)
+{
+    vf2_m68k_bus_event *slot = NULL;
+    if (bus->event_count >= VF2_M68K_STEP_MAX_EVENTS) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    slot = &bus->events[bus->event_count];
+    slot->address = address;
+    slot->value = value;
+    slot->size = size;
+    slot->is_write = is_write;
+    ++bus->event_count;
+    return VF2_OK;
+}
+
+/* Data-space access with the sound_board access-kind split. size:
+ * 0 = byte, 1 = word, 2 = long. */
+static vf2_status bus_read(
+    vf2_m68k_bus *bus,
+    uint32_t address,
+    unsigned size,
+    uint32_t *value
+)
+{
+    if (bus == NULL || value == NULL || size > 2u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if ((size == 1u && (address & 1u) != 0u) ||
+        (size == 2u && (address & 1u) != 0u)) {
+        /* Address-error shape on ROM. */
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (address >= VF2_STEP_SCSP_BASE &&
+        address + (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <=
+            VF2_STEP_SCSP_BASE + VF2_SCSP_REGISTER_BYTES) {
+        uint32_t slot = address - VF2_STEP_SCSP_BASE;
+        vf2_status status = VF2_OK;
+        if (bus->scsp == NULL) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (size == 0u) {
+            uint8_t byte = 0u;
+            status = vf2_scsp_read_u8(bus->scsp, slot, &byte);
+            *value = byte;
+            return status;
+        }
+        if (size == 1u) {
+            uint16_t word = 0u;
+            status = vf2_scsp_read_u16(bus->scsp, slot, &word);
+            *value = word;
+            return status;
+        }
+        {
+            uint16_t high = 0u;
+            uint16_t low = 0u;
+            status = vf2_scsp_read_u16(bus->scsp, slot, &high);
+            if (status != VF2_OK) {
+                return status;
+            }
+            status = vf2_scsp_read_u16(bus->scsp, slot + 2u, &low);
+            if (status != VF2_OK) {
+                return status;
+            }
+            *value = ((uint32_t)high << 16u) | low;
+            return VF2_OK;
+        }
+    }
+    if (address >= VF2_STEP_ROM_MIRROR_BASE &&
+        (uint64_t)address - VF2_STEP_ROM_MIRROR_BASE + 1u <= bus->rom_size) {
+        uint32_t offset = address - VF2_STEP_ROM_MIRROR_BASE;
+        if (size == 0u) {
+            *value = bus->rom[offset];
+            return VF2_OK;
+        }
+        if (size == 1u) {
+            if ((uint64_t)offset + 2u > (uint64_t)bus->rom_size) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            *value = (uint32_t)(((uint32_t)bus->rom[offset] << 8u) |
+                                bus->rom[offset + 1u]);
+            return VF2_OK;
+        }
+        if ((uint64_t)offset + 4u > (uint64_t)bus->rom_size) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        *value = ((uint32_t)bus->rom[offset] << 24u) |
+                 ((uint32_t)bus->rom[offset + 1u] << 16u) |
+                 ((uint32_t)bus->rom[offset + 2u] << 8u) |
+                 bus->rom[offset + 3u];
+        return VF2_OK;
+    }
+    if (address >= VF2_STEP_SAMPLE_BASE &&
+        (uint64_t)address - VF2_STEP_SAMPLE_BASE < bus->sample_rom_size) {
+        uint32_t offset = address - VF2_STEP_SAMPLE_BASE;
+        if (bus->sample_rom == NULL) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (size == 0u) {
+            *value = bus->sample_rom[offset];
+            return VF2_OK;
+        }
+        if (size == 1u) {
+            if ((uint64_t)offset + 2u > (uint64_t)bus->sample_rom_size) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            *value = (uint32_t)(((uint32_t)bus->sample_rom[offset] << 8u) |
+                                bus->sample_rom[offset + 1u]);
+            return VF2_OK;
+        }
+        if ((uint64_t)offset + 4u > (uint64_t)bus->sample_rom_size) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        *value = ((uint32_t)bus->sample_rom[offset] << 24u) |
+                 ((uint32_t)bus->sample_rom[offset + 1u] << 16u) |
+                 ((uint32_t)bus->sample_rom[offset + 2u] << 8u) |
+                 bus->sample_rom[offset + 3u];
+        return VF2_OK;
+    }
+    if ((uint64_t)address +
+            (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <= bus->ram_size) {
+        if (bus->ram == NULL) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (size == 0u) {
+            *value = bus->ram[address];
+            return VF2_OK;
+        }
+        if (size == 1u) {
+            *value = (uint32_t)(((uint32_t)bus->ram[address] << 8u) |
+                                bus->ram[address + 1u]);
+            return VF2_OK;
+        }
+        *value = ((uint32_t)bus->ram[address] << 24u) |
+                 ((uint32_t)bus->ram[address + 1u] << 16u) |
+                 ((uint32_t)bus->ram[address + 2u] << 8u) |
+                 bus->ram[address + 3u];
+        return VF2_OK;
+    }
+    /* Unmodeled region (system ports): record and continue with zero. */
+    *value = 0u;
+    return log_event(bus, address, 0u, (uint8_t)size, 0u);
+}
+
+static vf2_status bus_write(
+    vf2_m68k_bus *bus,
+    uint32_t address,
+    unsigned size,
+    uint32_t value
+)
+{
+    if (bus == NULL || size > 2u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if ((size == 1u && (address & 1u) != 0u) ||
+        (size == 2u && (address & 1u) != 0u)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (address >= VF2_STEP_SCSP_BASE &&
+        address + (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <=
+            VF2_STEP_SCSP_BASE + VF2_SCSP_REGISTER_BYTES) {
+        uint32_t slot = address - VF2_STEP_SCSP_BASE;
+        vf2_status status = VF2_OK;
+        if (bus->scsp == NULL) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (size == 0u) {
+            return vf2_scsp_write_u8(bus->scsp, slot, (uint8_t)value);
+        }
+        if (size == 1u) {
+            return vf2_scsp_write_u16(bus->scsp, slot, (uint16_t)value);
+        }
+        status = vf2_scsp_write_u16(
+            bus->scsp, slot, (uint16_t)(value >> 16u));
+        if (status != VF2_OK) {
+            return status;
+        }
+        return vf2_scsp_write_u16(bus->scsp, slot + 2u, (uint16_t)value);
+    }
+    if ((address >= VF2_STEP_ROM_MIRROR_BASE &&
+         (uint64_t)address - VF2_STEP_ROM_MIRROR_BASE < bus->rom_size) ||
+        (address >= VF2_STEP_SAMPLE_BASE &&
+         (uint64_t)address - VF2_STEP_SAMPLE_BASE < bus->sample_rom_size)) {
+        /* Writes to ROM/sample windows refuse. */
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((uint64_t)address +
+            (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <= bus->ram_size) {
+        if (bus->ram == NULL) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (size == 0u) {
+            bus->ram[address] = (uint8_t)value;
+            return VF2_OK;
+        }
+        if (size == 1u) {
+            bus->ram[address] = (uint8_t)(value >> 8u);
+            bus->ram[address + 1u] = (uint8_t)value;
+            return VF2_OK;
+        }
+        bus->ram[address] = (uint8_t)(value >> 24u);
+        bus->ram[address + 1u] = (uint8_t)(value >> 16u);
+        bus->ram[address + 2u] = (uint8_t)(value >> 8u);
+        bus->ram[address + 3u] = (uint8_t)value;
+        return VF2_OK;
+    }
+    return log_event(bus, address, value, (uint8_t)size, 1u);
+}
+
+/* Program-space read for fetch and PC-relative data. */
+static vf2_status prog_read(
+    vf2_m68k_bus *bus,
+    uint32_t address,
+    unsigned size,
+    uint32_t *value
+)
+{
+    if (size == 0u) {
+        uint16_t word = 0u;
+        vf2_status status = rom_u16(bus, address & ~1u, &word);
+        if (status != VF2_OK) {
+            return status;
+        }
+        /* Byte immediates and PC-relative bytes use the low byte of
+           the containing word, matching the decoder's mask rule. */
+        *value = (address & 1u) != 0u ? (word & 0xffu) : (word >> 8u);
+        return VF2_OK;
+    }
+    if (size == 1u) {
+        uint16_t word = 0u;
+        vf2_status status = rom_u16(bus, address, &word);
+        if (status != VF2_OK) {
+            return status;
+        }
+        *value = word;
+        return VF2_OK;
+    }
+    return rom_u32(bus, address, value);
+}
+
+static uint32_t size_mask(unsigned size)
+{
+    if (size == 0u) {
+        return UINT32_C(0x000000ff);
+    }
+    if (size == 1u) {
+        return UINT32_C(0x0000ffff);
+    }
+    return UINT32_C(0xffffffff);
+}
+
+static uint32_t size_msb(unsigned size)
+{
+    if (size == 0u) {
+        return UINT32_C(0x00000080);
+    }
+    if (size == 1u) {
+        return UINT32_C(0x00008000);
+    }
+    return UINT32_C(0x80000000);
+}
+
+static void flags_logic(vf2_m68k_regs *regs, unsigned size, uint32_t result)
+{
+    regs->n = (result & size_msb(size)) != 0u ? 1u : 0u;
+    regs->z = (result & size_mask(size)) == 0u ? 1u : 0u;
+    regs->v = 0u;
+    regs->c = 0u;
+}
+
+static void flags_add(
+    vf2_m68k_regs *regs,
+    unsigned size,
+    uint32_t a,
+    uint32_t b,
+    uint32_t result
+)
+{
+    uint32_t mask = size_mask(size);
+    uint32_t msb = size_msb(size);
+    uint64_t full = (uint64_t)(a & mask) + (uint64_t)(b & mask);
+    regs->n = (result & msb) != 0u ? 1u : 0u;
+    regs->z = (result & mask) == 0u ? 1u : 0u;
+    regs->v = ((((~(a ^ b)) & (a ^ result)) & msb) != 0u) ? 1u : 0u;
+    regs->c = (((full >> (size == 0u ? 8u : (size == 1u ? 16u : 32u))) &
+                1u) != 0u) ? 1u : 0u;
+    regs->x = regs->c;
+}
+
+static void flags_sub(
+    vf2_m68k_regs *regs,
+    unsigned size,
+    uint32_t a,
+    uint32_t b,
+    uint32_t result,
+    int set_x
+)
+{
+    uint32_t mask = size_mask(size);
+    uint32_t msb = size_msb(size);
+    regs->n = (result & msb) != 0u ? 1u : 0u;
+    regs->z = (result & mask) == 0u ? 1u : 0u;
+    regs->v = ((((a ^ b) & (a ^ result)) & msb) != 0u) ? 1u : 0u;
+    regs->c = ((a & mask) < (b & mask)) ? 1u : 0u;
+    if (set_x) {
+        regs->x = regs->c;
+    }
+}
+
+static uint32_t an_stride(unsigned areg, unsigned size)
+{
+    if (size == 2u) {
+        return 4u;
+    }
+    if (size == 1u) {
+        return 2u;
+    }
+    return areg == 7u ? 2u : 1u;
+}
+
+/* Indexed/indirect address for modes 5, 6, 7.0-7.3. Reads extension
+ * words from the program at pc + *off and advances *off. pc_next is
+ * the address just past the extension word (PC-relative base). */
+static vf2_status ea_param_addr(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    unsigned mode,
+    unsigned reg,
+    uint32_t pc,
+    size_t *off,
+    int from_program,
+    uint32_t *address
+)
+{
+    uint16_t ext = 0u;
+    vf2_status status = VF2_OK;
+    (void)from_program;
+    if (mode == 5u || mode == 6u || mode == 7u) {
+        status = prog_read(bus, pc + (uint32_t)*off, 1u, address);
+        if (status != VF2_OK) {
+            return status;
+        }
+        ext = (uint16_t)*address;
+        *off += 2u;
+    }
+    if (mode == 5u) {
+        *address = regs->a[reg] + (uint32_t)(int32_t)(int16_t)ext;
+        return VF2_OK;
+    }
+    if (mode == 6u) {
+        uint32_t base = regs->a[reg];
+        uint32_t index = 0u;
+        int32_t disp = (int32_t)(int8_t)(ext & 0xffu);
+        unsigned xn = (unsigned)((ext >> 12u) & 7u);
+        if (((ext >> 15u) & 1u) != 0u) {
+            index = regs->a[xn];
+        } else if (((ext >> 11u) & 1u) != 0u) {
+            index = regs->d[xn];
+        } else {
+            index = (uint32_t)(int32_t)(int16_t)regs->d[xn];
+        }
+        *address = base + (uint32_t)disp + index;
+        return VF2_OK;
+    }
+    if (mode == 7u && reg == 0u) {
+        *address = (uint32_t)(int32_t)(int16_t)ext;
+        return VF2_OK;
+    }
+    if (mode == 7u && reg == 1u) {
+        uint32_t high = 0u;
+        uint32_t low = 0u;
+        high = ((uint32_t)ext) << 16u;
+        status = prog_read(bus, pc + (uint32_t)*off, 1u, &low);
+        if (status != VF2_OK) {
+            return status;
+        }
+        *off += 2u;
+        *address = high | (low & 0xffffu);
+        return VF2_OK;
+    }
+    if (mode == 7u && reg == 2u) {
+        /* PC + displacement: base is the address past the ext word. */
+        uint32_t base = pc + (uint32_t)*off;
+        *address = base + (uint32_t)(int32_t)(int16_t)ext;
+        return VF2_OK;
+    }
+    if (mode == 7u && reg == 3u) {
+        uint32_t base = pc + (uint32_t)*off;
+        uint32_t index = 0u;
+        int32_t disp = (int32_t)(int8_t)(ext & 0xffu);
+        unsigned xn = (unsigned)((ext >> 12u) & 7u);
+        if (((ext >> 15u) & 1u) != 0u) {
+            index = regs->a[xn];
+        } else if (((ext >> 11u) & 1u) != 0u) {
+            index = regs->d[xn];
+        } else {
+            index = (uint32_t)(int32_t)(int16_t)regs->d[xn];
+        }
+        *address = base + (uint32_t)disp + index;
+        return VF2_OK;
+    }
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+/* PC-relative data addresses resolve into the program image. */
+static int ea_is_program(unsigned mode, unsigned reg)
+{
+    return mode == 7u && (reg == 2u || reg == 3u);
+}
+
+static vf2_status ea_read(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    unsigned mode,
+    unsigned reg,
+    unsigned size,
+    uint32_t pc,
+    size_t *off,
+    uint32_t *value
+)
+{
+    vf2_status status = VF2_OK;
+    if (mode == 0u) {
+        *value = regs->d[reg] & size_mask(size);
+        return VF2_OK;
+    }
+    if (mode == 1u) {
+        if (size == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (size == 1u) {
+            *value = regs->a[reg] & UINT32_C(0x0000ffff);
+            return VF2_OK;
+        }
+        *value = regs->a[reg];
+        return VF2_OK;
+    }
+    if (mode == 3u) {
+        uint32_t address = regs->a[reg];
+        status = bus_read(bus, address, size, value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        regs->a[reg] = address + an_stride(reg, size);
+        return VF2_OK;
+    }
+    if (mode == 4u) {
+        uint32_t address = regs->a[reg] - an_stride(reg, size);
+        status = bus_read(bus, address, size, value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        regs->a[reg] = address;
+        return VF2_OK;
+    }
+    if (mode == 2u || mode == 5u || mode == 6u || mode == 7u) {
+        uint32_t address = 0u;
+        if (mode == 2u) {
+            address = regs->a[reg];
+        } else {
+            status = ea_param_addr(bus, regs, mode, reg, pc, off, 0u,
+                                   &address);
+            if (status != VF2_OK) {
+                return status;
+            }
+        }
+        if (ea_is_program(mode, reg)) {
+            return prog_read(bus, address, size, value);
+        }
+        return bus_read(bus, address, size, value);
+    }
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+/* Writes to Dn preserve the untouched upper bits for byte/word.
+ * An-direct and #imm destinations are refused (callers route MOVEA
+ * and address operations separately). */
+static vf2_status ea_write(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    unsigned mode,
+    unsigned reg,
+    unsigned size,
+    uint32_t pc,
+    size_t *off,
+    uint32_t value
+)
+{
+    vf2_status status = VF2_OK;
+    if (mode == 0u) {
+        if (size == 2u) {
+            regs->d[reg] = value;
+        } else {
+            regs->d[reg] =
+                (regs->d[reg] & ~size_mask(size)) | (value & size_mask(size));
+        }
+        return VF2_OK;
+    }
+    if (mode == 1u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (mode == 3u) {
+        uint32_t address = regs->a[reg];
+        status = bus_write(bus, address, size, value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        regs->a[reg] = address + an_stride(reg, size);
+        return VF2_OK;
+    }
+    if (mode == 4u) {
+        uint32_t address = regs->a[reg] - an_stride(reg, size);
+        status = bus_write(bus, address, size, value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        regs->a[reg] = address;
+        return VF2_OK;
+    }
+    if (mode == 2u || mode == 5u || mode == 6u || mode == 7u) {
+        uint32_t address = 0u;
+        if (mode == 2u) {
+            address = regs->a[reg];
+        } else {
+            status = ea_param_addr(bus, regs, mode, reg, pc, off, 0u,
+                                   &address);
+            if (status != VF2_OK) {
+                return status;
+            }
+        }
+        if (ea_is_program(mode, reg)) {
+            /* Stores into the program image refuse. */
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        return bus_write(bus, address, size, value);
+    }
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+static vf2_status fetch_imm(
+    vf2_m68k_bus *bus,
+    uint32_t pc,
+    size_t *off,
+    unsigned size,
+    uint32_t *value
+)
+{
+    vf2_status status = VF2_OK;
+    if (size == 2u) {
+        status = prog_read(bus, pc + (uint32_t)*off, 2u, value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        *off += 4u;
+        return VF2_OK;
+    }
+    status = prog_read(bus, pc + (uint32_t)*off, 1u, value);
+    if (status != VF2_OK) {
+        return status;
+    }
+    *off += 2u;
+    if (size == 0u) {
+        *value &= 0xffu;
+    }
+    return VF2_OK;
+}
+
+static int bcc_holds(const vf2_m68k_regs *regs, unsigned cond)
+{
+    switch (cond) {
+    case 0u:
+        return 1;
+    case 1u:
+        return 0;
+    case 2u:
+        return regs->c == 0u && regs->z == 0u;
+    case 3u:
+        return regs->c != 0u || regs->z != 0u;
+    case 4u:
+        return regs->c == 0u;
+    case 5u:
+        return regs->c != 0u;
+    case 6u:
+        return regs->z == 0u;
+    case 7u:
+        return regs->z != 0u;
+    case 8u:
+        return regs->v == 0u;
+    case 9u:
+        return regs->v != 0u;
+    case 10u:
+        return regs->n == 0u;
+    case 11u:
+        return regs->n != 0u;
+    case 12u:
+        return regs->n == regs->v;
+    case 13u:
+        return regs->n != regs->v;
+    case 14u:
+        return regs->z == 0u && regs->n == regs->v;
+    default:
+        return regs->z != 0u || regs->n != regs->v;
+    }
+}
+
+/* True 68k sizes for the general ADD/SUB/CMP/OR forms. NOTE: the
+ * disassembler prints these rotated (opmode 0->w, 1->l, 2->b); the
+ * stepper executes Motorola sizes (0->b, 1->w, 2->l). The triangle
+ * tests arbitrate per site; the print fix follows the C audit. */
+static unsigned true_alu_size(unsigned opmode)
+{
+    if (opmode == 0u || opmode == 4u) {
+        return 0u;
+    }
+    if (opmode == 1u || opmode == 5u) {
+        return 1u;
+    }
+    return 2u;
+}
+
+static vf2_status step_move(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    unsigned size
+)
+{
+    unsigned smode = (unsigned)((opcode >> 3u) & 7u);
+    unsigned sreg = (unsigned)(opcode & 7u);
+    unsigned dmode = (unsigned)((opcode >> 6u) & 7u);
+    unsigned dreg = (unsigned)((opcode >> 9u) & 7u);
+    uint32_t src = 0u;
+    vf2_status status = VF2_OK;
+    if (smode == 1u && size == 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (smode == 7u && sreg == 4u) {
+        status = fetch_imm(bus, pc, off, size, &src);
+        if (status != VF2_OK) {
+            return status;
+        }
+    } else if (smode == 0u || smode == 1u || smode == 2u || smode == 3u ||
+               smode == 4u || smode == 5u || smode == 6u ||
+               (smode == 7u && sreg <= 3u)) {
+        status = ea_read(bus, regs, smode, sreg, size, pc, off, &src);
+        if (status != VF2_OK) {
+            return status;
+        }
+    } else {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (dmode == 1u) {
+        /* MOVEA shape: word sign-extends, no flags. */
+        if (size == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (size == 1u) {
+            regs->a[dreg] = (uint32_t)(int32_t)(int16_t)src;
+        } else {
+            regs->a[dreg] = src;
+        }
+        return VF2_OK;
+    }
+    if (dmode == 0u) {
+        if (size == 2u) {
+            regs->d[dreg] = src;
+        } else {
+            regs->d[dreg] = (regs->d[dreg] & ~size_mask(size)) |
+                            (src & size_mask(size));
+        }
+        flags_logic(regs, size, src);
+        return VF2_OK;
+    }
+    if (dmode == 2u || dmode == 3u || dmode == 4u || dmode == 5u ||
+        dmode == 6u || (dmode == 7u && (dreg == 0u || dreg == 1u))) {
+        status = ea_write(bus, regs, dmode, dreg, size, pc, off, src);
+        if (status != VF2_OK) {
+            return status;
+        }
+        flags_logic(regs, size, src);
+        return VF2_OK;
+    }
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+static vf2_status step_imm_op(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    unsigned size,
+    unsigned kind
+)
+{
+    /* kind: 0 ori, 1 andi, 2 subi, 3 addi, 4 cmpi, 5 eori. */
+    unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+    unsigned reg = (unsigned)(opcode & 7u);
+    uint32_t imm = 0u;
+    uint32_t dst = 0u;
+    uint32_t result = 0u;
+    vf2_status status = fetch_imm(bus, pc, off, size, &imm);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (mode == 7u && reg == 4u) {
+        /* CCR/SR forms: only ori.b #,ccr is on recovered paths. */
+        if (kind != 0u || size != 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        {
+            uint8_t ccr = (uint8_t)((regs->x << 4u) | (regs->n << 3u) |
+                                    (regs->z << 2u) | (regs->v << 1u) |
+                                    regs->c);
+            ccr |= (uint8_t)imm;
+            regs->x = (uint8_t)((ccr >> 4u) & 1u);
+            regs->n = (uint8_t)((ccr >> 3u) & 1u);
+            regs->z = (uint8_t)((ccr >> 2u) & 1u);
+            regs->v = (uint8_t)((ccr >> 1u) & 1u);
+            regs->c = (uint8_t)(ccr & 1u);
+        }
+        return VF2_OK;
+    }
+    if (mode != 0u && mode != 2u && mode != 3u && mode != 4u &&
+        mode != 5u && mode != 6u &&
+        !(mode == 7u && (reg == 0u || reg == 1u))) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = ea_read(bus, regs, mode, reg, size, pc, off, &dst);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (kind == 0u || kind == 5u) {
+        result = kind == 0u ? ((dst | imm) & size_mask(size))
+                            : ((dst ^ imm) & size_mask(size));
+    } else if (kind == 1u) {
+        result = (dst & imm) & size_mask(size);
+    } else if (kind == 3u) {
+        result = (dst + imm) & size_mask(size);
+    } else {
+        result = (dst - imm) & size_mask(size);
+    }
+    if (kind == 4u) {
+        flags_sub(regs, size, dst, imm, result, 0);
+        return VF2_OK;
+    }
+    status = ea_write(bus, regs, mode, reg, size, pc, off, result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (kind == 3u) {
+        flags_add(regs, size, dst, imm, result);
+    } else if (kind == 2u) {
+        flags_sub(regs, size, dst, imm, result, 1);
+    } else {
+        flags_logic(regs, size, result);
+    }
+    return VF2_OK;
+}
+
+static vf2_status step_alu(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    unsigned opmode,
+    unsigned kind
+)
+{
+    /* kind: 0 add, 1 sub, 2 or, 3 cmp. True sizes (see note above). */
+    unsigned smode = (unsigned)((opcode >> 3u) & 7u);
+    unsigned sreg = (unsigned)(opcode & 7u);
+    unsigned dreg = (unsigned)((opcode >> 9u) & 7u);
+    unsigned size = true_alu_size(opmode);
+    uint32_t src = 0u;
+    uint32_t dst = 0u;
+    uint32_t result = 0u;
+    vf2_status status = VF2_OK;
+    if (opmode == 3u || opmode == 7u) {
+        /* ADDA/SUBA/CMPA: destination is An. */
+        if (kind != 0u && kind != 1u && kind != 3u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (smode != 0u && smode != 1u && smode != 2u && smode != 3u &&
+            smode != 4u && smode != 5u && smode != 6u &&
+            !(smode == 7u &&
+              (sreg == 0u || sreg == 1u || sreg == 4u))) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (smode == 1u && size == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (smode == 7u && sreg == 4u) {
+            unsigned isz = opmode == 7u ? 2u : 1u;
+            status = fetch_imm(bus, pc, off, isz, &src);
+            if (status != VF2_OK) {
+                return status;
+            }
+            if (isz == 1u) {
+                src = (uint32_t)(int32_t)(int16_t)src;
+            }
+        } else {
+            unsigned rsz = size;
+            if (opmode != 7u) {
+                rsz = 1u;
+            }
+            if (smode == 1u && rsz == 0u) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            status = ea_read(bus, regs, smode, sreg, rsz, pc, off, &src);
+            if (status != VF2_OK) {
+                return status;
+            }
+            if (rsz == 1u) {
+                src = (uint32_t)(int32_t)(int16_t)(src & 0xffffu);
+            }
+        }
+        if (kind == 3u) {
+            uint32_t aext = regs->a[dreg];
+            result = (aext - src) & size_mask(2u);
+            flags_sub(regs, 2u, aext, src, result, 0);
+            return VF2_OK;
+        }
+        if (kind == 0u) {
+            regs->a[dreg] = regs->a[dreg] + src;
+        } else {
+            regs->a[dreg] = regs->a[dreg] - src;
+        }
+        return VF2_OK;
+    }
+    if (opmode <= 2u) {
+        if (smode != 0u && smode != 2u && smode != 3u && smode != 5u) {
+            /* Mirrors the decoder's admitted surface; anything else
+               (An-direct, indexed, absolute, #imm, MxM shapes) refuses. */
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = ea_read(bus, regs, smode, sreg, size, pc, off, &src);
+        if (status != VF2_OK) {
+            return status;
+        }
+        dst = regs->d[dreg] & size_mask(size);
+        if (kind == 2u) {
+            result = (dst | src) & size_mask(size);
+            regs->d[dreg] = (regs->d[dreg] & ~size_mask(size)) | result;
+            flags_logic(regs, size, result);
+            return VF2_OK;
+        }
+        if (kind == 0u) {
+            result = (dst + src) & size_mask(size);
+            regs->d[dreg] = (regs->d[dreg] & ~size_mask(size)) | result;
+            flags_add(regs, size, dst, src, result);
+            return VF2_OK;
+        }
+        if (kind == 1u) {
+            result = (dst - src) & size_mask(size);
+            regs->d[dreg] = (regs->d[dreg] & ~size_mask(size)) | result;
+            flags_sub(regs, size, dst, src, result, 1);
+            return VF2_OK;
+        }
+        result = (dst - src) & size_mask(size);
+        flags_sub(regs, size, dst, src, result, 0);
+        return VF2_OK;
+    }
+    if (opmode >= 4u && opmode <= 6u) {
+        /* Dn,ea forms (ADD/SUB/OR only; the decoder admits src Dn
+           with ea modes 0/2/3/5 for ADD and narrower for SUB). */
+        if (kind == 3u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (smode != 0u && smode != 2u && smode != 3u && smode != 5u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        src = regs->d[dreg] & size_mask(size);
+        status = ea_read(bus, regs, smode, sreg, size, pc, off, &dst);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (kind == 2u) {
+            result = (dst | src) & size_mask(size);
+        } else if (kind == 0u) {
+            result = (dst + src) & size_mask(size);
+        } else {
+            result = (dst - src) & size_mask(size);
+        }
+        status = ea_write(bus, regs, smode, sreg, size, pc, off, result);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (kind == 2u) {
+            flags_logic(regs, size, result);
+        } else if (kind == 0u) {
+            flags_add(regs, size, dst, src, result);
+        } else {
+            flags_sub(regs, size, dst, src, result, 1);
+        }
+        return VF2_OK;
+    }
+    return VF2_ERROR_UNSUPPORTED;
+}
+
+static vf2_status step_quick(
+    vf2_m68k_regs *regs,
+    vf2_m68k_bus *bus,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    int is_sub
+)
+{
+    unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+    unsigned reg = (unsigned)(opcode & 7u);
+    unsigned count = (unsigned)((opcode >> 9u) & 7u);
+    unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+    unsigned size = size_code == 0u ? 0u : (size_code == 1u ? 1u : 2u);
+    uint32_t amount = count == 0u ? 8u : count;
+    uint32_t dst = 0u;
+    uint32_t result = 0u;
+    vf2_status status = VF2_OK;
+    if (size_code == 3u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (mode == 1u) {
+        /* Quick to An: word/long only, full 32-bit add, no flags. */
+        if (size == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (is_sub != 0) {
+            regs->a[reg] = regs->a[reg] - amount;
+        } else {
+            regs->a[reg] = regs->a[reg] + amount;
+        }
+        return VF2_OK;
+    }
+    if (mode != 0u && mode != 2u && mode != 3u && mode != 4u &&
+        mode != 5u && mode != 6u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if ((mode == 2u || mode == 3u || mode == 4u || mode == 5u ||
+         mode == 6u) &&
+        size != 0u) {
+        /* Memory quick operations are byte-only on this corridor. */
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    status = ea_read(bus, regs, mode, reg, size, pc, off, &dst);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (is_sub != 0) {
+        result = (dst - amount) & size_mask(size);
+    } else {
+        result = (dst + amount) & size_mask(size);
+    }
+    status = ea_write(bus, regs, mode, reg, size, pc, off, result);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (is_sub != 0) {
+        flags_sub(regs, size, dst, amount, result, 1);
+    } else {
+        flags_add(regs, size, dst, amount, result);
+    }
+    return VF2_OK;
+}
+
+static vf2_status step_mulu(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    int is_signed
+)
+{
+    unsigned dreg = (unsigned)((opcode >> 9u) & 7u);
+    unsigned smode = (unsigned)((opcode >> 3u) & 7u);
+    unsigned sreg = (unsigned)(opcode & 7u);
+    uint32_t src = 0u;
+    uint32_t result = 0u;
+    vf2_status status = VF2_OK;
+    /* The decoder admits #imm and Dn sources only. */
+    if (smode == 7u && sreg == 4u) {
+        status = fetch_imm(bus, pc, off, 1u, &src);
+        if (status != VF2_OK) {
+            return status;
+        }
+    } else if (smode == 0u) {
+        status = ea_read(bus, regs, smode, sreg, 1u, pc, off, &src);
+        if (status != VF2_OK) {
+            return status;
+        }
+    } else {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (is_signed != 0) {
+        int32_t product = (int32_t)(int16_t)(regs->d[dreg] & 0xffffu) *
+                          (int32_t)(int16_t)(src & 0xffffu);
+        result = (uint32_t)product;
+    } else {
+        result = (regs->d[dreg] & 0xffffu) * (src & 0xffffu);
+    }
+    regs->d[dreg] = result;
+    flags_logic(regs, 2u, result);
+    return VF2_OK;
+}
+
+static vf2_status step_shift(
+    vf2_m68k_regs *regs,
+    uint16_t opcode
+)
+{
+    unsigned type = (unsigned)((opcode >> 3u) & 3u);
+    unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+    unsigned count = (unsigned)((opcode >> 9u) & 7u);
+    unsigned dreg = (unsigned)(opcode & 7u);
+    unsigned size = size_code == 0u ? 0u : (size_code == 1u ? 1u : 2u);
+    unsigned times = count == 0u ? 8u : count;
+    unsigned step = 0u;
+    uint32_t value = regs->d[dreg] & size_mask(size);
+    uint32_t msb = size_msb(size);
+    uint32_t out = 0u;
+    int left = (opcode & UINT16_C(0x0100)) != 0;
+    uint8_t overflow = 0u;
+    if (type > 1u) {
+        /* Rotate forms are not on recovered paths. */
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (size_code == 3u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    for (step = 0u; step < times; ++step) {
+        if (type == 0u && left == 0) {
+            /* Arithmetic right: sign replicates. */
+            out = (value & 1u);
+            value = (value >> 1u) | (value & msb);
+        } else if (left == 0) {
+            out = (value & 1u);
+            value = (value >> 1u) & size_mask(size);
+        } else {
+            out = (value & msb) != 0u ? 1u : 0u;
+            if (type == 0u && ((value & msb) !=
+                               (((value << 1u) & size_mask(size)) & msb))) {
+                overflow = 1u;
+            }
+            value = (value << 1u) & size_mask(size);
+        }
+    }
+    regs->x = (uint8_t)out;
+    regs->c = (uint8_t)out;
+    regs->v = (type == 0u && left != 0) ? overflow : 0u;
+    regs->n = (value & msb) != 0u ? 1u : 0u;
+    regs->z = value == 0u ? 1u : 0u;
+    if (size == 2u) {
+        regs->d[dreg] = value;
+    } else {
+        regs->d[dreg] =
+            (regs->d[dreg] & ~size_mask(size)) | (value & size_mask(size));
+    }
+    return VF2_OK;
+}
+
+static vf2_status step_bit(
+    vf2_m68k_regs *regs,
+    vf2_m68k_bus *bus,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off
+)
+{
+    unsigned type = (unsigned)((opcode >> 6u) & 3u);
+    unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+    unsigned reg = (unsigned)(opcode & 7u);
+    uint16_t bitword = 0u;
+    unsigned bit = 0u;
+    uint32_t dst = 0u;
+    vf2_status status = prog_read(bus, pc + (uint32_t)*off, 1u, &dst);
+    if (status != VF2_OK) {
+        return status;
+    }
+    bitword = (uint16_t)dst;
+    *off += 2u;
+    if (mode != 0u && mode != 2u && mode != 3u && mode != 4u &&
+        mode != 5u && mode != 6u &&
+        !(mode == 7u && (reg == 0u || reg == 1u))) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (mode == 0u) {
+        bit = bitword & 31u;
+        dst = regs->d[reg];
+        regs->z = ((dst >> bit) & 1u) == 0u ? 1u : 0u;
+        if (type == 1u) {
+            regs->d[reg] = dst ^ (UINT32_C(1) << bit);
+        } else if (type == 2u) {
+            regs->d[reg] = dst & ~(UINT32_C(1) << bit);
+        } else if (type == 3u) {
+            regs->d[reg] = dst | (UINT32_C(1) << bit);
+        }
+        return VF2_OK;
+    }
+    bit = bitword & 7u;
+    status = ea_read(bus, regs, mode, reg, 0u, pc, off, &dst);
+    if (status != VF2_OK) {
+        return status;
+    }
+    regs->z = ((dst >> bit) & 1u) == 0u ? 1u : 0u;
+    if (type == 1u) {
+        dst ^= (uint32_t)(1u << bit);
+    } else if (type == 2u) {
+        dst &= (uint32_t)~(1u << bit);
+    } else if (type == 3u) {
+        dst |= (uint32_t)(1u << bit);
+    }
+    if (type != 0u) {
+        status = ea_write(bus, regs, mode, reg, 0u, pc, off, dst);
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+    return VF2_OK;
+}
+
+static vf2_status step_movem(
+    vf2_m68k_regs *regs,
+    vf2_m68k_bus *bus,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off
+)
+{
+    unsigned size_long = (opcode & UINT16_C(0x0040)) != 0u;
+    unsigned to_reg = (opcode & UINT16_C(0xffc0)) != UINT16_C(0x48c0);
+    unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+    unsigned reg = (unsigned)(opcode & 7u);
+    uint16_t mask = 0u;
+    uint32_t value = 0u;
+    uint32_t address = 0u;
+    int bit = 0;
+    vf2_status status = prog_read(bus, pc + (uint32_t)*off, 1u, &value);
+    if (status != VF2_OK) {
+        return status;
+    }
+    mask = (uint16_t)value;
+    *off += 2u;
+    if (size_long == 0u) {
+        /* Word movem is not on recovered paths. */
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (to_reg != 0u) {
+        if (mode != 3u && mode != 5u && mode != 6u && mode != 2u &&
+            !(mode == 7u && (reg == 0u || reg == 1u || reg == 2u ||
+                             reg == 3u))) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        if (mode == 3u) {
+            address = regs->a[reg];
+            for (bit = 0; bit < 16; ++bit) {
+                if ((mask & (uint16_t)((uint16_t)1u << (unsigned)bit)) ==
+                    0u) {
+                    continue;
+                }
+                status = bus_read(bus, address, 2u, &value);
+                if (status != VF2_OK) {
+                    return status;
+                }
+                if (bit < 8) {
+                    regs->d[bit] = value;
+                } else {
+                    regs->a[bit - 8] = value;
+                }
+                address += 4u;
+            }
+            regs->a[reg] = address;
+            return VF2_OK;
+        }
+        status = ea_param_addr(bus, regs, mode, reg, pc, off, 0u, &address);
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (ea_is_program(mode, reg)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        for (bit = 0; bit < 16; ++bit) {
+            if ((mask & (uint16_t)((uint16_t)1u << (unsigned)bit)) == 0u) {
+                continue;
+            }
+            status = bus_read(bus, address, 2u, &value);
+            if (status != VF2_OK) {
+                return status;
+            }
+            if (bit < 8) {
+                regs->d[bit] = value;
+            } else {
+                regs->a[bit - 8] = value;
+            }
+            address += 4u;
+        }
+        return VF2_OK;
+    }
+    if (mode != 4u && mode != 5u && mode != 6u &&
+        !(mode == 7u && (reg == 0u || reg == 1u))) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (mode == 4u) {
+        address = regs->a[reg];
+        for (bit = 15; bit >= 0; --bit) {
+            if ((mask & (uint16_t)((uint16_t)1u << (unsigned)bit)) == 0u) {
+                continue;
+            }
+            address -= 4u;
+            value = bit < 8 ? regs->d[bit] : regs->a[bit - 8];
+            status = bus_write(bus, address, 2u, value);
+            if (status != VF2_OK) {
+                return status;
+            }
+        }
+        regs->a[reg] = address;
+        return VF2_OK;
+    }
+    status = ea_param_addr(bus, regs, mode, reg, pc, off, 0u, &address);
+    if (status != VF2_OK) {
+        return status;
+    }
+    if (ea_is_program(mode, reg)) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    for (bit = 15; bit >= 0; --bit) {
+        if ((mask & (uint16_t)((uint16_t)1u << (unsigned)bit)) == 0u) {
+            continue;
+        }
+        value = bit < 8 ? regs->d[bit] : regs->a[bit - 8];
+        status = bus_write(bus, address, 2u, value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        address += 4u;
+    }
+    return VF2_OK;
+}
+
+static vf2_status step_bcc(
+    vf2_m68k_regs *regs,
+    vf2_m68k_bus *bus,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    uint32_t *new_pc
+)
+{
+    unsigned cond = (unsigned)((opcode >> 8u) & 15u);
+    unsigned low = (unsigned)(opcode & 0xffu);
+    int32_t disp = 0;
+    uint32_t base = 0u;
+    uint32_t value = 0u;
+    vf2_status status = VF2_OK;
+    if (low == 0xffu) {
+        /* Long branches are not on recovered paths. */
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (low == 0u) {
+        status = prog_read(bus, pc + (uint32_t)*off, 1u, &value);
+        if (status != VF2_OK) {
+            return status;
+        }
+        *off += 2u;
+        disp = (int32_t)(int16_t)value;
+    } else {
+        disp = (int32_t)(int8_t)low;
+    }
+    base = pc + (uint32_t)*off;
+    if (bcc_holds(regs, cond)) {
+        *new_pc = base + (uint32_t)disp;
+    } else {
+        *new_pc = base;
+    }
+    return VF2_OK;
+}
+
+static vf2_status step_dbc(
+    vf2_m68k_regs *regs,
+    vf2_m68k_bus *bus,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    uint32_t *new_pc
+)
+{
+    unsigned cond = (unsigned)((opcode >> 8u) & 15u);
+    unsigned reg = (unsigned)(opcode & 7u);
+    uint32_t value = 0u;
+    uint32_t low = 0u;
+    int32_t disp = 0;
+    vf2_status status = prog_read(bus, pc + (uint32_t)*off, 1u, &value);
+    if (status != VF2_OK) {
+        return status;
+    }
+    *off += 2u;
+    disp = (int32_t)(int16_t)value;
+    if (bcc_holds(regs, cond)) {
+        *new_pc = pc + (uint32_t)*off;
+        return VF2_OK;
+    }
+    low = (regs->d[reg] - 1u) & 0xffffu;
+    regs->d[reg] = (regs->d[reg] & UINT32_C(0xffff0000)) | low;
+    if (low == 0xffffu) {
+        *new_pc = pc + (uint32_t)*off;
+    } else {
+        *new_pc = pc + (uint32_t)*off + (uint32_t)disp;
+    }
+    return VF2_OK;
+}
+
+static vf2_status step_jsr_jmp(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    uint16_t opcode,
+    uint32_t pc,
+    size_t *off,
+    uint32_t *new_pc,
+    int is_jsr,
+    uint32_t ret_pc
+)
+{
+    uint32_t target = 0u;
+    vf2_status status = VF2_OK;
+    if (opcode == UINT16_C(0x4eb9) || opcode == UINT16_C(0x4ef9)) {
+        status = prog_read(bus, pc + (uint32_t)*off, 2u, &target);
+        if (status != VF2_OK) {
+            return status;
+        }
+        *off += 4u;
+    } else if (opcode == UINT16_C(0x4eba) || opcode == UINT16_C(0x4efa)) {
+        uint32_t ext = 0u;
+        status = prog_read(bus, pc + (uint32_t)*off, 1u, &ext);
+        if (status != VF2_OK) {
+            return status;
+        }
+        *off += 2u;
+        /* Mirrors the decoder: base is the opcode address + 2. */
+        target = pc + 2u + (uint32_t)(int32_t)(int16_t)ext;
+    } else if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90) ||
+               (opcode & UINT16_C(0xfff8)) == UINT16_C(0x4ed0)) {
+        target = regs->a[opcode & 7u];
+    } else {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (is_jsr != 0) {
+        regs->a[7] -= 4u;
+        status = bus_write(bus, regs->a[7], 2u, ret_pc);
+        if (status != VF2_OK) {
+            return status;
+        }
+    }
+    *new_pc = target;
+    return VF2_OK;
+}
+
+vf2_status vf2_m68k_run(
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs,
+    uint32_t stop_pc,
+    int stop_on_return,
+    uint32_t max_steps,
+    uint32_t *steps_done
+)
+{
+    uint32_t done = 0u;
+    if (bus == NULL || regs == NULL || steps_done == NULL ||
+        bus->rom == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *steps_done = 0u;
+    while (done < max_steps) {
+        uint32_t pc = regs->pc;
+        uint16_t opcode = 0u;
+        uint16_t first = 0u;
+        vf2_m68k_instruction instruction;
+        size_t off = 2u;
+        uint32_t new_pc = 0u;
+        vf2_status status = VF2_OK;
+        unsigned cls = 0u;
+        if (pc == stop_pc) {
+            *steps_done = done;
+            return VF2_OK;
+        }
+        status = rom_u16(bus, pc, &first);
+        if (status != VF2_OK) {
+            return status;
+        }
+        opcode = first;
+        status = vf2_m68k_decode(bus->rom, bus->rom_size, pc, &instruction);
+        if (status != VF2_OK || instruction.supported == 0) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        new_pc = pc + (uint32_t)instruction.length;
+        cls = (unsigned)((opcode & 0xf000u) >> 12u);
+        if (cls >= 1u && cls <= 3u) {
+            unsigned size =
+                cls == 1u ? 0u : (cls == 3u ? 1u : 2u);
+            status = step_move(bus, regs, opcode, pc, &off, size);
+        } else if ((opcode & UINT16_C(0xf1c0)) == UINT16_C(0x41c0)) {
+            unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+            unsigned reg = (unsigned)(opcode & 7u);
+            unsigned dreg = (unsigned)((opcode >> 9u) & 7u);
+            uint32_t address = 0u;
+            if (mode != 2u && mode != 5u && mode != 6u &&
+                !(mode == 7u && (reg == 0u || reg == 1u || reg == 2u ||
+                                 reg == 3u))) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                status = ea_param_addr(bus, regs, mode, reg, pc, &off, 0u,
+                                       &address);
+                if (status == VF2_OK) {
+                    regs->a[dreg] = mode == 2u ? regs->a[reg] : address;
+                }
+            }
+        } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0000) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0040) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0080)) {
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                unsigned size = size_code == 0u ? 0u
+                    : (size_code == 1u ? 1u : 2u);
+                status = step_imm_op(bus, regs, opcode, pc, &off, size, 0u);
+            }
+        } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0a00) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0a40) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0a80)) {
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                unsigned size = size_code == 0u ? 0u
+                    : (size_code == 1u ? 1u : 2u);
+                status = step_imm_op(bus, regs, opcode, pc, &off, size, 5u);
+            }
+        } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0200) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0240) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0280)) {
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                unsigned size = size_code == 0u ? 0u
+                    : (size_code == 1u ? 1u : 2u);
+                status = step_imm_op(bus, regs, opcode, pc, &off, size, 1u);
+            }
+        } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0400) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0440) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0480)) {
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                unsigned size = size_code == 0u ? 0u
+                    : (size_code == 1u ? 1u : 2u);
+                status = step_imm_op(bus, regs, opcode, pc, &off, size, 2u);
+            }
+        } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0600) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0640) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0680)) {
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                unsigned size = size_code == 0u ? 0u
+                    : (size_code == 1u ? 1u : 2u);
+                status = step_imm_op(bus, regs, opcode, pc, &off, size, 3u);
+            }
+        } else if ((opcode & UINT16_C(0xff00)) == UINT16_C(0x0c00)) {
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                unsigned size = size_code == 0u ? 0u
+                    : (size_code == 1u ? 1u : 2u);
+                status = step_imm_op(bus, regs, opcode, pc, &off, size, 4u);
+            }
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x8000)) {
+            /* OR: decoder admits opmode 0-2 with src 0/2/3/5/6. */
+            unsigned opmode = (unsigned)((opcode >> 6u) & 7u);
+            unsigned smode = (unsigned)((opcode >> 3u) & 7u);
+            if (opmode > 2u || (smode != 0u && smode != 2u && smode != 3u &&
+                                smode != 5u && smode != 6u)) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                status = step_alu(bus, regs, opcode, pc, &off, opmode, 2u);
+            }
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x9000)) {
+            /* SUB: decoder admits opmode 0-2 with src 0/2/3/5. */
+            unsigned opmode = (unsigned)((opcode >> 6u) & 7u);
+            unsigned smode = (unsigned)((opcode >> 3u) & 7u);
+            if (opmode > 2u || (smode != 0u && smode != 2u && smode != 3u &&
+                                smode != 5u)) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                status = step_alu(bus, regs, opcode, pc, &off, opmode, 1u);
+            }
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0xd000)) {
+            unsigned opmode = (unsigned)((opcode >> 6u) & 7u);
+            unsigned smode = (unsigned)((opcode >> 3u) & 7u);
+            if (opmode <= 2u) {
+                if (smode != 0u && smode != 2u && smode != 3u &&
+                    smode != 5u) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                } else {
+                    status =
+                        step_alu(bus, regs, opcode, pc, &off, opmode, 0u);
+                }
+            } else if (opmode == 3u || opmode == 7u) {
+                if (smode != 0u && smode != 2u && smode != 3u &&
+                    smode != 5u) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                } else {
+                    status =
+                        step_alu(bus, regs, opcode, pc, &off, opmode, 0u);
+                }
+            } else if (opmode >= 4u && opmode <= 6u) {
+                /* Dn,ea: admitted dst modes mirror the src list. */
+                if (smode != 0u && smode != 2u && smode != 3u &&
+                    smode != 5u) {
+                    status = VF2_ERROR_UNSUPPORTED;
+                } else {
+                    status =
+                        step_alu(bus, regs, opcode, pc, &off, opmode, 0u);
+                }
+            } else {
+                status = VF2_ERROR_UNSUPPORTED;
+            }
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0xb000) &&
+                   (((opcode >> 3u) & 7u) == 0u ||
+                    ((opcode >> 3u) & 7u) == 2u ||
+                    ((opcode >> 3u) & 7u) == 3u ||
+                    ((opcode >> 3u) & 7u) == 5u)) {
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            unsigned opmode = size_code == 0u ? 0u
+                : (size_code == 1u ? 1u : 2u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                /* CMP uses true sizes here (see note on step_alu). */
+                status = step_alu(bus, regs, opcode, pc, &off, opmode, 3u);
+            }
+        } else if (((opcode & UINT16_C(0xf1ff)) == UINT16_C(0xb0fc) ||
+                    (opcode & UINT16_C(0xf1ff)) == UINT16_C(0xb1fc))) {
+            unsigned dreg = (unsigned)((opcode >> 9u) & 7u);
+            int is_long = (opcode & UINT16_C(0x0100)) != 0;
+            uint32_t imm = 0u;
+            uint32_t result = 0u;
+            status = fetch_imm(bus, pc, &off, is_long ? 2u : 1u, &imm);
+            if (status == VF2_OK) {
+                if (is_long == 0) {
+                    imm = (uint32_t)(int32_t)(int16_t)imm;
+                }
+                result = regs->a[dreg] - imm;
+                flags_sub(regs, 2u, regs->a[dreg], imm, result, 0);
+            }
+        } else if ((opcode & UINT16_C(0xf1c0)) == UINT16_C(0xc0c0) ||
+                   (opcode & UINT16_C(0xf1c0)) == UINT16_C(0xc1c0)) {
+            int is_signed = (opcode & UINT16_C(0x0100)) != 0;
+            if (((opcode & UINT16_C(0x003f)) != UINT16_C(0x003c)) &&
+                ((opcode & UINT16_C(0x0038)) != 0u)) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                status = step_mulu(bus, regs, opcode, pc, &off, is_signed);
+            }
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0xe000) &&
+                   ((opcode >> 6u) & 3u) != 3u &&
+                   (opcode & UINT16_C(0x0020)) == 0u &&
+                   ((opcode >> 3u) & 3u) <= 1u) {
+            /* Immediate-count arithmetic/logical shifts only. */
+            status = step_shift(regs, opcode);
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x6000)) {
+            status = step_bcc(regs, bus, opcode, pc, &off, &new_pc);
+        } else if ((opcode & UINT16_C(0xf0f8)) == UINT16_C(0x50c8)) {
+            status = step_dbc(regs, bus, opcode, pc, &off, &new_pc);
+        } else if (opcode == UINT16_C(0x4eb9) ||
+                   opcode == UINT16_C(0x4ef9) ||
+                   opcode == UINT16_C(0x4eba) ||
+                   opcode == UINT16_C(0x4efa) ||
+                   (opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90) ||
+                   (opcode & UINT16_C(0xfff8)) == UINT16_C(0x4ed0)) {
+            int is_jsr = opcode == UINT16_C(0x4eb9) ||
+                         opcode == UINT16_C(0x4eba) ||
+                         (opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90);
+                status = step_jsr_jmp(bus, regs, opcode, pc, &off, &new_pc,
+                                  is_jsr, pc + (uint32_t)instruction.length);
+        } else if (opcode == UINT16_C(0x4e75)) {
+            if (stop_on_return != 0) {
+                *steps_done = done + 1u;
+                return VF2_OK;
+            }
+            {
+                uint32_t ret = 0u;
+                status = bus_read(bus, regs->a[7], 2u, &ret);
+                if (status == VF2_OK) {
+                    regs->a[7] += 4u;
+                    new_pc = ret;
+                }
+            }
+        } else if (opcode == UINT16_C(0x4e73)) {
+            /* rte halts: interrupt-frame restore is out of scope;
+               fixtures start past entry. Documented simplification. */
+            *steps_done = done + 1u;
+            return VF2_OK;
+        } else if (opcode == UINT16_C(0x4e71)) {
+            status = VF2_OK;
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x7000) &&
+                   (opcode & UINT16_C(0x0100)) == 0u) {
+            /* MOVEQ: bits 11-9 are Dn, bit 8 is fixed 0. */
+            unsigned dreg = (unsigned)((opcode >> 9u) & 7u);
+            uint32_t value =
+                (uint32_t)(int32_t)(int8_t)(opcode & 0xffu);
+            regs->d[dreg] = value;
+            flags_logic(regs, 2u, value);
+        } else if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4880) ||
+                   (opcode & UINT16_C(0xfff8)) == UINT16_C(0x48c0)) {
+            unsigned dreg = (unsigned)(opcode & 7u);
+            if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4880)) {
+                regs->d[dreg] = (regs->d[dreg] & UINT32_C(0xffff0000)) |
+                                (uint32_t)(int32_t)(int16_t)
+                                    (regs->d[dreg] & 0xffu);
+                flags_logic(regs, 1u, regs->d[dreg]);
+            } else {
+                regs->d[dreg] =
+                    (uint32_t)(int32_t)(int16_t)(regs->d[dreg] & 0xffffu);
+                flags_logic(regs, 2u, regs->d[dreg]);
+            }
+        } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x4400) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x4440) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x4480)) {
+            /* NEG: Dn only (decoder admits Dn only). */
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            unsigned dreg = (unsigned)(opcode & 7u);
+            unsigned size = size_code == 0u ? 0u
+                : (size_code == 1u ? 1u : 2u);
+            uint32_t value = 0u;
+            uint32_t result = 0u;
+            if (size_code > 2u ||
+                ((opcode >> 3u) & 7u) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                value = regs->d[dreg] & size_mask(size);
+                result = (0u - value) & size_mask(size);
+                if (size == 2u) {
+                    regs->d[dreg] = result;
+                } else {
+                    regs->d[dreg] = (regs->d[dreg] & ~size_mask(size)) |
+                                    result;
+                }
+                flags_sub(regs, size, 0u, value, result, 1);
+            }
+        } else if ((opcode & UINT16_C(0xff00)) == UINT16_C(0x4a00)) {
+            /* TST: decoder admits Dn and d16(An) only. */
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+            unsigned reg = (unsigned)(opcode & 7u);
+            unsigned size = size_code == 0u ? 0u
+                : (size_code == 1u ? 1u : 2u);
+            uint32_t value = 0u;
+            if (size_code > 2u || (mode != 0u && mode != 5u)) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                status = ea_read(bus, regs, mode, reg, size, pc, &off,
+                                 &value);
+                if (status == VF2_OK) {
+                    flags_logic(regs, size, value);
+                }
+            }
+        } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x4600) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x4640) ||
+                   (opcode & UINT16_C(0xffc0)) == UINT16_C(0x4680)) {
+            /* NOT: decoder admits Dn only. */
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            unsigned dreg = (unsigned)(opcode & 7u);
+            unsigned size = size_code == 0u ? 0u
+                : (size_code == 1u ? 1u : 2u);
+            uint32_t result = 0u;
+            if (size_code > 2u ||
+                ((opcode >> 3u) & 7u) != 0u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                result = (~regs->d[dreg]) & size_mask(size);
+                if (size == 2u) {
+                    regs->d[dreg] = result;
+                } else {
+                    regs->d[dreg] = (regs->d[dreg] & ~size_mask(size)) |
+                                    result;
+                }
+                flags_logic(regs, size, result);
+            }
+        } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x5000)) {
+            /* True quick shapes: class 5, bit 8 selects add/sub.
+               (The decoder's SUBQ side additionally misses counts
+               4-7; the decode gate refuses those first, so the
+               stepper never executes them. P6 tracks the print.) */
+            unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+            if (mode != 0u && mode != 1u && mode != 2u && mode != 3u &&
+                mode != 5u && mode != 6u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                int is_sub =
+                    (opcode & UINT16_C(0x0100)) != 0u;
+                status = step_quick(regs, bus, opcode, pc, &off, is_sub);
+            }
+        } else if ((opcode & UINT16_C(0xff00)) == UINT16_C(0x0800)) {
+            /* Static bit operations only; dynamic (0x01xx) refuses. */
+            status = step_bit(regs, bus, opcode, pc, &off);
+        } else if (((opcode & UINT16_C(0xffc0)) == UINT16_C(0x48c0) &&
+                    ((opcode >> 3u) & 7u) == 4u) ||
+                   ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x4cc0) &&
+                    ((opcode >> 3u) & 7u) == 3u)) {
+            status = step_movem(regs, bus, opcode, pc, &off);
+        } else {
+            status = VF2_ERROR_UNSUPPORTED;
+        }
+        if (status != VF2_OK) {
+            return status;
+        }
+        if (off != instruction.length) {
+            /* Stepper/decoder length divergence tripwire. */
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        regs->pc = new_pc;
+        ++done;
+    }
+    *steps_done = done;
+    return VF2_ERROR_UNSUPPORTED;
+}
