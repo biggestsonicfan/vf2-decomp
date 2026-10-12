@@ -225,6 +225,126 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "link a6,#$%04x", (unsigned)displacement);
         }
+    } else if ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x0000) ||
+               (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0040) ||
+               (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0080) ||
+               (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0a00) ||
+               (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0a40) ||
+               (opcode & UINT16_C(0xffc0)) == UINT16_C(0x0a80)) {
+        const int is_eor =
+            (opcode & UINT16_C(0x0f00)) == UINT16_C(0x0a00);
+        const char *const operation = is_eor ? "eori" : "ori";
+        const unsigned mode = (unsigned)((opcode >> 3u) & 7u);
+        const unsigned register_number = (unsigned)(opcode & 7u);
+        const unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+        const char size_name = size_code == 0u ? 'b' :
+                               (size_code == 1u ? 'w' : 'l');
+        const size_t immediate_bytes = size_code == 2u ? 4u : 2u;
+        uint32_t immediate = 0u;
+        uint16_t displacement = 0u;
+        instruction->length = 2u + immediate_bytes +
+                              ((mode == 5u || mode == 6u) ? 2u : 0u);
+        if (immediate_bytes == 4u) {
+            status = vf2_m68k_read_u32(program, program_size, address + 2u,
+                                       &immediate);
+        } else {
+            uint16_t value = 0u;
+            status = vf2_m68k_read_u16(program, program_size, address + 2u,
+                                       &value);
+            immediate = value;
+        }
+        if (status == VF2_OK && mode == 7u && register_number == 4u &&
+            size_code != 2u) {
+            /* ori/eori #imm,ccr (byte) or #,sr (word). */
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "%s.%c #$%x,%s", operation, size_name,
+                           (unsigned)immediate,
+                           size_code == 0u ? "ccr" : "sr");
+        } else if (status == VF2_OK && mode == 0u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "%s.%c #$%x,d%u", operation, size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 2u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "%s.%c #$%x,(a%u)", operation, size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 3u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "%s.%c #$%x,(a%u)+", operation, size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 4u) {
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "%s.%c #$%x,-(a%u)", operation, size_name,
+                           (unsigned)immediate, register_number);
+        } else if (status == VF2_OK && mode == 5u) {
+            status = vf2_m68k_read_u16(
+                program, program_size,
+                address + 2u + (uint32_t)immediate_bytes, &displacement
+            );
+            if (status == VF2_OK) {
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "%s.%c #$%x,$%04x(a%u)", operation, size_name,
+                               (unsigned)immediate, (unsigned)displacement,
+                               register_number);
+            }
+        } else if (status == VF2_OK && mode == 6u) {
+            uint16_t extension = 0u;
+            status = vf2_m68k_read_u16(
+                program, program_size,
+                address + 2u + (uint32_t)immediate_bytes, &extension
+            );
+            if (status == VF2_OK) {
+                const unsigned index_is_address =
+                    (unsigned)((extension >> 15u) & 1u);
+                const unsigned index_register =
+                    (unsigned)((extension >> 12u) & 7u);
+                const char index_size =
+                    (extension & UINT16_C(0x0800)) != 0u ? 'l' : 'w';
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "%s.%c #$%x,$%02x(a%u,%c%u.%c)", operation,
+                               size_name, (unsigned)immediate,
+                               (unsigned)(extension & 0xffu),
+                               register_number,
+                               index_is_address != 0u ? 'a' : 'd',
+                               index_register, index_size);
+            }
+        } else if (status == VF2_OK) {
+            status = vf2_m68k_read_u16(
+                program, program_size,
+                address + 2u + (uint32_t)immediate_bytes, &displacement
+            );
+            if (status == VF2_OK) {
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "%s.%c #$%x,$%04x(a%u)", operation, size_name,
+                               (unsigned)immediate, (unsigned)displacement,
+                               register_number);
+            }
+        } else if (status == VF2_OK && mode == 6u) {
+            uint16_t extension = 0u;
+            status = vf2_m68k_read_u16(
+                program, program_size,
+                address + 2u + (uint32_t)immediate_bytes, &extension
+            );
+            if (status == VF2_OK) {
+                const unsigned index_is_address =
+                    (unsigned)((extension >> 15u) & 1u);
+                const unsigned index_register =
+                    (unsigned)((extension >> 12u) & 7u);
+                const char index_size =
+                    (extension & UINT16_C(0x0800)) != 0u ? 'l' : 'w';
+                (void)snprintf(instruction->text, sizeof(instruction->text),
+                               "%s.%c #$%x,$%02x(a%u,%c%u.%c)", operation,
+                               size_name, (unsigned)immediate,
+                               (unsigned)(extension & 0xffu),
+                               register_number,
+                               index_is_address != 0u ? 'a' : 'd',
+                               index_register, index_size);
+            }
+        } else if (status == VF2_OK) {
+            instruction->supported = 0;
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           ".word $%04x", (unsigned)opcode);
+        }
     } else if ((opcode & UINT16_C(0xf000)) == UINT16_C(0x7000)) {
         (void)snprintf(instruction->text, sizeof(instruction->text),
                        "moveq #%d,d%u", (int)(int8_t)(opcode & 0xffu),

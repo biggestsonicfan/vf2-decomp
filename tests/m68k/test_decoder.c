@@ -93,6 +93,13 @@ int main(void)
         0x0c, 0x82, 0xff, 0xff, 0xff, 0xff, /* cmpi.l #$ffffffff,d2 */
         0x4a, 0x2a, 0x00, 0x0c              /* tst.b $c(a2) */
     };
+    static const uint8_t ori_eori[] = {
+        0x00, 0x07, 0x00, 0x10,             /* ori.b #$10,d7 (ROM 0x49e) */
+        0x00, 0x3c, 0x00, 0x10,             /* ori.b #$10,ccr */
+        0x0a, 0x00, 0x00, 0xff,             /* eori.b #$ff,d0 */
+        0x00, 0x35, 0x00, 0x0f, 0x10, 0x01, /* ori.b #$f,$1(a5,d1.w) */
+        0x00, 0x20, 0x00, 0xff              /* ori.b #$ff,-(a0) */
+    };
     static const uint8_t indexed_quick[] = {
         0x06, 0x31, 0x00, 0x50, 0x10, 0x0b, /* addi.b #$50,$b(a1,d1.w) */
         0x56, 0x31, 0x10, 0x0b              /* addq.b #3,$b(a1,d1.w) */
@@ -295,6 +302,28 @@ int main(void)
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 4u);
     EXPECT_TRUE(strcmp(instruction.text, "tst.b $000c(a2)") == 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(ori_eori, sizeof(ori_eori), 0u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "ori.b #$10,d7") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(ori_eori, sizeof(ori_eori), 4u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "ori.b #$10,ccr") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(ori_eori, sizeof(ori_eori), 8u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "eori.b #$ff,d0") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(ori_eori, sizeof(ori_eori), 12u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 6u);
+    EXPECT_TRUE(strcmp(instruction.text,
+                       "ori.b #$f,$01(a5,d1.w)") == 0);
+    EXPECT_TRUE(vf2_m68k_decode(ori_eori, sizeof(ori_eori), 18u,
+                                &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(strcmp(instruction.text, "ori.b #$ff,-(a0)") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(indexed_quick, sizeof(indexed_quick), 0u,
                                 &instruction) == VF2_OK);
