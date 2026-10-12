@@ -420,8 +420,7 @@ vf2_status vf2_m68k_decode(
         }
         if (status == VF2_OK) {
             set_branch_text(instruction, conditions[(opcode >> 8u) & 15u],
-                            address + (uint32_t)instruction->length +
-                            (uint32_t)displacement);
+                            address + 2u + (uint32_t)displacement);
         }
     } else if ((opcode & UINT16_C(0xf0f8)) == UINT16_C(0x50c8)) {
         uint16_t extension = 0u;
@@ -432,7 +431,7 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "%s d%u,$%08x", db_conditions[(opcode >> 8u) & 15u],
                            (unsigned)(opcode & 7u),
-                           (unsigned)(address + 4u +
+                           (unsigned)(address + 2u +
                                       (uint32_t)sign_extend16(extension)));
         }
     } else if ((opcode & UINT16_C(0xff00)) == UINT16_C(0x0800) ||
@@ -1256,7 +1255,7 @@ vf2_status vf2_m68k_decode(
         if (status == VF2_OK) {
             set_branch_text(instruction,
                             opcode == UINT16_C(0x4eba) ? "jsr" : "jmp",
-                            address + 4u + (uint32_t)sign_extend16(extension));
+                            address + 2u + (uint32_t)sign_extend16(extension));
         }
     } else if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90)) {
         (void)snprintf(instruction->text, sizeof(instruction->text),
