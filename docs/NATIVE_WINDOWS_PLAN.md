@@ -179,6 +179,37 @@ Exit
 
 ## Phase 3 - Reference sessions and coverage map
 
+Status (2026-10-13): core tooling in place; one session reachable so far.
+
+- `vf2i960 coverage <roms> <snap> <frames> <out.json> [frame:mask,...]` runs the
+  interpreter oracle from the cold snapshot for N frames (same frame-interrupt
+  scheduler as Phase 2) and writes a compact per-word hit-count JSON. Only
+  counts leave the tool; it is deterministic (identical JSON across two runs).
+- `tools/python/coverage_report.py` maps one or more session JSONs onto
+  `decomp/i960/functions.csv` and prints, per session and for the union:
+  recovered vs unrecovered vs lifted executed-word percentages (lifted is 0
+  until the G1/Phase 4 decision), the count of recovered functions exercised,
+  and the never-executed set. `scripts/coverage_report.*` reproduces the whole
+  thing from the ROM and refreshes the committed backlog.
+- Measured, attract session, 3,600 frames: 899 distinct program words executed;
+  72.1% are inside a recovered function, 27.9% (251 words, 85 runs) are not and
+  form the ranked backlog (`decomp/i960/coverage_attract_backlog.csv`); 61/111
+  recovered functions are exercised. The hottest unrecovered runs are the
+  scheduler/frame dispatch around `0x00010d54..0x00010e60` and `0x0000a15c`.
+- Bookkeeping caveat (the plan's "fix the debt first"): the native hybrid runs
+  this corridor with `interpreted 0`, so the 27.9% "unrecovered" is executed
+  code the runtime recovers as dispatch/bridge blocks but that is not yet
+  *registered* as a function in `functions.csv`. The backlog therefore mixes
+  genuinely-unrecovered code with registry debt; reconciling `functions.csv`
+  against the native dispatch is the next step before the numbers are fully
+  trustworthy.
+- Still open (deferred): the coin, character-select, 2-round match, results,
+  continue and test-menu sessions. The cold corridor is still the black-frame
+  attract spin and does not yet poll coin (needs the geometry pipeline, Phase 6,
+  or a MAME-captured input stream), so scripted input currently changes nothing;
+  the `[frame:mask]` argument is in place for when the game advances. The caller
+  graph and the MAME cross-capture are also deferred to that point.
+
 Goal: know, with numbers, how much of the program a real session executes and
 which functions are still unrecovered.
 

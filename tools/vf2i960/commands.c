@@ -40,6 +40,7 @@ static void usage(const char *program)
         "  %s scheduler-dispatch <rom-directory>\n"
         "  %s task-profile <rom-directory> [output.csv]\n"
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
+        "  %s coverage <rom-directory> <input.vf2snap> <frames> <output.json> [frame:mask,...]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
         "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address] [raise-irq] [enter-vector] [enter-level]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
@@ -69,6 +70,7 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program,
         program,
         program,
         program,
@@ -6501,6 +6503,159 @@ static int command_trace_orchestrator(
     return EXIT_SUCCESS;
 }
 
+/* Phase 3 coverage: run the i960 interpreter from a start snapshot for a
+ * number of frames (frame interrupt driven by the same host-side scheduler the
+ * recovered runtime and vf2_host --oracle use) and record, per executed
+ * program word, how many instructions started there.  The output is compact
+ * JSON (address -> hit count) that tools/python/coverage_report.py maps onto
+ * decomp/i960/functions.csv.  Only counts leave the tool; no ROM, snapshot or
+ * trace is written to Git. */
+/* An optional input script: comma-separated frame:mask pairs (mask is a
+ * VF2_PLATFORM_BUTTON_* bit set, hex or decimal).  The mask in effect changes
+ * when a frame index is reached, so "5:0x100,10:0,60:0x80,65:0" inserts a coin
+ * at frame 5, releases it, then presses start at frame 60.  Up to 64 points. */
+typedef struct {
+    uint32_t frame[64];
+    uint32_t mask[64];
+    size_t count;
+} coverage_input_script;
+
+static int parse_input_script(const char *text, coverage_input_script *script)
+{
+    script->count = 0u;
+    if (text == NULL || text[0] == '\0') return 1;
+    while (*text != '\0' && script->count < 64u) {
+        char *end = NULL;
+        unsigned long f = strtoul(text, &end, 0);
+        if (end == text || *end != ':') return 0;
+        text = end + 1;
+        unsigned long m = strtoul(text, &end, 0);
+        if (end == text) return 0;
+        script->frame[script->count] = (uint32_t)f;
+        script->mask[script->count] = (uint32_t)m;
+        ++script->count;
+        text = end;
+        if (*text == ',') ++text;
+        else if (*text != '\0') return 0;
+    }
+    return 1;
+}
+
+static int command_coverage(
+    const char *rom_directory,
+    const char *snapshot_path,
+    uint32_t frames,
+    const char *output_path,
+    const coverage_input_script *script
+)
+{
+    const uint64_t per_frame_budget = UINT64_C(50000000);
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_i960_snapshot snapshot;
+    vf2_hybrid_frame_wait_state frame_wait;
+    uint32_t *counts = NULL;
+    size_t words = 0u;
+    uint64_t executed = 0u, out_of_rom = 0u, distinct = 0u;
+    uint32_t frame = 0u;
+    FILE *out = NULL;
+    vf2_status status = VF2_OK;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    vf2_i960_snapshot_init(&snapshot);
+
+    status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(rom_directory, &machine, image, image_size);
+    }
+    if (status == VF2_OK) status = vf2_i960_snapshot_read_file(&snapshot, snapshot_path);
+    if (status == VF2_OK) status = vf2_i960_snapshot_restore(&snapshot, &cpu, &machine);
+    if (status == VF2_OK) status = vf2_hybrid_frame_wait_initialize(&frame_wait, 4u);
+    if (status == VF2_OK) {
+        words = image_size / 4u;
+        counts = (uint32_t *)calloc(words, sizeof(*counts));
+        if (counts == NULL) status = VF2_ERROR_OUT_OF_MEMORY;
+    }
+    while (status == VF2_OK && frame < frames) {
+        uint64_t steps = 0u;
+        if (script != NULL) {
+            size_t i;
+            uint32_t mask = 0u;
+            int have = 0;
+            for (i = 0u; i < script->count; ++i) {
+                if (script->frame[i] <= frame) { mask = script->mask[i]; have = 1; }
+            }
+            if (have) {
+                status = vf2_model2a_set_input(&machine, mask);
+                if (status != VF2_OK) break;
+            }
+        }
+        for (;;) {
+            vf2_hybrid_frame_wait_report wait_report;
+            uint32_t ip;
+            status = vf2_hybrid_frame_wait_observe(
+                &machine, &cpu, &frame_wait, &wait_report
+            );
+            if (status != VF2_OK) break;
+            if (wait_report.interrupt_injected) {
+                ++frame;
+                break;
+            }
+            ip = cpu.ip;
+            if (ip < image_size) {
+                if (counts[ip / 4u] == 0u) ++distinct;
+                ++counts[ip / 4u];
+            } else {
+                ++out_of_rom;
+            }
+            ++executed;
+            status = vf2_i960_step(&cpu, &machine, NULL);
+            if (status != VF2_OK) break;
+            if (++steps >= per_frame_budget) { status = VF2_ERROR_UNSUPPORTED; break; }
+        }
+    }
+    if (status == VF2_OK) {
+        out = fopen(output_path, "wb");
+        if (out == NULL) status = VF2_ERROR_IO;
+    }
+    if (status == VF2_OK) {
+        int first = 1;
+        size_t w;
+        fprintf(out, "{\n");
+        fprintf(out, "  \"frames\": %u,\n", (unsigned)frame);
+        fprintf(out, "  \"executed\": %llu,\n", (unsigned long long)executed);
+        fprintf(out, "  \"out_of_rom\": %llu,\n", (unsigned long long)out_of_rom);
+        fprintf(out, "  \"distinct_words\": %llu,\n", (unsigned long long)distinct);
+        fprintf(out, "  \"counts\": {");
+        for (w = 0u; w < words; ++w) {
+            if (counts[w] == 0u) continue;
+            fprintf(out, "%s\n    \"0x%08x\": %u", first ? "" : ",",
+                    (unsigned)(w * 4u), (unsigned)counts[w]);
+            first = 0;
+        }
+        fprintf(out, "%s  }\n}\n", first ? "" : "\n");
+        if (fclose(out) != 0) status = VF2_ERROR_IO;
+    }
+    if (status == VF2_OK) {
+        printf("coverage: %u frames, %llu instructions, %llu distinct words "
+               "(%llu out of ROM) -> %s\n",
+               (unsigned)frame, (unsigned long long)executed,
+               (unsigned long long)distinct, (unsigned long long)out_of_rom,
+               output_path);
+    } else {
+        fprintf(stderr, "coverage failed: %s\n", vf2_status_string(status));
+    }
+    free(counts);
+    vf2_i960_snapshot_destroy(&snapshot);
+    vf2_model2a_shutdown(&machine);
+    free(image);
+    return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3) {
@@ -6605,6 +6760,20 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "snapshot") == 0 && argc == 4) {
         return command_snapshot(argv[2], argv[3]);
+    }
+
+    if (strcmp(argv[1], "coverage") == 0 && (argc == 6 || argc == 7)) {
+        uint32_t frames = 0u;
+        coverage_input_script script;
+        if (!parse_u32(argv[4], &frames) || frames == 0u) {
+            fprintf(stderr, "Invalid frame count: %s\n", argv[4]);
+            return EXIT_FAILURE;
+        }
+        if (!parse_input_script(argc == 7 ? argv[6] : NULL, &script)) {
+            fprintf(stderr, "Invalid input script: %s\n", argv[6]);
+            return EXIT_FAILURE;
+        }
+        return command_coverage(argv[2], argv[3], frames, argv[5], &script);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
