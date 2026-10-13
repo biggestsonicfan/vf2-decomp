@@ -228,6 +228,125 @@ static void test_a0_overmax(
     EXPECT_TRUE(regs.d[2] == (uint32_t)maxv);
 }
 
+/* S7b differential: C dispatch_next vs ROM e0 head+tail.
+ *
+ * Shared contract (asserted): $1524 word, $4200+2*ch word, voice
+ * timer RAM[$201a+d4], SCSP voice word [$10+d4], report channel /
+ * voices_matched / handler.
+ * Excluded by construction (documented, NOT asserted): ring
+ * cursor/count consume (C advances, ROM head doesn't traffic them),
+ * $150e current-command write (C writes, ROM head only reads),
+ * stepper regs / C scan counters (side-local).
+ * Fixture: ring cmd 0xe3 payload 0x05, filed $150e=$e3, descriptor
+ * $4000 (ch 3, table 0), voice0 match (slot 0), rest miss-all.
+ * Stepper a3 stream mirrors ring[0..1] (controlled input). */
+static void test_e0_differential(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *voice0 = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+    uint16_t c_1524 = 0u;
+    uint16_t s_1524 = 0u;
+    uint16_t c_chw = 0u;
+    uint16_t s_chw = 0u;
+    uint16_t c_timer = 0u;
+    uint16_t s_timer = 0u;
+
+    /* NOTE: vf2_sound_board_initialize FAILS on the real 0x80000
+       audio region (it was proven on synthetic ROM only; one of its
+       table reads falls outside — descriptor images? voice tables?
+       Bisect pending, separate probe). The differential targets
+       dispatch_e0 semantics, not boot, so both sides are built
+       manually with bare-init SCSPs (identical start states). */
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    /* Ring: cursor 0, count 1, cmd e3 payload 05. */
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0xe3u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0x05u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_CURRENT_COMMAND] = 0xe3u;
+    /* Descriptor $4000: active, channel 3, table 0. */
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x00u;
+    desc[2] = 0x03u;
+    desc[3] = 0x00u;
+    desc[5] = 0x02u;
+    desc[7] = 0x00u;
+    /* Voice0 $2800: slot 0, active, nibble $30, channel byte 3
+       at [4] (ROM cmp.B matches the single byte; voice[5]
+       ignored). */
+    voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[0] = 0x00u;
+    voice0[1] = 0x00u;
+    voice0[2] = 0x01u;
+    voice0[3] = 0x30u;
+    voice0[4] = 0x03u;
+    voice0[5] = 0x00u;
+    voice0[10] = 0x00u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "dispatch e0-diff: c-status=%d ch=%u matched=%u handler=0x%05x\n",
+            (int)cstatus, (unsigned)creport.channel,
+            (unsigned)creport.voices_matched,
+            (unsigned)creport.handler_address);
+    EXPECT_TRUE(cstatus == VF2_OK);
+    EXPECT_TRUE(creport.channel == 3u);
+    EXPECT_TRUE(creport.voices_matched == 1u);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0x12b6));
+
+    make_bus(&bus, &step_scsp, step_ram, audio_rom, audio_rom_size);
+    reset_regs(&regs);
+    regs.pc = UINT32_C(0x12b4);
+    regs.a[3] = UINT32_C(0x7300);
+    regs.a[0] = UINT32_C(0x4000);
+    step_ram[0x7300u] = 0xe3u;
+    step_ram[0x7301u] = 0x05u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1354), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch e0-diff: s-status=%d pc=0x%05x steps=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x1354));
+
+    c_1524 = (uint16_t)(((uint16_t)cram[0x2524u] << 8u) | cram[0x2525u]);
+    s_1524 = (uint16_t)(((uint16_t)step_ram[0x2524u] << 8u) | step_ram[0x2525u]);
+    c_chw = (uint16_t)(((uint16_t)cram[0x4206u] << 8u) | cram[0x4207u]);
+    s_chw = (uint16_t)(((uint16_t)step_ram[0x4206u] << 8u) | step_ram[0x4207u]);
+    c_timer = (uint16_t)(((uint16_t)cram[0x201au] << 8u) | cram[0x201bu]);
+    s_timer = (uint16_t)(((uint16_t)step_ram[0x201au] << 8u) | step_ram[0x201bu]);
+    fprintf(stderr, "dispatch e0-diff: 1524 c=%04x s=%04x chw c=%04x s=%04x timer c=%04x s=%04x\n",
+            (unsigned)c_1524, (unsigned)s_1524,
+            (unsigned)c_chw, (unsigned)s_chw,
+            (unsigned)c_timer, (unsigned)s_timer);
+    EXPECT_TRUE(c_1524 == s_1524);
+    EXPECT_TRUE(c_chw == s_chw);
+    EXPECT_TRUE(c_timer == s_timer);
+    EXPECT_TRUE(board.scsp.registers[0x10u] == step_scsp.registers[0x10u]);
+    EXPECT_TRUE(board.scsp.registers[0x11u] == step_scsp.registers[0x11u]);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -248,6 +367,7 @@ int main(int argc, char **argv)
     test_e0_head_nomatch(audio_rom, audio_rom_size);
     test_e0_gate_rts(audio_rom, audio_rom_size);
     test_a0_overmax(audio_rom, audio_rom_size);
+    test_e0_differential(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);

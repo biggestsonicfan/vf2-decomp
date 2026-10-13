@@ -1061,9 +1061,10 @@ vf2_status vf2_m68k_decode(
         const unsigned operation_mode = (unsigned)((opcode >> 6u) & 7u);
         const unsigned source_mode = (unsigned)((opcode >> 3u) & 7u);
         const unsigned source_register = (unsigned)(opcode & 7u);
-        const char size_name = operation_mode == 2u || operation_mode == 6u
-            ? 'b' : ((operation_mode == 1u || operation_mode == 5u ||
-                      operation_mode == 7u) ? 'l' : 'w');
+        /* Motorola SUB opmode: 0=B,1=W,2=L (this branch only prints
+           0-2; address forms refuse below). Was rotated like CMP. */
+        const char size_name = operation_mode == 0u ? 'b' :
+                               (operation_mode == 1u ? 'w' : 'l');
         uint16_t displacement = 0u;
         const int source_has_displacement = source_mode == 5u;
         instruction->length = 2u + (source_has_displacement ? 2u : 0u);
@@ -1126,8 +1127,13 @@ vf2_status vf2_m68k_decode(
         const unsigned mode = (unsigned)((opcode >> 3u) & 7u);
         const unsigned source_register = (unsigned)(opcode & 7u);
         const unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
-        const char size_name = size_code == 0u ? 'w' :
-                               (size_code == 1u ? 'l' : 'b');
+        /* Motorola CMP opmode (bits 8-6): 0=B,1=W,2=L. (This map was
+           rotated 0->w,1->l,2->b, the same bug class as the ADD one;
+           it mislabeled e.g. ROM 0x1332 cmp.b as cmp.w, which hid the
+           byte-compare in the e0 voice scan. Stepper execution always
+           used true sizes.) */
+        const char size_name = size_code == 0u ? 'b' :
+                               (size_code == 1u ? 'w' : 'l');
         uint16_t displacement = 0u;
         instruction->length = mode == 5u ? 4u : 2u;
         if (mode == 5u) {

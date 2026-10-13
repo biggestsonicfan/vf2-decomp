@@ -185,7 +185,8 @@ int main(void)
         voice[0] = 0u;
         voice[1] = 3u;
         voice[2] = 0x40u;
-        voice[4] = 0u;
+        /* Byte match (v0819): ROM 0x1e1c is cmp.B on voice[4]. */
+        voice[4] = 1u;
         voice[5] = 1u;
         board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 1u;
         board.sound_ram[0x2000u] = 0xaau;
@@ -458,7 +459,10 @@ int main(void)
         audio_rom[0x2b27u] = 0x60u;
         audio_rom[0x2b28u] = 0x10u;
         audio_rom[0x2b29u] = 0x00u;
-        audio_rom[0x1000u + 0x03u] = 0x5au;
+        /* Bit-8 rule: transformed 3 has bit8 clear, so the index
+           negates (3 -> 0xfd). The marker lives at the NEGATED
+           index: a bit-0-rule model would read +3 instead. */
+        audio_rom[0x1000u + 0xfdu] = 0x5au;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
@@ -466,7 +470,7 @@ int main(void)
         descriptor[7] = 0u;
         {
             /* A matching channel-9 voice must NOT trigger the tail: the
-               ROM falls into the benign B0-default rts instead. */
+               ROM exits via rts at 0x13c8 (e0 gate) instead. */
             uint8_t *nine_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
             nine_voice[2] = 0x01u;
             nine_voice[4] = 0u;
@@ -481,13 +485,16 @@ int main(void)
         EXPECT_TRUE(dispatch.channel == 9u);
         EXPECT_TRUE(dispatch.voices_matched == 0u);
         EXPECT_TRUE(dispatch.selected_value == 0x5au);
-        EXPECT_TRUE(dispatch.signed_value == 0x5a);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 18u] == 0x00u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 19u] == 0x5au);
+        EXPECT_TRUE(dispatch.signed_value == (int16_t)-0x5a);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 18u] == 0xffu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 19u] == 0xa6u);
 
-        /* e0 stale word (v0795a): d0.upper = ((payload&0x7f)<<7)&0xff00
-           rides into the stored word on the odd path. Payload 0x42 ->
-           stale 0x2100; selected 0x05 at the un-negated index 0x0b. */
+        /* No stale word (v0819): the 0x12ba/0x12c0 andi.l #$7f are
+           LONG (byte-verified), so both uppers are zeroed
+           entry-independently and the stored word is ±selected.
+           Payload 0x42 -> no stale 0x2100; bit8 of transformed is
+           set here, so no negation either: selected 0x05 stored
+           as +0x0005. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -508,11 +515,11 @@ int main(void)
         EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
         EXPECT_TRUE(dispatch.channel == 2u);
         EXPECT_TRUE(dispatch.selected_value == 0x05u);
-        EXPECT_TRUE(dispatch.signed_value == (int16_t)0x2105);
+        EXPECT_TRUE(dispatch.signed_value == (int16_t)0x0005);
         EXPECT_TRUE(dispatch.voices_matched == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 6u] == 0x21u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 6u] == 0x00u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 7u] == 0x05u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 4u] == 0x21u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 4u] == 0x00u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 5u] == 0x05u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
 
@@ -526,19 +533,23 @@ int main(void)
         audio_rom[0x4000u + 0x0bu] = 0x05u;
         audio_rom[0x2682u] = 0x00u; audio_rom[0x2683u] = 0x60u;
         audio_rom[0x2684u] = 0x50u; audio_rom[0x2685u] = 0x00u;
-        audio_rom[0x924au] = 0x12u; audio_rom[0x924bu] = 0x34u;
+        /* Slide is 0x0025 under the corrected result (+5 shared +
+           0x20 addend), so the picker/timer bytes live at the
+           +0x4a offsets, not the legacy +0x424a ones. */
+        audio_rom[0x504au] = 0x12u; audio_rom[0x504bu] = 0x34u;
         audio_rom[0xc72eu] = 0x00u; audio_rom[0xc72fu] = 0x60u;
         audio_rom[0xc730u] = 0x60u; audio_rom[0xc731u] = 0x00u;
-        audio_rom[0xa2aau] = 0xabu; audio_rom[0xa2abu] = 0xcdu;
+        audio_rom[0x60aau] = 0xabu; audio_rom[0x60abu] = 0xcdu;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
         descriptor[2] = 2u;
         /* P6 fixture shift (here and at the small-shaped e0 tail
            below): ROM 0x135e is `add.b`, so only descriptor[5] (the
-           low byte) contributes to slide. Keeping voice[10] = 0x20 +
-           desc[5] = 0 reproduces the legacy slide = 0x0020 for both
-           add.b (silicon) and add.w (legacy) so the rest of the e0
+           low byte) contributes to slide. voice[10] = 0x20 +
+           desc[5] = 0 gives addend 0x20; with the corrected shared
+           result (+5) slide = 0x0025, so the picker/timer marker
+           bytes are staged at the +0x4a offsets. The rest of the e0
            fixture -- SCSP[0x30] expected 0x2234 here and 0x0020 in
            the small-shaped leg, ram[0x203a..0x203b] = 0xab,0xcd --
            continues to test the SAME indexed ROM byte. */
@@ -553,7 +564,8 @@ int main(void)
             tail_voice[1] = 0x20u;
             tail_voice[2] = 0x01u;
             tail_voice[3] = 0x23u;
-            tail_voice[4] = 0u;
+            /* Byte match (v0819): ROM 0x1332 is cmp.B on voice[4]. */
+            tail_voice[4] = 2u;
             tail_voice[5] = 2u;
             tail_voice[10] = 0x20u;
         }
@@ -589,18 +601,16 @@ int main(void)
         audio_rom[0x4000u + 0x0bu] = 0x05u;
         audio_rom[0x2682u] = 0x00u; audio_rom[0x2683u] = 0x60u;
         audio_rom[0x2684u] = 0x50u; audio_rom[0x2685u] = 0x00u;
-        audio_rom[0x924au] = 0x00u; audio_rom[0x924bu] = 0x20u;
+        audio_rom[0x504au] = 0x00u; audio_rom[0x504bu] = 0x20u;
         audio_rom[0xc726u] = 0x00u; audio_rom[0xc727u] = 0x60u;
         audio_rom[0xc728u] = 0x60u; audio_rom[0xc729u] = 0x00u;
-        audio_rom[0xa2aau] = 0xabu; audio_rom[0xa2abu] = 0xcdu;
+        audio_rom[0x60aau] = 0xabu; audio_rom[0x60abu] = 0xcdu;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
         descriptor[2] = 2u;
         /* P6 fixture shift: see the matching note in the first e0
-           fixture above. desc[6] = 0 here too so that voice[10] =
-           0x20 + desc[5] = 0 yields slide = 0x0020 under both add.b
-           (silicon) and add.w (legacy). */
+           fixture above. desc[6] = 0 here too; slide is 0x0025. */
         descriptor[5] = 0u;
         descriptor[6] = 0u;
         descriptor[7] = 0u;
@@ -610,16 +620,12 @@ int main(void)
             tail_voice[1] = 0x20u;
             tail_voice[2] = 0x01u;
             tail_voice[3] = 0x03u;
-            tail_voice[4] = 0u;
+            /* Byte match (v0819): ROM 0x1332 is cmp.B on voice[4]. */
+            tail_voice[4] = 2u;
             tail_voice[5] = 2u;
             /* P6 fixture shift: ROM 0x135e is `add.b`, so only
-               descriptor[5] (the low byte) adds; descriptor[6] (the
-               upper byte of the OLD word-add) no longer contributes
-               to `slide`. voice[10] = 0x20 with desc[5] = 0 produces
-               the same slide = 0x0020 under both add.b (silicon) and
-               add.w (legacy/fixture-written), keeping the rest of the
-               e0 fixture (ROM byte at the looked-up index, SCSP[0x30]
-               write 0x0020, ram[0x203a..0x203b] = 0xab,0xcd) intact. */
+               descriptor[5] (the low byte) adds; slide is 0x0025
+               (see above). */
             tail_voice[10] = 0x20u;
         }
         {

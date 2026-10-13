@@ -688,7 +688,9 @@ static vf2_status sound_board_clear_c0_voices(
         uint32_t scsp_base = 0u;
         uint32_t stream_slot = 0u;
         if ((voice[2u] & 0x40u) == 0u ||
-            read_be16(voice + 4u) != (uint16_t)channel) {
+            /* ROM 0x1e1c is cmp.B (like the 0x1332 scan match): the
+               channel test is the single voice[4] byte. */
+            voice[4u] != channel) {
             continue;
         }
         /* ROM 0x1e24-0x1e38 (V5 key form): d4 = voice[0], the slot
@@ -929,26 +931,27 @@ static vf2_status sound_board_dispatch_e0(
 {
     /* ROM switch enters at 0x12b6 (primer skipped): d2 = command,
        d0 = payload peek. Combined = (command&0x7f)|((payload&0x7f)<<7),
-       >> 5. d0's upper at the table read is ((payload&0x7f)<<7)&0xff00
-       (drain-zeroed upper + move.b preserves): it rides into the
-       stored word on BOTH paths, negated on the even path. */
+       >> 5. The 0x12ba/0x12c0 andi.l #$7f are LONG (byte-verified):
+       both uppers are zeroed entry-independently, so NO payload
+       upper rides into the stored word (the old "stale" term was a
+       size misread: lsl.w #7 feeds the low word only). The stored
+       word is ±selected, negated when transformed-bit8 is clear. */
     uint16_t combined = (uint16_t)((command & 0x7fu) |
                                    ((uint32_t)(payload & 0x7fu) << 7u));
     uint16_t transformed = (uint16_t)(combined >> 5u);
-    uint16_t stale =
-        (uint16_t)(((uint32_t)(payload & 0x7fu) << 7u) & 0xff00u);
     uint8_t table_index = (uint8_t)transformed;
     uint8_t table_number = (uint8_t)(descriptor[7u] & 0x0fu);
     uint32_t table_pointer = 0u;
     uint8_t selected = 0u;
     uint16_t result = 0u;
-    uint16_t with_stale = 0u;
     uint8_t channel = (uint8_t)(command & 0x0fu);
     size_t index = 0u;
 
-    /* ROM neg.b/subq.b normalization: the index is the POST-negation
-       low byte (0xFF when it normalizes to zero). */
-    if ((transformed & 1u) == 0u) {
+    /* ROM neg.b/subq.b normalization (0x12d2-0x12dc, btst #8): the
+       index is the POST-negation low byte (0xFF when it normalizes
+       to zero). Both negs key on transformed-bit8 (0x100), coupled:
+       bit8 set skips both, bit8 clear runs both. */
+    if ((transformed & 0x100u) == 0u) {
         table_index = (uint8_t)(0u - table_index);
         if (table_index == 0u) {
             table_index = UINT8_MAX;
@@ -964,10 +967,9 @@ static vf2_status sound_board_dispatch_e0(
         ) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    with_stale = (uint16_t)(stale | selected);
-    result = (transformed & 1u) != 0u
-        ? with_stale
-        : (uint16_t)(0u - with_stale);
+    result = (transformed & 0x100u) != 0u
+        ? (uint16_t)selected
+        : (uint16_t)(0u - (uint16_t)selected);
     board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 6u] =
         (uint8_t)(result >> 8u);
     board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 7u] =
@@ -992,7 +994,10 @@ static vf2_status sound_board_dispatch_e0(
     for (index = 0u; index < VF2_SOUND_VOICE_COUNT; ++index) {
         uint8_t *voice = board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
             index * VF2_SOUND_VOICE_BYTES;
-        if (read_be16(voice + 4u) == channel &&
+        /* ROM 0x1332 is cmp.B voice+4 (byte-verified opcode; the old
+           cmp.w print hid it): match on the single channel byte, not
+           a word. voice[5] is ignored by the scan. */
+        if (voice[4u] == channel &&
             (voice[2u] & 0x7fu) != 0u) {
             vf2_status status =
                 sound_board_e0_voice_tail(board, voice, descriptor, result);

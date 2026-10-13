@@ -35,7 +35,7 @@ int main(void)
         0x08, 0x28, 0x00, 0x00, 0x00, 0x02, /* btst #0,$2(a0) */
         0x53, 0x2e, 0x15, 0x1e,             /* subq.b #1,$151e(a6) */
         0x0c, 0x2a, 0x00, 0xff, 0x00, 0x09, /* cmpi.b #$ff,$9(a2) */
-        0xb4, 0x12,                         /* cmp.w (a2),d2 */
+        0xb4, 0x12,                         /* cmp.b (a2),d2 */
         0xd5, 0xfc, 0x00, 0x00, 0x00, 0x09, /* adda.l #9,a2 */
         0x41, 0xfa, 0xfd, 0xd2              /* lea $ffffffd6(pc),a0 */
     };
@@ -260,7 +260,7 @@ int main(void)
     EXPECT_TRUE(strcmp(instruction.text, "cmpi.b #$ff,$0009(a2)") == 0);
     EXPECT_TRUE(vf2_m68k_decode(operations, sizeof(operations), 16u,
                                 &instruction) == VF2_OK);
-    EXPECT_TRUE(strcmp(instruction.text, "cmp.w (a2),d2") == 0);
+    EXPECT_TRUE(strcmp(instruction.text, "cmp.b (a2),d2") == 0);
     EXPECT_TRUE(vf2_m68k_decode(operations, sizeof(operations), 18u,
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(strcmp(instruction.text, "adda.l #$9,a2") == 0);
@@ -349,7 +349,7 @@ int main(void)
     EXPECT_TRUE(vf2_m68k_decode(handler_arithmetic,
                                 sizeof(handler_arithmetic), 12u,
                                 &instruction) == VF2_OK);
-    EXPECT_TRUE(strcmp(instruction.text, "cmp.l d2,d0") == 0);
+    EXPECT_TRUE(strcmp(instruction.text, "cmp.w d2,d0") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(extension, sizeof(extension), 0u,
                                 &instruction) == VF2_OK);
@@ -382,7 +382,7 @@ int main(void)
     EXPECT_TRUE(strcmp(instruction.text, "addi.l #$1ff,d6") == 0);
     EXPECT_TRUE(vf2_m68k_decode(voice_helpers, sizeof(voice_helpers), 18u,
                                 &instruction) == VF2_OK);
-    EXPECT_TRUE(strcmp(instruction.text, "sub.b d2,d3") == 0);
+    EXPECT_TRUE(strcmp(instruction.text, "sub.l d2,d3") == 0);
     EXPECT_TRUE(vf2_m68k_decode(voice_helpers, sizeof(voice_helpers), 20u,
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(strcmp(instruction.text, "movea.l a5,a0") == 0);
