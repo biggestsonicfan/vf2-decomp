@@ -433,13 +433,19 @@ static void test_e0_tail(
     EXPECT_TRUE(scsp_equal(&board_c.scsp, &board_s.scsp));
 }
 
-/* T3a: sample uploader, payload 0, zero row. C runs dispatch_next
+/* T3a: sample uploader, payload 0, real row 0. C runs dispatch_next
    end-to-end (drain + B0 0x3a + upload); the stepper starts at the
    uploader entry 0x1AC0 with d0 = payload. Compared: all RAM except
-   drain-only regions (ring, cursor block, descriptors). The uploader
-   touches no SCSP. Expects 2 SR events (0x1AC0 prologue, 0x1B46
-   epilogue). Sample ROM is attached zeros on both sides (uploader
-   sources samples from $800000+). */
+   drain-only regions (ring, cursor block, descriptors) and the
+   jsr-free stack window. The uploader touches no SCSP. Expects 2 SR
+   events (0x1AC0 prologue, 0x1B46 epilogue). Sample ROM is 4MB zeros
+   on both sides (v0822: real row-0 sources reach ~0x23e226 past the
+   old 2MB window; with zeros attached both sides run the full flow
+   OK/OK and the RAM compare pins the control path -- slot words and
+   stored longs from REAL entry structs -- while T3b pins the DATA
+   path with markers). The old P0c trap contract (both refuse on the
+   unmapped read) is retired: the row pointer was never unmapped,
+   only misread. */
 static void test_upload_first(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -447,7 +453,7 @@ static void test_upload_first(
 {
     static vf2_sound_board board_c;
     static vf2_sound_board board_s;
-    static uint8_t sample_rom[VF2_SOUND_SAMPLE_DIRECT_BYTES];
+    static uint8_t sample_rom[0x400000u];
     vf2_sound_dispatch_report report;
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
@@ -482,14 +488,11 @@ static void test_upload_first(
     rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE] = 0x80u;
     rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x00u;
     rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 2u] = 0x0au;
+    memcpy(board_s.sound_ram, rc, VF2_SOUND_RAM_BYTES);
 
     status_c = vf2_sound_board_dispatch_next(&board_c, &report);
-    /* P0c: silicon-equivalence contract on uploader too: the sample
-       source for real-ROM record 0 is 0xa1cec6, past the fixture's
-       2MB sample window. Both sides trap on unmapped sample reads;
-       an OK/UNSUPPORTED split means one side silently ignored the
-       trap -- the test fails. */
-    EXPECT_TRUE(status_c == VF2_OK || status_c == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(status_c == VF2_OK);
+    EXPECT_TRUE(report.handler_address == UINT32_C(0x13cc));
 
     bus.ram = board_s.sound_ram;
     bus.ram_size = sizeof(board_s.sound_ram);
@@ -507,29 +510,280 @@ static void test_upload_first(
     regs.pc = UINT32_C(0x1ac0);
     status_s = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 2000000u,
                             &done);
-    EXPECT_TRUE(status_s == status_c);
+    EXPECT_TRUE(status_s == VF2_OK);
     fprintf(stderr, "up-first: steps=%u events=%u C=%d S=%d\n", done,
             (unsigned)bus.event_count, status_c, status_s);
-    {
-        size_t ev = 0u;
-        for (ev = 0u; ev < bus.event_count && ev < 8u; ++ev) {
-            fprintf(stderr, "  ev addr=0x%x val=0x%x size=%u %s\n",
-                    bus.events[ev].address, bus.events[ev].value,
-                    bus.events[ev].size,
-                    bus.events[ev].is_write ? "w" : "r");
-        }
-    }
+    EXPECT_TRUE(bus.event_count == 2u);
     EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
 
-    /* P0c silicon-equivalence on uploader: the sample source for
-       real-ROM record 0 is 0xa1cec6, past the fixture's 2MB sample
-       window. Both sides trap on unmapped sample reads; the C and
-       stepper diverge on which staged bytes (0x605b28 staging loop
-       0x1AD0-0x1AD2, dbf self-loop ambiguity) commit before the
-       trap. The status code is the contract; the staged-byte
-       divergence is expected and is the only reason the fixture
-       does not pin the sound_ram staging range. */
+    {
+        static const uint32_t lo[] = { 0u, 0x1020u, 0x2526u, 0x4140u,
+                                       0x4240u, 0x7f00u };
+        static const uint32_t hi[] = { 0x1000u, 0x2500u, 0x4000u, 0x4200u,
+                                       0x7eccu, VF2_SOUND_RAM_BYTES };
+        size_t seg = 0u;
+        for (seg = 0u; seg < 6u; ++seg) {
+            if (memcmp(board_c.sound_ram + lo[seg],
+                       board_s.sound_ram + lo[seg],
+                       hi[seg] - lo[seg]) != 0) {
+                fprintf(stderr, "up-first: RAM mismatch [%05x,%05x):\n",
+                        lo[seg], hi[seg]);
+                report_ram_diff(board_c.sound_ram + lo[seg],
+                                board_s.sound_ram + lo[seg],
+                                hi[seg] - lo[seg]);
+                EXPECT_TRUE(0);
+            }
+        }
+    }
     EXPECT_TRUE(scsp_equal(&board_c.scsp, &board_s.scsp));
+}
+
+/* T3b: sample uploader with MARKER data (v0822). Synthetic audio
+   ROM (directory + rows + entries fully staged) and a 256-byte
+   sample ROM with marker bytes; both sides run the full copy and
+   every staged/copied/slot byte is compared. Three runs:
+   - payload 1 (row 1, 2 records): proves dbf+1 staging (4th byte),
+     dbf+1 records (2nd record), entry-indexed stored words
+     (record 1 at $501C, not collapsed onto $6008), full-long
+     stored differences, and marker copies at $50000+;
+   - payload 5 (> max 2): clean OK, staged bytes only;
+   - payload 0x7f: clean OK via the 0x1b46 epilogue (the old
+     UNSUPPORTED "trap" was +4 damage), staged bytes only.
+   C runs dispatch_next (ring 0xBA/payload); the stepper enters at
+   0x1AC0 with d0 = payload. Same segment exclusions as T3a. */
+static void poke_synth_rom(uint8_t *rom)
+{
+    memset(rom, 0, 0x9000u);
+    /* first_count = 3 -> 4 staged bytes (dbf+1). */
+    rom[0x5b26u] = 0x00u; rom[0x5b27u] = 0x03u;
+    /* entry 0 @0x5b28 (its first 4 bytes double as stage markers):
+       source 0x800010, length field for an exact 4-byte copy
+       ((L+0x1ff)&0xffff == 3 -> L = 0xfe04), stored 0x11223344. */
+    rom[0x5b28u] = 0x00u; rom[0x5b29u] = 0x80u;
+    rom[0x5b2au] = 0x00u; rom[0x5b2bu] = 0x10u;
+    rom[0x5b2cu] = 0x00u; rom[0x5b2du] = 0x00u;
+    rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 0x04u;
+    rom[0x5b30u] = 0x11u; rom[0x5b31u] = 0x22u;
+    rom[0x5b32u] = 0x33u; rom[0x5b33u] = 0x44u;
+    /* entry 1 @0x5b3c: source 0x800020, exact 3-byte copy
+       (L = 0xfe03), stored 0x55667788. */
+    rom[0x5b3cu] = 0x00u; rom[0x5b3du] = 0x80u;
+    rom[0x5b3eu] = 0x00u; rom[0x5b3fu] = 0x20u;
+    rom[0x5b40u] = 0x00u; rom[0x5b41u] = 0x00u;
+    rom[0x5b42u] = 0xfeu; rom[0x5b43u] = 0x03u;
+    rom[0x5b44u] = 0x55u; rom[0x5b45u] = 0x66u;
+    rom[0x5b46u] = 0x77u; rom[0x5b47u] = 0x88u;
+    /* entry 2 @0x5b50: source 0x800030, exact 4-byte copy
+       (L = 0xfe04), stored 0x99aabbcc. */
+    rom[0x5b50u] = 0x00u; rom[0x5b51u] = 0x80u;
+    rom[0x5b52u] = 0x00u; rom[0x5b53u] = 0x30u;
+    rom[0x5b54u] = 0x00u; rom[0x5b55u] = 0x00u;
+    rom[0x5b56u] = 0xfeu; rom[0x5b57u] = 0x04u;
+    rom[0x5b58u] = 0x99u; rom[0x5b59u] = 0xaau;
+    rom[0x5b5au] = 0xbbu; rom[0x5b5bu] = 0xccu;
+    /* directory @0x8df0: max 2, rows at 0x608e00/10/20. */
+    rom[0x8df0u] = 0x00u; rom[0x8df1u] = 0x02u;
+    rom[0x8df2u] = 0x00u; rom[0x8df3u] = 0x60u;
+    rom[0x8df4u] = 0x8eu; rom[0x8df5u] = 0x00u;
+    rom[0x8df6u] = 0x00u; rom[0x8df7u] = 0x60u;
+    rom[0x8df8u] = 0x8eu; rom[0x8df9u] = 0x10u;
+    rom[0x8dfau] = 0x00u; rom[0x8dfbu] = 0x60u;
+    rom[0x8dfcu] = 0x8eu; rom[0x8dfdu] = 0x20u;
+    /* row 1 @0x8e10: count 1 -> 2 records, selectors 1, 2 (entry 0
+       is never selected, so the $5000 stage area survives and the
+       two stored words at $501c/$5030 prove entry indexing). */
+    rom[0x8e10u] = 0x00u; rom[0x8e11u] = 0x01u;
+    rom[0x8e12u] = 0x00u; rom[0x8e13u] = 0x01u;
+    rom[0x8e14u] = 0x00u; rom[0x8e15u] = 0x02u;
+}
+
+static void run_upload_synth_case(
+    const uint8_t *synth_rom,
+    const uint8_t *sample_rom,
+    size_t sample_size,
+    uint8_t payload,
+    const char *name,
+    int pin_markers
+)
+{
+    static vf2_sound_board board_c;
+    static vf2_sound_board board_s;
+    vf2_sound_dispatch_report report;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t done = 0u;
+    vf2_status status_c = VF2_OK;
+    vf2_status status_s = VF2_OK;
+    uint8_t *rc = NULL;
+
+    memset(&board_c, 0, sizeof(board_c));
+    memset(&board_s, 0, sizeof(board_s));
+    board_c.audio_rom = synth_rom;
+    board_c.audio_rom_size = 0x9000u;
+    board_s.audio_rom = synth_rom;
+    board_s.audio_rom_size = 0x9000u;
+    board_c.sample_rom = sample_rom;
+    board_c.sample_rom_size = sample_size;
+    board_s.sample_rom = sample_rom;
+    board_s.sample_rom_size = sample_size;
+    vf2_scsp_initialize(&board_c.scsp);
+    vf2_scsp_initialize(&board_s.scsp);
+    memset(&report, 0, sizeof(report));
+
+    rc = board_c.sound_ram;
+    rc[VF2_SOUND_COMMAND_COUNT] = 1u;
+    rc[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    rc[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    rc[VF2_SOUND_COMMAND_RING_BASE] = 0xbau;
+    rc[VF2_SOUND_COMMAND_RING_BASE + 1u] = payload;
+    rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE] = 0x80u;
+    rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x00u;
+    rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 2u] = 0x0au;
+    memcpy(board_s.sound_ram, rc, VF2_SOUND_RAM_BYTES);
+
+    status_c = vf2_sound_board_dispatch_next(&board_c, &report);
+    EXPECT_TRUE(status_c == VF2_OK);
+    EXPECT_TRUE(report.handler_address == UINT32_C(0x13cc));
+
+    bus.ram = board_s.sound_ram;
+    bus.ram_size = sizeof(board_s.sound_ram);
+    bus.rom = synth_rom;
+    bus.rom_size = 0x9000u;
+    bus.sample_rom = sample_rom;
+    bus.sample_rom_size = sample_size;
+    bus.scsp = &board_s.scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.d[0] = payload;
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x1ac0);
+    status_s = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 20000u,
+                            &done);
+    EXPECT_TRUE(status_s == VF2_OK);
+    fprintf(stderr, "up-synth %s: steps=%u events=%u C=%d S=%d\n", name,
+            done, (unsigned)bus.event_count, status_c, status_s);
+    EXPECT_TRUE(bus.event_count == 2u);
+    EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
+
+    if (pin_markers) {
+        /* Execution-verified marker contract (row1, entries 1,2):
+           stage area survives (entry 0 never selected), slot
+           targets/stored at the indexed $5014/$501c + $5028/$5030,
+           marker copies at $50000/$50003. */
+        const uint8_t *cram = board_c.sound_ram;
+        EXPECT_TRUE(cram[0x5000u] == 0x00u && cram[0x5001u] == 0x80u &&
+                    cram[0x5002u] == 0x00u && cram[0x5003u] == 0x10u);
+        EXPECT_TRUE(cram[0x5014u] == 0x80u && cram[0x5015u] == 0x05u &&
+                    cram[0x5016u] == 0x00u && cram[0x5017u] == 0x00u);
+        EXPECT_TRUE(cram[0x5028u] == 0x80u && cram[0x5029u] == 0x05u &&
+                    cram[0x502au] == 0x00u && cram[0x502bu] == 0x03u);
+        EXPECT_TRUE(cram[0x501cu] == 0x54u && cram[0x501du] == 0xe6u &&
+                    cram[0x501eu] == 0x77u && cram[0x501fu] == 0x68u);
+        EXPECT_TRUE(cram[0x5030u] == 0x99u && cram[0x5031u] == 0x2au &&
+                    cram[0x5032u] == 0xbbu && cram[0x5033u] == 0x9cu);
+        EXPECT_TRUE(cram[0x50000u] == 0xf0u && cram[0x50001u] == 0xf1u &&
+                    cram[0x50002u] == 0xf2u);
+        EXPECT_TRUE(cram[0x50003u] == 0xe4u && cram[0x50004u] == 0xe5u &&
+                    cram[0x50005u] == 0xe6u && cram[0x50006u] == 0xe7u);
+    }
+
+    {
+        static const uint32_t lo[] = { 0u, 0x1020u, 0x2526u, 0x4140u,
+                                       0x4240u, 0x7f00u };
+        static const uint32_t hi[] = { 0x1000u, 0x2500u, 0x4000u, 0x4200u,
+                                       0x7eccu, VF2_SOUND_RAM_BYTES };
+        size_t seg = 0u;
+        for (seg = 0u; seg < 6u; ++seg) {
+            if (memcmp(board_c.sound_ram + lo[seg],
+                       board_s.sound_ram + lo[seg],
+                       hi[seg] - lo[seg]) != 0) {
+                fprintf(stderr, "up-synth %s: RAM mismatch [%05x,%05x):\n",
+                        name, lo[seg], hi[seg]);
+                report_ram_diff(board_c.sound_ram + lo[seg],
+                                board_s.sound_ram + lo[seg],
+                                hi[seg] - lo[seg]);
+                EXPECT_TRUE(0);
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board_c.scsp, &board_s.scsp));
+}
+
+static void test_upload_synth(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t synth_rom[0x9000u];
+    static uint8_t sample_rom[0x100u];
+
+    /* The uploader BODY is real code: copy it from the real image
+       (position-independent: all tables come via a0/a1). The
+       directory/rows/entries stay synthetic-staged above. */
+    poke_synth_rom(synth_rom);
+    if (audio_rom_size < 0x1b50u) {
+        fprintf(stderr, "up-synth: real ROM too small for code copy\n");
+        EXPECT_TRUE(0);
+        return;
+    }
+    memcpy(synth_rom + 0x1ac0u, audio_rom + 0x1ac0u,
+           0x1b50u - 0x1ac0u);
+    memset(sample_rom, 0, sizeof(sample_rom));
+    sample_rom[0x10u] = 0xe0u; sample_rom[0x11u] = 0xe1u;
+    sample_rom[0x12u] = 0xe2u; sample_rom[0x13u] = 0xe3u;
+    sample_rom[0x20u] = 0xf0u; sample_rom[0x21u] = 0xf1u;
+    sample_rom[0x22u] = 0xf2u;
+    sample_rom[0x30u] = 0xe4u; sample_rom[0x31u] = 0xe5u;
+    sample_rom[0x32u] = 0xe6u; sample_rom[0x33u] = 0xe7u;
+
+    /* Payload 1: two records via entries 1,2 (entry 0 never selected:
+       the $5000 stage area survives). C-side pins below (execution-
+       verified values); the stepper memcmp is the proof. */
+    run_upload_synth_case(synth_rom, sample_rom, sizeof(sample_rom),
+                          1u, "row1", 1);
+    /* Payload 5 > max 2: staged bytes only. */
+    run_upload_synth_case(synth_rom, sample_rom, sizeof(sample_rom),
+                          5u, "overmax", 0);
+    /* Payload 0x7f: epilogue exit, staged bytes only. */
+    run_upload_synth_case(synth_rom, sample_rom, sizeof(sample_rom),
+                          0x7fu, "trap7f", 0);
+}
+
+/* T4: boot init attaches on the REAL ROM (v0822 payoff). Before
+   the uploader re-recovery this failed: the row pointer 0x10060
+   fell below the audio base (v0819 note). The true boot row is
+   picked indexed (row 0 = 0x608dfa, real records), so with a 4MB
+   sample window every read maps and init returns OK -- the session
+   no longer goes silent-at-boot for this reason. C-only leg (no
+   stepper): the upload inside is the T3a-proven flow with
+   identical real bytes; this pins the attach outcome. */
+static void test_init_real(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static vf2_sound_board board;
+    static uint8_t sample_rom[0x400000u];
+    vf2_status status = VF2_OK;
+
+    memset(sample_rom, 0, sizeof(sample_rom));
+    memset(&board, 0, sizeof(board));
+    status = vf2_sound_board_initialize(&board, audio_rom, audio_rom_size,
+                                        sample_rom, sizeof(sample_rom));
+    fprintf(stderr, "init-real: status=%d $1526=%02x $5000=%02x%02x "
+            "$50000=%02x v0slot=%02x%02x $151e=%02x $152e=%02x\n",
+            (int)status, (unsigned)board.sound_ram[0x2526u],
+            (unsigned)board.sound_ram[0x5000u],
+            (unsigned)board.sound_ram[0x5001u],
+            (unsigned)board.sound_ram[0x50000u],
+            (unsigned)board.sound_ram[0x2800u],
+            (unsigned)board.sound_ram[0x2801u],
+            (unsigned)board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E],
+            (unsigned)board.sound_ram[VF2_SOUND_SHARED_COUNTER_152E]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(board.sound_ram[0x2526u] == 0xefu);
 }
 
 int main(int argc, char **argv)
@@ -550,6 +804,8 @@ int main(int argc, char **argv)
     test_l1_tick(audio_rom, audio_rom_size);
     test_e0_tail(audio_rom, audio_rom_size);
     test_upload_first(audio_rom, audio_rom_size);
+    test_upload_synth(audio_rom, audio_rom_size);
+    test_init_real(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "triangle: %d failures\n", failures);

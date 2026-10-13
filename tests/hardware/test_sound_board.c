@@ -44,9 +44,23 @@ static void test_boot_rom(uint8_t *rom)
     rom[0x536au] = 0x00u; rom[0x536bu] = 0x60u;
     rom[0x536cu] = 0x73u; rom[0x536du] = 0x00u;
     rom[0x7300u] = 0x5au;
-    /* 0x422: no first-copy bytes, d1 < 0 skips the upload. */
-    rom[0x8df0u] = 0xffu; rom[0x8df1u] = 0xffu;
-    rom[0x8df2u] = 0xffu; rom[0x8df3u] = 0xffu;
+    /* Uploader fixture (v0822 true semantics): first_count 0 (stages
+       1 zero byte), max 0, row 0 -> 0x608e00 (count 0 -> 1 record,
+       selector 0 -> entry 0), entry 0 = {source 0x800000 (the
+       2-byte sample_rom), length for a 2-byte copy, stored 0}.
+       Init then completes end-to-end (OK). Legs override deltas. */
+    rom[0x5b26u] = 0x00u; rom[0x5b27u] = 0x00u;
+    rom[0x5b28u] = 0x00u; rom[0x5b29u] = 0x80u;
+    rom[0x5b2au] = 0x00u; rom[0x5b2bu] = 0x00u;
+    rom[0x5b2cu] = 0x00u; rom[0x5b2du] = 0x00u;
+    rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 0x02u;
+    rom[0x5b30u] = 0x00u; rom[0x5b31u] = 0x00u;
+    rom[0x5b32u] = 0x00u; rom[0x5b33u] = 0x00u;
+    rom[0x8df0u] = 0x00u; rom[0x8df1u] = 0x00u;
+    rom[0x8df2u] = 0x00u; rom[0x8df3u] = 0x60u;
+    rom[0x8df4u] = 0x8eu; rom[0x8df5u] = 0x00u;
+    rom[0x8e00u] = 0x00u; rom[0x8e01u] = 0x00u;
+    rom[0x8e02u] = 0x00u; rom[0x8e03u] = 0x00u;
 }
 
 int main(void)
@@ -673,14 +687,15 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
 
-        /* B0 entry 0x3a with payload&0x7f == 0x7f traps (mid-dbf, stale
-           +2): staged bytes persist, packet held. */
+        /* B0 entry 0x3a with payload&0x7f == 0x7f exits via the 0x1b46
+           epilogue (clean OK, verified beq target -- the old
+           mid-dbf-trap/UNSUPPORTED pin was +4 damage): staged bytes
+           persist (first_count 2 -> 3 bytes, dbf+1), packet consumed. */
         {
             static uint8_t rich_rom[0x10010u];
             memset(rich_rom, 0, sizeof(rich_rom));
             test_boot_rom(rich_rom);
             rich_rom[0x5b26u] = 0x00u; rich_rom[0x5b27u] = 0x02u;
-            rich_rom[0x5b28u] = 0xaau; rich_rom[0x5b29u] = 0xbbu;
             EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, sizeof(rich_rom),
                                        sample_rom, sizeof(sample_rom)) == VF2_OK);
             descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -692,35 +707,43 @@ int main(void)
                 EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
-                        VF2_ERROR_UNSUPPORTED);
+                        VF2_OK);
             EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
             EXPECT_TRUE(dispatch.channel == 10u);
             EXPECT_TRUE(dispatch.selected_value == 0x3au);
-            EXPECT_TRUE(board.sound_ram[0x5000u] == 0xaau);
-            EXPECT_TRUE(board.sound_ram[0x5001u] == 0xbbu);
-            EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
-            EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+            EXPECT_TRUE(board.sound_ram[0x5000u] == 0x00u);
+            EXPECT_TRUE(board.sound_ram[0x5001u] == 0x80u);
+            EXPECT_TRUE(board.sound_ram[0x5002u] == 0x00u);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+            EXPECT_TRUE(dispatch.cursor_after == 4u);
         }
 
-        /* B0 entry 0x3a upload (payload 0x05): staged + record copy +
-           slot table, consumed. */
+        /* B0 entry 0x3a upload (payload 0x05): max-gate + indexed row
+           pick, two records (count 1 -> dbf+1), entry-indexed stored
+           words, full-long differences, marker copies, consumed.
+           (v0822: the old direct-be32 row read and fixed-$6008 stored
+           word are retired; $6008 staying zero discriminates.) */
         {
             static uint8_t rich_rom[0x10010u];
             memset(rich_rom, 0, sizeof(rich_rom));
             test_boot_rom(rich_rom);
-            rich_rom[0x5b26u] = 0x00u; rich_rom[0x5b27u] = 0x00u;
+            /* max 5 at the directory base; row 5 -> 0x607800. */
+            rich_rom[0x8df0u] = 0x00u; rich_rom[0x8df1u] = 0x05u;
+            rich_rom[0x8e06u] = 0x00u; rich_rom[0x8e07u] = 0x60u;
+            rich_rom[0x8e08u] = 0x78u; rich_rom[0x8e09u] = 0x00u;
+            /* entry 0: source 0x607400 (deadbeef), 4-byte copy
+               ((L+0x1ff)&0xffff == 3 -> L = 0xfe04),
+               stored 0x11223344. */
             rich_rom[0x5b28u] = 0x00u; rich_rom[0x5b29u] = 0x60u;
-            rich_rom[0x5b2au] = 0x7au; rich_rom[0x5b2bu] = 0x00u;
-            rich_rom[0x8df0u + 0x14u] = 0x00u; rich_rom[0x8df1u + 0x14u] = 0x60u;
-            rich_rom[0x8df2u + 0x14u] = 0x78u; rich_rom[0x8df3u + 0x14u] = 0x00u;
+            rich_rom[0x5b2au] = 0x74u; rich_rom[0x5b2bu] = 0x00u;
+            rich_rom[0x5b2cu] = 0x00u; rich_rom[0x5b2du] = 0x00u;
+            rich_rom[0x5b2eu] = 0xfeu; rich_rom[0x5b2fu] = 0x04u;
+            rich_rom[0x5b30u] = 0x11u; rich_rom[0x5b31u] = 0x22u;
+            rich_rom[0x5b32u] = 0x33u; rich_rom[0x5b33u] = 0x44u;
+            /* row 5: count 1, both selectors entry 0. */
             rich_rom[0x7800u] = 0x00u; rich_rom[0x7801u] = 0x01u;
             rich_rom[0x7802u] = 0x00u; rich_rom[0x7803u] = 0x00u;
-            rich_rom[0x7a00u] = 0x00u; rich_rom[0x7a01u] = 0x60u;
-            rich_rom[0x7a02u] = 0x74u; rich_rom[0x7a03u] = 0x00u;
-            rich_rom[0x7a04u] = 0x00u; rich_rom[0x7a05u] = 0x00u;
-            rich_rom[0x7a06u] = 0xfeu; rich_rom[0x7a07u] = 0x04u;
-            rich_rom[0x7a08u] = 0x11u; rich_rom[0x7a09u] = 0x22u;
-            rich_rom[0x7a0au] = 0x33u; rich_rom[0x7a0bu] = 0x44u;
+            rich_rom[0x7804u] = 0x00u; rich_rom[0x7805u] = 0x00u;
             rich_rom[0x7400u] = 0xdeu; rich_rom[0x7401u] = 0xadu;
             rich_rom[0x7402u] = 0xbeu; rich_rom[0x7403u] = 0xefu;
             EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, sizeof(rich_rom),
@@ -738,15 +761,28 @@ int main(void)
             EXPECT_TRUE(dispatch.channel == 10u);
             EXPECT_TRUE(dispatch.selected_value == 0x3au);
             EXPECT_TRUE(dispatch.handled != 0);
-            EXPECT_TRUE(board.sound_ram[0x6008u] == 0x11u);
-            EXPECT_TRUE(board.sound_ram[0x6009u] == 0x22u);
-            EXPECT_TRUE(board.sound_ram[0x600au] == 0x33u);
-            EXPECT_TRUE(board.sound_ram[0x600bu] == 0x44u);
+            /* stored = 0x11223344 - 0x00607400 = 0x10c1bf44 at the
+               indexed $5008 (the old fixed $6008 stays zero). */
+            EXPECT_TRUE(board.sound_ram[0x5008u] == 0x10u);
+            EXPECT_TRUE(board.sound_ram[0x5009u] == 0xc1u);
+            EXPECT_TRUE(board.sound_ram[0x500au] == 0xbfu);
+            EXPECT_TRUE(board.sound_ram[0x500bu] == 0x44u);
+            EXPECT_TRUE(board.sound_ram[0x6008u] == 0x00u);
+            /* record 1 overwrote the slot target last: 0x50004|bit7
+               = 80 05 00 04 (verified by execution -- never hand-hex
+               a target word again). */
             EXPECT_TRUE(board.sound_ram[0x5000u] == 0x80u);
+            EXPECT_TRUE(board.sound_ram[0x5001u] == 0x05u);
+            EXPECT_TRUE(board.sound_ram[0x5002u] == 0x00u);
+            EXPECT_TRUE(board.sound_ram[0x5003u] == 0x04u);
             EXPECT_TRUE(board.sound_ram[0x50000u] == 0xdeu);
             EXPECT_TRUE(board.sound_ram[0x50001u] == 0xadu);
             EXPECT_TRUE(board.sound_ram[0x50002u] == 0xbeu);
             EXPECT_TRUE(board.sound_ram[0x50003u] == 0xefu);
+            EXPECT_TRUE(board.sound_ram[0x50004u] == 0xdeu);
+            EXPECT_TRUE(board.sound_ram[0x50005u] == 0xadu);
+            EXPECT_TRUE(board.sound_ram[0x50006u] == 0xbeu);
+            EXPECT_TRUE(board.sound_ram[0x50007u] == 0xefu);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
             EXPECT_TRUE(dispatch.cursor_after == 4u);
         }
@@ -944,68 +980,87 @@ int main(void)
         audio_rom[0x711au] = 0x00u;
     }
     {
-        /* Sample uploader (v0794a): staging, record copy, guard. */
+        /* Sample uploader (v0794a, re-pinned v0822): staging, record
+           copy, guard. Init always runs the upload (boot d0 = 0);
+           there is no skip-by-negative-max under true semantics. */
         /* test_boot_rom clears 0x10010 bytes; the board is initialised with a 0x10000-byte ROM. */
         static uint8_t rich_rom_storage[0x10010u];
         uint8_t *const rich_rom = rich_rom_storage;
         uint8_t *slot_table = NULL;
         test_boot_rom(rich_rom);
-        /* Stage-only (d1 < 0 skips the upload). */
+        /* Five staged bytes (first_count 4 -> dbf+1); the 5th
+           (rom[0x5b2c] = 0xee, doubling as entry 0's length high
+           byte) survives at $5004 -- the record target clobbers
+           $5000..3. Entry 0 stays sample-mapped so init completes. */
         rich_rom[0x5b26u] = 0x00u; rich_rom[0x5b27u] = 0x04u;
-        rich_rom[0x5b28u] = 0xaau; rich_rom[0x5b29u] = 0xbbu;
-        rich_rom[0x5b2au] = 0xccu; rich_rom[0x5b2bu] = 0xddu;
+        rich_rom[0x5b28u] = 0x00u; rich_rom[0x5b29u] = 0x80u;
+        rich_rom[0x5b2au] = 0x00u; rich_rom[0x5b2bu] = 0x00u;
+        rich_rom[0x5b2cu] = 0xeeu; rich_rom[0x5b2du] = 0x00u;
+        rich_rom[0x5b2eu] = 0xfeu; rich_rom[0x5b2fu] = 0x02u;
         EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, UINT32_C(0x10000),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
-        EXPECT_TRUE(board.sound_ram[0x5000u] == 0xaau);
-        EXPECT_TRUE(board.sound_ram[0x5001u] == 0xbbu);
-        EXPECT_TRUE(board.sound_ram[0x5002u] == 0xccu);
-        EXPECT_TRUE(board.sound_ram[0x5003u] == 0xddu);
-        /* One-record upload (d1 >= 0, row 0x607800, sel 0). */
+        EXPECT_TRUE(board.sound_ram[0x5000u] == 0x80u);
+        EXPECT_TRUE(board.sound_ram[0x5001u] == 0x05u);
+        EXPECT_TRUE(board.sound_ram[0x5002u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x5003u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x5004u] == 0xeeu);
+        EXPECT_TRUE(board.sound_ram[0x5008u] == 0xffu);
+        EXPECT_TRUE(board.sound_ram[0x5009u] == 0x80u);
+        EXPECT_TRUE(board.sound_ram[0x500au] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x500bu] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x50000u] == 0xa5u);
+        EXPECT_TRUE(board.sound_ram[0x50001u] == 0x5au);
+        /* Two-record upload (row 0x607800, count 1, selectors 0,0;
+           entry 0 = {source 0x607400 deadbeef, 4-byte copy, stored
+           0x11223344}). */
         rich_rom[0x5b26u] = 0x00u; rich_rom[0x5b27u] = 0x00u;
         rich_rom[0x5b28u] = 0x00u; rich_rom[0x5b29u] = 0x60u;
-        rich_rom[0x5b2au] = 0x7au; rich_rom[0x5b2bu] = 0x00u;
-        rich_rom[0x8df0u] = 0x00u; rich_rom[0x8df1u] = 0x60u;
-        rich_rom[0x8df2u] = 0x78u; rich_rom[0x8df3u] = 0x00u;
+        rich_rom[0x5b2au] = 0x74u; rich_rom[0x5b2bu] = 0x00u;
+        rich_rom[0x5b2cu] = 0x00u; rich_rom[0x5b2du] = 0x00u;
+        rich_rom[0x5b2eu] = 0xfeu; rich_rom[0x5b2fu] = 0x04u;
+        rich_rom[0x5b30u] = 0x11u; rich_rom[0x5b31u] = 0x22u;
+        rich_rom[0x5b32u] = 0x33u; rich_rom[0x5b33u] = 0x44u;
+        rich_rom[0x8df0u] = 0x00u; rich_rom[0x8df1u] = 0x00u;
+        rich_rom[0x8df2u] = 0x00u; rich_rom[0x8df3u] = 0x60u;
+        rich_rom[0x8df4u] = 0x78u; rich_rom[0x8df5u] = 0x00u;
         rich_rom[0x7800u] = 0x00u; rich_rom[0x7801u] = 0x01u;
         rich_rom[0x7802u] = 0x00u; rich_rom[0x7803u] = 0x00u;
-        rich_rom[0x7a00u] = 0x00u; rich_rom[0x7a01u] = 0x60u;
-        rich_rom[0x7a02u] = 0x74u; rich_rom[0x7a03u] = 0x00u;
-        rich_rom[0x7a04u] = 0x00u; rich_rom[0x7a05u] = 0x00u;
-        rich_rom[0x7a06u] = 0xfeu; rich_rom[0x7a07u] = 0x04u;
-        rich_rom[0x7a08u] = 0x11u; rich_rom[0x7a09u] = 0x22u;
-        rich_rom[0x7a0au] = 0x33u; rich_rom[0x7a0bu] = 0x44u;
+        rich_rom[0x7804u] = 0x00u; rich_rom[0x7805u] = 0x00u;
         rich_rom[0x7400u] = 0xdeu; rich_rom[0x7401u] = 0xadu;
         rich_rom[0x7402u] = 0xbeu; rich_rom[0x7403u] = 0xefu;
         EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, UINT32_C(0x10000),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
-        EXPECT_TRUE(board.sound_ram[0x6008u] == 0x11u);
-        EXPECT_TRUE(board.sound_ram[0x6009u] == 0x22u);
-        EXPECT_TRUE(board.sound_ram[0x600au] == 0x33u);
-        EXPECT_TRUE(board.sound_ram[0x600bu] == 0x44u);
+        EXPECT_TRUE(board.sound_ram[0x5008u] == 0x10u);
+        EXPECT_TRUE(board.sound_ram[0x5009u] == 0xc1u);
+        EXPECT_TRUE(board.sound_ram[0x500au] == 0xbfu);
+        EXPECT_TRUE(board.sound_ram[0x500bu] == 0x44u);
         EXPECT_TRUE(board.sound_ram[0x5000u] == 0x80u);
         slot_table = board.sound_ram + 0x5000u;
         EXPECT_TRUE(slot_table[1u] == 0x05u && slot_table[2u] == 0x00u &&
-                    slot_table[3u] == 0x00u);
+                    slot_table[3u] == 0x04u);
         EXPECT_TRUE(board.sound_ram[0x50000u] == 0xdeu);
         EXPECT_TRUE(board.sound_ram[0x50001u] == 0xadu);
         EXPECT_TRUE(board.sound_ram[0x50002u] == 0xbeu);
         EXPECT_TRUE(board.sound_ram[0x50003u] == 0xefu);
-        /* Guard trip (4 x 0x8000-byte records cross $6FFFF). */
+        EXPECT_TRUE(board.sound_ram[0x50004u] == 0xdeu);
+        EXPECT_TRUE(board.sound_ram[0x50005u] == 0xadu);
+        EXPECT_TRUE(board.sound_ram[0x50006u] == 0xbeu);
+        EXPECT_TRUE(board.sound_ram[0x50007u] == 0xefu);
+        /* Guard trip (5 x 0x8000-byte records cross $6FFFF). Entry 0
+           keeps phase 2's source; only the length grows. */
         rich_rom[0x7800u] = 0x00u; rich_rom[0x7801u] = 0x04u;
         rich_rom[0x7802u] = 0x00u; rich_rom[0x7803u] = 0x00u;
         rich_rom[0x7804u] = 0x00u; rich_rom[0x7805u] = 0x00u;
         rich_rom[0x7806u] = 0x00u; rich_rom[0x7807u] = 0x00u;
         rich_rom[0x7808u] = 0x00u; rich_rom[0x7809u] = 0x00u;
-        rich_rom[0x7a00u] = 0x00u; rich_rom[0x7a01u] = 0x60u;
-        rich_rom[0x7a02u] = 0x76u; rich_rom[0x7a03u] = 0x00u;
-        rich_rom[0x7a04u] = 0x00u; rich_rom[0x7a05u] = 0x00u;
-        rich_rom[0x7a06u] = 0x7eu; rich_rom[0x7a07u] = 0x00u;
-        rich_rom[0x7a08u] = 0x00u; rich_rom[0x7a09u] = 0x00u;
-        rich_rom[0x7a0au] = 0x00u; rich_rom[0x7a0bu] = 0x00u;
+        rich_rom[0x5b2cu] = 0x00u; rich_rom[0x5b2du] = 0x00u;
+        rich_rom[0x5b2eu] = 0x7eu; rich_rom[0x5b2fu] = 0x00u;
         EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, UINT32_C(0x10000),
                                    sample_rom, sizeof(sample_rom)) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(board.sound_ram[0x50000u] == 0x00u);
+        /* Record 0's copy (deadbeef from entry 0's 0x607400 source)
+           landed before the 5th record tripped the guard. */
+        EXPECT_TRUE(board.sound_ram[0x50000u] == 0xdeu);
     }
     return failures == 0 ? 0 : 1;
 }

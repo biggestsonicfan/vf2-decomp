@@ -122,35 +122,67 @@ static vf2_status read_audio_byte_absolute(
     );
 }
 
-/* ROM 0x1ac0/0x422 sample uploader, shared by boot init and B0 entry
-   0x3a. First-copy stages d7 bytes from ROM 0x605b28 to RAM $5000;
-   the second phase walks one row of the 0x608df0 table (row selected
-   by the caller) and copies sample records to RAM $50000 with the
-   $6FFFF guard. d1 < 0 skips the second phase (boot dance dropped:
-   it writes only an unmodeled system port). check_7f arms B0's
-   0x7f trap: first-copy effects persist, then UNSUPPORTED. */
+/* ROM 0x1ac0 (B0 entry 0x3a) / 0x422 (boot) sample uploader,
+   re-recovered v0822. Both entries converge on one body; only the
+   prologues differ (B0: SR set + payload 0x7f arm; boot: d0 = 0).
+   Silicon shape (byte-verified):
+   - first-copy: d7 = word@0x605b26, `dbf` copies d7+1 bytes
+     0x605b28+i -> $5000+i (the C's old `d7 bytes` was short one);
+   - B0 0x7f arm: `beq` targets the 0x1b46 epilogue (SR restore +
+     rts), a clean exit -- the old "mid-dbf trap" was +4 damage;
+   - row pick: d1 = max word@row_base, `cmp.w d1,d0; bgt` exits
+     clean (B0 never modeled this gate); else row = long at
+     row_base+2+d0*4 (the C's direct be32(row_base) read the max
+     word AS a pointer -- wrong mechanism and address);
+   - records: d7 = row word, `dbf` runs count+1 records;
+   - entries at the CONSTANT base 0x605b28 + selector*0x14 (the C's
+     `table = be32(0x605b28)` mistook entry 0's source field for
+     the base -- they coincide numerically in real ROM only);
+   - stored slot word is the FULL `stored - source` long (the C's
+     low-byte mask was invented);
+   - inner copy runs (length+0x1ff).w+1 bytes; $6FFFF guard halts.
+   Row/selector words address through the bus: a RAM-mapped row
+   pointer (real boot row 0 IS rom, but the reader must not assume)
+   reads RAM; unmapped addresses fail closed like the stepper. */
+static vf2_status read_bus_be16(
+    vf2_sound_board *board,
+    uint32_t address,
+    uint16_t *value
+)
+{
+    if (board == NULL || value == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (address + 1u < VF2_SOUND_RAM_BYTES) {
+        *value = read_be16(board->sound_ram + address);
+        return VF2_OK;
+    }
+    return read_audio_be16(board, address, value);
+}
+
 static vf2_status sound_board_sample_upload(
     vf2_sound_board *board,
-    uint32_t row_address,
+    uint32_t row_table_base,
     int check_7f,
-    uint8_t payload,
-    int check_gate
+    uint8_t payload
 )
 {
     uint16_t first_count = 0u;
+    uint16_t record_total = 0u;
     uint16_t record_index = 0u;
-    uint32_t table = 0u;
+    uint16_t max_index = 0u;
+    uint16_t d0 = 0u;
     uint32_t row = 0u;
     /* a2 is the fixed $5000 sample-slot table (absolute short). */
     uint32_t slot_base = UINT32_C(0x5000);
     uint32_t target = 0u;
-    int16_t gate = 0;
     size_t index = 0u;
 
     if (read_audio_be16(board, UINT32_C(0x605b26), &first_count) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    for (index = 0u; index < first_count; ++index) {
+    /* ROM dbf: d7+1 iterations (0x1ad0-0x1ad2 / 0x42e-0x430). */
+    for (index = 0u; index <= (size_t)first_count; ++index) {
         uint8_t staged = 0u;
         if (read_audio_byte_absolute(
                 board, UINT32_C(0x605b28) + (uint32_t)index, &staged
@@ -163,70 +195,79 @@ static vf2_status sound_board_sample_upload(
         board->sound_ram[0x5000u + index] = staged;
     }
     if (check_7f && (payload & 0x7fu) == 0x7fu) {
-        /* ROM beq lands mid-dbf (stale +2): trap on HW. The staged
-           bytes above are the only effects; refuse. */
-        return VF2_ERROR_UNSUPPORTED;
-    }
-    if (read_audio_be32(board, row_address, &row) != VF2_OK) {
-        return VF2_ERROR_OUT_OF_BOUNDS;
-    }
-    /* Boot gates on the row pointer's high word (the d1 = (a1)+ word
-       at 0x608df0); B0 has no gate (it has the 0x7f trap instead). */
-    gate = (int16_t)(row >> 16u);
-    if (check_gate && gate < 0) {
+        /* ROM 0x1ada-0x1ade: beq $1b46, the SR-restore/rts epilogue.
+           Staged bytes persist; clean OK. */
         return VF2_OK;
     }
-    if (read_audio_be32(board, UINT32_C(0x605b28), &table) != VF2_OK) {
+    /* ROM 0x1ae2-0x1af5 / 0x438-0x44b: d1 = max word, bgt exits. */
+    if (read_audio_be16(board, row_table_base, &max_index) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    if (read_audio_be16(board, row, &first_count) != VF2_OK) {
-        /* ROM row pointer can be a low address (e.g. 0x10060 for
-           boot-up row 0) that falls below VF2_SOUND_AUDIO_ROM_BASE;
-           the silicon traps on the unmapped d16(a1) read at 0x1AC0.
-           Translate the reader OOB into UNSUPPORTED so dispatch_next's
-           return matches the stepper (silicon-equivalence on status
-           only). P0c up-first contract. */
+    d0 = check_7f ? (uint16_t)(payload & 0x7fu) : 0u;
+    if (d0 > max_index) {
+        return VF2_OK;
+    }
+    if (read_audio_be32(board,
+                        row_table_base + 2u + (uint32_t)d0 * 4u,
+                        &row) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (read_bus_be16(board, row, &record_total) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
     row += 2u;
     target = UINT32_C(0x50000);
-    for (record_index = 0u; record_index < first_count; ++record_index) {
+    /* ROM dbf: count+1 records (0x1b42 / 0x498). */
+    for (record_index = 0u; ; ++record_index) {
         uint16_t selector = 0u;
         uint32_t entry = 0u;
         uint32_t source = 0u;
         uint32_t length = 0u;
         uint32_t stored = 0u;
         uint16_t count = 0u;
-        if (read_audio_be16(board, row, &selector) != VF2_OK) {
-            return VF2_ERROR_OUT_OF_BOUNDS;
+        if (read_bus_be16(board, row, &selector) != VF2_OK) {
+            return VF2_ERROR_UNSUPPORTED;
         }
         row += 2u;
-        entry = (uint32_t)(uint16_t)selector * UINT32_C(0x14);
-        if (read_audio_be32(board, table + entry, &source) != VF2_OK ||
-            read_audio_be32(board, table + entry + 8u, &stored) != VF2_OK ||
-            read_audio_be32(board, table + entry + 4u, &length) != VF2_OK) {
+        entry = (uint32_t)selector * UINT32_C(0x14);
+        /* Entry structs live at the constant base 0x605b28 (a0);
+           the +0/+4/+8 longs are source/length/stored. */
+        if (read_audio_be32(board, UINT32_C(0x605b28) + entry,
+                            &source) != VF2_OK ||
+            read_audio_be32(board, UINT32_C(0x605b28) + entry + 8u,
+                            &stored) != VF2_OK ||
+            read_audio_be32(board, UINT32_C(0x605b28) + entry + 4u,
+                            &length) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
         length += UINT32_C(0x1ff);
-        stored = (stored & UINT32_C(0xffffff00)) |
-            ((stored - source) & UINT32_C(0xff));
-        if (slot_base + 0x1008u + 4u > VF2_SOUND_RAM_BYTES ||
-            slot_base + (uint16_t)entry + 4u > VF2_SOUND_RAM_BYTES) {
+        /* ROM sub.l d2,d3: full-long difference (no masking). */
+        stored = stored - source;
+        if (slot_base + 8u + entry + 4u > VF2_SOUND_RAM_BYTES ||
+            slot_base + entry + 4u > VF2_SOUND_RAM_BYTES) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
-        write_be32(board->sound_ram + slot_base + 0x1008u, stored);
-        write_be32(board->sound_ram + slot_base + (uint16_t)entry, target);
-        board->sound_ram[slot_base + (uint16_t)entry] |= 0x80u;
+        /* ROM 0x1b24: move.l d3,$08(a2,d1.w) -- entry-indexed, NOT
+           a fixed slot (v0822: the old fixed-$6008 form collapsed
+           every record's stored word onto one address). */
+        write_be32(board->sound_ram + slot_base + 8u + entry, stored);
+        write_be32(board->sound_ram + slot_base + entry, target);
+        board->sound_ram[slot_base + entry] =
+            (uint8_t)(board->sound_ram[slot_base + entry] | 0x80u);
         count = (uint16_t)(length & UINT32_C(0xffff));
         for (index = 0u; ; ++index) {
             uint8_t sample = 0u;
+            vf2_status sample_status = VF2_OK;
             if (target >= VF2_SOUND_RAM_BYTES) {
                 return VF2_ERROR_OUT_OF_BOUNDS;
             }
-            if (vf2_sound_board_read_u8(board, source + (uint32_t)index,
-                                            &sample) !=
-                VF2_OK) {
-                return VF2_ERROR_OUT_OF_BOUNDS;
+            sample_status = vf2_sound_board_read_u8(
+                board, source + (uint32_t)index, &sample);
+            if (sample_status != VF2_OK) {
+                /* Silicon bus error on unmapped sample reads; the
+                   stepper refuses the same way (status-equivalence,
+                   as the old P0c up-first contract). */
+                return sample_status;
             }
             board->sound_ram[target] = sample;
             ++target;
@@ -237,6 +278,9 @@ static vf2_status sound_board_sample_upload(
         /* ROM cmpa.l #$6ffff,a3 / bgt halt: fail closed. */
         if (target > UINT32_C(0x6ffff)) {
             return VF2_ERROR_UNSUPPORTED;
+        }
+        if (record_index >= record_total) {
+            break;
         }
     }
     return VF2_OK;
@@ -396,8 +440,10 @@ vf2_status vf2_sound_board_initialize(
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
     }
-    /* ROM 0x422 sample staging (d1 < 0 skips; dance has no RAM effect). */
-    return sound_board_sample_upload(board, UINT32_C(0x608df0), 0, 0u, 1);
+    /* ROM 0x422 boot staging: d0 = 0, same max-gate + indexed pick
+       (0x438-0x44b). The old high-word gate matched the skip outcome
+       on its fixture by coincidence; the unified gate covers it. */
+    return sound_board_sample_upload(board, UINT32_C(0x608df0), 0, 0u);
 }
 
 vf2_status vf2_sound_board_read_u8(
@@ -429,8 +475,12 @@ vf2_status vf2_sound_board_read_u8(
         return read_rom_byte(board->audio_rom, board->audio_rom_size,
                              address - VF2_SOUND_AUDIO_ROM_BASE, value);
     }
+    /* Sample window follows the ATTACHED size (v0822): the stepper
+       maps SAMPLE_BASE + offset < sample_rom_size, and real upload
+       sources reach ~0x23e226 past the old 2MB DIRECT cap. Capping
+       at DIRECT_BYTES made the C refuse what silicon reads. */
     if (address >= VF2_SOUND_SAMPLE_ROM_BASE &&
-        address < VF2_SOUND_SAMPLE_ROM_BASE + VF2_SOUND_SAMPLE_DIRECT_BYTES) {
+        address - VF2_SOUND_SAMPLE_ROM_BASE < board->sample_rom_size) {
         return read_rom_byte(board->sample_rom, board->sample_rom_size,
                              address - VF2_SOUND_SAMPLE_ROM_BASE, value);
     }
@@ -1027,11 +1077,12 @@ static vf2_status sound_board_dispatch_b0(
         /* Table default (0x13dc rts): consume, no effects. */
         return VF2_OK;
     }
-    /* ROM 0x1ac0: andi.w #$7f, 0x7f-trap (mid-dbf, stale +2), row by
-       payload, shared sample uploader. */
+    /* ROM 0x1ac0: SR prologue, first-copy, andi.w #$7f 0x7f arm
+       (beq to the 0x1b46 epilogue -- clean exit, verified target),
+       max-gate + indexed row pick by payload, shared uploader. */
     return sound_board_sample_upload(
-        board, UINT32_C(0x608df0) + (uint32_t)(payload & 0x7fu) * 4u,
-        1, payload, 0);
+        board, UINT32_C(0x608df0),
+        1, payload);
 }
 
 vf2_status vf2_sound_board_dispatch_next(
