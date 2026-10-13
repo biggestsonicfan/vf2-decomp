@@ -188,11 +188,29 @@ static void host_present(host *h, const uint32_t *pixels)
     SDL_RenderPresent(h->renderer);
 }
 
+/* Binary PPM of an XRGB8888 frame; used by --screenshot for CI and bug reports. */
+static int write_ppm(const char *path, const uint32_t *px)
+{
+    FILE *f = fopen(path, "wb");
+    size_t n = (size_t)VF2_SESSION_WIDTH * VF2_SESSION_HEIGHT;
+    if (f == NULL) return 0;
+    fprintf(f, "P6\n%u %u\n255\n", (unsigned)VF2_SESSION_WIDTH,
+            (unsigned)VF2_SESSION_HEIGHT);
+    for (size_t i = 0u; i < n; ++i) {
+        const unsigned char rgb[3] = {
+            (unsigned char)(px[i] >> 16), (unsigned char)(px[i] >> 8),
+            (unsigned char)px[i]};
+        if (fwrite(rgb, 1u, 3u, f) != 3u) { fclose(f); return 0; }
+    }
+    return fclose(f) == 0;
+}
+
 static void usage(const char *p)
 {
     fprintf(stderr,
         "Usage: %s --rom-dir <dir> --snapshot <file> [--bindings <ini>]\n"
         "          [--frames <n>] [--fullscreen] [--integer]\n"
+        "          [--screenshot <file.ppm>]\n"
         "       %s --selftest [--frames <n>]\n"
         "Keys: arrows, Z/X/C, Enter, 5=coin, F1=test, F2=service, P2 on IJKL/ASD;\n"
         "      P pause, N step, F10 integer scale, F11 fullscreen, Esc quit.\n",
@@ -294,6 +312,7 @@ int main(int argc, char **argv)
 {
     host h;
     const char *rom_dir = NULL, *snapshot = NULL, *bindings_path = NULL;
+    const char *screenshot = NULL;
     uint32_t frame_limit = 0u;
     int do_selftest = 0, rc = 0;
     vf2_session *session = NULL;
@@ -309,6 +328,7 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--snapshot") == 0 && i + 1 < argc) snapshot = argv[++i];
         else if (strcmp(argv[i], "--bindings") == 0 && i + 1 < argc) bindings_path = argv[++i];
         else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) frame_limit = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) screenshot = argv[++i];
         else if (strcmp(argv[i], "--fullscreen") == 0) h.fullscreen = 1;
         else if (strcmp(argv[i], "--integer") == 0) h.integer_scale = 1;
         else if (strcmp(argv[i], "--selftest") == 0) do_selftest = 1;
@@ -340,6 +360,10 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    if (vf2_session_audio_status(session) != VF2_OK) {
+        fprintf(stderr, "note: audio unavailable (%s); running silent\n",
+                vf2_status_string(vf2_session_audio_status(session)));
+    }
     {
         int16_t left[AUDIO_FRAMES_PER_VIDEO_FRAME], right[AUDIO_FRAMES_PER_VIDEO_FRAME];
         const uint64_t period = SDL_NS_PER_SECOND / FRAMES_PER_SECOND;
@@ -373,6 +397,11 @@ int main(int argc, char **argv)
                 else if (now - next > period * 5u) next = now; /* don't spiral */
             }
         }
+    }
+    if (screenshot != NULL && vf2_session_pixels(session) != NULL &&
+        !write_ppm(screenshot, vf2_session_pixels(session))) {
+        fprintf(stderr, "screenshot: cannot write %s\n", screenshot);
+        rc = EXIT_FAILURE;
     }
     vf2_session_close(session);
     host_close(&h);

@@ -36,6 +36,10 @@ vf2_status vf2_session_render_audio(
     size_t frames
 );
 
+/* VF2_OK when the sound board attached; otherwise the reason it did not.
+ * Without it vf2_session_render_audio returns silence. */
+vf2_status vf2_session_audio_status(const vf2_session *session);
+
 /* The input mask last passed to the game (for host tests). */
 uint32_t vf2_session_last_input(const vf2_session *session);
 

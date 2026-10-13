@@ -108,6 +108,7 @@ static void test_session_fail_closed(void)
     CHECK(vf2_session_open(NULL, "x", &s) == VF2_ERROR_INVALID_ARGUMENT);
     CHECK(vf2_session_step(NULL, 0u) == VF2_ERROR_INVALID_ARGUMENT);
     CHECK(vf2_session_pixels(NULL) == NULL);
+    CHECK(vf2_session_audio_status(NULL) != VF2_OK);
     vf2_session_close(NULL);
 }
 

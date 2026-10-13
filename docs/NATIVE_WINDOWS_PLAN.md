@@ -105,6 +105,26 @@ Exit
 
 ## Phase 2 - Cold boot (no snapshot)
 
+Status (2026-10-13), step 1 measured:
+
+- From reset the oracle reaches the first frame-wait loop at `0x0004afdc`
+  after 2,985,240 instructions, and then spins there because nothing injects
+  the frame IRQ (it needs the host clock).
+- `vf2i960 native-sixth-dispatch <roms> <out.vf2snap>` goes from reset to the
+  sixth dispatch with `Final CPU and memory state: MATCH` in about 6 s
+  (7,404,901 repeated-frame instructions compared). `scripts/cold_snapshot.*`
+  wraps it, so a start state needs only the ROM.
+- `vf2 --native-snapshot` (and any session) refuses that state, and every other
+  state, with "unsupported operation" because `vf2_sound_board_initialize`
+  fails closed on the real audio ROM: the boot upload row at `0x608df0` is
+  `0x00010060`, below the 68000 ROM window, so the helper returns
+  UNSUPPORTED (`src/hardware/sound_board.c`, row read). It also fails at
+  `6a57654d`, before the PC-relative fix. The host now treats that as "run
+  silent" and reports it; video no longer depends on it.
+- From that state 300 frames run with no error, but they draw nothing
+  (`triangles=0`, black frame): the corridor is boot, not yet the attract loop.
+  Steps 2 and 3 below are what remains.
+
 Goal: `vf2_host --rom-dir D` runs from the reset vector to the attract loop.
 
 Work

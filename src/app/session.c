@@ -22,6 +22,8 @@ struct vf2_session {
     uint32_t *pixels;
     int have_frame;
     int machine_ready;
+    int audio_ready;
+    vf2_status audio_status;
     uint32_t last_input;
 };
 
@@ -82,9 +84,14 @@ vf2_status vf2_session_open(
         );
     }
     if (st == VF2_OK) {
-        st = vf2_game_attach_audio(
+        /* The recovered sound-board boot still refuses the real audio ROM
+         * (its first upload row points below the 68000 ROM window).  Video
+         * must not depend on it: the session stays silent and reports why
+         * through vf2_session_audio_status().  Phase 8 removes this. */
+        s->audio_status = vf2_game_attach_audio(
             &s->game, s->audio_rom, audio_size, s->sample_rom, sample_size
         );
+        s->audio_ready = (s->audio_status == VF2_OK);
     }
     if (st == VF2_OK) {
         st = vf2_game_attach_native_runtime(
@@ -134,8 +141,18 @@ vf2_status vf2_session_render_audio(
     vf2_session *s, int16_t *left, int16_t *right, size_t frames
 )
 {
-    if (s == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    if (s == NULL || left == NULL || right == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    if (!s->audio_ready) {
+        memset(left, 0, frames * sizeof(*left));
+        memset(right, 0, frames * sizeof(*right));
+        return VF2_OK;
+    }
     return vf2_game_render_audio(&s->game, left, right, frames);
+}
+
+vf2_status vf2_session_audio_status(const vf2_session *s)
+{
+    return s != NULL ? s->audio_status : VF2_ERROR_INVALID_ARGUMENT;
 }
 
 uint32_t vf2_session_last_input(const vf2_session *s)
