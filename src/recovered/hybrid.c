@@ -32654,7 +32654,8 @@ static vf2_status hybrid_execute_player_29598(
             }
 
             /* Path B: bbc taken (bit r13 of g0 clear) -> mov 0, g1; ret. */
-            if ((g0 & (UINT32_C(1) << r13)) == 0u) {
+            /* i960 bit tests use only the low 5 bits of the bit number. */
+            if ((g0 & (UINT32_C(1) << (r13 & 31u))) == 0u) {
                 cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
                 cpu->ip = UINT32_C(0x000295e8);
                 cpu->executed_instructions += UINT64_C(4);
