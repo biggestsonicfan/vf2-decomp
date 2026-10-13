@@ -65,6 +65,50 @@ typedef struct vf2_m68k_bus {
 
 void vf2_m68k_regs_reset(vf2_m68k_regs *regs);
 
+/* In-memory snapshot of stepper-side mutable state (oracle save/resume).
+ *
+ * Captures the register file, the full RAM image, the SCSP model state
+ * and the bus event log. ROM/sample-ROM pointers are inputs, not state:
+ * the SCSP struct is copied shallow, so a snapshot shares the sample
+ * attachments of the bus it was captured from (both are immutable for
+ * the run). Restore requires the destination bus to carry the same RAM
+ * size; anything else is a fixture mismatch and fails closed.
+ *
+ * The C side (`vf2_sound_board`) needs no helper: its state is the
+ * board struct itself and copies with assignment. */
+
+typedef struct vf2_m68k_snapshot {
+    vf2_m68k_regs regs;
+    uint8_t *ram;
+    size_t ram_size;
+    vf2_scsp scsp;
+    size_t event_count;
+    vf2_m68k_bus_event events[VF2_M68K_STEP_MAX_EVENTS];
+} vf2_m68k_snapshot;
+
+void vf2_m68k_snapshot_init(vf2_m68k_snapshot *snap);
+
+vf2_status vf2_m68k_snapshot_capture(
+    vf2_m68k_snapshot *snap,
+    const vf2_m68k_bus *bus,
+    const vf2_m68k_regs *regs
+);
+
+vf2_status vf2_m68k_snapshot_restore(
+    const vf2_m68k_snapshot *snap,
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs
+);
+
+/* Field-wise equality over regs, RAM image, SCSP state and event log.
+ * Returns nonzero when equal. Reports nothing; the caller pins. */
+int vf2_m68k_snapshot_equal(
+    const vf2_m68k_snapshot *a,
+    const vf2_m68k_snapshot *b
+);
+
+void vf2_m68k_snapshot_destroy(vf2_m68k_snapshot *snap);
+
 /* Run until pc == stop_pc (checked before fetch), a return with
  * stop_on_return set (rts/rte halt OK), step exhaustion, or an
  * unsupported/out-of-bounds condition. steps_done counts the

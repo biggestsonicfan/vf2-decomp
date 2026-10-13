@@ -2,6 +2,9 @@
 
 #include "vf2/m68k.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 #define VF2_STEP_SCSP_BASE UINT32_C(0x100000)
 #define VF2_STEP_ROM_MIRROR_BASE UINT32_C(0x600000)
 #define VF2_STEP_SAMPLE_BASE UINT32_C(0x800000)
@@ -2038,4 +2041,175 @@ vf2_status vf2_m68k_run(
     }
     *steps_done = done;
     return VF2_ERROR_UNSUPPORTED;
+}
+
+void vf2_m68k_snapshot_init(vf2_m68k_snapshot *snap)
+{
+    if (snap != NULL) {
+        memset(snap, 0, sizeof(*snap));
+    }
+}
+
+vf2_status vf2_m68k_snapshot_capture(
+    vf2_m68k_snapshot *snap,
+    const vf2_m68k_bus *bus,
+    const vf2_m68k_regs *regs
+)
+{
+    uint8_t *image = NULL;
+    if (snap == NULL || bus == NULL || regs == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (bus->ram_size != 0u && bus->ram == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (bus->scsp == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (bus->event_count > VF2_M68K_STEP_MAX_EVENTS) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (bus->ram_size != 0u) {
+        image = (uint8_t *)calloc(bus->ram_size, 1u);
+        if (image == NULL) {
+            return VF2_ERROR_OUT_OF_MEMORY;
+        }
+        memcpy(image, bus->ram, bus->ram_size);
+    }
+    free(snap->ram);
+    snap->ram = image;
+    snap->ram_size = bus->ram_size;
+    snap->regs = *regs;
+    snap->scsp = *bus->scsp;
+    snap->event_count = bus->event_count;
+    memcpy(snap->events, bus->events, sizeof(snap->events));
+    return VF2_OK;
+}
+
+vf2_status vf2_m68k_snapshot_restore(
+    const vf2_m68k_snapshot *snap,
+    vf2_m68k_bus *bus,
+    vf2_m68k_regs *regs
+)
+{
+    if (snap == NULL || bus == NULL || regs == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (snap->ram_size != bus->ram_size) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (snap->ram_size != 0u &&
+        (snap->ram == NULL || bus->ram == NULL)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (bus->scsp == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (snap->event_count > VF2_M68K_STEP_MAX_EVENTS) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *regs = snap->regs;
+    if (snap->ram_size != 0u) {
+        memcpy(bus->ram, snap->ram, snap->ram_size);
+    }
+    *bus->scsp = snap->scsp;
+    bus->event_count = snap->event_count;
+    memcpy(bus->events, snap->events, sizeof(bus->events));
+    return VF2_OK;
+}
+
+static int scsp_state_equal(const vf2_scsp *a, const vf2_scsp *b)
+{
+    size_t index = 0u;
+    if (memcmp(a->registers, b->registers, sizeof(a->registers)) != 0) {
+        return 0;
+    }
+    if (a->sample_ram != b->sample_ram ||
+        a->sample_rom != b->sample_rom ||
+        a->sample_ram_size != b->sample_ram_size ||
+        a->sample_rom_size != b->sample_rom_size) {
+        return 0;
+    }
+    if (memcmp(a->midi_input, b->midi_input, sizeof(a->midi_input)) != 0 ||
+        a->midi_read_index != b->midi_read_index ||
+        a->midi_write_index != b->midi_write_index) {
+        return 0;
+    }
+    for (index = 0u; index < VF2_SCSP_SLOT_COUNT; ++index) {
+        if (a->slot_address[index] != b->slot_address[index] ||
+            a->slot_step[index] != b->slot_step[index] ||
+            a->slot_envelope[index] != b->slot_envelope[index] ||
+            a->slot_active[index] != b->slot_active[index] ||
+            a->slot_envelope_state[index] !=
+                b->slot_envelope_state[index] ||
+            a->slot_backward[index] != b->slot_backward[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int regs_equal(const vf2_m68k_regs *a, const vf2_m68k_regs *b)
+{
+    size_t index = 0u;
+    for (index = 0u; index < 8u; ++index) {
+        if (a->d[index] != b->d[index] || a->a[index] != b->a[index]) {
+            return 0;
+        }
+    }
+    return a->pc == b->pc && a->x == b->x && a->n == b->n &&
+        a->z == b->z && a->v == b->v && a->c == b->c;
+}
+
+static int events_equal(const vf2_m68k_snapshot *a, const vf2_m68k_snapshot *b)
+{
+    size_t index = 0u;
+    if (a->event_count != b->event_count) {
+        return 0;
+    }
+    for (index = 0u; index < a->event_count; ++index) {
+        if (a->events[index].address != b->events[index].address ||
+            a->events[index].value != b->events[index].value ||
+            a->events[index].size != b->events[index].size ||
+            a->events[index].is_write != b->events[index].is_write) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int vf2_m68k_snapshot_equal(
+    const vf2_m68k_snapshot *a,
+    const vf2_m68k_snapshot *b
+)
+{
+    if (a == NULL || b == NULL) {
+        return 0;
+    }
+    if (!regs_equal(&a->regs, &b->regs)) {
+        return 0;
+    }
+    if (a->ram_size != b->ram_size) {
+        return 0;
+    }
+    if (a->ram_size != 0u &&
+        (a->ram == NULL || b->ram == NULL ||
+         memcmp(a->ram, b->ram, a->ram_size) != 0)) {
+        return 0;
+    }
+    if (!scsp_state_equal(&a->scsp, &b->scsp)) {
+        return 0;
+    }
+    if (!events_equal(a, b)) {
+        return 0;
+    }
+    return 1;
+}
+
+void vf2_m68k_snapshot_destroy(vf2_m68k_snapshot *snap)
+{
+    if (snap != NULL) {
+        free(snap->ram);
+        vf2_m68k_snapshot_init(snap);
+    }
 }
