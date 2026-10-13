@@ -206,6 +206,7 @@ static vf2_status arch_execute_literal_multi_move(
     }
     cpu->ip = ip_before + (uint32_t)instruction->size;
     ++cpu->executed_instructions;
+    ++cpu->interpreted_instructions;
     if (event != NULL) {
         memset(event, 0, sizeof(*event));
         event->step = cpu->executed_instructions;

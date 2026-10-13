@@ -25,6 +25,14 @@ vf2_status vf2_session_open(
 /* Runs one native frame with the given VF2_PLATFORM_BUTTON_* mask. */
 vf2_status vf2_session_step(vf2_session *session, uint32_t input);
 
+/* Runs one frame through the pure i960 interpreter oracle instead of the
+ * recovered runtime (plan phase 2).  Same machine, ROM and start snapshot as
+ * vf2_session_step and the same frame boundary, so vf2_session_work_ram_digest
+ * taken after each is directly comparable: equal digests prove the recovered
+ * runtime reproduces the oracle.  A session mixes the two steppers at its
+ * peril; run one session per mode. */
+vf2_status vf2_session_step_oracle(vf2_session *session, uint32_t input);
+
 /* XRGB8888 pixels, VF2_SESSION_WIDTH x VF2_SESSION_HEIGHT, valid until the
  * next step.  Returns NULL if no frame has been produced. */
 const uint32_t *vf2_session_pixels(vf2_session *session);
@@ -45,6 +53,17 @@ vf2_status vf2_session_work_ram_digest(vf2_session *session, uint32_t *digest);
 
 /* The input mask last passed to the game (for host tests). */
 uint32_t vf2_session_last_input(const vf2_session *session);
+
+/* Cumulative i960 instructions executed since the session opened, split into
+ * the subset the interpreter decoded and ran (*interpreted) and the whole
+ * (*executed).  Recovered C accounts for executed - interpreted.  The baseline
+ * for Phase 4: a fully recovered session reaches interpreted == 0.  Either
+ * pointer may be NULL. */
+void vf2_session_instruction_counts(
+    const vf2_session *session,
+    uint64_t *executed,
+    uint64_t *interpreted
+);
 
 void vf2_session_close(vf2_session *session);
 

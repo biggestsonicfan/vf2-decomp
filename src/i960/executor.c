@@ -1452,6 +1452,7 @@ vf2_status vf2_i960_step_legacy(
         }
         cpu->ip = ip_before + instruction.size;
         ++cpu->executed_instructions;
+        ++cpu->interpreted_instructions;
         if (event != NULL) {
             memset(event, 0, sizeof(*event));
             event->step = cpu->executed_instructions;
@@ -1469,6 +1470,7 @@ vf2_status vf2_i960_step_legacy(
         return status;
     }
     ++cpu->executed_instructions;
+    ++cpu->interpreted_instructions;
     if (event != NULL) {
         memset(event, 0, sizeof(*event));
         event->step = cpu->executed_instructions;

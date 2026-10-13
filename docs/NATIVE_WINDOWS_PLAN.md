@@ -130,10 +130,32 @@ Status (2026-10-13), step 1 measured:
   is rewritten every frame from frame ~25 (`0x8a00`) and becomes `0x18a00` at
   frame ~800. `base+0x3350/0x3351` stay 0 during the whole attract, so they
   are not a progress indicator.
-- Half of the exit criterion is met: `scripts/frame_gate.sh <roms>` runs 3,600
-  frames from the cold snapshot with no error and identical work-RAM digests
-  every 60 frames across two runs (`vf2_host --digest 60 --fast`). Still open:
-  the native-versus-oracle digest at every 60th frame, and a picture.
+- The determinism half of the exit criterion was met earlier:
+  `scripts/frame_gate.sh <roms>` runs 3,600 frames from the cold snapshot with
+  no error and identical work-RAM digests every 60 frames across two runs
+  (`vf2_host --digest 60 --fast`).
+- The native-versus-oracle half is now met. `vf2_host --oracle`
+  (`vf2_session_step_oracle`) advances each frame through the pure i960
+  interpreter from the same cold snapshot, with the frame interrupt driven by
+  the same host-side scheduler the native path uses.
+  `scripts/frame_oracle_gate.*` runs 3,600 oracle frames against the recovered
+  runtime and requires byte-identical work-RAM digests at every jointly
+  sampled frame: measured all 3,600 equal (the native runtime injects a vblank
+  at both the early- and main-wait entry per visual frame, so it emits two
+  digests per oracle digest and the states coincide at the main wait, i.e.
+  oracle frame k == native frame 2k-1; the gate checks that for every frame).
+- The interpreted-instruction counter is in place. `vf2_i960_cpu` now carries
+  `interpreted_instructions` (the subset of `executed_instructions` the
+  interpreter decoded), `vf2_session_instruction_counts` reports it relative to
+  the start snapshot, and `vf2_host` prints a status line
+  (`interp mode ... interpreted N recovered M`). Measured: the cold attract
+  corridor runs with `interpreted 0` for 3,600 frames -- it is fully recovered
+  C, which is the Phase 4 baseline. The oracle run reports `recovered 0`
+  (100% interpreted), confirming the split.
+- Still open: a picture. The native frame is still black (`triangles=0`); the
+  attract 3D scenes need the geometry pipeline (Phase 6 / G2), so the visual
+  gap is tracked there, not here. The work-RAM digest criterion above does not
+  depend on it.
 
 Goal: `vf2_host --rom-dir D` runs from the reset vector to the attract loop.
 

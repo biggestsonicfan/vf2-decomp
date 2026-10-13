@@ -6,7 +6,8 @@ the commit that removes the code it describes.
 
 | Item | Where | Why it exists | Removed by |
 |------|-------|---------------|------------|
-| Snapshot-only start | `vf2_session_open`, `vf2_host --snapshot` | The runtime only advances from a proven i960 snapshot; cold boot is not available | Phase 2 |
+| Snapshot-only start | `vf2_session_open`, `vf2_host --snapshot` | The runtime only advances from a proven i960 snapshot; `scripts/cold_snapshot.*` builds one from the ROM alone, so cold boot to the attract loop works, but the start state is still a snapshot file | Phase 2 (cold-boot digests done; snapshot file still required) |
+| Interpreter oracle stepper | `vf2_session_step_oracle`, `vf2_host --oracle` | Runs a frame through the pure i960 interpreter to cross-check the recovered runtime (`scripts/frame_oracle_gate.*`); the interpreter must not ship | never (validation oracle, like the executor) |
 | Interpreter fallback in the hybrid runtime | `src/recovered/hybrid.c` | Unrecovered regions still run through the i960 interpreter | Phases 3-5 |
 | Software rasteriser as the only video producer | `vf2_platform_*`, `vf2_session_pixels` | Reference output while the GPU renderer is built | Phase 7 (kept as the test oracle) |
 | Audio ring fed with the sound-board render | `vf2_host_audio_ring`, `host_push_audio` | Seam for the native mixer; the 68000 driver is not yet recoded | Phase 8 |

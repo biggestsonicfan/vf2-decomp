@@ -50,6 +50,14 @@ typedef struct vf2_i960_cpu {
     uint32_t interrupt_control;
     vf2_i960_compare_result compare_result;
     uint64_t executed_instructions;
+    /* Of executed_instructions, the subset decoded and run by the i960
+     * interpreter itself (vf2_i960_step/_legacy and the arch literal path).
+     * Recovered C blocks advance executed_instructions by modeled amounts
+     * without passing through the interpreter, so
+     * recovered == executed_instructions - interpreted_instructions. Not part
+     * of the serialized snapshot; it is a per-run host-side measure. See
+     * docs/NATIVE_WINDOWS_PLAN.md phase 2. */
+    uint64_t interpreted_instructions;
     uint64_t procedure_calls;
     uint64_t procedure_returns;
     uint64_t interrupt_entries;

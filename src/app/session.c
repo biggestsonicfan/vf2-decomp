@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "vf2/game.h"
+#include "vf2/hybrid/frame_wait.h"
 #include "vf2/i960/snapshot.h"
 #include "vf2/rom.h"
 
@@ -17,6 +18,7 @@ struct vf2_session {
     vf2_model2a machine;
     vf2_i960_cpu cpu;
     vf2_native_runtime_state runtime;
+    vf2_hybrid_frame_wait_state oracle_frame_wait;
     vf2_i960_snapshot snapshot;
     vf2_game game;
     uint32_t *pixels;
@@ -25,6 +27,11 @@ struct vf2_session {
     int audio_ready;
     vf2_status audio_status;
     uint32_t last_input;
+    /* cpu.executed_instructions carried by the start snapshot (boot to the
+     * cold dispatch).  Instruction counts are reported relative to this so the
+     * split reflects only what this session ran.  interpreted starts at 0: it
+     * is not part of the serialized snapshot. */
+    uint64_t executed_baseline;
 };
 
 static vf2_status build_region(
@@ -76,6 +83,9 @@ vf2_status vf2_session_open(
     if (st == VF2_OK) st = vf2_i960_snapshot_read_file(&s->snapshot, snapshot_path);
     if (st == VF2_OK) st = vf2_i960_snapshot_restore(&s->snapshot, &s->cpu, &s->machine);
     if (st == VF2_OK) st = vf2_native_runtime_initialize(&s->runtime, 4u);
+    if (st == VF2_OK) {
+        st = vf2_hybrid_frame_wait_initialize(&s->oracle_frame_wait, 4u);
+    }
     if (st == VF2_OK) st = vf2_game_initialize(&s->game);
     if (st == VF2_OK) {
         st = vf2_game_attach_graphics(
@@ -109,6 +119,7 @@ vf2_status vf2_session_open(
         vf2_session_close(s);
         return st;
     }
+    s->executed_baseline = s->cpu.executed_instructions;
     *out_session = s;
     return VF2_OK;
 }
@@ -130,6 +141,39 @@ vf2_status vf2_session_step(vf2_session *s, uint32_t input)
     );
     s->have_frame = (st == VF2_OK);
     return st;
+}
+
+vf2_status vf2_session_step_oracle(vf2_session *s, uint32_t input)
+{
+    /* HLE-TEMP (validation oracle; never shipped): advance one frame through
+     * the pure i960 interpreter instead of the recovered runtime, driving the
+     * frame interrupt with the same host-side scheduler the native path uses
+     * (vf2_hybrid_frame_wait_observe, four visits to a frame-wait spin).  The
+     * machine, ROM regions and start snapshot are those of this session, so a
+     * per-frame work-RAM digest that equals vf2_session_step's digest proves
+     * the recovered C reproduces the interpreter.  Returns with the CPU at the
+     * vector-12 handler entry, exactly where vf2_session_step stops. */
+    const uint64_t per_frame_budget = UINT64_C(50000000);
+    uint64_t steps = 0u;
+    vf2_status st;
+
+    if (s == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    st = vf2_model2a_set_input(&s->machine, input);
+    if (st != VF2_OK) return st;
+    s->last_input = input;
+    for (;;) {
+        vf2_hybrid_frame_wait_report wait_report;
+        st = vf2_hybrid_frame_wait_observe(
+            &s->machine, &s->cpu, &s->oracle_frame_wait, &wait_report
+        );
+        if (st != VF2_OK) return st;
+        if (wait_report.interrupt_injected) {
+            return VF2_OK;
+        }
+        st = vf2_i960_step(&s->cpu, &s->machine, NULL);
+        if (st != VF2_OK) return st;
+        if (++steps >= per_frame_budget) return VF2_ERROR_UNSUPPORTED;
+    }
 }
 
 const uint32_t *vf2_session_pixels(vf2_session *s)
@@ -176,6 +220,20 @@ vf2_status vf2_session_work_ram_digest(vf2_session *s, uint32_t *digest)
 uint32_t vf2_session_last_input(const vf2_session *s)
 {
     return s != NULL ? s->last_input : 0u;
+}
+
+void vf2_session_instruction_counts(
+    const vf2_session *s, uint64_t *executed, uint64_t *interpreted
+)
+{
+    if (executed != NULL) {
+        *executed = s != NULL
+            ? s->cpu.executed_instructions - s->executed_baseline
+            : 0u;
+    }
+    if (interpreted != NULL) {
+        *interpreted = s != NULL ? s->cpu.interpreted_instructions : 0u;
+    }
 }
 
 void vf2_session_close(vf2_session *s)

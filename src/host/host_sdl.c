@@ -210,7 +210,7 @@ static void usage(const char *p)
     fprintf(stderr,
         "Usage: %s --rom-dir <dir> --snapshot <file> [--bindings <ini>]\n"
         "          [--frames <n>] [--fullscreen] [--integer]\n"
-        "          [--screenshot <file.ppm>] [--digest <n>] [--fast]\n"
+        "          [--screenshot <file.ppm>] [--digest <n>] [--fast] [--oracle]\n"
         "       %s --selftest [--frames <n>]\n"
         "Keys: arrows, Z/X/C, Enter, 5=coin, F1=test, F2=service, P2 on IJKL/ASD;\n"
         "      P pause, N step, F10 integer scale, F11 fullscreen, Esc quit.\n",
@@ -315,6 +315,7 @@ int main(int argc, char **argv)
     const char *screenshot = NULL;
     uint32_t digest_every = 0u;
     int fast = 0;
+    int oracle = 0;
     uint32_t frame_limit = 0u;
     int do_selftest = 0, rc = 0;
     vf2_session *session = NULL;
@@ -332,6 +333,7 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) frame_limit = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) screenshot = argv[++i];
         else if (strcmp(argv[i], "--fast") == 0) fast = 1;
+        else if (strcmp(argv[i], "--oracle") == 0) oracle = 1;
         else if (strcmp(argv[i], "--digest") == 0 && i + 1 < argc) digest_every = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--fullscreen") == 0) h.fullscreen = 1;
         else if (strcmp(argv[i], "--integer") == 0) h.integer_scale = 1;
@@ -378,7 +380,9 @@ int main(int argc, char **argv)
             pump(&h);
             if (!h.paused || h.step_once) {
                 h.step_once = 0;
-                st = vf2_session_step(session, vf2_host_input_mask(&h.input));
+                st = oracle
+                    ? vf2_session_step_oracle(session, vf2_host_input_mask(&h.input))
+                    : vf2_session_step(session, vf2_host_input_mask(&h.input));
                 if (st != VF2_OK) {
                     fprintf(stderr, "frame %u failed: %s\n", (unsigned)frame,
                             vf2_status_string(st));
@@ -407,6 +411,19 @@ int main(int argc, char **argv)
                 else if (next > now) SDL_DelayPrecise(next - now);
                 else if (now - next > period * 5u) next = now; /* don't spiral */
             }
+        }
+        {
+            /* Phase 2 baseline: how much of the frame loop still runs through
+             * the i960 interpreter versus recovered C.  A fully recovered
+             * session reaches interpreted=0 (plan phase 4). */
+            uint64_t executed = 0u, interpreted = 0u;
+            vf2_session_instruction_counts(session, &executed, &interpreted);
+            printf("interp mode %s frames %u executed %llu interpreted %llu recovered %llu\n",
+                   oracle ? "oracle" : "native",
+                   (unsigned)frame,
+                   (unsigned long long)executed,
+                   (unsigned long long)interpreted,
+                   (unsigned long long)(executed - interpreted));
         }
     }
     if (screenshot != NULL && vf2_session_pixels(session) != NULL &&
