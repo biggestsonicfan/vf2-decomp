@@ -2872,7 +2872,10 @@ static vf2_status hybrid_execute_player_270d4(
  * punch10, boot, natres): g0 == 0x505, entry +0x1a4 == 0x200.
  * Anything else stays fail-closed (the ghost 0x4505 shape faults at
  * the 0x27048 cvtri on every forced drive). */
-__attribute__((unused)) static vf2_status hybrid_execute_player_1428c_corridor(
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
+static vf2_status hybrid_execute_player_1428c_corridor(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
 )
