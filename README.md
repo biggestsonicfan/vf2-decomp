@@ -20,7 +20,7 @@ The project includes:
 
 Areas already recovered natively include the boot and phase corridors, model2recomp-guided interrupt handling, the measured `fa_coli`/`fa_player` branch matrices, the TEST MENU / COIN ASSIGNMENT editor (rows 1-4 in COMMON and INDIVIDUAL modes, F4 INDIVIDUAL post-edit release pinned FULL MATCH on both legs) and a growing post-`0x29414` player corridor (hash and record-rebuild sub-chains among them). Unverified neighbors remain fail-closed with `VF2_ERROR_UNSUPPORTED`.
 
-The project is still a clean-room recovery and validation effort, not a complete playable port. Character/arena selection, the complete match state machine, fighter physics and combat, ring-out behavior, CPU decision logic, and substantial geometry, audio and hardware behavior remain open. Full TGP firmware execution, polygon rasterization, tile/video timing and SCSP FM/DSP behavior remain explicitly outside the bounded hardware model.
+The project is still a clean-room recovery and validation effort, not a complete playable port. Character/arena selection, the complete match state machine, fighter physics and combat, ring-out behavior, CPU decision logic, and substantial geometry, audio and hardware behavior remain open. Full TGP firmware execution, polygon rasterization, tile/video timing and SCSP DSP behavior remain explicitly outside the bounded hardware model (FM synthesis is proven absent from the sound driver).
 
 For release-by-release history see [`CHANGELOG.md`](CHANGELOG.md); for the current recovery frontier see [`docs/UNCOVERED_BRANCHES.md`](docs/UNCOVERED_BRANCHES.md).
 
@@ -37,7 +37,7 @@ camera                   ████████░░
 HUD / game_disp          █████████░  TEST / COIN ASSIGNMENT / F2-F4 post-edit menu corridors
 fighter / game logic     ████████░░  post-29414 player corridor; hash/record-rebuild + display-object cascade leaves
 geometry / rendering     ███████░░░  TGP/object paths recovered; rasterizer open
-audio                    █████░░░░░  drain/dispatch/voice-tick recovered; Loop-B/body proven dead-end; walk mapped to epilogue, tails open; FM/DSP boundary
+audio                    █████░░░░░  drain/dispatch/voice-tick recovered; Loop-B/body proven dead-end; walk mapped to crash sites, tails dead/unreached; FM proven absent, DSP boundary; true dispatch open
 complete game flow       █████░░░░░  boot/menu/phase corridors; F2/F3/F4 post-edit; match flow open
 fully playable match     ██░░░░░░░░  combat/physics/AI still open
 ```
@@ -249,7 +249,7 @@ This project is not currently claiming:
 - a production-ready or fully playable replacement executable;
 - complete Sega Model 2/TGP emulation (the current model is a bounded common
   Model 2A bus/device boundary);
-- full SCSP FM/DSP audio behavior; or
+- full SCSP DSP audio behavior; or
 - coverage of every gameplay state and branch.
 
 Those areas remain incremental recovery targets.

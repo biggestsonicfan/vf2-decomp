@@ -4330,6 +4330,70 @@ stands on two legs (residue-d2 split plus sled-riddled/crashing
 table targets, rows 64+ read code-as-pointers). Evidence:
 `p1b_loopb_dead_verdict_v0804.md`, `audio_dsp_write_set_v0804.md`.
 
+### v0805-v0812 sound-crash triptych: silicon audit, oracle save/resume, FM-absence, three crash verdicts
+
+- **v0805 silicon audit** (`audio_silicon_audit_scsp_confirmed_v0805.md`,
+  docs-only): ROM disasm (boot `0x28e`, key-off `0x636/0x684`,
+  voice-start `0xa8e-0xc44`) proves a memory-mapped SCSP-family chip
+  (`0x20` stride, slot+`0x08` sample-address long, `0x0400` master,
+  `0x0700` wave) — the MultiPCM/port-based hypothesis from general
+  Model 2 pages is rejected for this program. MAME issue #14315
+  agrees (Model 2 VF2 on SCSP).
+- **v0806 oracle save/resume** (`m68k_snapshot_oracle_v0806.md`):
+  `vf2_m68k_snapshot_{init,capture,restore,equal,destroy}` plus
+  ROM-backed ctest `vf2_m68k_snapshot_differential` (#97: L1
+  s1-clean, 200 steps pinned, restore+replay bit-identical, tamper
+  detected). Both comparator polarities asserted live.
+- **v0807 FM-absence** (`audio_fm_boundary_measured_v0807.md`,
+  docs-only): exhaustive SCSP-write sweep finds no FM writer in real
+  code (only `move.w #0` to slot+`0x0e`; SSCTL never set; high-region
+  hits are phantom sleds). Retracts v0805's "FM for music" (MAME-comment
+  hearsay); upholds v0802 PCM-only with measurement. An attempted
+  nonzero-`0x0E` refusal was reverted: the unit fixture's synthetic
+  slot words (`0x0003/0x0004`) alias the model's FM-word partition
+  under the driver's raw slot-word stride (real ROM words are
+  `index*0x20`); no live path touches `0x0E` anyway.
+- **v0808 desc[1] arm** (`audio_twin_tail_crash_v0808.md` + movem
+  decoder fix): `desc[1]` outside {0, `0x80`} runs 45 true steps
+  (dense HIT chain) into illegal-ea movem `48 d2 00 ff` at `0x23fa`
+  (reg->mem with `(a2)` dest, vector-4 class). Decoder misprinted it
+  as `movem.l $00ff,-(a2)`; now enforces ea legality mirroring
+  `step_movem` (ROM-byte vector, gate proven able to fail). Twin
+  tails at `0x24d2/0x260c` unreached.
+- **v0809 bulk arm** (`audio_bulk_arm_crash_v0809.md`): countdown
+  above the `0x22c6` gate runs 34 true steps into the byte-identical
+  illegal movem at `0x22e8` (direct ROM read at both sites). Both
+  walk arms die on the same store form.
+- **v0810 third arm** (`audio_third_arm_crash_v0810.md` + `0x1508`
+  decode-refusal vector): `0x25ee` safe arm self-mutates (`desc[1]`
+  += `0x10`, RAM-pinned) then dies on illegal `move.b-An` at `0x7bc`
+  via the flag-coupled `0x7a8` drain entry; bit7 arm bodges into
+  illegal `0x00ff` at `0x2612`. Twin `0x260c` has no entry (dead by
+  construction). Boot images carry nonzero `desc[1]` (ROM bytes);
+  walk self-mutation proved but crash-confined.
+- **v0811 drain head** (`audio_drain_head_contract_v0811.md`):
+  production fixture (`a4` = count) crashes `@0x7bc` at 4 steps
+  (count=1) and 12 steps (count=0, via epilogue+record-2). No
+  in-image caller targets `0x7a6`; only walk exits target mid-head
+  `0x7a8`. The C drain half (`dispatch_next`) has no oracle
+  differential and models machinery sealed behind the illegal site —
+  flagged oracle-unverified; the TRUE dispatch path is unidentified.
+- **v0812 L2 tick** (`audio_l2_tick_crash_v0812.md`): vectored entry
+  `0x1f16` with boot state refuses `@0x7bc` after 25 true steps
+  (7-stop map pinned). Prescaler entry is an always-forward bodge
+  (`0x21ba` gates are phantom); TRUE-head entry is safe (fresh Z)
+  but every mid-head re-entry carries fatal Z=0 residue; the
+  epilogue reset arm is dead (beq needs impossible Z). Production
+  paradox bounded to four joints: L2 firing, record authorship,
+  `$0409`-bit7 (MIDI-status hypothesis for the next slice), true
+  dispatch entry.
+
+Crash sites, all vector-4 class on silicon (fault stub `0x4d4`,
+code 8, mask-and-spin at `0x4fe`, verified): `0x22e8`/`0x23fa`
+(illegal-ea movem), `0x2612` (`0x00ff`), `0x7bc` (`move.b-An`).
+No "game crashes" claim is made: shapes proven, production
+reachability explicitly open per slice.
+
 ## 6. Transactional rejection coverage
 
 The player interrupt composite now preserves CPU state when a nested player
