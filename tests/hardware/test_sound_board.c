@@ -63,6 +63,122 @@ static void test_boot_rom(uint8_t *rom)
     rom[0x8e02u] = 0x00u; rom[0x8e03u] = 0x00u;
 }
 
+/* V3c first-tone probe (synthetic, ROM-free): one 8-bit square-wave
+ * voice (64-sample forward loop, 1 sample/frame ~= 689 Hz at
+ * 44.1 kHz), attack 31, level bypass, near-center pan. Renders 512
+ * frames through vf2_sound_board_render and pins audibility
+ * (peak/RMS/attack-ramp/stereo/active-slot) in-test; a WAV copy
+ * goes to out/first-tone.wav when writable (gitignored bonus
+ * artifact for human ears -- NOT the gate, the asserts are). */
+static void test_render_first_tone(void)
+{
+    static vf2_sound_board board;
+    static uint8_t sample_rom[256u];
+    static int16_t left[512u];
+    static int16_t right[512u];
+    size_t i = 0u;
+    int32_t peak_left = 0;
+    int32_t peak_right = 0;
+    int64_t sum_sq = 0;
+    int32_t late_peak = 0;
+
+    for (i = 0u; i < 64u; ++i) {
+        sample_rom[i] = (uint8_t)(i < 32u ? 100 : -100);
+    }
+    memset(&board, 0, sizeof(board));
+    vf2_scsp_initialize(&board.scsp);
+    EXPECT_TRUE(vf2_scsp_attach_sample_rom(&board.scsp, sample_rom,
+                                          sizeof(sample_rom)) == VF2_OK);
+    /* Slot 0: KEYONB|PCM8B|forward-loop, start 0, loop 0..64,
+       attack 31, level bypass, pitch 1 sample/frame, pan 15. */
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0000u, 0x0830u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0002u, 0x0000u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0004u, 0x0000u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0006u, 64u) == VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0008u, 0x001fu) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x000au, 0x0000u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x000cu, 0x0100u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0010u, 0x0000u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0016u, 0x0f00u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_sound_board_render(&board, left, right, 512u) ==
+                VF2_OK);
+    for (i = 0u; i < 512u; ++i) {
+        int32_t l = left[i];
+        int32_t r = right[i];
+        int32_t al = l < 0 ? -l : l;
+        int32_t ar = r < 0 ? -r : r;
+        if (al > peak_left) {
+            peak_left = al;
+        }
+        if (ar > peak_right) {
+            peak_right = ar;
+        }
+        sum_sq += (int64_t)l * l + (int64_t)r * r;
+        if (i >= 16u && (al > late_peak || ar > late_peak)) {
+            late_peak = al > ar ? al : ar;
+        }
+    }
+    fprintf(stderr, "first-tone: peakL=%d peakR=%d late=%d meansq=%lld\n",
+            (int)peak_left, (int)peak_right, (int)late_peak,
+            (long long)(sum_sq / 1024));
+    /* Attack ramp (order-robust: envelope starts at 0 and grows,
+       so frame 0 is quieter than frame 4 regardless of whether a
+       given frame advances the envelope before or after scaling;
+       the first attempt pinned frame-0 ~= 0, which bakes in one
+       ordering -- the ramp is the silicon-agnostic fact). */
+    {
+        int32_t l0 = left[0] < 0 ? -left[0] : left[0];
+        int32_t l4 = left[4] < 0 ? -left[4] : left[4];
+        int32_t r0 = right[0] < 0 ? -right[0] : right[0];
+        int32_t r4 = right[4] < 0 ? -right[4] : right[4];
+        EXPECT_TRUE(l0 < l4);
+        EXPECT_TRUE(r0 < r4);
+    }
+    /* ...then the square wave arrives on both channels. */
+    EXPECT_TRUE(late_peak > 8000);
+    EXPECT_TRUE(peak_left > 8000);
+    EXPECT_TRUE(peak_right > 8000);
+    EXPECT_TRUE(sum_sq / 1024 > 9000000);
+    EXPECT_TRUE(board.scsp.slot_active[0u] == 1u);
+    {
+        /* 44-byte PCM16 stereo WAV, best-effort (out/ is gitignored;
+           a missing dir only skips the artifact, never the gate). */
+        static const uint8_t hdr[44] = {
+            0x52u, 0x49u, 0x46u, 0x46u, 0x24u, 0x10u, 0x00u, 0x00u,
+            0x57u, 0x41u, 0x56u, 0x45u, 0x66u, 0x6du, 0x74u, 0x20u,
+            0x10u, 0x00u, 0x00u, 0x00u, 0x01u, 0x00u, 0x02u, 0x00u,
+            0x44u, 0xacu, 0x00u, 0x00u, 0x10u, 0xb1u, 0x02u, 0x00u,
+            0x04u, 0x00u, 0x10u, 0x00u, 0x64u, 0x61u, 0x74u, 0x61u,
+            0x00u, 0x10u, 0x00u, 0x00u
+        };
+        FILE *wav = fopen("out/first-tone.wav", "wb");
+        if (wav != NULL) {
+            uint8_t frame[4];
+            size_t f = 0u;
+            (void)fwrite(hdr, 1u, sizeof(hdr), wav);
+            for (f = 0u; f < 512u; ++f) {
+                frame[0] = (uint8_t)left[f];
+                frame[1] = (uint8_t)((uint16_t)left[f] >> 8u);
+                frame[2] = (uint8_t)right[f];
+                frame[3] = (uint8_t)((uint16_t)right[f] >> 8u);
+                (void)fwrite(frame, 1u, sizeof(frame), wav);
+            }
+            (void)fclose(wav);
+            fprintf(stderr, "first-tone: wrote out/first-tone.wav\n");
+        } else {
+            fprintf(stderr, "first-tone: out/ missing, WAV skipped\n");
+        }
+    }
+}
+
 int main(void)
 {
     static uint8_t audio_rom[0x10010u];
@@ -1062,5 +1178,6 @@ int main(void)
            landed before the 5th record tripped the guard. */
         EXPECT_TRUE(board.sound_ram[0x50000u] == 0xdeu);
     }
+    test_render_first_tone();
     return failures == 0 ? 0 : 1;
 }
