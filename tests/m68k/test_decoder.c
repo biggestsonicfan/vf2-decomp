@@ -134,6 +134,12 @@ int main(void)
         0x1b, 0xbc, 0x00, 0x10, 0x40, 0x00, /* move.b #$10,$0(a5,d4.w) */
         0x1b, 0xbc, 0x00, 0x1f, 0x10, 0x0b  /* move.b #$1f,$b(a5,d1.w) */
     };
+    static const uint8_t movem_illegal_ea[] = {
+        0x48, 0xd2, 0x00, 0xff  /* 0x23fa ROM bytes: movem.l reg->mem
+                                   with (a2) dest: illegal ea on
+                                   silicon (vector-4 class). Was
+                                   misprinted movem.l $00ff,-(a2). */
+    };
 
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 0u, &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 2u);
@@ -166,6 +172,13 @@ int main(void)
     EXPECT_TRUE(vf2_m68k_decode(handler, sizeof(handler), 16u,
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(strcmp(instruction.text, "rte") == 0);
+    EXPECT_TRUE(instruction.supported != 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(movem_illegal_ea, sizeof(movem_illegal_ea),
+                                0u, &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(instruction.supported == 0);
+    EXPECT_TRUE(strcmp(instruction.text, ".word $48d2") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(operations, sizeof(operations), 0u,
                                 &instruction) == VF2_OK);

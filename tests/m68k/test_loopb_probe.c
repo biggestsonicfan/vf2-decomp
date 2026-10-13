@@ -92,8 +92,8 @@ static void run_loopb_case(const uint8_t *audio_rom, size_t audio_rom_size,
 
 static void run_stop_case(const uint8_t *audio_rom, size_t audio_rom_size,
                           uint32_t entry_pc, uint32_t stop_pc,
-                          uint32_t reg_a0, uint8_t stream0,
-                          vf2_status *status_out, uint32_t *pc_out,
+                          uint32_t reg_a0, uint8_t stream0, uint8_t desc1,
+                          uint32_t max_steps, vf2_status *status_out, uint32_t *pc_out,
                           uint32_t *steps_out)
 {
     static uint8_t ram[VF2_SOUND_RAM_BYTES];
@@ -105,6 +105,7 @@ static void run_stop_case(const uint8_t *audio_rom, size_t audio_rom_size,
     memset(ram, 0, sizeof(ram));
     vf2_scsp_initialize(&scsp);
     ram[0x2000u] = stream0;
+    ram[reg_a0 + 1u] = desc1;
     bus.ram = ram;
     bus.ram_size = sizeof(ram);
     bus.rom = audio_rom;
@@ -119,7 +120,7 @@ static void run_stop_case(const uint8_t *audio_rom, size_t audio_rom_size,
     regs.a[7] = UINT32_C(0x7f00);
     regs.a[0] = reg_a0;
     regs.pc = entry_pc;
-    *status_out = vf2_m68k_run(&bus, &regs, stop_pc, 0, 200u, &done);
+    *status_out = vf2_m68k_run(&bus, &regs, stop_pc, 0, max_steps, &done);
     *pc_out = regs.pc;
     *steps_out = done;
 }
@@ -128,20 +129,21 @@ static void run_stop_case(const uint8_t *audio_rom, size_t audio_rom_size,
    status OK + pc == stop; a miss records the trap point. */
 static void sweep_path(const uint8_t *audio_rom, size_t audio_rom_size,
                        const char *name, uint32_t entry_pc, uint32_t reg_a0,
-                       uint8_t stream0, const uint32_t *stops,
+                       uint8_t stream0, uint8_t desc1, uint32_t max_steps,
+                       const uint32_t *stops,
                        const int *expect_hit, const uint32_t *expect_steps,
                        size_t nstops)
 {
     size_t i = 0u;
-    fprintf(stderr, "loopb sweep %s: entry=0x%05x stream0=0x%02x\n", name,
-            (unsigned)entry_pc, (unsigned)stream0);
+    fprintf(stderr, "loopb sweep %s: entry=0x%05x stream0=0x%02x desc1=0x%02x\n", name,
+            (unsigned)entry_pc, (unsigned)stream0, (unsigned)desc1);
     for (i = 0u; i < nstops; ++i) {
         vf2_status status = VF2_OK;
         uint32_t pc = 0u;
         uint32_t steps = 0u;
         int hit = 0;
         run_stop_case(audio_rom, audio_rom_size, entry_pc, stops[i], reg_a0,
-                      stream0, &status, &pc, &steps);
+                      stream0, desc1, max_steps, &status, &pc, &steps);
         hit = (status == VF2_OK && pc == stops[i]) ? 1 : 0;
         fprintf(stderr, "  stop=0x%05x: %s status=%d pc=0x%05x steps=%u\n",
                 (unsigned)stops[i], hit ? "HIT " : "miss",
@@ -196,7 +198,8 @@ int main(int argc, char **argv)
            check (0x2254/0x2258/0x225c never execute), runs the
            0x2260 move, the ror.l chain, the $0409 btst/beq (SCSP
            zeroed, exits), and reaches the 0x265e epilogue in 21 steps.
-           The twin tails need a desc[1]!=0 fixture (open, P2 slice).
+           (F6 below maps the desc[1]!=0 arm: it does NOT reach the
+           twin tails, it crashes at the illegal-ea movem 0x23fa.)
            Post-0x265e second-iteration flow is unpinned (frontier). */
         static const uint32_t f5_stops[] = {
             0x224eu, 0x2254u, 0x2258u, 0x225cu, 0x2260u,
@@ -209,8 +212,66 @@ int main(int argc, char **argv)
             2u, 0u, 0u, 0u, 7u, 0u, 0u, 19u, 20u, 21u
         };
         sweep_path(audio_rom, audio_rom_size, "f5-walk-active", 0x2242u,
-                   0x2000u, 0x80u, f5_stops, f5_hit, f5_steps,
+                   0x2000u, 0x80u, 0u, 200u, f5_stops, f5_hit, f5_steps,
                    sizeof(f5_stops) / sizeof(f5_stops[0]));
+    }
+    {
+        /* F6 twin-tail approach (P2 slice): desc[1]!=0 walk arm.
+           Dense HIT chain proves true alignment end to end: the
+           linear ori.b-sled reading of 0x22b6-0x22c6 is phantom
+           (true boundaries 0x22b0/0x22b4/0x22b8/0x22bc/0x22c0/0x22c6),
+           0x23b0 is skipped (true 0x23b2), and the run stops OK at
+           0x23fa after 45 true instructions. The next step refuses:
+           0x23fa is movem.l reg->mem with (a2) dest (ROM bytes
+           48 d2 00 ff), an illegal ea on silicon (vector-4 class,
+           same as the Loop-B 0x00FF word). The twin tails at
+           0x24d2/0x260c are NOT reached on this arm; the crash at
+           0x23fa comes first. See audio_twin_tail_crash_v0808.md. */
+        static const uint32_t f6_stops[] = {
+            0x2264u, 0x2290u, 0x22b0u, 0x22b4u, 0x22bcu, 0x22c0u,
+            0x22c6u, 0x23b2u, 0x23f6u, 0x23fau
+        };
+        static const int f6_hit[] = {
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+        };
+        static const uint32_t f6_steps[] = {
+            8u, 9u, 21u, 22u, 24u, 25u, 26u, 27u, 44u, 45u
+        };
+        sweep_path(audio_rom, audio_rom_size, "f6-prefix", 0x2242u,
+                   0x2000u, 0x80u, 0x01u, 20000u, f6_stops, f6_hit,
+                   f6_steps, sizeof(f6_stops) / sizeof(f6_stops[0]));
+    }
+    {
+        /* F6 phantom alignment pins: these linear-dump boundaries are
+           never executed (mid-instruction on the true stream). */
+        static const uint32_t f6_phantom[] = { 0x22b2u, 0x22b6u, 0x23b0u };
+        static const int f6_phit[] = { 0, 0, 0 };
+        static const uint32_t f6_psteps[] = { 0u, 0u, 0u };
+        sweep_path(audio_rom, audio_rom_size, "f6-phantoms", 0x2242u,
+                   0x2000u, 0x80u, 0x01u, 20000u, f6_phantom, f6_phit,
+                   f6_psteps,
+                   sizeof(f6_phantom) / sizeof(f6_phantom[0]));
+    }
+    {
+        /* F6 crash verdict, both desc[1] variants: 45 true steps then
+           UNSUPPORTED at the illegal-ea movem 0x23fa. desc[1]=0x80
+           converges to the same trap in the same count. */
+        static const uint8_t f6_desc1[] = { 0x01u, 0x80u };
+        size_t v = 0u;
+        for (v = 0u; v < sizeof(f6_desc1) / sizeof(f6_desc1[0]); ++v) {
+            vf2_status status = VF2_OK;
+            uint32_t pc = 0u;
+            uint32_t steps = 0u;
+            run_stop_case(audio_rom, audio_rom_size, 0x2242u, 0xffffffu,
+                          0x2000u, 0x80u, f6_desc1[v], 20000u, &status,
+                          &pc, &steps);
+            fprintf(stderr, "f6-crash desc1=0x%02x: status=%d pc=0x%05x steps=%u\n",
+                    (unsigned)f6_desc1[v], (int)status, (unsigned)pc,
+                    (unsigned)steps);
+            EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(pc == 0x23fau);
+            EXPECT_TRUE(steps == 45u);
+        }
     }
     free(audio_rom);
     if (failures != 0) {
