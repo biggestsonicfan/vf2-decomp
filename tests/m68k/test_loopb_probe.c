@@ -93,7 +93,7 @@ static void run_loopb_case(const uint8_t *audio_rom, size_t audio_rom_size,
 static void run_stop_case(const uint8_t *audio_rom, size_t audio_rom_size,
                           uint32_t entry_pc, uint32_t stop_pc,
                           uint32_t reg_a0, uint8_t stream0, uint8_t desc1,
-                          uint32_t max_steps, vf2_status *status_out, uint32_t *pc_out,
+                          uint32_t desc0a, uint32_t max_steps, vf2_status *status_out, uint32_t *pc_out,
                           uint32_t *steps_out)
 {
     static uint8_t ram[VF2_SOUND_RAM_BYTES];
@@ -106,6 +106,10 @@ static void run_stop_case(const uint8_t *audio_rom, size_t audio_rom_size,
     vf2_scsp_initialize(&scsp);
     ram[0x2000u] = stream0;
     ram[reg_a0 + 1u] = desc1;
+    ram[reg_a0 + 0x0au] = (uint8_t)(desc0a >> 24u);
+    ram[reg_a0 + 0x0bu] = (uint8_t)(desc0a >> 16u);
+    ram[reg_a0 + 0x0cu] = (uint8_t)(desc0a >> 8u);
+    ram[reg_a0 + 0x0du] = (uint8_t)desc0a;
     bus.ram = ram;
     bus.ram_size = sizeof(ram);
     bus.rom = audio_rom;
@@ -129,7 +133,8 @@ static void run_stop_case(const uint8_t *audio_rom, size_t audio_rom_size,
    status OK + pc == stop; a miss records the trap point. */
 static void sweep_path(const uint8_t *audio_rom, size_t audio_rom_size,
                        const char *name, uint32_t entry_pc, uint32_t reg_a0,
-                       uint8_t stream0, uint8_t desc1, uint32_t max_steps,
+                       uint8_t stream0, uint8_t desc1, uint32_t desc0a,
+                       uint32_t max_steps,
                        const uint32_t *stops,
                        const int *expect_hit, const uint32_t *expect_steps,
                        size_t nstops)
@@ -143,7 +148,7 @@ static void sweep_path(const uint8_t *audio_rom, size_t audio_rom_size,
         uint32_t steps = 0u;
         int hit = 0;
         run_stop_case(audio_rom, audio_rom_size, entry_pc, stops[i], reg_a0,
-                      stream0, desc1, max_steps, &status, &pc, &steps);
+                      stream0, desc1, desc0a, max_steps, &status, &pc, &steps);
         hit = (status == VF2_OK && pc == stops[i]) ? 1 : 0;
         fprintf(stderr, "  stop=0x%05x: %s status=%d pc=0x%05x steps=%u\n",
                 (unsigned)stops[i], hit ? "HIT " : "miss",
@@ -212,7 +217,7 @@ int main(int argc, char **argv)
             2u, 0u, 0u, 0u, 7u, 0u, 0u, 19u, 20u, 21u
         };
         sweep_path(audio_rom, audio_rom_size, "f5-walk-active", 0x2242u,
-                   0x2000u, 0x80u, 0u, 200u, f5_stops, f5_hit, f5_steps,
+                   0x2000u, 0x80u, 0u, 0u, 200u, f5_stops, f5_hit, f5_steps,
                    sizeof(f5_stops) / sizeof(f5_stops[0]));
     }
     {
@@ -238,7 +243,7 @@ int main(int argc, char **argv)
             8u, 9u, 21u, 22u, 24u, 25u, 26u, 27u, 44u, 45u
         };
         sweep_path(audio_rom, audio_rom_size, "f6-prefix", 0x2242u,
-                   0x2000u, 0x80u, 0x01u, 20000u, f6_stops, f6_hit,
+                   0x2000u, 0x80u, 0x01u, 0u, 20000u, f6_stops, f6_hit,
                    f6_steps, sizeof(f6_stops) / sizeof(f6_stops[0]));
     }
     {
@@ -248,7 +253,7 @@ int main(int argc, char **argv)
         static const int f6_phit[] = { 0, 0, 0 };
         static const uint32_t f6_psteps[] = { 0u, 0u, 0u };
         sweep_path(audio_rom, audio_rom_size, "f6-phantoms", 0x2242u,
-                   0x2000u, 0x80u, 0x01u, 20000u, f6_phantom, f6_phit,
+                   0x2000u, 0x80u, 0x01u, 0u, 20000u, f6_phantom, f6_phit,
                    f6_psteps,
                    sizeof(f6_phantom) / sizeof(f6_phantom[0]));
     }
@@ -263,7 +268,7 @@ int main(int argc, char **argv)
             uint32_t pc = 0u;
             uint32_t steps = 0u;
             run_stop_case(audio_rom, audio_rom_size, 0x2242u, 0xffffffu,
-                          0x2000u, 0x80u, f6_desc1[v], 20000u, &status,
+                          0x2000u, 0x80u, f6_desc1[v], 0u, 20000u, &status,
                           &pc, &steps);
             fprintf(stderr, "f6-crash desc1=0x%02x: status=%d pc=0x%05x steps=%u\n",
                     (unsigned)f6_desc1[v], (int)status, (unsigned)pc,
@@ -271,6 +276,47 @@ int main(int argc, char **argv)
             EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
             EXPECT_TRUE(pc == 0x23fau);
             EXPECT_TRUE(steps == 45u);
+        }
+    }
+    {
+        /* F7 bulk arm (P2 slice): desc[0x0a]=0x400 clears the 0x22c6
+           bls gate into the 0x22ca subi arm. True prefix HITs prove
+           alignment (0x22e2/0x22e6 phantom-misses omitted here, same
+           class as F6). 0x22e4 movem.l (a1)+ executes (step 33);
+           0x22e8 holds the same illegal-ea bytes as 0x23fa
+           (48 d2 00 ff, verified twice) and refuses the same way.
+           Both walk arms die on the same illegal store form. */
+        static const uint32_t f7_stops[] = {
+            0x22cau, 0x22d0u, 0x22d4u, 0x22d8u, 0x22dcu, 0x22e0u,
+            0x22e4u, 0x22e8u
+        };
+        static const int f7_hit[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+        static const uint32_t f7_steps[] = {
+            27u, 28u, 29u, 30u, 31u, 32u, 33u, 34u
+        };
+        sweep_path(audio_rom, audio_rom_size, "f7-prefix", 0x2242u,
+                   0x2000u, 0x80u, 0x01u, 0x0400u, 20000u, f7_stops,
+                   f7_hit, f7_steps,
+                   sizeof(f7_stops) / sizeof(f7_stops[0]));
+    }
+    {
+        /* F7 crash verdict, both sides of the bls gate's taken arm:
+           UNSUPPORTED at 0x22e8 after 34 true steps. */
+        static const uint32_t f7_desc0a[] = { 0x0400u, 0x0201u };
+        size_t v = 0u;
+        for (v = 0u; v < sizeof(f7_desc0a) / sizeof(f7_desc0a[0]); ++v) {
+            vf2_status status = VF2_OK;
+            uint32_t pc = 0u;
+            uint32_t steps = 0u;
+            run_stop_case(audio_rom, audio_rom_size, 0x2242u, 0xffffffu,
+                          0x2000u, 0x80u, 0x01u, f7_desc0a[v], 20000u,
+                          &status, &pc, &steps);
+            fprintf(stderr, "f7-crash desc0a=0x%04x: status=%d pc=0x%05x steps=%u\n",
+                    (unsigned)f7_desc0a[v], (int)status, (unsigned)pc,
+                    (unsigned)steps);
+            EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(pc == 0x22e8u);
+            EXPECT_TRUE(steps == 34u);
         }
     }
     free(audio_rom);
