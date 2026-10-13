@@ -124,6 +124,16 @@ Status (2026-10-13), step 1 measured:
 - From that state 300 frames run with no error, but they draw nothing
   (`triangles=0`, black frame): the corridor is boot, not yet the attract loop.
   Steps 2 and 3 below are what remains.
+- Reference (MAME, same ROM, from reset): the attract mode draws 3D scenes by
+  frame 300 (character on a courtyard, "INSERT COIN(S)", "CREDIT 0/2"), so the
+  black native frame is a real gap, not the expected boot screen. `0x508000`
+  is rewritten every frame from frame ~25 (`0x8a00`) and becomes `0x18a00` at
+  frame ~800. `base+0x3350/0x3351` stay 0 during the whole attract, so they
+  are not a progress indicator.
+- Half of the exit criterion is met: `scripts/frame_gate.sh <roms>` runs 3,600
+  frames from the cold snapshot with no error and identical work-RAM digests
+  every 60 frames across two runs (`vf2_host --digest 60 --fast`). Still open:
+  the native-versus-oracle digest at every 60th frame, and a picture.
 
 Goal: `vf2_host --rom-dir D` runs from the reset vector to the attract loop.
 

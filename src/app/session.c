@@ -155,6 +155,24 @@ vf2_status vf2_session_audio_status(const vf2_session *s)
     return s != NULL ? s->audio_status : VF2_ERROR_INVALID_ARGUMENT;
 }
 
+vf2_status vf2_session_work_ram_digest(vf2_session *s, uint32_t *digest)
+{
+    /* FNV-1a over 0x00500000..0x005fffff as little-endian words: the work RAM
+     * the recovered runtime owns.  Used for determinism checks only. */
+    uint32_t hash = UINT32_C(2166136261);
+    if (s == NULL || digest == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    for (uint32_t a = UINT32_C(0x00500000); a < UINT32_C(0x00600000); a += 4u) {
+        uint32_t w = 0u;
+        vf2_status st = vf2_model2a_read_u32(&s->machine, a, &w);
+        if (st != VF2_OK) return st;
+        for (unsigned i = 0u; i < 4u; ++i) {
+            hash = (hash ^ ((w >> (8u * i)) & 0xffu)) * UINT32_C(16777619);
+        }
+    }
+    *digest = hash;
+    return VF2_OK;
+}
+
 uint32_t vf2_session_last_input(const vf2_session *s)
 {
     return s != NULL ? s->last_input : 0u;

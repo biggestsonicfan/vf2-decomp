@@ -40,6 +40,9 @@ vf2_status vf2_session_render_audio(
  * Without it vf2_session_render_audio returns silence. */
 vf2_status vf2_session_audio_status(const vf2_session *session);
 
+/* FNV-1a of the work RAM (0x00500000..0x005fffff); determinism checks. */
+vf2_status vf2_session_work_ram_digest(vf2_session *session, uint32_t *digest);
+
 /* The input mask last passed to the game (for host tests). */
 uint32_t vf2_session_last_input(const vf2_session *session);
 
