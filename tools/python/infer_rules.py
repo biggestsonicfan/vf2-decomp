@@ -67,12 +67,8 @@ def feature_vector(record, boolean_names, bitfields):
 
 
 def try_boolean_minimize(records, boolean_names, bitfields, target_outcome):
-    try:
-        from sympy import symbols
-        from sympy.logic import SOPform, simplify_logic
-    except ImportError:
-        return None, "sympy is not installed"
-
+    # Refusals (incomplete table, features that do not determine the outcome)
+    # come first and need no sympy; only the minimisation itself does.
     if not boolean_names and not bitfields:
         return None, None
 
@@ -96,6 +92,12 @@ def try_boolean_minimize(records, boolean_names, bitfields, target_outcome):
     expected = 1 << len(feature_names)
     if len(vectors) != expected:
         return None, f"truth table is incomplete ({len(vectors)}/{expected} feature vectors)"
+
+    try:
+        from sympy import symbols
+        from sympy.logic import SOPform, simplify_logic
+    except ImportError:
+        return None, "sympy is not installed"
 
     variables = symbols(" ".join(feature_names))
     if len(feature_names) == 1:

@@ -145,7 +145,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_HOST=ON -DVF2_BUILD_TESTS=ON
+        # Linux: console build of SDL (no X11/Wayland headers on the runner);
+        # the dummy video and audio drivers are all the host test needs.
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DVF2_BUILD_HOST=ON -DVF2_BUILD_TESTS=ON
+          -DSDL_UNIX_CONSOLE_BUILD=ON
       - name: Build
         run: cmake --build build --config Release --parallel
       - name: Host tests (dummy video and audio drivers, no ROM)
