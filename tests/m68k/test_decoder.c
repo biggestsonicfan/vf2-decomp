@@ -159,9 +159,10 @@ int main(void)
     EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(strcmp(instruction.text, "bra $00000006") == 0);
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 6u, &instruction) == VF2_OK);
-    /* jsr (d16,PC): Motorola base is past the ext word (pc+4), so -8
-       from 6 lands at 2. (Pre-fix print said $00000000: pc+2 base.) */
-    EXPECT_TRUE(strcmp(instruction.text, "jsr $00000002") == 0);
+    /* jsr (d16,PC): the base is the address of the ext word (opcode
+       address + 2), so -8 from 6 lands at 0 (see test_pcrel_base.c for
+       the ROM measurement behind this). */
+    EXPECT_TRUE(strcmp(instruction.text, "jsr $00000000") == 0);
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 10u, &instruction) == VF2_OK);
     EXPECT_TRUE(strcmp(instruction.text, "nop") == 0);
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program) - 1u, 10u,

@@ -54,3 +54,4 @@ __pycache__/
 
 # CTest / Visual Studio test runner artifacts
 /Testing/
+build-rom/

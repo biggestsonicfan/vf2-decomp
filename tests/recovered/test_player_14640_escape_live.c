@@ -104,15 +104,6 @@ static void test_unit_fail_closed(void)
     cpu.local_frame_depth = 1u;
 }
 
-static void write_u8(
-    vf2_model2a *machine,
-    uint32_t address,
-    uint8_t value
-)
-{
-    CHECK(vf2_model2a_write(machine, address, &value, 1u) == VF2_OK);
-}
-
 static void write_u32(
     vf2_model2a *machine,
     uint32_t address,

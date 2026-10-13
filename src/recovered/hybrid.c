@@ -2872,7 +2872,7 @@ static vf2_status hybrid_execute_player_270d4(
  * punch10, boot, natres): g0 == 0x505, entry +0x1a4 == 0x200.
  * Anything else stays fail-closed (the ghost 0x4505 shape faults at
  * the 0x27048 cvtri on every forced drive). */
-static vf2_status hybrid_execute_player_1428c_corridor(
+__attribute__((unused)) static vf2_status hybrid_execute_player_1428c_corridor(
     vf2_model2a *machine,
     vf2_i960_cpu *cpu
 )
@@ -24037,12 +24037,12 @@ static vf2_status coli_22298_body(
                  (flags_g7 == (UINT32_C(1) << 8u) &&
                   flags_g8 == (UINT32_C(1) << 8u) &&
                   scan_821 == UINT8_C(5)));
-            if (second_loop_candidate &&
-                vf2_model2a_read_u32(
-                    machine, g7 + UINT32_C(0x1f8), &r4) != VF2_OK ||
-                second_loop_candidate &&
-                vf2_model2a_read_u32(
-                    machine, g7 + UINT32_C(0x6e4), &r5) != VF2_OK) {
+            if ((second_loop_candidate &&
+                 vf2_model2a_read_u32(
+                     machine, g7 + UINT32_C(0x1f8), &r4) != VF2_OK) ||
+                (second_loop_candidate &&
+                 vf2_model2a_read_u32(
+                     machine, g7 + UINT32_C(0x6e4), &r5) != VF2_OK)) {
                 return VF2_ERROR_UNSUPPORTED;
             }
             if (second_loop_candidate &&
@@ -25062,7 +25062,7 @@ static vf2_status coli_225cc_body(
             uint32_t board_c = 0u;
             const int scan4_long =
                 scan_byte == UINT8_C(4) &&
-                (((flags_g8 & (UINT32_C(1) << 16u)) != 0u &&
+                ((((flags_g8 & (UINT32_C(1) << 16u)) != 0u &&
                  ((flags_g8 & ~UINT32_C(0x00011800)) == 0u ||
                  flags_g8 == UINT32_C(0x00012000) ||
                  flags_g8 == UINT32_C(0x00012001) ||
@@ -25190,7 +25190,7 @@ static vf2_status coli_225cc_body(
                  flags_g8 == UINT32_C(0x00019814) ||
                  flags_g8 == UINT32_C(0x00019815) ||
                  flags_g8 == UINT32_C(0x0001c000) ||
-                 flags_g8 == UINT32_C(0x00038000)) ||
+                 flags_g8 == UINT32_C(0x00038000))) ||
                  flags_g8 == UINT32_C(0x00002000) ||
                  flags_g8 == UINT32_C(0x00002001) ||
                  flags_g8 == UINT32_C(0x00002010) ||
@@ -32654,7 +32654,8 @@ static vf2_status hybrid_execute_player_29598(
             }
 
             /* Path B: bbc taken (bit r13 of g0 clear) -> mov 0, g1; ret. */
-            if ((g0 & (UINT32_C(1) << r13)) == 0u) {
+            /* i960 bit tests use only the low 5 bits of the bit number. */
+            if ((g0 & (UINT32_C(1) << (r13 & 31u))) == 0u) {
                 cpu->registers[VF2_I960_G0_REGISTER + 1u] = 0u;
                 cpu->ip = UINT32_C(0x000295e8);
                 cpu->executed_instructions += UINT64_C(4);
@@ -34333,6 +34334,7 @@ static vf2_status hybrid_execute_player_2c38(
 
     /* Outer loop: 27 iterations via cmpinco 27. */
     r5 = 1u;
+    (void)r5;
     for (outer_iter = 0; outer_iter < 27; ++outer_iter) {
         /* Per-outer pre-compute. */
         status = vf2_model2a_read(
@@ -34372,6 +34374,7 @@ static vf2_status hybrid_execute_player_2c38(
         /* Initialize accumulators. */
         r8 = 0u; r11 = 0u; r14 = 0u;
         r6 = 47u;  /* 16 + 31 */
+        (void)r6;
 
         /* Inner loop: 47 iterations. */
         for (inner_iter = 0; inner_iter < 47; ++inner_iter) {

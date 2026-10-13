@@ -68,10 +68,6 @@ static uint32_t read_u32_le(vf2_model2a *m, uint32_t addr) {
     return v;
 }
 
-static void write_u16_le(vf2_model2a *m, uint32_t addr, uint16_t v) {
-    CHECK(vf2_model2a_write(m, addr, &v, 2) == VF2_OK);
-}
-
 static uint16_t read_u16_le(vf2_model2a *m, uint32_t addr) {
     uint16_t v = 0;
     CHECK(vf2_model2a_read(m, addr, &v, 2) == VF2_OK);

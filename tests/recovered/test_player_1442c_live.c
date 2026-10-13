@@ -603,14 +603,14 @@ static void run_s25_case(
     reference_instructions =
         reference_cpu.executed_instructions - snap_instructions;
     CHECK(reference_instructions ==
-          successor_state == 27 ? UINT64_C(100) :
-          successor_state == 16 ? S25_16_TOTAL : S25_TOTAL);
+          (successor_state == 27 ? UINT64_C(100) :
+           successor_state == 16 ? S25_16_TOTAL : S25_TOTAL));
     CHECK(reference_cpu.procedure_calls - snap_calls ==
-          successor_state == 27 ? UINT64_C(2) :
-          successor_state == 16 ? S25_16_CALLS : S25_CALLS);
+          (successor_state == 27 ? UINT64_C(2) :
+           successor_state == 16 ? S25_16_CALLS : S25_CALLS));
     CHECK(reference_cpu.procedure_returns - snap_returns ==
-          successor_state == 27 ? UINT64_C(2) :
-          successor_state == 16 ? S25_16_RETS : S25_RETS);
+          (successor_state == 27 ? UINT64_C(2) :
+           successor_state == 16 ? S25_16_RETS : S25_RETS));
 
     /* Native: the 0x144b0 state-25 arm. */
     native_status = vf2_hybrid_player_144b0_execute_for_test(
@@ -620,14 +620,14 @@ static void run_s25_case(
     native_instructions =
         native_cpu.executed_instructions - snap_instructions;
     CHECK(native_instructions ==
-          successor_state == 27 ? UINT64_C(100) :
-          successor_state == 16 ? S25_16_TOTAL : S25_TOTAL);
+          (successor_state == 27 ? UINT64_C(100) :
+           successor_state == 16 ? S25_16_TOTAL : S25_TOTAL));
     CHECK(native_cpu.procedure_calls - snap_calls ==
-          successor_state == 27 ? UINT64_C(2) :
-          successor_state == 16 ? S25_16_CALLS : S25_CALLS);
+          (successor_state == 27 ? UINT64_C(2) :
+           successor_state == 16 ? S25_16_CALLS : S25_CALLS));
     CHECK(native_cpu.procedure_returns - snap_returns ==
-          successor_state == 27 ? UINT64_C(2) :
-          successor_state == 16 ? S25_16_RETS : S25_RETS);
+          (successor_state == 27 ? UINT64_C(2) :
+           successor_state == 16 ? S25_16_RETS : S25_RETS));
 
     printf(
         "player-144b0-s25%s ref=%llu native=%llu calls=%llu/%llu rets=%llu/%llu\n",

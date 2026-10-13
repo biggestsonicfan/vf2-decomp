@@ -302,28 +302,6 @@ static int side_walk_to_entry(side_t *s, unsigned *walked)
  * "a compare has been executed" bit the executor keeps in lockstep with
  * compare_result) unset: the reference ends with 0x3f001002, the native with
  * 0x3f001000. */
-static int equal_except_named(const vf2_i960_cpu *ref_cpu,
-                              const vf2_i960_cpu *nat_cpu, unsigned *reg_diffs,
-                              uint32_t *which_reg)
-{
-    unsigned reg;
-    unsigned diffs = 0u;
-
-    for (reg = 0u; reg < VF2_I960_REGISTER_COUNT; ++reg) {
-        if (ref_cpu->registers[reg] != nat_cpu->registers[reg]) {
-            ++diffs;
-            *which_reg = reg;
-        }
-    }
-    *reg_diffs = diffs;
-    return (ref_cpu->sat == nat_cpu->sat) && (ref_cpu->prcb == nat_cpu->prcb) &&
-           (ref_cpu->ip == nat_cpu->ip) &&
-           (ref_cpu->process_control == nat_cpu->process_control) &&
-           (ref_cpu->interrupt_control == nat_cpu->interrupt_control) &&
-           (ref_cpu->reinitialized == nat_cpu->reinitialized) &&
-           (ref_cpu->local_frame_depth == nat_cpu->local_frame_depth);
-}
-
 static int test_leg(const uint8_t *rom, size_t rom_sz, const uint8_t *data,
                     size_t data_sz, const vf2_i960_snapshot *snap,
                     const leg_t *leg)

@@ -55,12 +55,6 @@ static uint32_t get_u32(vf2_model2a *m, uint32_t a) {
     CHECK(vf2_model2a_read_u32(m, a, &v) == VF2_OK);
     return v;
 }
-static uint8_t get_u8(vf2_model2a *m, uint32_t a) {
-    uint8_t v = 0u;
-    CHECK(vf2_model2a_read(m, a, &v, sizeof(v)) == VF2_OK);
-    return v;
-}
-
 static void reset_touched(vf2_model2a *m) {
     put_u8(m, BYTE_AT, 0u);
     put_u32(m, U32_HI,  0u);

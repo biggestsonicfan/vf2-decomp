@@ -950,14 +950,16 @@ int main(void)
     }
     {
         /* Sample uploader (v0794a): staging, record copy, guard. */
-        static uint8_t rich_rom[0x10000u];
+        /* test_boot_rom clears 0x10010 bytes; the board is initialised with a 0x10000-byte ROM. */
+        static uint8_t rich_rom_storage[0x10010u];
+        uint8_t *const rich_rom = rich_rom_storage;
         uint8_t *slot_table = NULL;
         test_boot_rom(rich_rom);
         /* Stage-only (d1 < 0 skips the upload). */
         rich_rom[0x5b26u] = 0x00u; rich_rom[0x5b27u] = 0x04u;
         rich_rom[0x5b28u] = 0xaau; rich_rom[0x5b29u] = 0xbbu;
         rich_rom[0x5b2au] = 0xccu; rich_rom[0x5b2bu] = 0xddu;
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, sizeof(rich_rom),
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, UINT32_C(0x10000),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         EXPECT_TRUE(board.sound_ram[0x5000u] == 0xaau);
         EXPECT_TRUE(board.sound_ram[0x5001u] == 0xbbu);
@@ -979,7 +981,7 @@ int main(void)
         rich_rom[0x7a0au] = 0x33u; rich_rom[0x7a0bu] = 0x44u;
         rich_rom[0x7400u] = 0xdeu; rich_rom[0x7401u] = 0xadu;
         rich_rom[0x7402u] = 0xbeu; rich_rom[0x7403u] = 0xefu;
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, sizeof(rich_rom),
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, UINT32_C(0x10000),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         EXPECT_TRUE(board.sound_ram[0x6008u] == 0x11u);
         EXPECT_TRUE(board.sound_ram[0x6009u] == 0x22u);
@@ -1005,7 +1007,7 @@ int main(void)
         rich_rom[0x7a06u] = 0x7eu; rich_rom[0x7a07u] = 0x00u;
         rich_rom[0x7a08u] = 0x00u; rich_rom[0x7a09u] = 0x00u;
         rich_rom[0x7a0au] = 0x00u; rich_rom[0x7a0bu] = 0x00u;
-        EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, sizeof(rich_rom),
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, rich_rom, UINT32_C(0x10000),
                                    sample_rom, sizeof(sample_rom)) ==
                     VF2_ERROR_UNSUPPORTED);
         EXPECT_TRUE(board.sound_ram[0x50000u] == 0x00u);

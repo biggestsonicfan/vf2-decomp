@@ -22,6 +22,8 @@ Areas already recovered natively include the boot and phase corridors, model2rec
 
 The project is still a clean-room recovery and validation effort, not a complete playable port. Character/arena selection, the complete match state machine, fighter physics and combat, ring-out behavior, CPU decision logic, and substantial geometry, audio and hardware behavior remain open. Full TGP firmware execution, polygon rasterization, tile/video timing and SCSP DSP behavior remain explicitly outside the bounded hardware model (FM synthesis is proven absent from the sound driver).
 
+The plan to a playable native Windows build is in [`docs/NATIVE_WINDOWS_PLAN.md`](docs/NATIVE_WINDOWS_PLAN.md).
+
 For release-by-release history see [`CHANGELOG.md`](CHANGELOG.md); for the current recovery frontier see [`docs/UNCOVERED_BRANCHES.md`](docs/UNCOVERED_BRANCHES.md).
 
 ### Progress toward a playable Virtua Fighter 2 port

@@ -120,3 +120,47 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: build-asan/vf2_iac_reinitialize_tests
+
+  windows:
+    name: windows msvc release (non-blocking)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  host:
+    name: sdl3 host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVF2_BUILD_HOST=ON -DVF2_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Host tests (dummy video and audio drivers, no ROM)
+        run: ctest --test-dir build -C Release -R "vf2_host" --output-on-failure
+      - name: Collect host package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/vf2_host* dist/ 2>/dev/null || true
+          cp build/Release/vf2_host.exe dist/ 2>/dev/null || true
+          cp README.md LICENSE docs/SCAFFOLDING.md dist/
+          ls dist
+      - name: Publish host package (no ROM, no assets)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2-host-${{ runner.os }}
+          path: dist
+          if-no-files-found: error
