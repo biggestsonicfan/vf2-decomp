@@ -784,16 +784,9 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_dispatch_probe COMMAND vf2_m68k_dispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_snapshot_differential COMMAND vf2_m68k_snapshot_tests "${VF2_ROM_DIR}")
-        # The Loop-B pin was measured with the +4 PC-relative base bug
-        # (see decomp/i960/notes/audio_pcrel_base_reaudit.md): F1/F3 pin
-        # mid-instruction landings (trap at 0x934) that are ordinary
-        # code under the corrected base. WILL_FAIL records the known
-        # divergence until the Loop-B pins are regenerated (separate
-        # slice from the v0821 voice-ISR re-recovery, which unpinned
-        # the triangle below). The test flips to failing when that
-        # happens, which is the signal to remove this property.
-        set_tests_properties(vf2_m68k_loopb_probe
-                             PROPERTIES WILL_FAIL TRUE)
+        # (v0823: the Loop-B WILL_FAIL is removed -- the probe is
+        # re-pinned under the +2 base and green. The +4-era comment
+        # that lived here is retired to audio_v3a_loopb_v0823.md.)
         add_test(NAME vf2_phase17_zero_differential COMMAND vf2_phase17_zero_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_post_boot_input_profiles_differential COMMAND vf2_post_boot_input_profile_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_object_handlers_differential COMMAND vf2_object_handler_tests "${VF2_ROM_DIR}")
