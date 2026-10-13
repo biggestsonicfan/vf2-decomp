@@ -140,10 +140,16 @@ int main(void)
                                    silicon (vector-4 class). Was
                                    misprinted movem.l $00ff,-(a2). */
     };
+    static const uint8_t movel_push[] = {
+        0x27, 0x00  /* 0x5ee ROM bytes: move.l d0,-(a3). Was refused
+                       (decoder lacked Dn -> -(An)); the stepper
+                       already implemented it. */
+    };
     static const uint8_t moveb_an_illegal[] = {
         0x15, 0x08, 0x02, 0x80  /* 0x7bc ROM bytes: move.b a0,d16(a2):
                                    byte-size An source is illegal on
-                                   silicon (vector-4 class). */
+                                   silicon (vector-4 class). Decoder
+                                   refuses; stepper line 756 agrees. */
     };
 
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 0u, &instruction) == VF2_OK);
@@ -184,6 +190,12 @@ int main(void)
     EXPECT_TRUE(instruction.length == 4u);
     EXPECT_TRUE(instruction.supported == 0);
     EXPECT_TRUE(strcmp(instruction.text, ".word $48d2") == 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(movel_push, sizeof(movel_push),
+                                0u, &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 2u);
+    EXPECT_TRUE(instruction.supported != 0);
+    EXPECT_TRUE(strcmp(instruction.text, "move.l d0,-(a3)") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(moveb_an_illegal, sizeof(moveb_an_illegal),
                                 0u, &instruction) == VF2_OK);

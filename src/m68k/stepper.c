@@ -101,8 +101,8 @@ static vf2_status bus_read(
         return VF2_ERROR_UNSUPPORTED;
     }
     if (address >= VF2_STEP_SCSP_BASE &&
-        address + (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <=
-            VF2_STEP_SCSP_BASE + VF2_SCSP_REGISTER_BYTES) {
+        (uint64_t)address + (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <=
+            (uint64_t)VF2_STEP_SCSP_BASE + VF2_SCSP_REGISTER_BYTES) {
         uint32_t slot = address - VF2_STEP_SCSP_BASE;
         vf2_status status = VF2_OK;
         if (bus->scsp == NULL) {
@@ -231,8 +231,8 @@ static vf2_status bus_write(
         return VF2_ERROR_UNSUPPORTED;
     }
     if (address >= VF2_STEP_SCSP_BASE &&
-        address + (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <=
-            VF2_STEP_SCSP_BASE + VF2_SCSP_REGISTER_BYTES) {
+        (uint64_t)address + (size == 2u ? 4u : (size == 1u ? 2u : 1u)) <=
+            (uint64_t)VF2_STEP_SCSP_BASE + VF2_SCSP_REGISTER_BYTES) {
         uint32_t slot = address - VF2_STEP_SCSP_BASE;
         vf2_status status = VF2_OK;
         if (bus->scsp == NULL) {

@@ -1577,7 +1577,8 @@ vf2_status vf2_m68k_decode(
                 (opcode & UINT16_C(0xf000)) == UINT16_C(0x3000)) &&
                ((opcode >> 3u) & 7u) == 0u &&
                (((opcode >> 6u) & 7u) == 2u ||
-                ((opcode >> 6u) & 7u) == 3u)) {
+                ((opcode >> 6u) & 7u) == 3u ||
+                ((opcode >> 6u) & 7u) == 4u)) {
         const unsigned destination_register = (unsigned)((opcode >> 9u) & 7u);
         const unsigned destination_mode = (unsigned)((opcode >> 6u) & 7u);
         const unsigned source_register = (unsigned)(opcode & 7u);
@@ -1587,9 +1588,15 @@ vf2_status vf2_m68k_decode(
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "move.%c d%u,(a%u)", size_name, source_register,
                            destination_register);
-        } else {
+        } else if (destination_mode == 3u) {
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "move.%c d%u,(a%u)+", size_name, source_register,
+                           destination_register);
+        } else {
+            /* Dn -> -(An): the 0xFF-reset path pushes d0 at 0x5ee
+               (ROM bytes 27 00); the stepper already implements it. */
+            (void)snprintf(instruction->text, sizeof(instruction->text),
+                           "move.%c d%u,-(a%u)", size_name, source_register,
                            destination_register);
         }
     } else if (((opcode & UINT16_C(0xf000)) == UINT16_C(0x1000) ||
