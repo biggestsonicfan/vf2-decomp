@@ -102,70 +102,59 @@ int main(void)
     voices[2u * VF2_SOUND_VOICE_BYTES + 9u] = 0xffu;
     board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] = 2u;
     board.sound_ram[VF2_SOUND_SHARED_COUNTER_152E] = 3u;
-    /* Sentinels proving voice 1 (slot 0x0004) is never serviced under
-       the frozen-pointer model: key_off for voice 0 touches only
-       SCSP[0x000e] / ram[0x2003]. */
+    /* Slot sentinels: both key-offs fire under the true scan, so
+       SCSP[0x000f] (preset 0x5a) and ram[0x2004] (preset 0xaa) both
+       fall. Pinned below. */
     board.sound_ram[0x2004u] = 0xaau;
     EXPECT_TRUE(vf2_scsp_write_u8(&board.scsp, 0x000fu, 0x5au) == VF2_OK);
-    /* P0c silicon-equivalent contract for maintain_voices (v0799c +
-   v0803): the adda.w #$20,a0 at the loop tail is jumped over by skip
-   bodges (beq/bne -> mid-adda ori.b), so a0 never advances. ALL 32
-   silicon iterations visit voice 0. The stepper traps on the inner
-   rebalance at PC 0x1640 (`adda.l #imm32,a1` decode fail), so the
-   C refuses before that rebalance, mirroring silicon's partial
-   state. This means a single `maintain_voices` call processes
-   exactly ONE expiration (voice[0] in this fixture - which is
-   pre-set as the active normal-expiration voice), then returns
-   VF2_ERROR_UNSUPPORTED. Voices 1+ are NEVER serviced; their
-   state is unchanged. The OLD per-iteration indexing + inner-
-   rebalance decrement model that this test was pinned to is
-   documented as the pre-fix recovery shape but does NOT match
-   silicon (it would require the silicon to behave like the C's
-   frozen-pointer view + the rebalance to actually fire, which
-   the stepper proves it does not). The triangle differential
-   gates the silicon-correct shape (`s1-clean`, `s3-skip`,
-   `s5-release`); this unit test is now pinned to the same
-   contract. */
+    /* P0c voice-maintenance contract (v0821: true 32-voice scan; the
+       frozen-pointer/bodge pins were +4 artefacts, retired). One call
+       services every voice: voice[0] takes the normal arm (timer
+       1 -> 0, key-off slot 0x0003, $151e--, +9 rebalance with
+       d2 = 3), voice[1] takes the release arm (timer 1 -> 0, key-off
+       slot 0x0004, $152e--, +5 rebalance with d2 = 2). The call
+       returns OK -- the ISR always reaches rte (triangle L1:
+       stepper 140/346/285 steps, a7 balanced on every leg). The
+       triangle differential gates the silicon-correct shape; this
+       unit test pins the same contract on the C alone. */
     EXPECT_TRUE(vf2_sound_board_maintain_voices(&board, &maintenance) ==
-                VF2_ERROR_UNSUPPORTED);
-    /* Iter 0 only: voice[0] expired (the frozen-pointer model). */
-    EXPECT_TRUE(maintenance.voices_scanned == 1u);
-    EXPECT_TRUE(maintenance.voices_expired == 1u);
+                VF2_OK);
+    EXPECT_TRUE(maintenance.voices_scanned == 32u);
+    EXPECT_TRUE(maintenance.voices_expired == 2u);
     EXPECT_TRUE(maintenance.normal_expirations == 1u);
-    /* Release path (voice[1] in this fixture) is never reached -
-       the silicon would visit it on a later call, not this one. */
-    EXPECT_TRUE(maintenance.release_expirations == 0u);
-    /* No inner rebalance in the silicon-equivalent model (the
-       rebalance at PC 0x67C traps on the stepper at 0x1640). */
-    EXPECT_TRUE(maintenance.voices_aged == 0u);
+    EXPECT_TRUE(maintenance.release_expirations == 1u);
+    /* Normal rebalance (d2 = 3): voice1 +9 = 8 -> 7 (3 < 8);
+       voice2 +9 = 0xff skipped. Release rebalance (d2 = 2): voice2
+       (+9 == 0xff) +5 = 8 -> 7 (2 < 8). */
+    EXPECT_TRUE(maintenance.voices_aged == 2u);
     /* Counter 151e (normal expiration): decremented exactly once. */
     EXPECT_TRUE(maintenance.counter_151e_before == 2u);
     EXPECT_TRUE(maintenance.counter_151e_after == 1u);
-    /* Counter 152e (release path): unchanged - release never
-       fired under the frozen-pointer single-iteration model. */
+    /* Counter 152e (release expiration): decremented exactly once. */
     EXPECT_TRUE(maintenance.counter_152e_before == 3u);
-    EXPECT_TRUE(maintenance.counter_152e_after == 3u);
-    /* Voice 0 zeroed + key_off slot-side effects still commit. */
+    EXPECT_TRUE(maintenance.counter_152e_after == 2u);
+    /* Voice 0 expired via the normal arm. */
     EXPECT_TRUE(voices[2u] == 0u);
     EXPECT_TRUE(voices[9u] == 0u);
-    /* Voice 1 is NEVER reached in this call (the frozen pointer
-       never advances off voice 0; its state is byte-for-byte
-       unchanged from the fixture set above). */
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u] == 9u);
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 9u] == 8u);
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 5u] == 2u);
-    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u * 0u + 9u] == 8u);
+    /* Voice 1 expired via the release arm (reached on the same call:
+       the scan visits every voice). Its +9 passed through 7 (normal
+       rebalance) before the release arm cleared it; +5 cleared. */
+    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 2u] == 0u);
+    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 9u] == 0u);
+    EXPECT_TRUE(voices[VF2_SOUND_VOICE_BYTES + 5u] == 0u);
+    /* Voice 2 is the release-rebalance witness (+9 == 0xff gates it
+       in; +5 = 8 -> 7). */
     EXPECT_TRUE(voices[2u * VF2_SOUND_VOICE_BYTES + 9u] == 0xffu);
+    EXPECT_TRUE(voices[2u * VF2_SOUND_VOICE_BYTES + 5u] == 7u);
     /* ROM V1 key: SCSP[slotword+0x0b] = 0x1f, ram[0x2000+slotword] = 0
-       (slot words 0x0003/0x0004 above). No control-bit RMW exists. */
+       (slot words 0x0003/0x0004 above). No control-bit RMW exists.
+       Both key-offs fire, so both slot sentinels fall. */
     EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x000eu, &byte) == VF2_OK);
     EXPECT_TRUE(byte == 0x1fu);
-    /* Voice 1 never reached in this call (frozen pointer never leaves
-       voice 0): slot-0x0004 sentinels unchanged. */
     EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x000fu, &byte) == VF2_OK);
-    EXPECT_TRUE(byte == 0x5au);
+    EXPECT_TRUE(byte == 0x1fu);
     EXPECT_TRUE(board.sound_ram[0x2003u] == 0u);
-    EXPECT_TRUE(board.sound_ram[0x2004u] == 0xaau);
+    EXPECT_TRUE(board.sound_ram[0x2004u] == 0u);
     EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x041au, &value) == VF2_OK);
     EXPECT_TRUE(value == 0x03c0u);
     EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x0422u, &value) == VF2_OK);

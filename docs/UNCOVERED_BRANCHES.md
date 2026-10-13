@@ -4303,6 +4303,16 @@ three mode-6 print merges and two missing handlers this way).
 
 ### v0804 Loop-B dead verdict, walk map, DSP write-set, instrument fixes
 
+> Status pointer (v0816/v0821): this section is +4-era. The
+> PC-relative base fix (`audio_pcrel_base_reaudit.md`,
+> `audio_integration_pcrel_v0816.md`) retracts the Loop-B "dead"
+> verdict (alive: 32-iteration scan) and the mid-instruction
+> landings below; v0821 (`audio_v1_voice_isr_v0821.md`)
+> re-recovered the voice scan (true 32-voice loop, triangle
+> unpinned from `WILL_FAIL`). Loop-B re-pinning is still open.
+> The walk/drain/epilogue legs were re-pinned under +2 in
+> v0817/v0818. Read the archaeology below as history, not fact.
+
 Loop-B (0x902) and the whole downstream voice-start body chain
 (0xa8e-0xc6a, SA/KEYON) are dead code, proven four ways: the
 stepper traps at the first dbf (`UNSUPPORTED` at `0x934` in 6/15

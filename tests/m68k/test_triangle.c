@@ -67,13 +67,16 @@ static void report_ram_diff(const uint8_t *a, const uint8_t *b, size_t size)
     }
 }
 
-/* L1 scenarios. The silicon visits voice 0 thirty-two times (a0
-   frozen); voices 1+ freeze. S1-S3 complete (no expiry); S4-S5 hit
-   an expiry and both sides refuse past the scan-trap point with
-   identical partial state. */
+/* L1 scenarios (v0821: true 32-voice scan, every voice visited
+ * once). S1-S3 complete with no expiry; S4 takes the normal arm
+ * (timer 1 -> 0, key-off slot 0x20, $151e--, +9 rebalance); S5 takes
+ * the release arm (timer 1 -> 0, key-off slot 0x40, $152e--, +5
+ * rebalance over 0xff-aged slots). The old frozen-pointer/bodge
+ * pins were +4 artefacts and are retired. */
 
 static void poke_l1(uint8_t *ram, uint8_t v0b2, uint8_t timer, uint8_t age,
-                    uint8_t slot_hi, uint8_t extra5)
+                    uint8_t slot_hi, uint8_t extra5,
+                    uint8_t v2_9, uint8_t v2_5, uint8_t v3_9, uint8_t v3_5)
 {
     uint8_t *v = ram + VF2_SOUND_VOICE_TABLE_BASE;
     v[2] = v0b2;
@@ -81,13 +84,21 @@ static void poke_l1(uint8_t *ram, uint8_t v0b2, uint8_t timer, uint8_t age,
     v[0x0b] = timer;
     v[1] = slot_hi;
     v[5] = extra5;
-    /* Frozen witnesses: never visited under M4, must not move. */
+    /* Voice 1: visited once (timer 7 -> 6 when active). */
     v[16 + 2] = 0x01u;
     v[16 + 9] = 0x03u;
     v[16 + 0x0b] = 7u;
+    /* Voice 2: rebalance witness (normal arm decrements +9 when
+       mem > d2; release arm decrements +5 iff +9 == 0xff). */
     v[32 + 2] = 0x00u;
-    v[32 + 9] = 0x07u;
+    v[32 + 9] = v2_9;
+    v[32 + 5] = v2_5;
     v[32 + 0x0b] = 5u;
+    /* Voice 3: second release witness. */
+    v[48 + 2] = 0x00u;
+    v[48 + 9] = v3_9;
+    v[48 + 5] = v3_5;
+    v[48 + 0x0b] = 5u;
     ram[VF2_SOUND_SHARED_COUNTER_151E] = 0x10u;
     ram[VF2_SOUND_SHARED_COUNTER_152E] = 0x08u;
 }
@@ -101,9 +112,13 @@ static void run_l1_case(
     uint8_t age,
     uint8_t slot_hi,
     uint8_t extra5,
-    vf2_status expect_status,
-    uint32_t expect_a7,
-    int smash_stack
+    uint8_t v2_9,
+    uint8_t v2_5,
+    uint8_t v3_9,
+    uint8_t v3_5,
+    size_t expect_expired,
+    size_t expect_normal,
+    size_t expect_release
 )
 {
     /* Boards are ~512KB each: static, never stack. */
@@ -126,13 +141,20 @@ static void run_l1_case(
     board_s.audio_rom_size = audio_rom_size;
     vf2_scsp_initialize(&board_c.scsp);
     vf2_scsp_initialize(&board_s.scsp);
-    poke_l1(board_c.sound_ram, v0b2, timer, age, slot_hi, extra5);
-    poke_l1(board_s.sound_ram, v0b2, timer, age, slot_hi, extra5);
+    poke_l1(board_c.sound_ram, v0b2, timer, age, slot_hi, extra5,
+            v2_9, v2_5, v3_9, v3_5);
+    poke_l1(board_s.sound_ram, v0b2, timer, age, slot_hi, extra5,
+            v2_9, v2_5, v3_9, v3_5);
 
     status_c = vf2_sound_board_maintain_voices(&board_c, &report);
-    EXPECT_TRUE(status_c == expect_status);
-    fprintf(stderr, "l1 %s: C timer=%02x expired=%u\n", name,
-            board_c.sound_ram[0x280bu], (unsigned)report.voices_expired);
+    EXPECT_TRUE(status_c == VF2_OK);
+    EXPECT_TRUE(report.voices_scanned == 32u);
+    EXPECT_TRUE(report.voices_expired == expect_expired);
+    EXPECT_TRUE(report.normal_expirations == expect_normal);
+    EXPECT_TRUE(report.release_expirations == expect_release);
+    fprintf(stderr, "l1 %s: C timer=%02x expired=%u aged=%u\n", name,
+            board_c.sound_ram[0x280bu], (unsigned)report.voices_expired,
+            (unsigned)report.voices_aged);
 
     bus.ram = board_s.sound_ram;
     bus.ram_size = sizeof(board_s.sound_ram);
@@ -149,13 +171,13 @@ static void run_l1_case(
     regs.pc = UINT32_C(0x5fe);
     status_s = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 20000u,
                             &done);
-    EXPECT_TRUE(status_s == expect_status);
+    EXPECT_TRUE(status_s == VF2_OK);
     fprintf(stderr, "l1 %s: steps=%u events=%u\n", name, done,
             (unsigned)bus.event_count);
     EXPECT_TRUE(bus.event_count == 0u);
-    if (regs.a[7] != expect_a7) {
-        fprintf(stderr, "l1 %s: a7=0x%x expect=0x%x\n", name, regs.a[7],
-                expect_a7);
+    if (regs.a[7] != UINT32_C(0x7f00)) {
+        fprintf(stderr, "l1 %s: a7=0x%x expect=0x7f00\n", name,
+                regs.a[7]);
         EXPECT_TRUE(0);
     }
 
@@ -171,33 +193,15 @@ static void run_l1_case(
                 name);
         EXPECT_TRUE(0);
     }
-    if (smash_stack) {
-        /* Release-bodge cascade: ram[slot-residue] is unknowable to
-           the C (d1 stays entry residue, 0 here), so the matching
-           ram[0x2000] = 0 on both sides holds by zeros-coincidence
-           only and is not part of the contract (never pin
-           residue-coincident bytes); the exclusion is documented by
-           these asserts rather than a skip. */
-        EXPECT_TRUE(board_c.sound_ram[0x2000u] == 0u);
-        EXPECT_TRUE(board_s.sound_ram[0x2000u] == 0u);
-    }
     /* The movem save area [0x7ECC,0x7F00) holds pushed entry regs on
        the stepper side (C has no register file): d3-d7/a0-a4 entry
-       zeros, a5 = 0x100000, a6 = 0x1000, a7 = 0x7F00. */
+       zeros, a5 = 0x100000, a6 = 0x1000, a7 = 0x7F00. The ISR always
+       balances the stack (rte), so the area is identical on every
+       leg; the old ori.b-bodge pin was a +4 artefact. */
     {
         static const uint8_t zeros[40] = { 0 };
         const uint8_t *s = board_s.sound_ram + 0x7eccu;
-        if (!smash_stack) {
-            EXPECT_TRUE(memcmp(s, zeros, sizeof(zeros)) == 0);
-        } else {
-            /* ori.b #$0b,(a7)+ in the release cascade ORs the pushed
-               d3 (entry 0) with 0x0B and advances a7 by 2. Pinned to
-               prove the bodge executed, not blessed; the other pushed
-               regs stay entry zeros. */
-            EXPECT_TRUE(s[0] == 0x0bu);
-            EXPECT_TRUE(memcmp(s + 1u, zeros + 1u, sizeof(zeros) - 1u)
-                        == 0);
-        }
+        EXPECT_TRUE(memcmp(s, zeros, sizeof(zeros)) == 0);
         EXPECT_TRUE(s[40] == 0x00u && s[41] == 0x10u && s[42] == 0x00u &&
                     s[43] == 0x00u);
         EXPECT_TRUE(s[44] == 0x00u && s[45] == 0x00u && s[46] == 0x10u &&
@@ -216,16 +220,25 @@ static void test_l1_tick(
     /* Raw boards, not initialize(): initialize() fails on the real
        ROM (its uploader never ran against real bytes; T3 investigates).
        The L1 needs only zeroed RAM, attached ROMs, and an SCSP. */
+    /* s1: voice0 ticks 40 -> 39, voice1 ticks 7 -> 6, no expiry. */
     run_l1_case(audio_rom, audio_rom_size, "s1-clean", 0x01u, 40u, 7u, 0u,
-                0u, VF2_OK, UINT32_C(0x7f00), 0);
+                0u, 7u, 0u, 0u, 0u, 0u, 0u, 0u);
+    /* s2: timer wraps 0 -> 0xff, bne skips expiry. */
     run_l1_case(audio_rom, audio_rom_size, "s2-wrap", 0x01u, 0u, 7u, 0u,
-                0u, VF2_OK, UINT32_C(0x7f00), 0);
+                0u, 7u, 0u, 0u, 0u, 0u, 0u, 0u);
+    /* s3: bit0 clear skips voice0 entirely (timer stays 0x28). */
     run_l1_case(audio_rom, audio_rom_size, "s3-skip", 0x00u, 40u, 7u, 0u,
-                0u, VF2_OK, UINT32_C(0x7f00), 0);
-    run_l1_case(audio_rom, audio_rom_size, "s4-expire", 0x01u, 2u, 5u,
-                0x20u, 0u, VF2_ERROR_UNSUPPORTED, UINT32_C(0x7ecc), 0);
-    run_l1_case(audio_rom, audio_rom_size, "s5-release", 0x09u, 2u, 0u,
-                0x40u, 3u, VF2_ERROR_UNSUPPORTED, UINT32_C(0x7ece), 1);
+                0u, 7u, 0u, 0u, 0u, 0u, 0u, 0u);
+    /* s4: normal expiry (timer 1 -> 0, slot 0x20, age 5, $151e--).
+       Rebalance with d2 = 5: voice1 +9 = 3 skips (5 >= 3), voice2
+       +9 = 7 decrements to 6. */
+    run_l1_case(audio_rom, audio_rom_size, "s4-expire", 0x01u, 1u, 5u,
+                0x20u, 0u, 7u, 0u, 0u, 0u, 1u, 1u, 0u);
+    /* s5: release expiry (timer 1 -> 0, slot 0x40, +5 = 3, $152e--).
+       Rebalance with d2 = 3 over 0xff-aged slots: voice2 +5 = 7
+       decrements to 6, voice3 +5 = 2 skips (3 >= 2). */
+    run_l1_case(audio_rom, audio_rom_size, "s5-release", 0x09u, 1u, 0u,
+                0x40u, 3u, 0xffu, 7u, 0xffu, 2u, 1u, 0u, 1u);
 }
 
 /* T1: e0 voice tail. C runs dispatch_next end-to-end (drain + e0
@@ -252,9 +265,7 @@ static void test_e0_tail(
     uint8_t *rc = NULL;
     uint8_t *rs = NULL;
     uint8_t *vc = NULL;
-    uint8_t *vs = NULL;
     uint8_t *dc = NULL;
-    uint8_t *ds = NULL;
 
     memset(&board_c, 0, sizeof(board_c));
     memset(&board_s, 0, sizeof(board_s));
@@ -266,50 +277,60 @@ static void test_e0_tail(
     vf2_scsp_initialize(&board_s.scsp);
     memset(&report, 0, sizeof(report));
 
+/* T1: e0 head+tail on both sides (v0821: head-entry, not
+ * tail-only). C runs dispatch_next end-to-end (drain + e0 head +
+ * tail); the stepper enters at the head 0x12b4 with the same inputs
+ * (a3 stream mirrors the ring bytes, a0 = descriptor, $250e filed
+ * as the drain would file it) and runs to the tail exit 0x1354.
+ * Compared: SCSP + all RAM except drain/head-only regions (ring,
+ * cursors, descriptors, lookup, channel table, transform
+ * intermediates). Fixture: command 0xE4 (channel 4), payload 4,
+ * desc[5..6] = 0x0112 (nonzero high byte: add.B `voice[10]+desc[5]`
+ * vs a word-add discriminates here -- ROM 0x135e is add.b).
+ * NOTE (v0821): the old tail-only form poked shared $1524 = 0x0201
+ * on the stepper side, a value the TRUE head (no stale term, S7b)
+ * can never produce -- it was reachable only under the retired
+ * stale rule. Both sides now run the head, so shared is an
+ * agreement not an input; the arbitrator reads it back from the C
+ * RAM instead of hardcoding it. */
+
     /* Ring: one e0 entry (command 0xE4, payload 4). */
     rc = board_c.sound_ram;
-    rs = board_s.sound_ram;
     rc[VF2_SOUND_COMMAND_COUNT] = 1u;
     rc[VF2_SOUND_COMMAND_CURSOR] = 0u;
     rc[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
     rc[VF2_SOUND_COMMAND_RING_BASE] = 0xe4u;
     rc[VF2_SOUND_COMMAND_RING_BASE + 1u] = 4u;
+    /* Filed current-command, as the drain would file it; the stepper
+       side inherits it via the memcpy below. */
+    rc[VF2_SOUND_CURRENT_COMMAND] = 0xe4u;
     /* Descriptor 0 matches channel 4. */
     dc = rc + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
-    ds = rs + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
     dc[0] = 0x80u;
     dc[1] = 0x00u;
     dc[2] = 0x04u;
     dc[5] = 0x12u;
     dc[6] = 0x01u;
     dc[7] = 0x00u;
-    ds[0] = 0x80u;
-    ds[1] = 0x00u;
-    ds[2] = 0x04u;
-    ds[5] = 0x12u;
-    ds[6] = 0x01u;
-    ds[7] = 0x00u;
-    /* Voice 0: channel word 4, active low bits, slot 0x20. */
+    /* Voice 0: channel byte 4 (ROM 0x1332 is cmp.B on voice[4],
+       v0821), active low bits, slot 0x20. */
     vc = rc + VF2_SOUND_VOICE_TABLE_BASE;
-    vs = rs + VF2_SOUND_VOICE_TABLE_BASE;
     vc[0] = 0x00u;
     vc[1] = 0x20u;
     vc[2] = 0x01u;
     vc[3] = 0x3au;
-    vc[4] = 0x00u;
+    vc[4] = 0x04u;
     vc[5] = 0x04u;
     vc[10] = 0x07u;
-    vs[0] = 0x00u;
-    vs[1] = 0x20u;
-    vs[2] = 0x01u;
-    vs[3] = 0x3au;
-    vs[4] = 0x00u;
-    vs[5] = 0x04u;
-    vs[10] = 0x07u;
-    /* Tail shared input $1524(a6) = RAM[0x2524] = 0x0201, big-endian:
-       high byte first. (An earlier revision poked them swapped.) */
-    rs[0x2524u] = 0x02u;
-    rs[0x2525u] = 0x01u;
+    /* Stepper side starts identical (head reads the same descriptor,
+       voice, filed command; the stream below mirrors the ring). The
+       stream staging lives in compared RAM, so it is staged on BOTH
+       sides (the C never reads it -- identical inputs, not an
+       agreement). */
+    rs = board_s.sound_ram;
+    memcpy(rs, rc, VF2_SOUND_RAM_BYTES);
+    rc[0x7300u] = 0xe4u;
+    rc[0x7301u] = 4u;
 
     status_c = vf2_sound_board_dispatch_next(&board_c, &report);
     EXPECT_TRUE(status_c == VF2_OK);
@@ -324,15 +345,18 @@ static void test_e0_tail(
     bus.scsp = &board_s.scsp;
     bus.event_count = 0u;
     vf2_m68k_regs_reset(&regs);
+    regs.a[3] = UINT32_C(0x7300);
     regs.a[0] = VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
-    regs.a[4] = VF2_SOUND_VOICE_TABLE_BASE;
     regs.a[5] = UINT32_C(0x100000);
     regs.a[6] = UINT32_C(0x1000);
     regs.a[7] = UINT32_C(0x7f00);
-    regs.pc = UINT32_C(0x1356);
-    status_s = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 5000u,
+    regs.pc = UINT32_C(0x12b4);
+    rs[0x7300u] = 0xe4u;
+    rs[0x7301u] = 4u;
+    status_s = vf2_m68k_run(&bus, &regs, UINT32_C(0x1354), 0, 20000u,
                             &done);
     EXPECT_TRUE(status_s == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x1354));
     fprintf(stderr, "e0: stepper steps=%u events=%u\n", done,
             (unsigned)bus.event_count);
     EXPECT_TRUE(bus.event_count == 0u);
@@ -340,9 +364,14 @@ static void test_e0_tail(
 
     /* Independent third computation of the slot path (table/nibble/
        slide/picker/shaped straight from ROM bytes) to arbitrate a
-       C-vs-stepper shaped mismatch. */
+       C-vs-stepper shaped mismatch. Shared is read back from the C
+       RAM (head agreement is proven by the cdispatch differential;
+       hardcoding it re-pinned the retired stale value once). */
     {
-        uint8_t nibble = (uint8_t)(vs[3] & 0x0fu);
+        uint8_t nibble = (uint8_t)(vc[3] & 0x0fu);
+        uint16_t shared = (uint16_t)(((uint16_t)board_c.sound_ram[0x2524u]
+                                      << 8u) |
+                                     board_c.sound_ram[0x2525u]);
         uint32_t table = ((uint32_t)audio_rom[0x2676u + nibble * 4u] << 24u) |
                          ((uint32_t)audio_rom[0x2676u + nibble * 4u + 1u]
                           << 16u) |
@@ -350,14 +379,14 @@ static void test_e0_tail(
                           << 8u) |
                          audio_rom[0x2676u + nibble * 4u + 3u];
         uint16_t slide =
-            (uint16_t)(0x0201u + (uint16_t)((7u + 0x12u) & 0xffu));
+            (uint16_t)(shared + (uint16_t)((7u + 0x12u) & 0xffu));
         uint32_t slot_at = table + 2u * (uint32_t)slide;
         uint32_t slot_off = slot_at - UINT32_C(0x600000);
         uint16_t picker =
             (uint16_t)(((uint16_t)audio_rom[slot_off] << 8u) |
                        audio_rom[slot_off + 1u]);
         uint16_t shaped =
-            (uint16_t)((((uint32_t)(vs[3] & 0xf0u) << 7u) + (uint32_t)picker) &
+            (uint16_t)((((uint32_t)(vc[3] & 0xf0u) << 7u) + (uint32_t)picker) &
                        0x7bffu);
         uint16_t c_word = (uint16_t)(((uint16_t)board_c.scsp.registers[0x30]
                                       << 8u) |
@@ -371,18 +400,24 @@ static void test_e0_tail(
                 table, slide, slot_at, picker, shaped, c_word, s_word);
     }
 
-    /* Drain/head-only regions (C-side effects the tail-only stepper
-       never produces): ring + cursors/current/lookup block +
-       descriptors + channel table. Everything else compares,
-       including the tail's SCSP[slot+0x10] and ram[0x201a+slot]
-       words and the untouched voice/descriptor images. */
+    /* Drain/head-only regions stay excluded: ring + count/cursor/
+       current/lookup block + descriptors + $1524 + channel table.
+       (The stepper head doesn't traffic the ring consume; $1524 and
+       the channel word are head agreements proven by the cdispatch
+       differential instead.) The jsr/rts stack window [0x7ECC,0x7F00)
+       is excluded too: the stepper's tail jsr pushes a return address
+       there (stale after rts; balance proven by the a7 assert above)
+       and the C has no stack -- same rationale as the L1 movem-area
+       asserts. Everything else compares, including the tail's
+       SCSP[slot+0x10] and ram[0x201a+slot] words and the untouched
+       voice images. */
     {
         static const uint32_t lo[] = { 0u, 0x1020u, 0x2526u, 0x4140u,
-                                       0x4240u };
+                                       0x4240u, 0x7f00u };
         static const uint32_t hi[] = { 0x1000u, 0x2500u, 0x4000u, 0x4200u,
-                                       VF2_SOUND_RAM_BYTES };
+                                       0x7eccu, VF2_SOUND_RAM_BYTES };
         size_t seg = 0u;
-        for (seg = 0u; seg < 5u; ++seg) {
+        for (seg = 0u; seg < 6u; ++seg) {
             if (memcmp(board_c.sound_ram + lo[seg],
                        board_s.sound_ram + lo[seg],
                        hi[seg] - lo[seg]) != 0) {
