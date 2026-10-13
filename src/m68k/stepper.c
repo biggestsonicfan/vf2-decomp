@@ -1145,12 +1145,10 @@ static vf2_status step_quick(
         mode != 5u && mode != 6u) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    if ((mode == 2u || mode == 3u || mode == 4u || mode == 5u ||
-         mode == 6u) &&
-        size != 0u) {
-        /* Memory quick operations are byte-only on this corridor. */
-        return VF2_ERROR_UNSUPPORTED;
-    }
+    /* No size gate for memory modes: silicon ADDQ/SUBQ take B/W/L
+       to (An)/(An)+/-(An)/d16(An)/d8(An,Xn). (The old code refused
+       W/L here; 0x804 addq.w #4,$1508(a6) on the live drain exit
+       needs the word form.) */
     if (mode == 0u) {
         status = ea_read(bus, regs, mode, reg, size, pc, off, &dst);
         if (status != VF2_OK) {
@@ -2028,6 +2026,26 @@ vf2_status vf2_m68k_run(
         } else if ((opcode & UINT16_C(0xff00)) == UINT16_C(0x0800)) {
             /* Static bit operations only; dynamic (0x01xx) refuses. */
             status = step_bit(regs, bus, opcode, pc, &off);
+        } else if ((opcode & UINT16_C(0xff38)) == UINT16_C(0x4200) &&
+                   ((opcode >> 3u) & 7u) == 0u) {
+            /* CLR Dn only (byte/word/long). Other CLR eas stay
+               refused: not on any recovered path. N=0,Z=1,V=C=0
+               via flags_logic; X is untouched (it never writes X).
+               Needed by the L3 0xFF-reset path into boot (0x10c+). */
+            unsigned size_code = (unsigned)((opcode >> 6u) & 3u);
+            unsigned dreg = (unsigned)(opcode & 7u);
+            if (size_code > 2u) {
+                status = VF2_ERROR_UNSUPPORTED;
+            } else {
+                unsigned size =
+                    size_code == 0u ? 0u : (size_code == 1u ? 1u : 2u);
+                if (size == 2u) {
+                    regs->d[dreg] = 0u;
+                } else {
+                    regs->d[dreg] &= ~size_mask(size);
+                }
+                flags_logic(regs, size, 0u);
+            }
         } else if (((opcode & UINT16_C(0xffc0)) == UINT16_C(0x48c0) &&
                     ((opcode >> 3u) & 7u) == 4u) ||
                    ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x4cc0) &&

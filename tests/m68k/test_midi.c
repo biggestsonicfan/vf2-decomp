@@ -59,12 +59,14 @@ static void reset_regs(vf2_m68k_regs *regs)
     regs->pc = UINT32_C(0x526);
 }
 
-/* Leg 1: 0xFF byte takes the reset path (beq.w $5ec): disable
-   interrupts, clear SCSP $401, reset SP to $5000, bra.w into the
-   vector image as code ($100), signal $400001, fault at $10c
-   (clr.l d0: mapped, deferred). The ISR frame is abandoned (no
-   restore, no rte): a7 ends at $5000, not entry. No pushes on this
-   path: a3 and the scratch stay clean. */
+/* Leg 1: 0xFF byte is MIDI System Reset: disable interrupts,
+   clear SCSP $401, reset SP to $5000, bra.w into the vector image
+   as code ($100: signal $400001, clr d0-d2) and rejoin BOOT (ror
+   delay, re-park a5/a6, four 128 KiB clear loops). The ISR frame is
+   abandoned (no restore, no rte): a7 ends at $5000. No pushes on
+   this path: a3/a2 and the scratch stay clean. Terminal stop is
+   past all four clear loops (278308 steps: 16165 + 4x65536 - 1?
+   measured, not derived). */
 static void test_ff_reset(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -82,41 +84,75 @@ static void test_ff_reset(
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
     EXPECT_TRUE(vf2_scsp_midi_receive(&scsp, 0xffu) == VF2_OK);
     reset_regs(&regs);
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 20000u,
+    /* Poison two clear-loop cells (loops 1 and 2 ranges). */
+    ram[0x100u] = 0xaau;
+    ram[0x40010u] = 0xbbu;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x17c), 0, 300000u,
                           &done);
     fprintf(stderr, "midi ff-reset: status=%d steps=%u a7=0x%04x pc=0x%05x ev=%u\n",
             (int)status, (unsigned)done, (unsigned)regs.a[7],
             (unsigned)regs.pc, (unsigned)bus.event_count);
-    EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x10c));
-    EXPECT_TRUE(done == 10u);
-    /* Stack reset abandoned the ISR frame. */
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x17c));
+    EXPECT_TRUE(done == 278308u);
     EXPECT_TRUE(regs.a[7] == UINT32_C(0x5000));
-    /* No pushes: scratch parked registers untouched, RAM clean. */
-    EXPECT_TRUE(regs.a[3] == UINT32_C(0x7000));
-    EXPECT_TRUE(regs.a[2] == UINT32_C(0x7100));
-    EXPECT_TRUE(ram[0x6fffu] == 0u);
-    EXPECT_TRUE(ram[0x6ffbu] == 0u);
-    EXPECT_TRUE(regs.d[0] == UINT32_C(0xff));
+    /* Boot reuses a2/a3 across the 278k-step run (clear loops), so
+       the scratch-park pins live on the short run below, not here. */
+    EXPECT_TRUE(regs.d[0] == 0u && regs.d[1] == 0u);
+    EXPECT_TRUE(regs.d[2] == 0u);
+    EXPECT_TRUE(ram[0x100u] == 0u);
+    EXPECT_TRUE(ram[0x40010u] == 0u);
     /* MIDI ring ($2500 area) untouched on this path. */
     EXPECT_TRUE(ram[0x2500u] == 0u);
     EXPECT_TRUE(ram[0x2501u] == 0u);
     EXPECT_TRUE(ram[0x2504u] == 0u && ram[0x2505u] == 0u);
     EXPECT_TRUE(ram[0x2506u] == 0u);
-    /* Three bus events: two SR writes ($2700 at $5ec and $100) then
-       the $400001 system-port signal (0x1f). SR-write logging
-       predates the merge (2ea0e618); the +4 path never executed an
-       SR write, so the old leg saw only the signal. */
+    /* Two SR writes then the $400001 signal; boot init after that
+       is silent in the model (SCSP writes unlogged). */
     EXPECT_TRUE(bus.event_count == 3u);
     EXPECT_TRUE(bus.events[0].address == UINT32_C(0x5ec));
     EXPECT_TRUE(bus.events[0].value == UINT32_C(0x2700));
-    EXPECT_TRUE(bus.events[0].is_write != 0u);
     EXPECT_TRUE(bus.events[1].address == UINT32_C(0x100));
     EXPECT_TRUE(bus.events[1].value == UINT32_C(0x2700));
-    EXPECT_TRUE(bus.events[1].is_write != 0u);
     EXPECT_TRUE(bus.events[2].address == UINT32_C(0x400001));
     EXPECT_TRUE(bus.events[2].value == UINT32_C(0x1f));
     EXPECT_TRUE(bus.events[2].is_write != 0u);
+    EXPECT_TRUE(vf2_scsp_midi_empty(&scsp));
+}
+
+/* No-push pin for the reset path: stop at the vector-walk entry
+   (0x100, 8 steps). No live path pushes before the stack reset, so
+   the preempted a3/a2 and the scratch stay clean. (At the 0x17c
+   terminal boot owns those regs, so this short run carries the
+   pin.) */
+static void test_ff_no_push(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp scsp;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(ram, 0, sizeof(ram));
+    vf2_scsp_initialize(&scsp);
+    make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
+    EXPECT_TRUE(vf2_scsp_midi_receive(&scsp, 0xffu) == VF2_OK);
+    reset_regs(&regs);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x100), 0, 20000u,
+                          &done);
+    fprintf(stderr, "midi ff-no-push: status=%d steps=%u a3=0x%05x\n",
+            (int)status, (unsigned)done, (unsigned)regs.a[3]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x100));
+    EXPECT_TRUE(done == 8u);
+    EXPECT_TRUE(regs.a[3] == UINT32_C(0x7000));
+    EXPECT_TRUE(regs.a[2] == UINT32_C(0x7100));
+    EXPECT_TRUE(ram[0x6fffu] == 0u);
+    EXPECT_TRUE(ram[0x70ffu] == 0u);
     EXPECT_TRUE(vf2_scsp_midi_empty(&scsp));
 }
 
@@ -124,8 +160,9 @@ static void test_ff_reset(
    $1501(a6) = absolute $2501, then exits via store + restore + rte.
    Under +2, 0x54a bne.w lands 0x552 (not 0x554): the subq always
    runs, so the file arm needs a count of 2, not 1 (count 1 takes
-   the 0x580 arm). No push precedes the restore: a2 stays parked
-   and the scratch is untouched. */
+   the 0x580 arm). No push precedes the restore: the scratch top
+   stays clean (the restore shuffle still reloads a2 from saved a5,
+   pinned below). */
 static void test_data_file(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -226,6 +263,7 @@ int main(int argc, char **argv)
         return 2;
     }
     test_ff_reset(audio_rom, audio_rom_size);
+    test_ff_no_push(audio_rom, audio_rom_size);
     test_data_file(audio_rom, audio_rom_size);
     test_push_unmapped(audio_rom, audio_rom_size);
     free(audio_rom);

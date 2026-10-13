@@ -240,6 +240,195 @@ static void test_prescaler_countdown(
     EXPECT_TRUE(ram[0x300du] == 0x01u);
 }
 
+/* R3a: twin-loop fault. byte1=$05 (d2 != $80 -> direct worker),
+ * d5=$300 > $200 (bulk arm): subi/addi/store-backs, legal movem,
+ * then the structural R->M movem to (a2) refuses. 21 steps. */
+static void test_twin_loop_fault(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp scsp;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(ram, 0, sizeof(ram));
+    vf2_scsp_initialize(&scsp);
+    make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
+    reset_regs(&regs);
+    regs.pc = UINT32_C(0x2242);
+    ram[0x2000u] = 0x80u;
+    ram[0x2001u] = 0x05u;
+    ram[0x200au] = 0u;
+    ram[0x200bu] = 0u;
+    ram[0x200cu] = 0x03u;
+    ram[0x200du] = 0u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch twin-fault: status=%d pc=0x%05x steps=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done);
+    EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x22e8));
+    EXPECT_TRUE(done == 21u);
+    /* Writebacks landed before the fault: d2 += $10, d5 -= $200. */
+    EXPECT_TRUE(ram[0x2001u] == 0x15u);
+    EXPECT_TRUE(ram[0x200au] == 0u && ram[0x200bu] == 0u);
+    EXPECT_TRUE(ram[0x200cu] == 0x01u && ram[0x200du] == 0u);
+}
+
+/* R3b: arith-body fault. byte0=$81 (bmi taken, btst#0 set),
+ * byte1=$80 (pad path), d5=$100 (bls into arith): full arithmetic
+ * body runs, writebacks land, then the same structural movem
+ * refuses at 0x23fa. */
+static void test_arith_fault(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp scsp;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(ram, 0, sizeof(ram));
+    vf2_scsp_initialize(&scsp);
+    make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
+    reset_regs(&regs);
+    regs.pc = UINT32_C(0x2242);
+    ram[0x2000u] = 0x81u;
+    ram[0x2001u] = 0x80u;
+    ram[0x200au] = 0u;
+    ram[0x200bu] = 0u;
+    ram[0x200cu] = 0x01u;
+    ram[0x200du] = 0u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch arith-fault: status=%d pc=0x%05x steps=%u d2=0x%08x\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)regs.d[2]);
+    EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x23fa));
+    EXPECT_TRUE(done == 44u);
+    /* d2 += $10 through the body. */
+    EXPECT_TRUE(ram[0x2001u] == 0x90u);
+}
+
+/* R3c-i: walk-screen SET arm. $0409 bit7 set (SCSP poke): the pad
+ * path takes the set arm into the worker (0x2286, bypassing the
+ * a2 load) instead of exiting. With a zeroed record it reaches the
+ * arith join; byte0=$80 bit0-clear sends it to the 0x24be twin
+ * join. Pins the set-arm routing (previously unmeasured). */
+static void test_screen1_set(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp scsp;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(ram, 0, sizeof(ram));
+    vf2_scsp_initialize(&scsp);
+    make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
+    reset_regs(&regs);
+    regs.pc = UINT32_C(0x2242);
+    ram[0x2000u] = 0x80u;
+    ram[0x2001u] = 0u;
+    EXPECT_TRUE(vf2_scsp_write_u8(&scsp, 0x409u, 0x80u) == VF2_OK);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x24be), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch screen1-set: status=%d pc=0x%05x steps=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x24be));
+    EXPECT_TRUE(done == 27u);
+}
+
+/* R3c-ii: desc-screen SET arm. byte1=$80 pad path with $0409 bit7
+ * set: exits early to the epilogue-write (21 steps), skipping the
+ * worker. The clear case instead falls into the worker (R3b). */
+static void test_screen2_set(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp scsp;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(ram, 0, sizeof(ram));
+    vf2_scsp_initialize(&scsp);
+    make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
+    reset_regs(&regs);
+    regs.pc = UINT32_C(0x2242);
+    ram[0x2000u] = 0x80u;
+    ram[0x2001u] = 0x80u;
+    EXPECT_TRUE(vf2_scsp_write_u8(&scsp, 0x409u, 0x80u) == VF2_OK);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch screen2-set: status=%d pc=0x%05x steps=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+    EXPECT_TRUE(done == 21u);
+}
+
+/* R3d: drain-HEAD push path end to end. Count 1 at $2506 (a4
+ * parked there as boot leaves it): HEAD loads nonzero -> push D7
+ * frame -> decrement (cell 1->0) -> cursor/ring walk -> $4000-window
+ * scan, 20 iterations, no match (zeroed) -> ADDQ.W cursor (the
+ * former coverage gap, now implemented) -> re-park a4 -> restore
+ * A0 from saved D7 (0) -> epilogue-write. 99 steps. (0x7fc is the
+ * match-merge path, never executed without a match.) */
+static void test_drain_push_path(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp scsp;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(ram, 0, sizeof(ram));
+    vf2_scsp_initialize(&scsp);
+    make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
+    reset_regs(&regs);
+    regs.pc = UINT32_C(0x7a6);
+    regs.a[4] = UINT32_C(0x2506);
+    ram[0x2506u] = 1u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch drain-push: status=%d pc=0x%05x steps=%u a0=0x%05x a7=0x%04x\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)regs.a[0], (unsigned)regs.a[7]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+    EXPECT_TRUE(done == 99u);
+    /* Push/restore balanced (no-match path pushes once, pops once). */
+    EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
+    /* Countdown consumed, cursor advanced 0->4, a4 re-parked. */
+    EXPECT_TRUE(ram[0x2506u] == 0u);
+    EXPECT_TRUE(regs.a[4] == UINT32_C(0x2506));
+    EXPECT_TRUE(ram[0x2508u] == 0u && ram[0x2509u] == 0x04u);
+    /* Restore A0 from saved entry D7 (0): the epilogue reads $16
+       of record 0 next, not the walk record. */
+    EXPECT_TRUE(regs.a[0] == 0u);
+}
+
 /* Leg 6: active record ($80, byte1 0, $16=$07) runs the full arm
  * to the epilogue advance: bmi -> $1a/$1c add (zero) -> bpl ->
  * byte1 zero -> 10x ror pad -> $0409 screen (model zero, taken) ->
@@ -302,6 +491,11 @@ int main(int argc, char **argv)
     test_prescaler_returns(audio_rom, audio_rom_size);
     test_prescaler_countdown(audio_rom, audio_rom_size);
     test_active_to_advance(audio_rom, audio_rom_size);
+    test_twin_loop_fault(audio_rom, audio_rom_size);
+    test_arith_fault(audio_rom, audio_rom_size);
+    test_screen1_set(audio_rom, audio_rom_size);
+    test_screen2_set(audio_rom, audio_rom_size);
+    test_drain_push_path(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "dispatch: %d failures\n", failures);

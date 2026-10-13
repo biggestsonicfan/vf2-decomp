@@ -1886,8 +1886,10 @@ vf2_status vf2_m68k_decode(
                            (unsigned)((opcode >> 9u) & 7u));
         }
     } else if ((opcode & UINT16_C(0xff00)) == UINT16_C(0x4200)) {
+        unsigned clr_size = (unsigned)((opcode >> 6u) & 3u);
         (void)snprintf(instruction->text, sizeof(instruction->text),
-                       "clr.%c d%u", ((opcode >> 6u) & 3u) == 1u ? 'w' : 'l',
+                       "clr.%c d%u", clr_size == 0u ? 'b' :
+                                     (clr_size == 1u ? 'w' : 'l'),
                        (unsigned)(opcode & 7u));
     } else {
         instruction->supported = 0;

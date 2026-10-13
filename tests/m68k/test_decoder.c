@@ -143,7 +143,17 @@ int main(void)
     static const uint8_t movel_push[] = {
         0x27, 0x00  /* 0x5ee ROM bytes: move.l d0,-(a3). Was refused
                        (decoder lacked Dn -> -(An)); the stepper
-                       already implemented it. */
+                       already implemented it. Under the +2 base 0x5ee
+                       has no referrers (dead); the decode support
+                       stays as capability coverage. */
+    };
+    static const uint8_t clr_long_d0[] = {
+        0x42, 0x80  /* 0x10c ROM bytes: clr.l d0, first of the boot
+                       zeroing chain on the L3 0xFF-reset path. */
+    };
+    static const uint8_t clr_byte_d0[] = {
+        0x42, 0x00  /* Synthetic shape: clr.b d0. The old printer said
+                       clr.l here (size letter bug). */
     };
     static const uint8_t moveb_an_illegal[] = {
         0x15, 0x08, 0x02, 0x80  /* 0x7bc ROM bytes: move.b a0,d16(a2):
@@ -197,6 +207,18 @@ int main(void)
     EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(instruction.supported != 0);
     EXPECT_TRUE(strcmp(instruction.text, "move.l d0,-(a3)") == 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(clr_long_d0, sizeof(clr_long_d0),
+                                0u, &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 2u);
+    EXPECT_TRUE(instruction.supported != 0);
+    EXPECT_TRUE(strcmp(instruction.text, "clr.l d0") == 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(clr_byte_d0, sizeof(clr_byte_d0),
+                                0u, &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 2u);
+    EXPECT_TRUE(instruction.supported != 0);
+    EXPECT_TRUE(strcmp(instruction.text, "clr.b d0") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(moveb_an_illegal, sizeof(moveb_an_illegal),
                                 0u, &instruction) == VF2_OK);
