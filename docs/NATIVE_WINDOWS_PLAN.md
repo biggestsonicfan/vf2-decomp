@@ -64,6 +64,11 @@ and then made blocking; the ROM gate passes on the maintainer's machine.
 
 ## Phase 1 - Windows host shell with SDL3
 
+Status: implemented (`src/host/`, `include/vf2/host.h`, `include/vf2/session.h`,
+`VF2_BUILD_HOST`, CI job `host`, `docs/SCAFFOLDING.md`). Verified locally on
+Linux with the dummy drivers; the real-snapshot run and the Windows CI job are
+still to be observed. The out-of-tree prototype (item 5) is not contributed yet.
+
 Goal: a `vf2_host` program that opens a window, shows the frame, takes
 keyboard and gamepad input and opens an audio device, using the existing game
 core, on Windows first and Linux for CI.

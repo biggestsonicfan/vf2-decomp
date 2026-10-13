@@ -13,6 +13,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 option(VF2_BUILD_TESTS "Build unit tests" ON)
 option(VF2_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(VF2_BUILD_HOST "Build vf2_host, the SDL3 window/input/audio shell" OFF)
 option(VF2_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
 if(NOT VF2_ROM_DIR)
@@ -55,8 +56,10 @@ add_library(vf2_core STATIC
     src/core/rom_layout.c
     src/core/rom_manifest.c
     src/core/status.c
+    src/app/session.c
     src/game/game.c
     src/hardware/geometry.c
+    src/host/host_common.c
     src/hardware/model2a.c
     src/hardware/model2a_observer.c
     src/hardware/scsp.c
@@ -199,6 +202,36 @@ install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover vf2probe vf2m68k
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
 
+if(VF2_BUILD_HOST)
+  # SDL3 is only ever linked by src/host/host_sdl.c.  Prefer a system or
+  # vcpkg package; otherwise fetch the pinned release and link it statically.
+  find_package(SDL3 3.2.0 CONFIG QUIET)
+  if(NOT SDL3_FOUND)
+    include(FetchContent)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(SDL3
+      GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+      GIT_TAG release-3.2.8
+      GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(SDL3)
+  endif()
+  add_executable(vf2_host src/host/host_sdl.c)
+  target_link_libraries(vf2_host PRIVATE vf2_core SDL3::SDL3)
+  vf2_set_project_warnings(vf2_host)
+  install(TARGETS vf2_host RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  if(VF2_BUILD_TESTS)
+    # ROM-free: real SDL event queue, dummy video and audio drivers.
+    add_test(NAME vf2_host_selftest COMMAND vf2_host --selftest --frames 30)
+    set_tests_properties(vf2_host_selftest PROPERTIES
+      ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy"
+      TIMEOUT 60)
+  endif()
+endif()
+
 if(VF2_BUILD_TESTS)
     enable_testing()
 
@@ -255,6 +288,11 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_platform_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_platform_tests)
     add_test(NAME vf2_platform COMMAND vf2_platform_tests)
+
+    add_executable(vf2_host_tests tests/host/test_host.c)
+    target_link_libraries(vf2_host_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_host_tests)
+    add_test(NAME vf2_host COMMAND vf2_host_tests)
 
     add_executable(vf2_game_tests tests/game/test_game.c)
     target_link_libraries(vf2_game_tests PRIVATE vf2_core)
