@@ -1,4 +1,4 @@
-# v0813 - MIDI ring-fill path proof + $0409 inventory + two instrument fixes
+# v0813 - MIDI ring-fill path proof + $0409 inventory + two instrument fixes (SUPERSEDED by v0817 R1: push story retracted, legs re-pinned)
 
 Status: stepper-proven L3 legs (new ctest `vf2_m68k_midi_probe`),
 two decoder/stepper fixes with proofs. No `src/recovered/` change.

@@ -1,4 +1,4 @@
-# v0811 - Drain-head flag contract: both arms die at 0x7bc (measured)
+# v0811 - Drain-head flag contract: both arms die at 0x7bc (measured) (+4-era: HEAD/MID verdicts flipped by v0816; drain-HEAD is live)
 
 Status: stepper-proven (loopb F9) + decoder vector. No `src/` change.
 This slice turns the biggest sound question from a suspicion into a

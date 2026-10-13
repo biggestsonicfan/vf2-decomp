@@ -1,4 +1,4 @@
-# v0812 - Full L2 tick crashes at record 1 (end-to-end, measured)
+# v0812 - Full L2 tick crashes at record 1 (end-to-end, measured) (+4-era: the L2->walk link is gone under +2; see v0816)
 
 Status: stepper-proven (loopb F10). No `src/` change. This slice
 closes the L2-liveness question as far as the oracle can take it.

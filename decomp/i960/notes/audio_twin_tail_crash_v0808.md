@@ -1,4 +1,4 @@
-# v0808 - P2 twin-tail approach: desc[1]!=0 arm crashes at 0x23fa (measured)
+# v0808 - P2 twin-tail approach: desc[1]!=0 arm crashes at 0x23fa (measured) (+4-era: crash-site pcs reached through word branches; R3 re-visit pending)
 
 Status: stepper-proven path map + decoder fix. No `src/recovered/`
 change. The twin tails (0x24d2/0x260c) remain unreached — this slice

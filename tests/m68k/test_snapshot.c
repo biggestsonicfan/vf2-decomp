@@ -115,7 +115,12 @@ int main(int argc, char **argv)
 
     status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 20000u, &done);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(done == 200u);
+    /* 138 steps under the +2 PC-relative base (was 200 with +4);
+       the L1 voice ISR now walks all 32 voices instead of the
+       frozen-voice loop (see audio_pcrel_base_reaudit.md). The
+       oracle mechanism itself is unchanged: clean rte, balanced
+       stack, no bus events. Voice-scan C re-recovery is separate. */
+    EXPECT_TRUE(done == 138u);
     EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
     EXPECT_TRUE(bus.event_count == 0u);
     fprintf(stderr, "snapshot s1: steps=%u events=%u\n", done,

@@ -17,14 +17,13 @@ static int failures;
         } \
     } while (0)
 
-/* L3 MIDI ring-fill path proof (see audio_midi_0409_v0813.md).
- *
- * L3 (vector 27 -> 0x526) files SCSP-MIDI bytes into the $1500 ring
- * ($1500 data, $1501-$1503 state, $1504 cursor, $1506 count — shared
- * with the L2 gate). There is no C model (maintain_streams is a
- * no-op), so these are stepper-only path proofs in the F4/F5 style:
- * real ROM, pinned steps, balanced stack, exact RAM effects.
- * MIDI bytes are staged through the modeled SCSP FIFO.
+/* L3 MIDI ring-fill path proof, re-pinned under the +2 PC-relative
+ * base (see audio_pcrel_base_reaudit.md + audio_integration_pcrel
+ * _v0816.md). The +4-era push story is retracted: beq.w now lands
+ * 0x5ec (no push before the stack reset) and bra.w lands 0x5e2 (a
+ * store, no push before the restore). The 0x5ee push
+ * (move.l d0,-(a3)) has no referrers under +2: dead code, kept only
+ * as a direct-entry wrap-fix control.
  */
 
 static void make_bus(
@@ -51,20 +50,22 @@ static void reset_regs(vf2_m68k_regs *regs)
     regs->a[5] = UINT32_C(0x100000);
     regs->a[6] = UINT32_C(0x1000);
     regs->a[7] = UINT32_C(0x7f00);
-    /* a3/a2 are preempted-uncleaned on silicon (no L3 path sets
-       them before pushing); the fixture parks them on clean RAM
-       scratch so pushes are observable. Silicon behavior depends
-       on the preempted values: open. */
+    /* a3/a2 are preempted-uncleaned on silicon (no live L3 path sets
+       them); the fixture parks them on clean RAM scratch so any
+       push would be observable. Silicon behavior depends on the
+       preempted values: open. */
     regs->a[3] = UINT32_C(0x7000);
     regs->a[2] = UINT32_C(0x7100);
     regs->pc = UINT32_C(0x526);
 }
 
-/* Leg 1: 0xFF byte takes the reset path (beq.w $5ee): push d0,
-   clear SCSP $401, reset SP to $5000, bra.w into the vector image
-   as code ($102), fault at $10c. The ISR frame is abandoned (no
-   restore, no rte): a7 ends at $5000, not entry. */
-static void test_ff_ignore(
+/* Leg 1: 0xFF byte takes the reset path (beq.w $5ec): disable
+   interrupts, clear SCSP $401, reset SP to $5000, bra.w into the
+   vector image as code ($100), signal $400001, fault at $10c
+   (clr.l d0: mapped, deferred). The ISR frame is abandoned (no
+   restore, no rte): a7 ends at $5000, not entry. No pushes on this
+   path: a3 and the scratch stay clean. */
+static void test_ff_reset(
     const uint8_t *audio_rom,
     size_t audio_rom_size
 )
@@ -83,41 +84,48 @@ static void test_ff_ignore(
     reset_regs(&regs);
     status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 20000u,
                           &done);
-    fprintf(stderr, "midi ff-ignore: status=%d steps=%u a7=0x%04x\n",
-            (int)status, (unsigned)done, (unsigned)regs.a[7]);
+    fprintf(stderr, "midi ff-reset: status=%d steps=%u a7=0x%04x pc=0x%05x ev=%u\n",
+            (int)status, (unsigned)done, (unsigned)regs.a[7],
+            (unsigned)regs.pc, (unsigned)bus.event_count);
     EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
     EXPECT_TRUE(regs.pc == UINT32_C(0x10c));
     EXPECT_TRUE(done == 10u);
     /* Stack reset abandoned the ISR frame. */
     EXPECT_TRUE(regs.a[7] == UINT32_C(0x5000));
-    /* Two pushes landed (0x5ee and the vector-data coincidence at
-       0x102, same bytes): d0 stayed 0xFF throughout (the linear
-       0x5f8 addq print is phantom, mid-lea). */
-    EXPECT_TRUE(regs.a[3] == UINT32_C(0x6ff8));
-    EXPECT_TRUE(ram[0x6ffcu] == 0u);
-    EXPECT_TRUE(ram[0x6ffdu] == 0u);
-    EXPECT_TRUE(ram[0x6ffeu] == 0u);
-    EXPECT_TRUE(ram[0x6fffu] == 0xffu);
-    EXPECT_TRUE(ram[0x6ff8u] == 0u);
-    EXPECT_TRUE(ram[0x6ff9u] == 0u);
-    EXPECT_TRUE(ram[0x6ffau] == 0u);
-    EXPECT_TRUE(ram[0x6ffbu] == 0xffu);
+    /* No pushes: scratch parked registers untouched, RAM clean. */
+    EXPECT_TRUE(regs.a[3] == UINT32_C(0x7000));
+    EXPECT_TRUE(regs.a[2] == UINT32_C(0x7100));
+    EXPECT_TRUE(ram[0x6fffu] == 0u);
+    EXPECT_TRUE(ram[0x6ffbu] == 0u);
+    EXPECT_TRUE(regs.d[0] == UINT32_C(0xff));
     /* MIDI ring ($2500 area) untouched on this path. */
     EXPECT_TRUE(ram[0x2500u] == 0u);
     EXPECT_TRUE(ram[0x2501u] == 0u);
     EXPECT_TRUE(ram[0x2504u] == 0u && ram[0x2505u] == 0u);
     EXPECT_TRUE(ram[0x2506u] == 0u);
-    /* The $400001 system-port signal (0x1f) is the one bus event. */
-    EXPECT_TRUE(bus.event_count == 1u);
-    EXPECT_TRUE(bus.events[0].address == UINT32_C(0x400001));
-    EXPECT_TRUE(bus.events[0].value == UINT32_C(0x1f));
+    /* Three bus events: two SR writes ($2700 at $5ec and $100) then
+       the $400001 system-port signal (0x1f). SR-write logging
+       predates the merge (2ea0e618); the +4 path never executed an
+       SR write, so the old leg saw only the signal. */
+    EXPECT_TRUE(bus.event_count == 3u);
+    EXPECT_TRUE(bus.events[0].address == UINT32_C(0x5ec));
+    EXPECT_TRUE(bus.events[0].value == UINT32_C(0x2700));
     EXPECT_TRUE(bus.events[0].is_write != 0u);
+    EXPECT_TRUE(bus.events[1].address == UINT32_C(0x100));
+    EXPECT_TRUE(bus.events[1].value == UINT32_C(0x2700));
+    EXPECT_TRUE(bus.events[1].is_write != 0u);
+    EXPECT_TRUE(bus.events[2].address == UINT32_C(0x400001));
+    EXPECT_TRUE(bus.events[2].value == UINT32_C(0x1f));
+    EXPECT_TRUE(bus.events[2].is_write != 0u);
     EXPECT_TRUE(vf2_scsp_midi_empty(&scsp));
 }
 
-/* Leg 2: data byte with running-status state ($1503 != 0) files to
-   $1501(a6) = absolute $2501, then exits via restore + rte. The
-   0x5e4 push uses preempted a2 (fixture scratch $7100). */
+/* Leg 2: data byte with running-status count ($1503 = 2) files to
+   $1501(a6) = absolute $2501, then exits via store + restore + rte.
+   Under +2, 0x54a bne.w lands 0x552 (not 0x554): the subq always
+   runs, so the file arm needs a count of 2, not 1 (count 1 takes
+   the 0x580 arm). No push precedes the restore: a2 stays parked
+   and the scratch is untouched. */
 static void test_data_file(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -133,7 +141,7 @@ static void test_data_file(
     memset(ram, 0, sizeof(ram));
     vf2_scsp_initialize(&scsp);
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
-    ram[0x2503u] = 1u;
+    ram[0x2503u] = 2u;
     EXPECT_TRUE(vf2_scsp_midi_receive(&scsp, 0x05u) == VF2_OK);
     reset_regs(&regs);
     status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 20000u,
@@ -142,13 +150,14 @@ static void test_data_file(
             (int)status, (unsigned)done, (unsigned)regs.a[7]);
     EXPECT_TRUE(status == VF2_OK);
     EXPECT_TRUE(regs.pc == UINT32_C(0x5ea));
-    EXPECT_TRUE(done == 16u);
+    EXPECT_TRUE(done == 17u);
     EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
     EXPECT_TRUE(bus.event_count == 0u);
     EXPECT_TRUE(ram[0x2501u] == 0x05u);
     EXPECT_TRUE(ram[0x2504u] == 0u && ram[0x2505u] == 0u);
     EXPECT_TRUE(ram[0x2506u] == 0u);
-    /* The exit push stored entry d3 (0) at the scratch top. */
+    /* No exit push under +2: the scratch top is clean (the restore
+       shuffle still reloads a2 from the saved a5 — pinned below). */
     EXPECT_TRUE(ram[0x70ffu] == 0u);
     /* Save mask $fff8 vs restore mask $1fff: the restore shifts
        every slot by 3 (D0<-D3 .. A2<-A5, A3<-A6, A4<-A7). Entry
@@ -169,10 +178,11 @@ static void test_data_file(
     EXPECT_TRUE(vf2_scsp_midi_empty(&scsp));
 }
 
-/* Wrap-fix control: with a3 = 0 the 0x5ee push underflows to
-   $fffffffc. Pre-fix this misread as an SCSP access (wrong code
+/* Wrap-fix control, repurposed: the 0x5ee push is dead under +2 (no
+   referrers), so enter it directly. With a3 = 0 the push underflows
+   to $fffffffc. Pre-fix this misread as an SCSP access (wrong code
    INVALID_ARGUMENT); with uint64 range checks it refuses
-   UNSUPPORTED (silicon bus-error class) at the same pc/steps. */
+   UNSUPPORTED (silicon bus-error class). */
 static void test_push_unmapped(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -188,16 +198,16 @@ static void test_push_unmapped(
     memset(ram, 0, sizeof(ram));
     vf2_scsp_initialize(&scsp);
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
-    EXPECT_TRUE(vf2_scsp_midi_receive(&scsp, 0xffu) == VF2_OK);
     reset_regs(&regs);
     regs.a[3] = 0u;
+    regs.pc = UINT32_C(0x5ee);
     status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1, 20000u,
                           &done);
     fprintf(stderr, "midi push-unmapped: status=%d pc=0x%05x steps=%u\n",
             (int)status, (unsigned)regs.pc, (unsigned)done);
     EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
     EXPECT_TRUE(regs.pc == UINT32_C(0x5ee));
-    EXPECT_TRUE(done == 4u);
+    EXPECT_TRUE(done == 0u);
 }
 
 int main(int argc, char **argv)
@@ -215,7 +225,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "FAIL: cannot build audio region from %s\n", argv[1]);
         return 2;
     }
-    test_ff_ignore(audio_rom, audio_rom_size);
+    test_ff_reset(audio_rom, audio_rom_size);
     test_data_file(audio_rom, audio_rom_size);
     test_push_unmapped(audio_rom, audio_rom_size);
     free(audio_rom);

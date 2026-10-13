@@ -1,4 +1,4 @@
-# v0809 - P2 bulk arm: same illegal store at 0x22e8 (twin crash sites)
+# v0809 - P2 bulk arm: same illegal store at 0x22e8 (twin crash sites) (+4-era: crash-site pcs reached through word branches; R3 re-visit pending)
 
 Status: stepper-proven. No `src/` change (decoder fix was v0808).
 Twin tails still unreached.

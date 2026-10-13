@@ -1,4 +1,4 @@
-# v0814 - true-dispatch hunt: the walk circuit is flag-coupled
+# v0814 - true-dispatch hunt: the walk circuit is flag-coupled (SUPERSEDED by v0816+v0817 R2: coupling/overlap retracted, legs re-pinned)
 
 Status: stepper-proven dispatch map + 7 legs (new ctest
 `vf2_m68k_dispatch_probe`). No `src/` change. The v0808-v0812

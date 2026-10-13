@@ -1,4 +1,4 @@
-# v0810 - Third arm + reachability: walk self-mutates desc[1], twin 0x260c unreachable
+# v0810 - Third arm + reachability: walk self-mutates desc[1], twin 0x260c unreachable (+4-era: entries shifted under +2; R3 re-visit pending)
 
 Status: stepper-proven (loopb F8) + decoder vector. No `src/` change.
 

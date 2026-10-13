@@ -17,29 +17,16 @@ static int failures;
         } \
     } while (0)
 
-/* True-dispatch hunt for the record walk (see audio_dispatch_v0814.md).
- *
- * Byte-verified map (ROM bytes checked, not just prints):
- *  - walk-HEAD 0x2242 (move.b (a0),d0) has exactly two callers:
- *    prescaler 0x21be (beq.w) and 0x21c6 (bne.w). TRUE entry.
- *  - walk-MID 0x2244 (bmi) has three: boot 0x21e (jmp), epilogue
- *    0x266a/0x2672 (jmp). The scanner's "0x2233 br8" is a phantom
- *    (mid-andi.b byte 0x6E).
- *  - TRUE prescaler entry 0x21ba (tst.b $c(a2)) has NO referrers
- *    (no jsr, no vector, no fall-through: 0x21b8 rts). Only the
- *    mid-instruction bodge 0x21bc is live (L2 jsr from 0x1f36).
- *  - epilogue init-lea 0x266e is dead: 0x265e ori.b #$8,(a6) can
- *    never set Z, so beq $2670 never takes; the loop only advances
- *    (a0 += $20) and re-enters at MID with preempted a0.
- *  - boot sets a0 = $1000(a6) (record base) at 0x1d4 and jumps to
- *    MID at 0x21e: the TRUE first dispatch. Walk records $1000(a6) stride
- *    records $1000(a6) stride $20 are the same stride, different bases ($2000 records vs $3000 slots, v0792).
- *
- * These are stepper-only path proofs: real ROM, pinned steps, exact
- * register/RAM effects. a2 parks on a slot-shaped window (abs $2000;
-production slots live at abs $3000 per v0792 — the prescaler legs
-are base-independent mechanics; S3 uses $3000). a3/a4 on clean
- * scratch; silicon preemption dependence is stated open.
+/* True-dispatch map re-pinned under the +2 PC-relative base (see
+ * audio_pcrel_base_reaudit.md + audio_integration_pcrel_v0816.md).
+ * The +4-era flag-coupling/overlap story is retracted: every live
+ * entry now lands on HEAD 0x2242 (fresh flags) or drain-HEAD 0x7a6
+ * (fresh (a4) load), and drain exits flow THROUGH the $0408 write
+ * at 0x265c (live). The 0x265e ori.b is mid-instruction dead bytes;
+ * the prescaler (TRUE and bodge) ends in rts at 0x2240, so the
+ * L2->walk link is gone and boot (0x21e -> HEAD) is the only known
+ * walk driver. Records live at absolute $2000, L2 slots at $3000
+ * (v0792); same $20 stride, different bases.
  */
 
 static void make_bus(
@@ -67,15 +54,16 @@ static void reset_regs(vf2_m68k_regs *regs)
     regs->a[6] = UINT32_C(0x1000);
     regs->a[7] = UINT32_C(0x7f00);
     regs->a[0] = UINT32_C(0x2000);
-    regs->a[2] = UINT32_C(0x2000);
+    regs->a[2] = UINT32_C(0x3000);
     regs->a[3] = UINT32_C(0x7000);
     regs->a[4] = UINT32_C(0x7200);
 }
 
-/* Leg 1: inactive record at HEAD -> drain-mid -> epilogue.
- * 0x2242 move.b / 0x2244 bmi(nt) / 0x2248 jmp / 0x7a8 bne(nt, flags
- * from walk's zero load) / 0x7ac jmp. 5 steps, a0 untouched. */
-static void test_inactive_to_epilogue(
+/* Leg 1: inactive record (all zero) walks HEAD -> drain-HEAD ->
+ * epilogue-write and loops on itself: byte $16 == 0 takes beq to
+ * the init-lea, so a0 is re-parked, never advanced. 10 steps.
+ * The $0408 write logs one bus event (value 0). */
+static void test_inactive_self_loop(
     const uint8_t *audio_rom,
     size_t audio_rom_size
 )
@@ -92,21 +80,30 @@ static void test_inactive_to_epilogue(
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
     reset_regs(&regs);
     regs.pc = UINT32_C(0x2242);
-    ram[0x2000u] = 0u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265e), 0, 20000u,
+    /* Poison the SCSP $408 cell: the epilogue write must overwrite
+       it, proving the write executed (a zero-write over zero RAM
+       would be vacuous). $0408(a5) is SCSP+$408, not a system port:
+       no bus event is logged. */
+    EXPECT_TRUE(vf2_scsp_write_u8(&scsp, 0x408u, 0xaau) == VF2_OK);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 10u,
                           &done);
-    fprintf(stderr, "dispatch inactive-epi: status=%d pc=0x%05x steps=%u\n",
-            (int)status, (unsigned)regs.pc, (unsigned)done);
-    EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x265e));
-    EXPECT_TRUE(done == 5u);
+    fprintf(stderr, "dispatch self-loop: status=%d pc=0x%05x steps=%u a0=0x%05x ev=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)regs.a[0], (unsigned)bus.event_count);
+    EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(done == 10u);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x2242));
     EXPECT_TRUE(regs.a[0] == UINT32_C(0x2000));
-    EXPECT_TRUE(regs.d[0] == 0u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    {
+        uint8_t cell = 0xffu;
+        EXPECT_TRUE(vf2_scsp_read_u8(&scsp, 0x408u, &cell) == VF2_OK);
+        EXPECT_TRUE(cell == 0u);
+    }
 }
 
-/* Leg 2: epilogue advances a0 by one $20 stride and re-enters MID.
- * 0x265e ori.b / 0x2662 beq.w(nt: OR-with-$8 never zero) /
- * 0x2666 adda / 0x266a jmp. 4 steps. */
+/* Leg 2: epilogue advance. Enter 0x265c with record byte $16 != 0:
+ * write logs the byte, beq not taken, a0 += $20, jmp to HEAD. */
 static void test_epilogue_advance(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -123,23 +120,29 @@ static void test_epilogue_advance(
     vf2_scsp_initialize(&scsp);
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
     reset_regs(&regs);
-    regs.pc = UINT32_C(0x265e);
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x2244), 0, 20000u,
+    regs.pc = UINT32_C(0x265c);
+    ram[0x2016u] = 0x07u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x2242), 0, 20000u,
                           &done);
-    fprintf(stderr, "dispatch epi-advance: status=%d pc=0x%05x steps=%u a0=0x%05x\n",
+    fprintf(stderr, "dispatch epi-advance: status=%d pc=0x%05x steps=%u a0=0x%05x ev=%u\n",
             (int)status, (unsigned)regs.pc, (unsigned)done,
-            (unsigned)regs.a[0]);
+            (unsigned)regs.a[0], (unsigned)bus.event_count);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x2244));
+    EXPECT_TRUE(regs.pc == UINT32_C(0x2242));
     EXPECT_TRUE(done == 4u);
     EXPECT_TRUE(regs.a[0] == UINT32_C(0x2020));
-    /* Epilogue sets bit3 of the (a6) header byte. */
-    EXPECT_TRUE((ram[0x1000u] & 0x08u) != 0u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    {
+        uint8_t cell = 0xffu;
+        EXPECT_TRUE(vf2_scsp_read_u8(&scsp, 0x408u, &cell) == VF2_OK);
+        EXPECT_TRUE(cell == 0x07u);
+    }
 }
 
-/* Leg 3: full inactive loop back at MID with a0 advanced. Proves the
- * 9-step circuit without stop-at-start (exhaust run). */
-static void test_inactive_full_loop(
+/* Leg 3: two-record circuit. Record 1 ($16=$07) advances to record
+ * 2 ($2020, zero) which re-inits to record 1. 20 steps, two $0408
+ * events ($07 then $00), a0 back at $2000. */
+static void test_two_record_circuit(
     const uint8_t *audio_rom,
     size_t audio_rom_size
 )
@@ -156,22 +159,29 @@ static void test_inactive_full_loop(
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
     reset_regs(&regs);
     regs.pc = UINT32_C(0x2242);
-    ram[0x2000u] = 0u;
-    ram[0x2020u] = 0u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 9u,
+    ram[0x2016u] = 0x07u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 20u,
                           &done);
-    fprintf(stderr, "dispatch full-loop: status=%d pc=0x%05x steps=%u a0=0x%05x\n",
+    fprintf(stderr, "dispatch two-record: status=%d pc=0x%05x steps=%u a0=0x%05x ev=%u\n",
             (int)status, (unsigned)regs.pc, (unsigned)done,
-            (unsigned)regs.a[0]);
+            (unsigned)regs.a[0], (unsigned)bus.event_count);
     EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(done == 9u);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x2244));
-    EXPECT_TRUE(regs.a[0] == UINT32_C(0x2020));
+    EXPECT_TRUE(done == 20u);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x2242));
+    EXPECT_TRUE(regs.a[0] == UINT32_C(0x2000));
+    EXPECT_TRUE(bus.event_count == 0u);
+    {
+        /* Record 1 wrote $07, record 2 overwrote $00: both writes
+           in the counted 20-step chain executed. */
+        uint8_t cell = 0xffu;
+        EXPECT_TRUE(vf2_scsp_read_u8(&scsp, 0x408u, &cell) == VF2_OK);
+        EXPECT_TRUE(cell == 0u);
+    }
 }
 
-/* Leg 4: TRUE prescaler entry, counter clear -> HEAD via beq.
- * 0x21ba tst.b ($200c zero) / 0x21be beq.w(t). 2 steps. */
-static void test_prescaler_true_entry(
+/* Leg 4: TRUE prescaler entry, counter clear -> rts (NOT the walk:
+ * 0x21be beq.w lands 0x2240 under +2). 2 steps. */
+static void test_prescaler_returns(
     const uint8_t *audio_rom,
     size_t audio_rom_size
 )
@@ -188,18 +198,18 @@ static void test_prescaler_true_entry(
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
     reset_regs(&regs);
     regs.pc = UINT32_C(0x21ba);
-    ram[0x200cu] = 0u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x2242), 0, 20000u,
+    ram[0x300cu] = 0u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x2240), 0, 20000u,
                           &done);
     fprintf(stderr, "dispatch prescaler: status=%d pc=0x%05x steps=%u\n",
             (int)status, (unsigned)regs.pc, (unsigned)done);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x2242));
+    EXPECT_TRUE(regs.pc == UINT32_C(0x2240));
     EXPECT_TRUE(done == 2u);
 }
 
-/* Leg 5: TRUE prescaler entry, countdown expiry -> HEAD via bne.
- * $200c != 0 (beq nt), $200d = 2 -> 1 (Z=0, bne t). 4 steps. */
+/* Leg 5: TRUE prescaler entry, countdown expiry ($300d 2->1) ->
+ * bne.w -> rts at 0x2240. 4 steps. (Slot window is abs $3000.) */
 static void test_prescaler_countdown(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -217,26 +227,25 @@ static void test_prescaler_countdown(
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
     reset_regs(&regs);
     regs.pc = UINT32_C(0x21ba);
-    ram[0x200cu] = 0x05u;
-    ram[0x200du] = 0x02u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x2242), 0, 20000u,
+    ram[0x300cu] = 0x05u;
+    ram[0x300du] = 0x02u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x2240), 0, 20000u,
                           &done);
-    fprintf(stderr, "dispatch countdown: status=%d pc=0x%05x steps=%u d=$200d=%02x\n",
+    fprintf(stderr, "dispatch countdown: status=%d pc=0x%05x steps=%u d=$300d=%02x\n",
             (int)status, (unsigned)regs.pc, (unsigned)done,
-            (unsigned)ram[0x200du]);
+            (unsigned)ram[0x300du]);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x2242));
+    EXPECT_TRUE(regs.pc == UINT32_C(0x2240));
     EXPECT_TRUE(done == 4u);
-    EXPECT_TRUE(ram[0x200du] == 0x01u);
+    EXPECT_TRUE(ram[0x300du] == 0x01u);
 }
 
-/* Leg 6: second record takes the stale-Z overlap arm and faults.
- * Record 1 (zero) walks HEAD-fresh to the epilogue; record 2 enters
- * at MID with the epilogue ori.b's Z=0, so drain's bne takes the
- * 0x7b2 arm: mid-movem bytes run as ori.l #$531447ee,d0 then
- * ori.b #$2e,d0, and 0x7bc (move.b-An, silicon-illegal) refuses.
- * The movem push is skipped: a7 stays balanced. 14 steps. */
-static void test_record2_overlap_fault(
+/* Leg 6: active record ($80, byte1 0, $16=$07) runs the full arm
+ * to the epilogue advance: bmi -> $1a/$1c add (zero) -> bpl ->
+ * byte1 zero -> 10x ror pad -> $0409 screen (model zero, taken) ->
+ * $0408 write ($07) -> beq not taken -> advance arm reached.
+ * Pins the $224c-entry active path end to end (21 steps). */
+static void test_active_to_advance(
     const uint8_t *audio_rom,
     size_t audio_rom_size
 )
@@ -247,61 +256,29 @@ static void test_record2_overlap_fault(
     vf2_m68k_regs regs;
     uint32_t done = 0u;
     vf2_status status = VF2_OK;
+    uint8_t cell = 0xffu;
 
     memset(ram, 0, sizeof(ram));
     vf2_scsp_initialize(&scsp);
     make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
     reset_regs(&regs);
     regs.pc = UINT32_C(0x2242);
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 20000u,
-                          &done);
-    fprintf(stderr, "dispatch record2-fault: status=%d pc=0x%05x steps=%u d0=0x%08x a7=0x%04x\n",
-            (int)status, (unsigned)regs.pc, (unsigned)done,
-            (unsigned)regs.d[0], (unsigned)regs.a[7]);
-    EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x7bc));
-    EXPECT_TRUE(done == 14u);
-    EXPECT_TRUE(regs.d[0] == UINT32_C(0x531447ee));
-    EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
-    EXPECT_TRUE(regs.a[0] == UINT32_C(0x2020));
-}
-
-/* Leg 7: active record 1 files through to the epilogue.
- * bmi taken -> 0x224e arm (linear chain HIT-verified to 0x2264) ->
- * byte1 zero -> ror pad -> $0409-beq (model zero) -> epilogue.
- * Pins pc/steps/a0; d0 residue printed for the record. */
-static void test_active_record_to_epilogue(
-    const uint8_t *audio_rom,
-    size_t audio_rom_size
-)
-{
-    static uint8_t ram[VF2_SOUND_RAM_BYTES];
-    static vf2_scsp scsp;
-    vf2_m68k_bus bus;
-    vf2_m68k_regs regs;
-    uint32_t done = 0u;
-    vf2_status status = VF2_OK;
-
-    memset(ram, 0, sizeof(ram));
-    vf2_scsp_initialize(&scsp);
-    make_bus(&bus, &scsp, ram, audio_rom, audio_rom_size);
-    reset_regs(&regs);
-    regs.pc = UINT32_C(0x2242);
-    regs.a[2] = UINT32_C(0x7300);
     ram[0x2000u] = 0x80u;
     ram[0x2001u] = 0u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265e), 0, 20000u,
+    ram[0x2016u] = 0x07u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x2666), 0, 20000u,
                           &done);
-    fprintf(stderr, "dispatch active-epi: status=%d pc=0x%05x steps=%u d0=0x%08x d2=0x%08x\n",
+    fprintf(stderr, "dispatch active-advance: status=%d pc=0x%05x steps=%u a0=0x%05x\n",
             (int)status, (unsigned)regs.pc, (unsigned)done,
-            (unsigned)regs.d[0], (unsigned)regs.d[2]);
+            (unsigned)regs.a[0]);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0x265e));
+    EXPECT_TRUE(regs.pc == UINT32_C(0x2666));
     EXPECT_TRUE(done == 21u);
     EXPECT_TRUE(regs.a[0] == UINT32_C(0x2000));
-    /* d0 = $80 << 2 (0x225e lsl.w); d2 = record byte1 (zero). */
-    EXPECT_TRUE(regs.d[0] == UINT32_C(0x200));
+    EXPECT_TRUE(regs.d[0] == 0u);
     EXPECT_TRUE(regs.d[2] == 0u);
+    EXPECT_TRUE(vf2_scsp_read_u8(&scsp, 0x408u, &cell) == VF2_OK);
+    EXPECT_TRUE(cell == 0x07u);
 }
 
 int main(int argc, char **argv)
@@ -319,13 +296,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "FAIL: cannot build audio region from %s\n", argv[1]);
         return 2;
     }
-    test_inactive_to_epilogue(audio_rom, audio_rom_size);
+    test_inactive_self_loop(audio_rom, audio_rom_size);
     test_epilogue_advance(audio_rom, audio_rom_size);
-    test_inactive_full_loop(audio_rom, audio_rom_size);
-    test_prescaler_true_entry(audio_rom, audio_rom_size);
+    test_two_record_circuit(audio_rom, audio_rom_size);
+    test_prescaler_returns(audio_rom, audio_rom_size);
     test_prescaler_countdown(audio_rom, audio_rom_size);
-    test_record2_overlap_fault(audio_rom, audio_rom_size);
-    test_active_record_to_epilogue(audio_rom, audio_rom_size);
+    test_active_to_advance(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "dispatch: %d failures\n", failures);
