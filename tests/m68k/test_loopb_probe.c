@@ -279,6 +279,151 @@ int main(int argc, char **argv)
         }
     }
     {
+        /* F8 safe arm (P2 slice): third-arm entry at 0x25ee (flag-clean:
+           first instr overwrites d2). desc[1]=0x00 takes the +=0x10 arm
+           through the 0x265e epilogue, the record advance, record 2's
+           drain exit, and the 0x7a8 bne (Z=0 residue from the epilogue
+           ori.b) into the 0x7b2 bodge, dying on the illegal move.b-An
+           at 0x7bc. The walk completes clean; the drain entry kills it.
+           See audio_third_arm_crash_v0810.md. */
+        static const uint32_t f8a_stops[] = {
+            0x25fau, 0x2600u, 0x2604u, 0x2608u, 0x265eu, 0x266au,
+            0x2248u, 0x7a8u, 0x7b2u, 0x7b8u, 0x7bcu
+        };
+        static const int f8a_hit[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+        static const uint32_t f8a_steps[] = {
+            3u, 4u, 5u, 6u, 7u, 10u, 12u, 13u, 14u, 15u, 16u
+        };
+        sweep_path(audio_rom, audio_rom_size, "f8a-safe", 0x25eeu,
+                   0x2000u, 0x80u, 0x00u, 0u, 20000u, f8a_stops, f8a_hit,
+                   f8a_steps, sizeof(f8a_stops) / sizeof(f8a_stops[0]));
+    }
+    {
+        /* F8a mutation effects: the safe arm leaves desc[1] += 0x10
+           and desc[0] bit 3 set on the visited record. This is the
+           measured desc[1]-author for the reachability argument:
+           each safe pass arms the next pass's crash (desc[1] != 0). */
+        static uint8_t ram[VF2_SOUND_RAM_BYTES];
+        static vf2_scsp scsp;
+        vf2_m68k_bus bus;
+        vf2_m68k_regs regs;
+        uint32_t done = 0u;
+        vf2_status status = VF2_OK;
+        memset(ram, 0, sizeof(ram));
+        vf2_scsp_initialize(&scsp);
+        ram[0x2000u] = 0x80u;
+        ram[0x2001u] = 0x00u;
+        bus.ram = ram;
+        bus.ram_size = sizeof(ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = NULL;
+        bus.sample_rom_size = 0u;
+        bus.scsp = &scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.a[0] = UINT32_C(0x2000);
+        regs.pc = UINT32_C(0x25ee);
+        status = vf2_m68k_run(&bus, &regs, UINT32_C(0x7a8), 0, 20000u,
+                              &done);
+        EXPECT_TRUE(status == VF2_OK);
+        EXPECT_TRUE(regs.pc == UINT32_C(0x7a8));
+        EXPECT_TRUE(done == 13u);
+        EXPECT_TRUE(ram[0x2001u] == 0x10u);
+        EXPECT_TRUE((ram[0x2000u] & 0x08u) != 0u);
+        EXPECT_TRUE(bus.event_count == 0u);
+        fprintf(stderr, "f8a-mutate: steps=%u desc01=0x%02x desc00=0x%02x\n",
+                (unsigned)done, (unsigned)ram[0x2001u],
+                (unsigned)ram[0x2000u]);
+    }
+    {
+        /* F8a end verdict: the run above continued would refuse at
+           the illegal move.b-An 0x7bc after 16 true steps. */
+        vf2_status status = VF2_OK;
+        uint32_t pc = 0u;
+        uint32_t steps = 0u;
+        run_stop_case(audio_rom, audio_rom_size, 0x25eeu, 0xffffffu,
+                      0x2000u, 0x80u, 0x00u, 0u, 20000u, &status, &pc,
+                      &steps);
+        fprintf(stderr, "f8a-crash: status=%d pc=0x%05x steps=%u\n",
+                (int)status, (unsigned)pc, (unsigned)steps);
+        EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(pc == 0x7bcu);
+        EXPECT_TRUE(steps == 16u);
+    }
+    {
+        /* F8b bodge arm (desc[1]=0x81): bne lands mid-instruction at
+           0x260e (ori.b bodge executes), then the illegal 0x00ff
+           refuses at 0x2612. Twin 0x260c has no entry. */
+        static const uint32_t f8b_stops[] = { 0x260eu, 0x2612u };
+        static const int f8b_hit[] = { 1, 1 };
+        static const uint32_t f8b_steps[] = { 3u, 4u };
+        sweep_path(audio_rom, audio_rom_size, "f8b-bodge", 0x25eeu,
+                   0x2000u, 0x80u, 0x81u, 0u, 20000u, f8b_stops, f8b_hit,
+                   f8b_steps, sizeof(f8b_stops) / sizeof(f8b_stops[0]));
+    }
+    {
+        /* F8b end verdict. */
+        vf2_status status = VF2_OK;
+        uint32_t pc = 0u;
+        uint32_t steps = 0u;
+        run_stop_case(audio_rom, audio_rom_size, 0x25eeu, 0xffffffu,
+                      0x2000u, 0x80u, 0x81u, 0u, 20000u, &status, &pc,
+                      &steps);
+        fprintf(stderr, "f8b-crash: status=%d pc=0x%05x steps=%u\n",
+                (int)status, (unsigned)pc, (unsigned)steps);
+        EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(pc == 0x2612u);
+        EXPECT_TRUE(steps == 4u);
+    }
+    {
+        /* F8c drain interior (entry 0x25ee, desc[1]=0): the 0x7a8 bne
+           is taken (Z=0 residue), so 0x7ac misses; the bodge executes
+           to 0x7bc where the illegal move.b-An refuses. */
+        static const uint32_t f8c_stops[] = {
+            0x7acu, 0x7b2u, 0x7b8u, 0x7bau, 0x7beu
+        };
+        static const int f8c_hit[] = { 0, 1, 1, 0, 0 };
+        static const uint32_t f8c_steps[] = { 0u, 14u, 15u, 0u, 0u };
+        sweep_path(audio_rom, audio_rom_size, "f8c-drain", 0x25eeu,
+                   0x2000u, 0x80u, 0x00u, 0u, 20000u, f8c_stops, f8c_hit,
+                   f8c_steps, sizeof(f8c_stops) / sizeof(f8c_stops[0]));
+    }
+    {
+        /* F8c2 F5-continued (entry 0x2242, desc[1]=0): even the safe
+           first iteration crashes on record 2. The epilogue ori.b
+           leaves Z=0, record 2 is empty, jmp $7a8 bypasses the count
+           head, bne takes the bodge, illegal move.b-An at 0x7bc. */
+        static const uint32_t f8c2_stops[] = {
+            0x2666u, 0x266au, 0x2248u, 0x7a8u, 0x7b2u, 0x7b8u, 0x7bcu
+        };
+        static const int f8c2_hit[] = { 1, 1, 1, 1, 1, 1, 1 };
+        static const uint32_t f8c2_steps[] = {
+            23u, 24u, 26u, 27u, 28u, 29u, 30u
+        };
+        sweep_path(audio_rom, audio_rom_size, "f8c2-f5continued", 0x2242u,
+                   0x2000u, 0x80u, 0x00u, 0u, 20000u, f8c2_stops,
+                   f8c2_hit, f8c2_steps,
+                   sizeof(f8c2_stops) / sizeof(f8c2_stops[0]));
+    }
+    {
+        /* F8c2 end verdict. */
+        vf2_status status = VF2_OK;
+        uint32_t pc = 0u;
+        uint32_t steps = 0u;
+        run_stop_case(audio_rom, audio_rom_size, 0x2242u, 0xffffffu,
+                      0x2000u, 0x80u, 0x00u, 0u, 20000u, &status, &pc,
+                      &steps);
+        fprintf(stderr, "f8c2-crash: status=%d pc=0x%05x steps=%u\n",
+                (int)status, (unsigned)pc, (unsigned)steps);
+        EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(pc == 0x7bcu);
+        EXPECT_TRUE(steps == 30u);
+    }
+    {
         /* F7 bulk arm (P2 slice): desc[0x0a]=0x400 clears the 0x22c6
            bls gate into the 0x22ca subi arm. True prefix HITs prove
            alignment (0x22e2/0x22e6 phantom-misses omitted here, same
