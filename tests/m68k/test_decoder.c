@@ -187,8 +187,9 @@ int main(void)
 
     EXPECT_TRUE(vf2_m68k_decode(moveb_an_illegal, sizeof(moveb_an_illegal),
                                 0u, &instruction) == VF2_OK);
-    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(instruction.supported == 0);
+    EXPECT_TRUE(strcmp(instruction.text, ".word $1508") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(operations, sizeof(operations), 0u,
                                 &instruction) == VF2_OK);

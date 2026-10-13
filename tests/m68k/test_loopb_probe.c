@@ -424,6 +424,61 @@ int main(int argc, char **argv)
         EXPECT_TRUE(steps == 30u);
     }
     {
+        /* F9 drain-head flag contract (P2 slice): TRUE entry 0x7a6
+           with a production-shaped fixture (a4 = $1506 count).
+           count=1 predicts the bodge crash (UNSUPPORTED @0x7bc @4);
+           count=0 predicts the epilogue exit (still mapping). */
+        static uint8_t ram[VF2_SOUND_RAM_BYTES];
+        static vf2_scsp scsp;
+        vf2_m68k_bus bus;
+        vf2_m68k_regs regs;
+        uint32_t done = 0u;
+        vf2_status status = VF2_OK;
+        memset(ram, 0, sizeof(ram));
+        vf2_scsp_initialize(&scsp);
+        ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+        ram[VF2_SOUND_COMMAND_RING_BASE] = 0xe4u;
+        ram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 4u;
+        bus.ram = ram;
+        bus.ram_size = sizeof(ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = NULL;
+        bus.sample_rom_size = 0u;
+        bus.scsp = &scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x7a6);
+        status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 20000u,
+                              &done);
+        fprintf(stderr, "f9-drain count=1: status=%d pc=0x%05x steps=%u\n",
+                (int)status, (unsigned)regs.pc, (unsigned)done);
+        EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(regs.pc == 0x7bcu);
+        EXPECT_TRUE(done == 4u);
+        /* Idle arm: count=0 must exit without touching the bodge. */
+        memset(ram, 0, sizeof(ram));
+        vf2_scsp_initialize(&scsp);
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x7a6);
+        status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0, 20000u,
+                              &done);
+        fprintf(stderr, "f9-drain count=0: status=%d pc=0x%05x steps=%u\n",
+                (int)status, (unsigned)regs.pc, (unsigned)done);
+        EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(regs.pc == 0x7bcu);
+        EXPECT_TRUE(done == 12u);
+    }
+    {
         /* F7 bulk arm (P2 slice): desc[0x0a]=0x400 clears the 0x22c6
            bls gate into the 0x22ca subi arm. True prefix HITs prove
            alignment (0x22e2/0x22e6 phantom-misses omitted here, same
