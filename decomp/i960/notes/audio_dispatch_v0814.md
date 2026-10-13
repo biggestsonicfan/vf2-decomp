@@ -18,8 +18,14 @@ circuit, not just fixtures.
 | epilogue-init 0x266e `lea $1000(a6),a0` | none: 0x265e `ori.b #$8,(a6)` can never set Z, beq $2670 never takes | dead |
 | boot-first 0x21e `jmp $2244` | boot corridor (a0=$1000(a6) set at 0x1d4) | TRUE first dispatch |
 
-Slots $2000..$20e0 and records $1000(a6) stride $20 are the same
-window at a6=$1000. Boot parks a0 on record 0 and jumps to MID.
+Slots $2000(a6)..$20e0(a6) live at absolute $3000 (v0792 measured
+A6=$1000, never reassigned); records $1000(a6) stride $20 live at
+absolute $2000. CORRECTION (v0815): the first revision of this
+note said slots and records share one window — wrong. Same $20
+stride, different bases. Boot parks a0 on the $2000 record base
+and jumps to MID; L2 parks a2 on a $3000 slot. Whether production
+ever parks a0 on a slot (the a0==a2 hypothesis) is open — see S1/S4
+in audio_advance_v0815.
 
 ## The flag coupling (v0811 mechanism found)
 

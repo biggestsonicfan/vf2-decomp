@@ -32,11 +32,13 @@ static int failures;
  *    never set Z, so beq $2670 never takes; the loop only advances
  *    (a0 += $20) and re-enters at MID with preempted a0.
  *  - boot sets a0 = $1000(a6) (record base) at 0x1d4 and jumps to
- *    MID at 0x21e: the TRUE first dispatch. Slots $2000..$20e0 and
- *    records $1000(a6) stride $20 are the same window (a6=$1000).
+ *    MID at 0x21e: the TRUE first dispatch. Walk records $1000(a6) stride
+ *    records $1000(a6) stride $20 are the same stride, different bases ($2000 records vs $3000 slots, v0792).
  *
  * These are stepper-only path proofs: real ROM, pinned steps, exact
- * register/RAM effects. a2 parks on the slot ($2000), a3/a4 on clean
+ * register/RAM effects. a2 parks on a slot-shaped window (abs $2000;
+production slots live at abs $3000 per v0792 — the prescaler legs
+are base-independent mechanics; S3 uses $3000). a3/a4 on clean
  * scratch; silicon preemption dependence is stated open.
  */
 
