@@ -936,6 +936,9 @@ if(VF2_BUILD_TESTS)
             vf2_phase_2_5_refused_audit
             PROPERTIES TIMEOUT 900
         )
+        # Skips (exit 77) when the gitignored ROM-backed trace corpus is absent.
+        set_tests_properties(vf2_python_factory_p1_real_trace_demo
+                             PROPERTIES SKIP_RETURN_CODE 77)
     else()
         message(STATUS
             "Python3 not found; skipping vf2_python_factory_* ctest wiring")

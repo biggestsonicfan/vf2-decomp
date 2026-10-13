@@ -31,23 +31,25 @@ Run standalone:
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEMO = ROOT / "tools" / "python" / "p1_real_trace_demo.py"
+SKIP_EXIT_CODE = 77  # matches SKIP_RETURN_CODE in CMakeLists.txt
 
 
 def test_p1_real_trace_demo_reproduces_block():
     """Run the real-trace demo and assert it exits 0 with PASS."""
-    if not shutil.which("python"):
-        raise SystemExit("python not on PATH")
     proc = subprocess.run(
-        ["python", str(DEMO)],
+        [sys.executable, str(DEMO)],
         capture_output=True, text=True, timeout=60,
     )
+    if proc.returncode == 0 and proc.stdout.lstrip().startswith("skip:"):
+        # The ROM-backed corpus is gitignored; CTest maps 77 to "skipped".
+        print(proc.stdout.strip())
+        raise SystemExit(SKIP_EXIT_CODE)
     assert proc.returncode == 0, (
         f"p1_real_trace_demo failed: rc={proc.returncode}\n"
         f"stdout:\n{proc.stdout[:4000]}\n"
