@@ -983,9 +983,9 @@ static vf2_status sound_board_dispatch_e0(
     report->signed_value = (int16_t)result;
     report->handler_address = UINT32_C(0x000012b6);
 
-    /* ROM bcc on channel >= 9 falls into the B0 primer, whose table
-       byte 0 is 0x00 on all 16 tables (measured): B0-default rts.
-       Benign; the early return stands on that evidence. */
+    /* ROM bcc on channel >= 9 exits via rts at 0x13c8 (stepper leg
+       e0-gate @34 steps). Benign; the early return stands on that
+       evidence. */
     if (channel >= 9u) {
         return VF2_OK;
     }
@@ -1074,10 +1074,13 @@ vf2_status vf2_sound_board_dispatch_next(
             continue;
         }
         ++local.descriptors_matched;
-        /* The ROM class switch (0x81a) has no ignore arm: any class
-           other than 0x80/0xa0/0xb0/0xc0/0xe0 falls through into the
-           0x90 head at 0x858 (bne.w to 0x858).  There is no
-           fail-closed class gate in the original. */
+        /* DIVERGENCE (v0819): under the +2 PC-relative base the ROM
+           switch's fall-through lands on rts at 0x856 (byte-verified
+           4e 75; stepper leg switch-00 @14 steps): unlisted classes
+           are ignored with no effects and no consume. The C default
+           arm below (->dispatch_90 + cursor/count consume) does not
+           match ROM. Fix deferred to the ring-consumer mapping (S7b);
+           the 0x90 arm itself stays for the listed $90 class. */
         if (local.command_class == 0x80u) {
             vf2_status status = sound_board_dispatch_80(
                 board, descriptor, local.command, local.payload, &local

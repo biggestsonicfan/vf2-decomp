@@ -463,11 +463,17 @@ vf2_status vf2_m68k_decode(
         }
         instruction->length = (immediate_bit ? 4u : 2u) + extension_bytes;
         if (status == VF2_OK) {
+            /* Static bit number: Dn destinations test imm&31, memory
+               destinations imm&7 (silicon). The old print used &7 for
+               both, misreporting e.g. ROM 0x12ce btst #8,d2 as #0. */
+            unsigned printed_bit = immediate_bit ?
+                (mode == 0u ? (unsigned)(bit_number & 31u) :
+                              (unsigned)(bit_number & 7u)) :
+                bit_number;
             (void)snprintf(instruction->text, sizeof(instruction->text),
                            "%s %s%u,%s", bit_operations[operation],
                            immediate_bit ? "#" : "d",
-                           (unsigned)(immediate_bit ? bit_number & 7u :
-                                      bit_number), ea_text);
+                           printed_bit, ea_text);
         } else if (status == VF2_ERROR_UNSUPPORTED) {
             instruction->supported = 0;
             status = VF2_OK;

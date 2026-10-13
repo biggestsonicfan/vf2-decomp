@@ -330,6 +330,10 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_m68k_dispatch_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_dispatch_tests)
 
+    add_executable(vf2_m68k_cdispatch_tests tests/m68k/test_cdispatch.c)
+    target_link_libraries(vf2_m68k_cdispatch_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_cdispatch_tests)
+
     add_executable(vf2_m68k_snapshot_tests tests/m68k/test_snapshot.c)
     target_link_libraries(vf2_m68k_snapshot_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_snapshot_tests)
@@ -778,6 +782,7 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_loopb_probe COMMAND vf2_m68k_loopb_probe_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_midi_probe COMMAND vf2_m68k_midi_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_dispatch_probe COMMAND vf2_m68k_dispatch_tests "${VF2_ROM_DIR}")
+        add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_snapshot_differential COMMAND vf2_m68k_snapshot_tests "${VF2_ROM_DIR}")
         # These two pins were measured with the +4 PC-relative base bug
         # (see decomp/i960/notes/audio_pcrel_base_reaudit.md). With the

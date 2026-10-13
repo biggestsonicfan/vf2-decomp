@@ -155,6 +155,16 @@ int main(void)
         0x42, 0x00  /* Synthetic shape: clr.b d0. The old printer said
                        clr.l here (size letter bug). */
     };
+    static const uint8_t btst8_dn[] = {
+        0x08, 0x02, 0x00, 0x08  /* 0x12ce ROM bytes: btst #8,d2 (the
+                                   e0-head sign test). Was misprinted
+                                   #0 (3-bit mask on a Dn form). */
+    };
+    static const uint8_t btst7_mem[] = {
+        0x08, 0x2d, 0x00, 0x07, 0x04, 0x09  /* 0x227c ROM bytes:
+                                               btst #7,$0409(a5).
+                                               Memory mask path. */
+    };
     static const uint8_t moveb_an_illegal[] = {
         0x15, 0x08, 0x02, 0x80  /* 0x7bc ROM bytes: move.b a0,d16(a2):
                                    byte-size An source is illegal on
@@ -219,6 +229,17 @@ int main(void)
     EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(instruction.supported != 0);
     EXPECT_TRUE(strcmp(instruction.text, "clr.b d0") == 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(btst8_dn, sizeof(btst8_dn),
+                                0u, &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.length == 4u);
+    EXPECT_TRUE(instruction.supported != 0);
+    EXPECT_TRUE(strcmp(instruction.text, "btst #8,d2") == 0);
+
+    EXPECT_TRUE(vf2_m68k_decode(btst7_mem, sizeof(btst7_mem),
+                                0u, &instruction) == VF2_OK);
+    EXPECT_TRUE(instruction.supported != 0);
+    EXPECT_TRUE(strcmp(instruction.text, "btst #7,$0409(a5)") == 0);
 
     EXPECT_TRUE(vf2_m68k_decode(moveb_an_illegal, sizeof(moveb_an_illegal),
                                 0u, &instruction) == VF2_OK);
