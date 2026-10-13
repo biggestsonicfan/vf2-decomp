@@ -109,10 +109,6 @@ static uint8_t read_u8(vf2_model2a *m, uint32_t addr) {
     return v;
 }
 
-static void write_u16_le(vf2_model2a *m, uint32_t addr, uint16_t v) {
-    CHECK(vf2_model2a_write(m, addr, &v, 2) == VF2_OK);
-}
-
 static uint16_t read_u16_le(vf2_model2a *m, uint32_t addr) {
     uint16_t v = 0;
     CHECK(vf2_model2a_read(m, addr, &v, 2) == VF2_OK);
@@ -124,58 +120,6 @@ static uint16_t read_u16_le(vf2_model2a *m, uint32_t addr) {
  * success and sets *out_state_64, *out_bit20_state, *out_50a000,
  * *out_50a004, *out_status, *out_cpu_ip; or returns 0 if the
  * function did not refuse. */
-static int run_one_path(
-    uint8_t p1_type,
-    uint8_t p2_type,
-    uint32_t pre_500068,
-    uint8_t pre_500064,
-    uint8_t pre_50004c,
-    uint8_t *out_state_64,
-    uint32_t *out_500068,
-    uint32_t *out_50a000,
-    uint32_t *out_50a004,
-    uint16_t *out_501018,
-    vf2_status *out_status,
-    uint32_t *out_cpu_ip
-) {
-    vf2_model2a machine;
-    vf2_i960_cpu cpu;
-
-    if (vf2_model2a_initialize(&machine) == 0) return 0;
-    if (machine.work_ram == NULL) {
-        vf2_model2a_shutdown(&machine);
-        return 0;
-    }
-
-    /* Set the fighter base pointers. */
-    write_u32_le(&machine, P1_PTR, P1_BASE);
-    write_u32_le(&machine, P2_PTR, P2_BASE);
-
-    /* Set the fighter types at +0x1b1. */
-    write_u8(&machine, P1_BASE + FIGHTER_TYPE_OFFSET, p1_type);
-    write_u8(&machine, P2_BASE + FIGHTER_TYPE_OFFSET, p2_type);
-
-    /* Set up the pre-existing state. */
-    write_u32_le(&machine, UINT32_C(0x00500068), pre_500068);
-    write_u8(&machine, UINT32_C(0x00500064), pre_500064);
-    write_u8(&machine, UINT32_C(0x0050004c), pre_50004c);
-
-    vf2_i960_cpu_reset(&cpu, 0u, 0u, ENTRY_IP);
-    CHECK(vf2_i960_cpu_enter_procedure(
-        &cpu, ENTRY_IP, REFUSE_IP) == VF2_OK);
-
-    *out_status = vf2_hybrid_player_1fcc0_execute(&machine, &cpu);
-    *out_cpu_ip = cpu.ip;
-    *out_state_64 = read_u8(&machine, UINT32_C(0x00500064));
-    *out_500068 = read_u32_le(&machine, UINT32_C(0x00500068));
-    *out_50a000 = read_u32_le(&machine, UINT32_C(0x0050a000));
-    *out_50a004 = read_u32_le(&machine, UINT32_C(0x0050a004));
-    *out_501018 = read_u16_le(&machine, UINT32_C(0x00501018));
-
-    vf2_model2a_shutdown(&machine);
-    return 1;
-}
-
 /* Verify that the inlined 0x1fee4 left the 26 1.0 floats.
  * 0x50a0e0..0x50a144 inclusive = 27 words of 1.0 = 0x3f800000. */
 static void verify_init_floats(vf2_model2a *m) {

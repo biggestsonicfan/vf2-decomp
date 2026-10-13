@@ -357,7 +357,7 @@ static void test_e0_tail(
             (uint16_t)(((uint16_t)audio_rom[slot_off] << 8u) |
                        audio_rom[slot_off + 1u]);
         uint16_t shaped =
-            (uint16_t)(((((uint16_t)(vs[3] & 0xf0u)) << 7u) + picker) &
+            (uint16_t)((((uint32_t)(vs[3] & 0xf0u) << 7u) + (uint32_t)picker) &
                        0x7bffu);
         uint16_t c_word = (uint16_t)(((uint16_t)board_c.scsp.registers[0x30]
                                       << 8u) |

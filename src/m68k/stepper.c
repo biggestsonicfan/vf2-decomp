@@ -24,6 +24,13 @@ void vf2_m68k_regs_reset(vf2_m68k_regs *regs)
     regs->c = 0u;
 }
 
+/* Sign-extend a 16-bit extension word to 32 bits using unsigned arithmetic only
+ * (keeps -Wsign-conversion quiet on gcc 13 without changing the value). */
+static uint32_t sext16(uint32_t v)
+{
+    return ((v & UINT32_C(0xffff)) ^ UINT32_C(0x8000)) - UINT32_C(0x8000);
+}
+
 static vf2_status rom_u16(
     const vf2_m68k_bus *bus,
     uint32_t address,
@@ -418,7 +425,7 @@ static vf2_status ea_param_addr(
         *off += 2u;
     }
     if (mode == 5u) {
-        *address = regs->a[reg] + (uint32_t)(int32_t)(int16_t)ext;
+        *address = regs->a[reg] + sext16(ext);
         return VF2_OK;
     }
     if (mode == 6u) {
@@ -437,7 +444,7 @@ static vf2_status ea_param_addr(
         return VF2_OK;
     }
     if (mode == 7u && reg == 0u) {
-        *address = (uint32_t)(int32_t)(int16_t)ext;
+        *address = sext16(ext);
         return VF2_OK;
     }
     if (mode == 7u && reg == 1u) {
@@ -455,7 +462,7 @@ static vf2_status ea_param_addr(
     if (mode == 7u && reg == 2u) {
         /* PC + displacement: base is the address of the ext word. */
         uint32_t base = pc + (uint32_t)*off - 2u;
-        *address = base + (uint32_t)(int32_t)(int16_t)ext;
+        *address = base + sext16(ext);
         return VF2_OK;
     }
     if (mode == 7u && reg == 3u) {
@@ -1605,7 +1612,7 @@ static vf2_status step_jsr_jmp(
         }
         *off += 2u;
         /* Motorola base: the address of the ext word (opcode + 2). */
-        target = pc + 2u + (uint32_t)(int32_t)(int16_t)ext;
+        target = pc + 2u + sext16(ext);
     } else if ((opcode & UINT16_C(0xfff8)) == UINT16_C(0x4e90) ||
                (opcode & UINT16_C(0xfff8)) == UINT16_C(0x4ed0)) {
         target = regs->a[opcode & 7u];

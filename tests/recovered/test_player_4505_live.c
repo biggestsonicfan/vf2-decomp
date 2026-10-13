@@ -360,6 +360,7 @@ static void run_rom_case(
     snap_calls = snap.cpu.procedure_calls;
     snap_returns = snap.cpu.procedure_returns;
     registry = native_cpu.registers[29];
+    (void)registry;
 
     /* Reference: step the real corridor to its return. */
     reference_instructions = reference_cpu.executed_instructions;

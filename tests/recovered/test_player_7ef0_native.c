@@ -42,9 +42,6 @@ static int failures = 0;
         }                                                           \
     } while (0)
 
-static void write_u32_le(vf2_model2a *m, uint32_t addr, uint32_t v) {
-    CHECK(vf2_model2a_write_u32(m, addr, v) == VF2_OK);
-}
 static uint32_t read_u32_le(vf2_model2a *m, uint32_t addr) {
     uint32_t v = 0;
     CHECK(vf2_model2a_read_u32(m, addr, &v) == VF2_OK);

@@ -5518,6 +5518,7 @@ static vf2_status execute_frame_phase17_bit7_index4(
          * (gate does reads only); the exit pins below do not apply. */
         test_edit_g1 = cpu->registers[VF2_I960_G0_REGISTER + 1u];
         test_edit_g2 = cpu->registers[VF2_I960_G0_REGISTER + 2u];
+        (void)test_edit_g2;
         test_edit_g6 = cpu->registers[VF2_I960_G0_REGISTER + 6u];
     }
     /* Post-DOWN release frame on cursor 1 (measured from the 0x9ff8

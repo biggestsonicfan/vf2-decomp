@@ -151,7 +151,7 @@ static void run_scenario(vf2_model2a *machine, vf2_i960_cpu *cpu,
         uint32_t past_addr = DEST_BASE + total_bytes * 4u;
         CHECK(vf2_model2a_read_u32(machine, past_addr, &past_value) == VF2_OK);
         uint32_t expected_sentinel = UINT32_C(0xAABB0000) |
-            ((total_bytes / INNER_COUNT) * INNER_COUNT) & UINT32_C(0xffff);
+            (((total_bytes / INNER_COUNT) * INNER_COUNT) & UINT32_C(0xffff));
         if (past_value != expected_sentinel) {
             fprintf(stderr,
                     "FAILED: luma past-end = 0x%08x, expected sentinel 0x%08x\n",

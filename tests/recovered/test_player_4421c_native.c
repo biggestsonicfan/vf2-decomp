@@ -46,9 +46,6 @@ static uint32_t read_u32_le(vf2_model2a *m, uint32_t addr) {
     CHECK(vf2_model2a_read_u32(m, addr, &v) == VF2_OK);
     return v;
 }
-static void write_u8(vf2_model2a *m, uint32_t addr, uint8_t v) {
-    CHECK(vf2_model2a_write(m, addr, &v, 1) == VF2_OK);
-}
 static uint8_t read_u8(vf2_model2a *m, uint32_t addr) {
     uint8_t v = 0;
     CHECK(vf2_model2a_read(m, addr, &v, 1) == VF2_OK);

@@ -59,9 +59,6 @@ static int failures = 0;
 static void put_u8(vf2_model2a *m, uint32_t a, uint8_t v) {
     CHECK(vf2_model2a_write(m, a, &v, sizeof(v)) == VF2_OK);
 }
-static void put_u16(vf2_model2a *m, uint32_t a, uint16_t v) {
-    CHECK(vf2_model2a_write(m, a, &v, sizeof(v)) == VF2_OK);
-}
 static uint16_t get_u16(vf2_model2a *m, uint32_t a) {
     uint16_t v = 0u;
     CHECK(vf2_model2a_read(m, a, &v, sizeof(v)) == VF2_OK);
