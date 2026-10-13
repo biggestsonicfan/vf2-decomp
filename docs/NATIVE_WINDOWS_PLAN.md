@@ -105,6 +105,36 @@ Exit
 
 ## Phase 2 - Cold boot (no snapshot)
 
+Status (2026-10-13), step 1 measured:
+
+- From reset the oracle reaches the first frame-wait loop at `0x0004afdc`
+  after 2,985,240 instructions, and then spins there because nothing injects
+  the frame IRQ (it needs the host clock).
+- `vf2i960 native-sixth-dispatch <roms> <out.vf2snap>` goes from reset to the
+  sixth dispatch with `Final CPU and memory state: MATCH` in about 6 s
+  (7,404,901 repeated-frame instructions compared). `scripts/cold_snapshot.*`
+  wraps it, so a start state needs only the ROM.
+- `vf2 --native-snapshot` (and any session) refuses that state, and every other
+  state, with "unsupported operation" because `vf2_sound_board_initialize`
+  fails closed on the real audio ROM: the boot upload row at `0x608df0` is
+  `0x00010060`, below the 68000 ROM window, so the helper returns
+  UNSUPPORTED (`src/hardware/sound_board.c`, row read). It also fails at
+  `6a57654d`, before the PC-relative fix. The host now treats that as "run
+  silent" and reports it; video no longer depends on it.
+- From that state 300 frames run with no error, but they draw nothing
+  (`triangles=0`, black frame): the corridor is boot, not yet the attract loop.
+  Steps 2 and 3 below are what remains.
+- Reference (MAME, same ROM, from reset): the attract mode draws 3D scenes by
+  frame 300 (character on a courtyard, "INSERT COIN(S)", "CREDIT 0/2"), so the
+  black native frame is a real gap, not the expected boot screen. `0x508000`
+  is rewritten every frame from frame ~25 (`0x8a00`) and becomes `0x18a00` at
+  frame ~800. `base+0x3350/0x3351` stay 0 during the whole attract, so they
+  are not a progress indicator.
+- Half of the exit criterion is met: `scripts/frame_gate.sh <roms>` runs 3,600
+  frames from the cold snapshot with no error and identical work-RAM digests
+  every 60 frames across two runs (`vf2_host --digest 60 --fast`). Still open:
+  the native-versus-oracle digest at every 60th frame, and a picture.
+
 Goal: `vf2_host --rom-dir D` runs from the reset vector to the attract loop.
 
 Work
