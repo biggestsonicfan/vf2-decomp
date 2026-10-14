@@ -167,6 +167,19 @@ the model location in the polygon ROM. What still needs the reference: the
 control-word / attribute bitfield meanings (triangle vs strip, texture/colour
 id) and the transform/projection output.
 
+### Lead: the ram9 (buffer-RAM) stream as a candidate output
+
+The capture's 4th stream, `ram9` (buffer RAM, 345 writes, mostly at
+`0x0090e000+` plus `0x00908ec0`/`0x00909d64`/`0x0090a148`), is NOT pure input:
+it mixes signed-16-bit-looking words (`ffffcbe7`, `00004000`, `ffff9e1d`) with
+IEEE floats (`41400000`=12.0, `c1400000`=-12.0, `3f9851ec`), with recurring
+`0x4000` constants. This has the shape of a display list / post-processing
+buffer the i960 builds (possibly holding transformed/clip data), i.e. a
+candidate *output-side* artifact rather than model input. If it is the
+transform output, aligning it with a MAME transform dump would both pin the
+matrix element order and the ram9 format at once; on its own its format is
+unresolved, so it is recorded as a lead, not a result.
+
 ## What is needed to validate
 
 A MAME **reference triangle list** (or the rendered image) for the same frame(s)
