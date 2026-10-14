@@ -80,6 +80,27 @@ static void test_font(const char *rom_dir)
         }
     }
 
+    /* Row renderer: "SEGA" must blit each cell equal to that char's glyph. */
+    {
+        static const uint16_t sega[4] = {
+            0x8053u, 0x8045u, 0x8047u, 0x8041u /* bank 0x80 | S,E,G,A */
+        };
+        uint8_t row[4u * VF2_TILE_GLYPH_W * VF2_TILE_GLYPH_H];
+        uint8_t glyph[VF2_TILE_GLYPH_PIXELS];
+        size_t col, x, y;
+        CHECK(vf2_tile_render_row(main_data, size, sega, 4u, row) == VF2_OK);
+        for (col = 0u; col < 4u; ++col) {
+            CHECK(vf2_tile_font_glyph(main_data, size,
+                                      (uint8_t)(sega[col] & 0xffu), glyph) == VF2_OK);
+            for (y = 0u; y < VF2_TILE_GLYPH_H; ++y) {
+                for (x = 0u; x < VF2_TILE_GLYPH_W; ++x) {
+                    CHECK(row[y * (4u * VF2_TILE_GLYPH_W) + col * VF2_TILE_GLYPH_W + x]
+                          == glyph[y * VF2_TILE_GLYPH_W + x]);
+                }
+            }
+        }
+    }
+
     free(main_data);
 }
 

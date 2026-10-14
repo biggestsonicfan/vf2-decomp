@@ -35,4 +35,19 @@ vf2_status vf2_tile_font_glyph(
 uint8_t vf2_tile_name_char(uint16_t entry);
 uint8_t vf2_tile_name_bank(uint16_t entry);
 
+/* Render a row of `cols` name-table entries into out, a (cols*8) x 8 buffer of
+ * 4-bit glyph indices, row-major (row-major over the whole strip: index
+ * out[y*(cols*8) + col*8 + x]). Each cell blits the 8x8 font glyph for the
+ * entry's character. Returns VF2_OK, or VF2_ERROR_OUT_OF_BOUNDS on null/short
+ * arguments. This is the tile-layer pixel-index plane, before palette lookup;
+ * it is validatable in-tree by self-consistency (each cell equals the font
+ * glyph for its character). */
+vf2_status vf2_tile_render_row(
+    const uint8_t *main_data,
+    size_t main_data_size,
+    const uint16_t *entries,
+    size_t cols,
+    uint8_t *out
+);
+
 #endif

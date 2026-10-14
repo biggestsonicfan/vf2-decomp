@@ -37,3 +37,37 @@ uint8_t vf2_tile_name_bank(uint16_t entry)
 {
     return (uint8_t)(entry >> 8u);
 }
+
+vf2_status vf2_tile_render_row(
+    const uint8_t *main_data,
+    size_t main_data_size,
+    const uint16_t *entries,
+    size_t cols,
+    uint8_t *out
+)
+{
+    const size_t stride = cols * VF2_TILE_GLYPH_W;
+    size_t col = 0u;
+
+    if (main_data == NULL || entries == NULL || out == NULL || cols == 0u) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (col = 0u; col < cols; ++col) {
+        uint8_t glyph[VF2_TILE_GLYPH_PIXELS];
+        size_t y = 0u;
+        const vf2_status status = vf2_tile_font_glyph(
+            main_data, main_data_size, vf2_tile_name_char(entries[col]), glyph
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        for (y = 0u; y < VF2_TILE_GLYPH_H; ++y) {
+            size_t x = 0u;
+            for (x = 0u; x < VF2_TILE_GLYPH_W; ++x) {
+                out[y * stride + col * VF2_TILE_GLYPH_W + x] =
+                    glyph[y * VF2_TILE_GLYPH_W + x];
+            }
+        }
+    }
+    return VF2_OK;
+}
