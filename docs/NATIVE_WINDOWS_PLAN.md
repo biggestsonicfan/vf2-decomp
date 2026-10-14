@@ -322,6 +322,41 @@ Exit: for 100 captured frames spanning menus and fights, the native pipeline's
 triangle lists equal the reference lists (count, vertices to 1/16 pixel,
 texture and colour ids).
 
+G2 - DECIDED 2026-10-14: Option 1 (native-from-FIFO) was chosen, then
+reconsidered to **Option 2 (lift the TGP microcode)** after the evidence below.
+
+Status (2026-10-14): **blocked — the geometry coprocessor is never exercised in
+any reachable state, so neither option has evidence or microcode to build
+from.** Verified four independent ways:
+
+1. The `copro_data` ROM region is empty (no files map to it in the romset
+   manifest; 0 nonzero bytes). Model 2A uploads the TGP program from host data
+   at boot, so the microcode only exists in a running machine, never as a ROM.
+2. Pure i960 interpreter from reset, 30M steps, halts spinning at `0x0004aff8`
+   with `geometry_program_count == 0` — the reachable boot never uploads a TGP
+   program.
+3. The recovered native runtime to the sixth-dispatch checkpoint (the cold
+   snapshot) has `geometry_program_count == 0` and a zero program buffer.
+4. Frame-advancing the post-boot snapshot for 1200 frames while injecting
+   coin + start returns the CPU to the vblank handler (`0x00000bc0`) every
+   frame with `geometry_program_count == 0`: the attract loop does not advance
+   and the TGP is never uploaded regardless of input (it does not poll coin).
+
+Consistent with the recovery notes (`matrix_ports_p2_v0377.md` `absent`;
+`tgp_w2_consumption_v0378.md` "unproven — this is the gap"): the reachable
+i960 bus carries only object pointers and copro protocol immediates, never a
+matrix/focus/vertex stream, and the function/upload ports (`0x880000`,
+`0x980000`) see zero writes.
+
+**Prerequisite for Phase 6 (either option):** advance the i960 past the attract
+loop into the self-running 3D demo or into gameplay, so the game uploads the TGP
+program and submits real geometry. That is Phase 5 / deep i960 recovery
+(understanding what the attract state machine waits on), or an external
+reference (a MAME Model 2 run) to both supply TGP behaviour and drive the game
+to a 3D frame. Until then Phase 6, Phase 5's match validation, the Phase 3
+coin/select/match sessions and Phase 4's full-session exit all share this one
+blocker.
+
 ## Phase 7 - Video and the Vulkan/SDL_GPU renderer
 
 Work
