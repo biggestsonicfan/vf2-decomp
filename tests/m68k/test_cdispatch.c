@@ -1053,7 +1053,7 @@ static void test_drain_90_gate(
  *   (self-rebalance: the arm sets 5, the rebalance loop
  *   decrements every 0xff-aged voice including itself), $152e
  *   5->4. S3b rolls this leg forward: the armed voice is authored
- *   through the HIGH arm to the 0xc1e door (stop/door/steps
+ *   through the HIGH arm to the 0xc68 engine door (stop/door/steps
  *   updated; voice/SCSP coverage lives in the a8c-hi leg).
  * - "setup": $150e ch 0xf (cmd 0x9f, desc[1] 0x0f) -> 0x9a2
  *   branch on $1515 (door 0x9ba if b6/b8 else 0xf12).
@@ -1403,7 +1403,7 @@ static void test_a8c_high(
             (unsigned)cram[VF2_SOUND_SHARED_COUNTER_152E],
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(creport.handler_address == UINT32_C(0xc1e));
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xc68));
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
     EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
 
@@ -1422,7 +1422,7 @@ static void test_a8c_high(
     regs.a[7] = UINT32_C(0x7f00);
     regs.pc = UINT32_C(0x7a6);
     step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xc1e), 0, 20000u,
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xc68), 0, 20000u,
                           &done);
     fprintf(stderr, "dispatch a8c-hi: s-status=%d pc=0x%05x steps=%u events=%u v0=%02x/%02x/%02x/%02x/%02x/%02x 2e=%02x\n",
             (int)status, (unsigned)regs.pc, (unsigned)done,
@@ -1432,8 +1432,8 @@ static void test_a8c_high(
             (unsigned)step_ram[0x2806u], (unsigned)step_ram[0x2808u],
             (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_152E]);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0xc1e));
-    EXPECT_TRUE(done == 294u);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xc68));
+    EXPECT_TRUE(done == 304u);
     EXPECT_TRUE(bus.event_count == 0u);
     for (i = 0u; i < VF2_SOUND_VOICE_BYTES; ++i) {
         if (cram[VF2_SOUND_VOICE_TABLE_BASE + i] !=
@@ -1468,7 +1468,7 @@ static void test_a8c_high(
         EXPECT_TRUE(c10 == s10);
     }
     /* The jsr's d2 (row-table word, discarded by the HIGH caller --
-       no d2 write between the rts and 0xc1e) is pinned against the
+       no d2 write between the rts and 0xc68) is pinned against the
        report's lookup word: the whole subroutine is proven. */
     fprintf(stderr, "dispatch a8c-hi: d2 C=%04x S=%04x\n",
             (unsigned)creport.lookup_word, (unsigned)regs.d[2]);
@@ -1480,7 +1480,7 @@ static void test_a8c_high(
  * bodies). Entry: pc 0xa8c, a0 = descriptor, a1 = voice, a5/a6/a7
  * standard; every d-reg and a2/a3 seeded with garbage
  * (residue-independence: each is written before read on both
- * branches -- a leak fails C==S). Run to the 0xc1e door. C:
+ * branches -- a leak fails C==S). Run to the 0xc68 door. C:
  * vf2_sound_board_setup_author(board, 0, 0). Compared: full
  * voice0 record, $151e/$152e, SCSP equal + lanes, lookup_word vs
  * live d2, zero events.
@@ -1537,8 +1537,8 @@ static void test_a8c_synth(
     cram[VF2_SOUND_LOOKUP_CONTROL] = 0x05u;
     cram[VF2_SOUND_LOOKUP_WORD_ALT] = 0xe0u;
     cram[VF2_SOUND_LOOKUP_WORD_ALT + 1u] = 0x03u;
-    cram[VF2_SOUND_LOOKUP_WORD] = 0x12u;
-    cram[VF2_SOUND_LOOKUP_WORD + 1u] = 0x34u;
+    cram[VF2_SOUND_LOOKUP_WORD] = 0x00u;
+    cram[VF2_SOUND_LOOKUP_WORD + 1u] = 0x40u;
     cram[VF2_SOUND_LOOKUP_BYTE] = 0x41u;
     cram[VF2_SOUND_LOOKUP_RELEASE] = 0x09u;
     cram[VF2_SOUND_CURRENT_COMMAND] = low ? 0x93u : 0x9fu;
@@ -1567,7 +1567,7 @@ static void test_a8c_synth(
             (unsigned)cram[VF2_SOUND_SHARED_COUNTER_151E],
             (unsigned)cram[VF2_SOUND_SHARED_COUNTER_152E]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(creport.handler_address == UINT32_C(0xc1e));
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xc68));
 
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -1590,7 +1590,7 @@ static void test_a8c_synth(
     regs.a[6] = UINT32_C(0x1000);
     regs.a[7] = UINT32_C(0x7f00);
     regs.pc = UINT32_C(0xa8c);
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xc1e), 0, 20000u,
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xc68), 0, 20000u,
                           &done);
     fprintf(stderr, "dispatch a8c-syn-%s: s-status=%d pc=0x%05x steps=%u events=%u d2=%04x v0=%02x/%02x/%02x/%02x/%02x/%02x/%02x/%02x 1e=%02x 2e=%02x\n",
             tag, (int)status, (unsigned)regs.pc, (unsigned)done,
@@ -1602,8 +1602,8 @@ static void test_a8c_synth(
             (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_151E],
             (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_152E]);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0xc1e));
-    EXPECT_TRUE(done == (low ? 84u : 75u));
+    EXPECT_TRUE(regs.pc == UINT32_C(0xc68));
+    EXPECT_TRUE(done == (low ? 94u : 85u));
     EXPECT_TRUE(bus.event_count == 0u);
     for (i = 0u; i < VF2_SOUND_VOICE_BYTES; ++i) {
         if (cram[VF2_SOUND_VOICE_TABLE_BASE + i] !=
@@ -1629,6 +1629,206 @@ static void test_a8c_synth(
         EXPECT_TRUE(level == 0u);
     }
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
+/* S4: production-shape chain differential (ROM-driven control).
+ *
+ * Board: real init (0x80000 audio ROM + 3MB zero sample window --
+ * zeros read fine; timbre pending), real boot descriptors
+ * UNTOUCHED, one voice minimally staged for arming (+9 = 0xff;
+ * slot/words from init), $152e = 5. Packet: ch = first channel
+ * whose lowest matching descriptor is HIGH-capable (byte-match
+ * + desc[2] >= 0xf0, scanned from the real images); payload =
+ * first 0..31 passing the 0x8a6 gate (trial on memcpy'd boards
+ * -- the table is real). Stepper: identical RAM image from the
+ * drain 0x7a6 to the 0xc68 engine door. Compared: FULL 512KB
+ * RAM except the drain-epilogue cursor (2B, C advanced / S
+ * hasn't) and the stack residue window [0x7e00,0x8000) (C never
+ * touches the stack; S sits mid-call) + full SCSP + zero bus
+ * events. The $5000 sample table and $1516/rate bytes are REAL
+ * upload/table data here (not zeros) -- this leg proves the
+ * composed chain on production bytes. */
+static void test_chain_production(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    static uint8_t sample_window[0x300000u];
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *voice0 = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+
+    memset(&board, 0, sizeof(board));
+    memset(sample_window, 0, sizeof(sample_window));
+    memset(step_ram, 0, sizeof(step_ram));
+    if (vf2_sound_board_initialize(&board, audio_rom, audio_rom_size,
+                                   sample_window,
+                                   sizeof(sample_window)) != VF2_OK) {
+        fprintf(stderr, "chain: real init failed\n");
+        EXPECT_TRUE(0);
+        return;
+    }
+    cram = board.sound_ram;
+    /* Pinned production route (one-off survey found 64 door-hits
+       across real descs 10,11,13-18; desc10/ch10/payload0 is the
+       first): real boot images, real tables, real $5000 upload.
+       Packet {0x9a, 0, 1}. */
+    {
+        uint8_t packet[4];
+        packet[0] = 0x9au;
+        packet[1] = 0u;
+        packet[2] = 1u;
+        packet[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    /* Minimal arming stage: voice0 +9 (slot/words from init). */
+    voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[9] = 0xffu;
+    voice0[5] = 0x00u;
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "chain: c-status=%d handler=0x%05x count=%u\n",
+            (int)cstatus, (unsigned)creport.handler_address,
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xc68));
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = sample_window;
+    bus.sample_rom_size = sizeof(sample_window);
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xc68), 0, 20000u,
+                          &done);
+    fprintf(stderr, "chain: s-status=%d pc=0x%05x steps=%u events=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xc68));
+    EXPECT_TRUE(done == 365u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    {
+        /* Full-RAM sweep minus drain-epilogue cursor + stack. */
+        uint32_t addr = 0u;
+        for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+            /* Excluded by construction: count (C holds the refused
+               packet, the drain subq'd at entry), drain-epilogue
+               cursor (C advanced, S hasn't run the epilogue), stack
+               residue (C is stackless, S sits mid-call). */
+            if (addr == 0x2506u ||
+                (addr >= 0x2508u && addr < 0x250au) ||
+                addr >= 0x7e00u) {
+                continue;
+            }
+            if (cram[addr] != step_ram[addr]) {
+                fprintf(stderr, "chain: RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                        (unsigned)addr, (unsigned)cram[addr],
+                        (unsigned)step_ram[addr]);
+                EXPECT_TRUE(0);
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
+/* S4: chain render determinism + voice-count (C-only).
+ * Same production chain as test_chain_production (real init,
+ * packet 0x9a, staged arming): exactly one voice authored
+ * (+2 = 0x58 absolute: 0x40|0x10|0x08 HIGH ch!=0xf), $152e
+ * back to 5. Render 512 frames twice from snapshot-restored
+ * state: identical buffers (determinism gate). The zero sample
+ * window renders silence -- expected, not asserted; S4b owns
+ * audibility with real banks. */
+static void test_chain_render(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static vf2_sound_board board;
+    static vf2_sound_board snapshot;
+    static uint8_t sample_window[0x300000u];
+    static int16_t left_a[512u];
+    static int16_t right_a[512u];
+    static int16_t left_b[512u];
+    static int16_t right_b[512u];
+    vf2_sound_dispatch_report report;
+    uint8_t *ram = NULL;
+    uint8_t *voice0 = NULL;
+    size_t i = 0u;
+    size_t voiced = 0u;
+
+    memset(&board, 0, sizeof(board));
+    memset(sample_window, 0, sizeof(sample_window));
+    EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom,
+                                           audio_rom_size,
+                                           sample_window,
+                                           sizeof(sample_window)) ==
+                VF2_OK);
+    ram = board.sound_ram;
+    voice0 = ram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[9] = 0xffu;
+    voice0[5] = 0x00u;
+    ram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    {
+        const uint8_t packet[4] = {0x9au, 0u, 1u, 0u};
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    ram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    ram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) ==
+                VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(report.handler_address == UINT32_C(0xc68));
+    for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
+        if (ram[VF2_SOUND_VOICE_TABLE_BASE +
+                i * VF2_SOUND_VOICE_BYTES + 2u] != 0u) {
+            ++voiced;
+        }
+    }
+    fprintf(stderr, "chain-render: voiced=%u v0+2=%02x 2e=%02x\n",
+            (unsigned)voiced, (unsigned)voice0[2],
+            (unsigned)ram[VF2_SOUND_SHARED_COUNTER_152E]);
+    EXPECT_TRUE(voiced == 1u);
+    EXPECT_TRUE(voice0[2] == 0x58u);
+    EXPECT_TRUE(ram[VF2_SOUND_SHARED_COUNTER_152E] == 5u);
+    memcpy(&snapshot, &board, sizeof(snapshot));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left_a, right_a, 512u) ==
+                VF2_OK);
+    memcpy(&board, &snapshot, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left_b, right_b, 512u) ==
+                VF2_OK);
+    EXPECT_TRUE(memcmp(left_a, left_b, sizeof(left_a)) == 0);
+    EXPECT_TRUE(memcmp(right_a, right_b, sizeof(right_b)) == 0);
+    fprintf(stderr, "chain-render: determinism holds (frame0 L=%d R=%d)\n",
+            (int)left_a[0], (int)right_a[0]);
 }
 
 int main(int argc, char **argv)
@@ -1674,10 +1874,10 @@ int main(int argc, char **argv)
                      0x00u, UINT32_C(0xf12), UINT32_C(0xf12), 203u,
                      "miss");
     /* S2d Loop-B arm door rolled forward (S3b): the armed voice is
-       now authored through the HIGH arm to the 0xc1e door. Same
+       now authored through the HIGH arm to the 0xc68 door. Same
        fixture as the S3b leg but with zero volume fixtures. */
     test_drain_loopb(audio_rom, audio_rom_size, 0x93u, 0u, 5u, 0xffu,
-                     0x00u, UINT32_C(0xc1e), UINT32_C(0xc1e), 294u,
+                     0x00u, UINT32_C(0xc68), UINT32_C(0xc68), 304u,
                      "arm");
     test_drain_loopb(audio_rom, audio_rom_size, 0x9fu, 0u, 0u, 0x00u,
                      0x00u, UINT32_C(0xf12), UINT32_C(0xf12), 73u,
@@ -1696,6 +1896,8 @@ int main(int argc, char **argv)
     /* S3c synthetic entries (drain-unreachable bodies). */
     test_a8c_synth(audio_rom, audio_rom_size, 1, "low");
     test_a8c_synth(audio_rom, audio_rom_size, 0, "high-f");
+    test_chain_production(audio_rom, audio_rom_size);
+    test_chain_render(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);

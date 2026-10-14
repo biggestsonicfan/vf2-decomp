@@ -996,11 +996,12 @@ static vf2_status sound_board_voice_picker_1014(
     return VF2_OK;
 }
 
-/* Setup-authoring cluster (v0825 S3b/c): ROM 0xa8c arm. Shared
+/* Setup-authoring cluster (v0825 S3b/c/S4): ROM 0xa8c arm. Shared
    head (+2 seed, slot key, +6 word) in sound_board_setup_author_at,
-   then the HIGH / LOW branches below. Refuse at the 0xc1e common
-   tail (S3c door), packet held. Word/long SCSP stores need an even
-   slot (ROM address-error shape) -- fail closed odd. */
+   then the HIGH / LOW branches below, then the 0xc1e sample-tail.
+   Refuse at the 0xc68 playback-engine door (S4+), packet held.
+   Word/long SCSP stores need an even slot (ROM address-error
+   shape) -- fail closed odd. */
 /* Shared authoring volume math (v0825 S3b/c, ROM 0xafa/0xba0):
    d6 = ((voice8 * desc10) >> 8); low ~= ; low >>= 1;
    SCSP[slot+0x0d] = low. Pure bytes; the mulu.w/lsr.w word ops
@@ -1197,7 +1198,8 @@ static vf2_status sound_board_run_setup_author_high(
                            word) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    /* ROM 0xb56-0xb6e: +0x15 = $150d; +0x16 = ($1511&0x1f)|0x60. */
+    /* ROM 0xb56-0xb6e: +0x15 = $150d; +0x16 = ($1511&0x1f)|0x60.
+       Falls through to the 0xc1e tail (core runs it). */
     if (vf2_scsp_write_u8(&board->scsp, (uint32_t)slot + 0x15u,
                           ram[VF2_SOUND_LOOKUP_RELEASE]) != VF2_OK ||
         vf2_scsp_write_u8(
@@ -1206,8 +1208,7 @@ static vf2_status sound_board_run_setup_author_high(
                       0x60u)) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    report->handler_address = UINT32_C(0x00000c1e);
-    return VF2_ERROR_UNSUPPORTED;
+    return VF2_OK;
 }
 
 /* ROM 0xb76-0xc1a LOW branch (v0825 S3c, desc[2] < 0xf0; head done
@@ -1287,14 +1288,20 @@ static vf2_status sound_board_run_setup_author_low(
                       0x60u)) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    report->handler_address = UINT32_C(0x00000c1e);
-    return VF2_ERROR_UNSUPPORTED;
+    return VF2_OK;
 }
 
 /* ROM 0xa8c setup-authoring core (v0825 S3c): shared head (+2 =
    0x40, d4 = slot, SCSP[slot] = 0x10, +6 = $1516 word) then the
    0xaac split on desc[2]. The odd-slot guard covers the word/long
    SCSP stores on both branches. */
+static vf2_status sound_board_run_sample_tail(
+    vf2_sound_board *board,
+    const uint8_t *voice,
+    uint16_t slot,
+    vf2_sound_dispatch_report *report
+);
+
 static vf2_status sound_board_setup_author_at(
     vf2_sound_board *board,
     const uint8_t *descriptor,
@@ -1314,12 +1321,79 @@ static vf2_status sound_board_setup_author_at(
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
     write_be16(voice + 6u, read_be16(ram + VF2_SOUND_LOOKUP_WORD));
-    if (descriptor[2u] < 0xf0u) {
-        return sound_board_run_setup_author_low(
-            board, descriptor, voice, slot, report);
+    {
+        vf2_status branch_status = VF2_OK;
+
+        /* ROM 0xaac split; both branches fall through to the 0xc1e
+           tail (S4). */
+        if (descriptor[2u] < 0xf0u) {
+            branch_status = sound_board_run_setup_author_low(
+                board, descriptor, voice, slot, report);
+        } else {
+            branch_status = sound_board_run_setup_author_high(
+                board, descriptor, voice, slot, report);
+        }
+        if (branch_status != VF2_OK) {
+            return branch_status;
+        }
+        return sound_board_run_sample_tail(board, voice, slot, report);
     }
-    return sound_board_run_setup_author_high(
-        board, descriptor, voice, slot, report);
+}
+
+/* ROM 0xc1e sample-tail (v0825 S4, 10 insns): d3 = (voice+6 &
+   0x7ff) * 20 (mulu.w, 32-bit exact, always < 0x10000 so the
+   d3.w index is whole); SCSP[slot+8] = long($5000-table entry +
+   0x10) (the V2 uploader's stored/target words live there);
+   voice+0xb = ROM[0x600c48 + (byte(entry+0x13) & 0x1f)] (the
+   0x0c48+ rate table sits in the disassembler's data zone --
+   read as data, never executed). NOTE (v0825 S4a correction):
+   the absolute address is 0x600c48 (0x0c48 ROM offset); a first
+   draft wrote 0x60c448 (0xc448, an unrelated ramp zone) and the
+   stepper caught it (C=02 vs S=00 on zero tables, C=02 vs S=0x64
+   on a staged index). Count hex digits against the print.
+   Refuses at the 0xc68 playback engine (S4+ door), packet held.
+   d3 arithmetic cannot leave the 512KB RAM (max 0x5000+0xffec+
+   0x13), so no OOB arm exists. */
+static vf2_status sound_board_run_sample_tail(
+    vf2_sound_board *board,
+    const uint8_t *voice,
+    uint16_t slot,
+    vf2_sound_dispatch_report *report
+)
+{
+    uint32_t d3 = 0u;
+    uint32_t entry = 0u;
+    uint8_t rate = 0u;
+    uint8_t southern = 0u;
+
+    d3 = (uint32_t)(read_be16(voice + 6u) & UINT16_C(0x07ff)) *
+        UINT32_C(20);
+    entry = UINT32_C(0x5000) + d3;
+    if (vf2_scsp_write_u16(&board->scsp, (uint32_t)slot + 8u,
+                           (uint16_t)(((uint16_t)board->sound_ram[entry +
+                                                                 0x10u]
+                                       << 8u) |
+                                      board->sound_ram[entry + 0x11u])) !=
+            VF2_OK ||
+        vf2_scsp_write_u16(&board->scsp, (uint32_t)slot + 0x0au,
+                           (uint16_t)(((uint16_t)board->sound_ram[entry +
+                                                                 0x12u]
+                                       << 8u) |
+                                      board->sound_ram[entry + 0x13u])) !=
+            VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (vf2_sound_board_read_u8(board, entry + 0x13u, &rate) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    rate &= 0x1fu;
+    if (read_audio_byte_absolute(board, UINT32_C(0x600c48) + rate,
+                                 &southern) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    ((uint8_t *)voice)[0x0bu] = southern;
+    report->handler_address = UINT32_C(0x00000c68);
+    return VF2_ERROR_UNSUPPORTED;
 }
 
 vf2_status vf2_sound_board_setup_author(
