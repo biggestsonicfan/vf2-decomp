@@ -100,6 +100,25 @@ header), a rule consistent with every pinned fixed length; `vf2_tgp_next_command
 implements it (fixed length where pinned, delimitation otherwise, with
 `length_verified` flagging which), with a unit test over a synthetic stream.
 
+## The prg vertices partially match the polygon ROM (a partial vertex reference)
+
+Searching the committed polygon ROM (VF2_REGION_POLYGONS, 32 MiB) for the
+captured `prg` vertex floats as little-endian words: 6 of the first 12 are
+present, including three *consecutive* floats at `0x001bb690` (a vertex triple),
+the others scattered (`0x00014c28`, `0x00027e88`, `0x0000e108`). A 4-byte value
+has ~0.007 expected random hits in 32 MiB, so these matches are meaningful, not
+coincidental. This is significant: `packet_format_p1_v0377` concluded the
+polygon-ROM model decode could not be pinned without a "geometry-boundary vertex
+pin", and the `prg` stream is exactly a (partial) such pin -- the transformed
+vertex data the TGP produced from the polygon-ROM model.
+
+It does not fully pin the decode yet: only half the vertices match raw, so the
+rest are transformed (the class-0x0b matrices applied) or come from other
+models/sources. Resolving it means applying the captured matrices to raw
+polygon-ROM vertices and matching the result to `prg`, which needs the matrix
+element order -- unverifiable from one frame without the reference output. But it
+establishes the `prg`<->polygon-ROM link concretely for the first time.
+
 ## What is needed to validate
 
 A MAME **reference triangle list** (or the rendered image) for the same frame(s)
