@@ -1831,6 +1831,172 @@ static void test_chain_render(
             (int)left_a[0], (int)right_a[0]);
 }
 
+/* S4b: audible chain render (experiment, NOT recovery).
+ *
+ * Same production chain (real init, packet 0x9a, staged arming)
+ * but the sample window is REAL bank bytes (mpr-17570..73,
+ * present in this checkout, concatenated in numeric order) and
+ * the authored slot is keyed afterwards: OR 0x18 into the slot
+ * control byte (ROM 0xefe disassembly, exact) + OR 0x0800
+ * KEYONB into the control word (model key gate;
+ * sound_board_key_off/V1 and V3c key the same way). The keying
+ * MECHANISM stays engine-owned (0xc68+ unrecovered) -- this leg
+ * proves the authored CONFIG renders (mixing/envelopes/
+ * audibility), not that production keys it. Model gap noted:
+ * synchronize_slot zeroes the play address on key-on, so the
+ * render starts at window offset 0 regardless of the programmed
+ * SAHI/SALO; real-bank order likewise only conditions timbre.
+ * Gates: non-silence (peak), determinism (snapshot-restored
+ * re-render identical), WAV bonus artifact to out/ (gitignored).
+ * Prints: slot/sample address/rate, first sample bytes, slot
+ * control word, peak/RMS. */
+static void test_chain_audible(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static vf2_sound_board board;
+    static vf2_sound_board snapshot;
+    static int16_t left[2048u];
+    static int16_t right[2048u];
+    static int16_t left_b[2048u];
+    static int16_t right_b[2048u];
+    uint8_t *bank = NULL;
+    vf2_sound_dispatch_report report;
+    uint8_t *ram = NULL;
+    uint8_t *voice0 = NULL;
+    uint16_t slot = 0u;
+    uint16_t control = 0u;
+    uint8_t ctl = 0u;
+    size_t i = 0u;
+    int32_t peak = 0;
+    int64_t sum_sq = 0;
+
+    {
+        static const char *names[4] = {
+            "mpr-17570.37", "mpr-17571.36",
+            "mpr-17572.32", "mpr-17573.31"
+        };
+        bank = (uint8_t *)malloc(0x800000u);
+        EXPECT_TRUE(bank != NULL);
+        if (bank == NULL) {
+            return;
+        }
+        memset(bank, 0, 0x800000u);
+        for (i = 0u; i < 4u; ++i) {
+            char path[512];
+            FILE *f = NULL;
+            size_t got = 0u;
+            snprintf(path, sizeof(path), "%s/%s", rom_dir, names[i]);
+            f = fopen(path, "rb");
+            if (f == NULL) {
+                fprintf(stderr, "chain-audible: missing %s\n", path);
+                EXPECT_TRUE(0);
+                free(bank);
+                return;
+            }
+            got = fread(bank + i * 0x200000u, 1u, 0x200000u, f);
+            fclose(f);
+            fprintf(stderr, "chain-audible: %s %u bytes\n", names[i],
+                    (unsigned)got);
+            EXPECT_TRUE(got == 0x200000u);
+        }
+    }
+    memset(&board, 0, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom,
+                                           audio_rom_size, bank,
+                                           0x800000u) == VF2_OK);
+    ram = board.sound_ram;
+    voice0 = ram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[9] = 0xffu;
+    voice0[5] = 0x00u;
+    ram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    {
+        const uint8_t packet[4] = {0x9au, 0u, 1u, 0u};
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    ram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    ram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) ==
+                VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(report.handler_address == UINT32_C(0xc68));
+    slot = (uint16_t)(((uint16_t)voice0[0] << 8u) | voice0[1]);
+    EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, slot, &control) ==
+                VF2_OK);
+    fprintf(stderr, "chain-audible: slot=0x%04x ctl=%04x rate-voice=%02x bank0=%02x%02x%02x%02x\n",
+            (unsigned)slot, (unsigned)control,
+            (unsigned)voice0[0x0bu], (unsigned)bank[0],
+            (unsigned)bank[1], (unsigned)bank[2], (unsigned)bank[3]);
+    /* Engine key bits (experiment): 0xefe OR-0x18, then KEYONB. */
+    EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, slot, &ctl) == VF2_OK);
+    ctl |= 0x18u;
+    EXPECT_TRUE(vf2_scsp_write_u8(&board.scsp, slot, ctl) == VF2_OK);
+    EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, slot, &control) ==
+                VF2_OK);
+    control |= 0x0800u;
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, slot, control) ==
+                VF2_OK);
+    fprintf(stderr, "chain-audible: keyed ctl=%04x active=%u\n",
+            (unsigned)control,
+            (unsigned)board.scsp.slot_active[slot]);
+    EXPECT_TRUE(board.scsp.slot_active[slot] == 1u);
+    memcpy(&snapshot, &board, sizeof(snapshot));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left, right, 2048u) ==
+                VF2_OK);
+    for (i = 0u; i < 2048u; ++i) {
+        int32_t al = left[i] < 0 ? -(int32_t)left[i] : left[i];
+        int32_t ar = right[i] < 0 ? -(int32_t)right[i] : right[i];
+        if (al > peak) {
+            peak = al;
+        }
+        if (ar > peak) {
+            peak = ar;
+        }
+        sum_sq += (int64_t)left[i] * left[i] + (int64_t)right[i] * right[i];
+    }
+    fprintf(stderr, "chain-audible: peak=%d meansq=%lld\n", (int)peak,
+            (long long)(sum_sq / 4096));
+    EXPECT_TRUE(peak > 1000);
+    memcpy(&board, &snapshot, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left_b, right_b,
+                                       2048u) == VF2_OK);
+    EXPECT_TRUE(memcmp(left, left_b, sizeof(left)) == 0);
+    EXPECT_TRUE(memcmp(right, right_b, sizeof(right)) == 0);
+    {
+        /* 44-byte PCM16 stereo WAV, best-effort (out/ gitignored).
+           2048 frames x 4B = 8192 data bytes. */
+        static const uint8_t hdr[44] = {
+            0x52u, 0x49u, 0x46u, 0x46u, 0x24u, 0x20u, 0x00u, 0x00u,
+            0x57u, 0x41u, 0x56u, 0x45u, 0x66u, 0x6du, 0x74u, 0x20u,
+            0x10u, 0x00u, 0x00u, 0x00u, 0x01u, 0x00u, 0x02u, 0x00u,
+            0x44u, 0xacu, 0x00u, 0x00u, 0x10u, 0xb1u, 0x02u, 0x00u,
+            0x04u, 0x00u, 0x10u, 0x00u, 0x64u, 0x61u, 0x74u, 0x61u,
+            0x00u, 0x20u, 0x00u, 0x00u
+        };
+        FILE *wav = fopen("out/chain-voice.wav", "wb");
+        if (wav != NULL) {
+            uint8_t frame[4];
+            size_t f = 0u;
+            (void)fwrite(hdr, 1u, sizeof(hdr), wav);
+            for (f = 0u; f < 2048u; ++f) {
+                frame[0] = (uint8_t)left[f];
+                frame[1] = (uint8_t)((uint16_t)left[f] >> 8u);
+                frame[2] = (uint8_t)right[f];
+                frame[3] = (uint8_t)((uint16_t)right[f] >> 8u);
+                (void)fwrite(frame, 1u, sizeof(frame), wav);
+            }
+            (void)fclose(wav);
+            fprintf(stderr, "chain-audible: wrote out/chain-voice.wav\n");
+        } else {
+            fprintf(stderr, "chain-audible: out/ missing, WAV skipped\n");
+        }
+    }
+    free(bank);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -1898,6 +2064,7 @@ int main(int argc, char **argv)
     test_a8c_synth(audio_rom, audio_rom_size, 0, "high-f");
     test_chain_production(audio_rom, audio_rom_size);
     test_chain_render(audio_rom, audio_rom_size);
+    test_chain_audible(argv[1], audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);
