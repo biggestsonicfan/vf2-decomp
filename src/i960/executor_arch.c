@@ -301,3 +301,30 @@ vf2_status vf2_i960_step(
     }
     return VF2_OK;
 }
+
+vf2_status vf2_i960_step_lifted(
+    vf2_i960_cpu *cpu,
+    vf2_model2a *machine,
+    vf2_i960_trace_event *event
+)
+{
+    uint64_t interpreted_before = 0u;
+    vf2_status status = VF2_OK;
+
+    if (cpu == NULL || machine == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    /* Delegate to the one canonical interpreter step so the opcode semantics,
+     * architectural fix-ups and flow are byte-for-byte identical to the
+     * oracle -- there is no duplicated semantics to drift. vf2_i960_step
+     * retires exactly one instruction (bumping interpreted_instructions by 1)
+     * on success and none on a fault, so the delta reclassified below is 0 or
+     * 1. We move that retirement from the interpreted tally to the lifted
+     * tally; executed_instructions is already correct and untouched. */
+    interpreted_before = cpu->interpreted_instructions;
+    status = vf2_i960_step(cpu, machine, event);
+    cpu->lifted_instructions +=
+        cpu->interpreted_instructions - interpreted_before;
+    cpu->interpreted_instructions = interpreted_before;
+    return status;
+}

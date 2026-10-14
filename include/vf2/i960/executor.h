@@ -58,6 +58,18 @@ typedef struct vf2_i960_cpu {
      * of the serialized snapshot; it is a per-run host-side measure. See
      * docs/NATIVE_WINDOWS_PLAN.md phase 2. */
     uint64_t interpreted_instructions;
+    /* Of (executed - interpreted), i.e. the non-interpreter subset, the part
+     * retired by build-time lifted C (tools/vf2lift) rather than by a
+     * hand-recovered block. Lifted bodies reuse the interpreter's instruction
+     * semantics through vf2_i960_execute_decoded (which bumps
+     * executed_instructions but not interpreted_instructions) and separately
+     * add here, so the shipped-runtime split is
+     * recovered == executed - interpreted - lifted,
+     * lifted and interpreted both measuring scaffolding still in the loop.
+     * Phase 4 (Option B) success is interpreted + lifted trending to 0 as
+     * recovery proceeds. Host-side only: like interpreted_instructions it is
+     * not part of the serialized snapshot. See docs/VF2LIFT.md. */
+    uint64_t lifted_instructions;
     uint64_t procedure_calls;
     uint64_t procedure_returns;
     uint64_t interrupt_entries;
@@ -140,6 +152,24 @@ vf2_status vf2_i960_cpu_enter_interrupt(
 );
 
 vf2_status vf2_i960_step(
+    vf2_i960_cpu *cpu,
+    vf2_model2a *machine,
+    vf2_i960_trace_event *event
+);
+
+/* Execute the single instruction at cpu->ip exactly as vf2_i960_step does --
+ * identical decode, operand and condition-code semantics, architectural
+ * fix-ups, call/return frame mechanics and flow (cpu->ip is left at the next
+ * instruction, a branch target, a callee entry or a caller return). The only
+ * difference is bookkeeping: the retired instruction is counted as lifted
+ * (lifted_instructions) instead of interpreted (interpreted_instructions).
+ *
+ * Build-time lifted C (tools/vf2lift) drives each basic block through this so
+ * the lifted bridge reuses the interpreter's instruction semantics verbatim --
+ * there is no second implementation of the opcode semantics that could drift
+ * from executor.c -- while contributing native, compiled control flow between
+ * blocks. See docs/VF2LIFT.md. */
+vf2_status vf2_i960_step_lifted(
     vf2_i960_cpu *cpu,
     vf2_model2a *machine,
     vf2_i960_trace_event *event

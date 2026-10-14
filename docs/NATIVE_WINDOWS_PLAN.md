@@ -235,6 +235,13 @@ reproducibly, and the ranked backlog is committed (names and addresses only).
 Hand recovery of the simulation systems is months of work. A second route
 exists and should be decided explicitly, not drifted into.
 
+G1 - DECIDED 2026-10-14: the maintainer (celsowm) chose **Option B**. The
+design and running record live in `docs/VF2LIFT.md`; slice 1 (the
+`lifted_instructions` counter and the `vf2_i960_step_lifted` primitive) is
+committed. The "plays a full match" half of the exit below is gated on G2
+(geometry) and Phase 7 (video) exactly as the Phase 3 remainder is, so vf2lift
+is built and validated on the reachable attract corridor first.
+
 G1 - maintainer decision. Option B: a build-time recompiler, i.e. a tool that
 reads the user's own ROM, lifts every function reachable from the CFG to C
 using the same instruction semantics as `src/i960/executor.c`, and writes the C
