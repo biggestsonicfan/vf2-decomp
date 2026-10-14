@@ -15,6 +15,7 @@ option(VF2_BUILD_TESTS "Build unit tests" ON)
 option(VF2_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(VF2_BUILD_HOST "Build vf2_host, the SDL3 window/input/audio shell" OFF)
 option(VF2_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(VF2_ENABLE_LIFTED "Generate and compile the build-time lifted i960->C bridge (docs/VF2LIFT.md); scaffolding, opt-in" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
 if(NOT VF2_ROM_DIR)
   set(VF2_ROM_DIR "${CMAKE_SOURCE_DIR}/roms/vf2")
@@ -73,6 +74,7 @@ add_library(vf2_core STATIC
     src/i960/formatter.c
     src/i960/instruction.c
     src/i960/snapshot.c
+    src/lift/runtime.c
     src/platform/platform_null.c
     src/platform/platform_software.c
     src/recovered/boot_entry.c
@@ -197,10 +199,52 @@ add_executable(make_orchestrator_snap tools/make_orchestrator_snap.c)
 target_link_libraries(make_orchestrator_snap PRIVATE vf2_core)
 vf2_set_project_warnings(make_orchestrator_snap)
 
+# Build-time i960->C recompiler (plan phase 4, Option B; docs/VF2LIFT.md).
+# The tool always builds; the generated C is opt-in and never committed.
+add_executable(vf2lift tools/vf2lift/main.c)
+target_link_libraries(vf2lift PRIVATE vf2_core)
+vf2_set_project_warnings(vf2lift)
+
 include(GNUInstallDirs)
-install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover vf2probe vf2m68k
+install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover vf2probe vf2m68k vf2lift
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
+
+# --- Lifted i960->C bridge (opt-in, scaffolding; docs/VF2LIFT.md) ------------
+# When enabled, vf2lift regenerates one C function per listed guest function
+# from the user's ROM into the build directory at build time. The generated C
+# is never committed. The set below is the slice-2 validation set; later slices
+# drive the set from the Phase 3 coverage union.
+set(VF2_LIFT_FUNCTIONS
+    0x00010cbc  # task_registry_initialize
+    0x00000b58  # iac_reinitialize_copy
+    0x00010d54  # scheduler_dispatch
+    CACHE STRING "Guest entry addresses vf2lift emits when VF2_ENABLE_LIFTED=ON")
+
+if(VF2_ENABLE_LIFTED)
+  if(EXISTS "${VF2_ROM_DIR}")
+    set(VF2_LIFT_GEN_DIR "${CMAKE_BINARY_DIR}/generated")
+    set(VF2_LIFT_GEN_C "${VF2_LIFT_GEN_DIR}/vf2_lifted.c")
+    set(VF2_LIFT_GEN_H "${VF2_LIFT_GEN_DIR}/vf2_lifted.h")
+    add_custom_command(
+      OUTPUT "${VF2_LIFT_GEN_C}" "${VF2_LIFT_GEN_H}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${VF2_LIFT_GEN_DIR}"
+      COMMAND "$<TARGET_FILE:vf2lift>" "${VF2_ROM_DIR}"
+              "${VF2_LIFT_GEN_C}" "${VF2_LIFT_GEN_H}" ${VF2_LIFT_FUNCTIONS}
+      DEPENDS vf2lift
+      COMMENT "vf2lift: generating lifted i960->C bridge into ${VF2_LIFT_GEN_DIR}"
+      VERBATIM
+    )
+    add_library(vf2_lifted STATIC "${VF2_LIFT_GEN_C}")
+    target_include_directories(vf2_lifted PUBLIC "${VF2_LIFT_GEN_DIR}")
+    target_link_libraries(vf2_lifted PUBLIC vf2_core)
+    vf2_set_project_warnings(vf2_lifted)
+    message(STATUS "VF2_ENABLE_LIFTED=ON: lifted bridge will be generated from ${VF2_ROM_DIR}")
+  else()
+    message(WARNING "VF2_ENABLE_LIFTED=ON but VF2_ROM_DIR (${VF2_ROM_DIR}) not found; "
+                    "lifted bridge not generated")
+  endif()
+endif()
 
 if(VF2_BUILD_HOST)
   # SDL3 is only ever linked by src/host/host_sdl.c.  Prefer a system or
@@ -993,5 +1037,17 @@ if(VF2_BUILD_TESTS)
     else()
         message(STATUS
             "Python3 not found; skipping vf2_python_factory_* ctest wiring")
+    endif()
+
+    # Per-function differential for the lifted bridge (opt-in; docs/VF2LIFT.md).
+    if(VF2_ENABLE_LIFTED AND TARGET vf2_lifted)
+        add_executable(vf2_lift_differential_tests tests/lift/test_lifted_differential.c)
+        target_link_libraries(vf2_lift_differential_tests PRIVATE vf2_lifted vf2_core)
+        vf2_set_project_warnings(vf2_lift_differential_tests)
+        add_test(NAME vf2_lift_differential_unit COMMAND vf2_lift_differential_tests)
+        if(EXISTS "${VF2_ROM_DIR}")
+            add_test(NAME vf2_lift_differential
+                     COMMAND vf2_lift_differential_tests "${VF2_ROM_DIR}")
+        endif()
     endif()
 endif()

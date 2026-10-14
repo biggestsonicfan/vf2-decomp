@@ -146,9 +146,19 @@ session advance.
 1. **Foundation (done, 2026-10-14):** `lifted_instructions` counter and the
    `vf2_i960_step_lifted` primitive (differential-neutral, 133/133); this
    document.
-2. `tools/vf2lift`: CFG-driven codegen for one function, `VF2_ENABLE_LIFTED`
-   wiring, generated C compiled into the build dir.
-3. Per-function differential harness and the admission gate over the Phase 3
-   union.
+2. **Tool and codegen (done, 2026-10-14):** `tools/vf2lift` emits one C
+   function per requested guest function (native block switch over the
+   recovered CFG, each block through `vf2_lift_run_block`); `src/lift/runtime.c`
+   provides the block stepper and the table lookup; `VF2_ENABLE_LIFTED` (default
+   OFF) drives a build-time `add_custom_command` that regenerates the bridge
+   from `VF2_ROM_DIR` into `<build>/generated/` and compiles it as `vf2_lifted`.
+   A per-function differential test (`tests/lift/test_lifted_differential.c`)
+   runs the interpreter and the lifted body from the identical entry state and
+   requires byte-identical CPU + memory with `interpreted == 0`; the slice-2
+   set (`task_registry_initialize`, `iac_reinitialize_copy`,
+   `scheduler_dispatch`) matches exactly (647/5/2 instructions). The default
+   (OFF) build and the 133/133 non-fixture suite are unchanged.
+3. Per-function admission gate over the full Phase 3 coverage union (drive the
+   `VF2_LIFT_FUNCTIONS` set from the backlog; skip any that does not match).
 4. Dispatch registry (recovered > lifted > interpreted) and the attract-session
    `interpreted == 0` demonstration with the three-way status split.
