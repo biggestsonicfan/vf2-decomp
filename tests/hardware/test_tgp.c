@@ -355,8 +355,45 @@ static void test_tgp_geometry_execution(void)
     vf2_platform_shutdown(&platform);
 }
 
+static void test_tgp_command_header_decode(void)
+{
+    /* Header words measured in the MAME 3D frame
+     * (decomp/i960/notes/mame_3d_frame_geometry_format.md): a header equals
+     * (op << 23) | (op << 8) | op for the 7-bit opcode. */
+    static const struct { uint32_t word; uint32_t opcode; } headers[] = {
+        { UINT32_C(0x00800101), 0x01u },
+        { UINT32_C(0x03000606), 0x06u },
+        { UINT32_C(0x05800b0b), 0x0bu },
+        { UINT32_C(0x13802727), 0x27u },
+        { UINT32_C(0x1f803f3f), 0x3fu },
+        { UINT32_C(0x35806b6b), 0x6bu },
+        { UINT32_C(0x00000000), 0x00u }
+    };
+    /* Payload words (vertex/matrix floats, immediates) are not headers. */
+    static const uint32_t payloads[] = {
+        UINT32_C(0x3cf78560), UINT32_C(0x3d6ff662), UINT32_C(0xbd7a469b),
+        UINT32_C(0x421c0000), UINT32_C(0x41500000), UINT32_C(0x00040401),
+        UINT32_C(0x000000c9)
+    };
+    size_t i;
+
+    for (i = 0u; i < sizeof(headers) / sizeof(headers[0]); ++i) {
+        CHECK(vf2_tgp_is_command_header(headers[i].word));
+        CHECK(vf2_tgp_command_opcode(headers[i].word) == headers[i].opcode);
+    }
+    for (i = 0u; i < sizeof(payloads) / sizeof(payloads[0]); ++i) {
+        CHECK(!vf2_tgp_is_command_header(payloads[i]));
+    }
+    /* The opcode is 7 bits: 0x27 and 0x07 are distinct (the 5-bit decode would
+     * merge them). 0x13802727 is opcode 0x27, not 0x07. */
+    CHECK(vf2_tgp_command_opcode(UINT32_C(0x13802727)) != 0x07u);
+    CHECK(vf2_tgp_is_command_header(UINT32_C(0x03800707)));          /* op 0x07 */
+    CHECK(vf2_tgp_command_opcode(UINT32_C(0x03800707)) == 0x07u);
+}
+
 int main(void)
 {
+    test_tgp_command_header_decode();
     test_tgp_tables_and_scalar_services();
     test_tgp_fifos_and_banked_memory();
     test_tgp_polygon_rom_window();

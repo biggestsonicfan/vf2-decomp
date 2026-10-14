@@ -131,6 +131,17 @@ vf2_status vf2_tgp_render_triangle(
     const vf2_tgp_vertex *vertices,
     uint32_t color
 );
+/* TGP FIFO command header decode, recovered from a measured 3D frame
+ * (decomp/i960/notes/mame_3d_frame_geometry_format.md). A command header word
+ * is self-describing: it equals (op << 23) | (op << 8) | op for a 7-bit opcode
+ * op, e.g. 0x13802727 (op 0x27), 0x1f803f3f (op 0x3f), 0x05800b0b (op 0x0b);
+ * payload words (vertex/matrix floats, immediates) do not satisfy this. The
+ * opcode is 7 bits (word >> 23) & 0x7f, NOT the 5 bits the older
+ * geometry_count_words()/scan use -- 5 bits conflates 0x07/0x27/0x47/0x67 etc.,
+ * which is why that path mis-frames a real stream. */
+uint32_t vf2_tgp_command_opcode(uint32_t word);
+int vf2_tgp_is_command_header(uint32_t word);
+
 vf2_status vf2_tgp_geometry_command_words(
     const uint32_t *words,
     size_t word_count,

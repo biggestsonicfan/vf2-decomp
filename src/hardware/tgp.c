@@ -343,6 +343,17 @@ vf2_status vf2_tgp_render_triangle(
     );
 }
 
+uint32_t vf2_tgp_command_opcode(uint32_t word)
+{
+    return (word >> 23u) & UINT32_C(0x7f);
+}
+
+int vf2_tgp_is_command_header(uint32_t word)
+{
+    const uint32_t opcode = (word >> 23u) & UINT32_C(0x7f);
+    return word == ((opcode << 23u) | (opcode << 8u) | opcode);
+}
+
 static vf2_status geometry_count_words(
     const uint32_t *words,
     size_t word_count,
