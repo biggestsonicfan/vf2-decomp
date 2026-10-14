@@ -77,6 +77,7 @@ add_library(vf2_core STATIC
     src/lift/runtime.c
     src/platform/platform_null.c
     src/platform/platform_software.c
+    src/platform/tile.c
     src/recovered/boot_entry.c
     src/recovered/camera_viewport.c
     src/recovered/hybrid.c
@@ -351,6 +352,14 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_platform_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_platform_tests)
     add_test(NAME vf2_platform COMMAND vf2_platform_tests)
+
+    add_executable(vf2_tile_tests tests/platform/test_tile.c)
+    target_link_libraries(vf2_tile_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_tile_tests)
+    add_test(NAME vf2_tile COMMAND vf2_tile_tests)
+    if(EXISTS "${VF2_ROM_DIR}")
+        add_test(NAME vf2_tile_font COMMAND vf2_tile_tests "${VF2_ROM_DIR}")
+    endif()
 
     add_executable(vf2_host_tests tests/host/test_host.c)
     target_link_libraries(vf2_host_tests PRIVATE vf2_core)

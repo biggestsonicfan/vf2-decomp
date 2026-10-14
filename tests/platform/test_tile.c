@@ -1,0 +1,98 @@
+/* Phase 7 tile-layer font extraction, validated against the committed
+ * main_data ROM (decomp/i960/notes/tile_layer_glyph_format.md). ROM-independent
+ * guards always run; the glyph checks run when a ROM directory is given. */
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "vf2/rom.h"
+#include "vf2/tile.h"
+
+static int failures = 0;
+
+#define CHECK(expr)                                                              \
+    do {                                                                         \
+        if (!(expr)) {                                                           \
+            fprintf(stderr, "FAILED %s:%d: %s\n", __FILE__, __LINE__, #expr);    \
+            ++failures;                                                          \
+        }                                                                        \
+    } while (0)
+
+static int glyph_nonzero(const uint8_t *g)
+{
+    size_t i;
+    for (i = 0u; i < VF2_TILE_GLYPH_PIXELS; ++i) {
+        if (g[i] != 0u) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void test_guards(void)
+{
+    uint8_t g[VF2_TILE_GLYPH_PIXELS];
+    static const uint8_t tiny[4] = { 0u, 0u, 0u, 0u };
+    CHECK(vf2_tile_font_glyph(NULL, 0u, 0x41u, g) == VF2_ERROR_OUT_OF_BOUNDS);
+    CHECK(vf2_tile_font_glyph(tiny, sizeof(tiny), 0x41u, NULL) ==
+          VF2_ERROR_OUT_OF_BOUNDS);
+    CHECK(vf2_tile_font_glyph(tiny, sizeof(tiny), 0x41u, g) ==
+          VF2_ERROR_OUT_OF_BOUNDS);
+    CHECK(vf2_tile_name_char(0x8041u) == 0x41u);
+    CHECK(vf2_tile_name_bank(0x8041u) == 0x80u);
+}
+
+static void test_font(const char *rom_dir)
+{
+    uint8_t *main_data = NULL;
+    size_t size = 0u;
+    uint8_t space[VF2_TILE_GLYPH_PIXELS];
+    uint8_t one[VF2_TILE_GLYPH_PIXELS];
+    uint8_t aa[VF2_TILE_GLYPH_PIXELS];
+    uint8_t ss[VF2_TILE_GLYPH_PIXELS];
+
+    if (vf2_romset_build_region(rom_dir, VF2_REGION_MAIN_DATA,
+                                &main_data, &size) != VF2_OK || main_data == NULL) {
+        fprintf(stderr, "could not load main_data from %s\n", rom_dir);
+        ++failures;
+        return;
+    }
+
+    CHECK(vf2_tile_font_glyph(main_data, size, 0x20u, space) == VF2_OK);
+    CHECK(vf2_tile_font_glyph(main_data, size, 0x31u, one) == VF2_OK);
+    CHECK(vf2_tile_font_glyph(main_data, size, 0x41u, aa) == VF2_OK);
+    CHECK(vf2_tile_font_glyph(main_data, size, 0x53u, ss) == VF2_OK);
+
+    /* Space is blank; letters/digits are not; distinct characters differ.
+     * These are the self-consistency invariants of an ASCII font table. */
+    CHECK(!glyph_nonzero(space));
+    CHECK(glyph_nonzero(one));
+    CHECK(glyph_nonzero(aa));
+    CHECK(glyph_nonzero(ss));
+    CHECK(memcmp(one, aa, sizeof(one)) != 0);
+    CHECK(memcmp(aa, ss, sizeof(aa)) != 0);
+    /* Every pixel is a 4-bit index. */
+    {
+        size_t i;
+        for (i = 0u; i < VF2_TILE_GLYPH_PIXELS; ++i) {
+            CHECK(aa[i] <= 0x0fu);
+        }
+    }
+
+    free(main_data);
+}
+
+int main(int argc, char **argv)
+{
+    test_guards();
+    if (argc >= 2) {
+        test_font(argv[1]);
+    }
+    if (failures != 0) {
+        fprintf(stderr, "%d tile test(s) failed\n", failures);
+        return EXIT_FAILURE;
+    }
+    puts("tile tests passed");
+    return EXIT_SUCCESS;
+}

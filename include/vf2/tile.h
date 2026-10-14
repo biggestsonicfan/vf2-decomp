@@ -1,0 +1,38 @@
+#ifndef VF2_TILE_H
+#define VF2_TILE_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "vf2/status.h"
+
+/* Phase 7 (video) part 1: the 2D tile layer. Recovered in-tree from the attract
+ * tile RAM, which is a verbatim copy of the font table in the main_data ROM
+ * (decomp/i960/notes/tile_layer_glyph_format.md). The font is an ASCII-indexed
+ * table of 8x8 4bpp glyphs: character c is at
+ * VF2_TILE_FONT_BASE + c * VF2_TILE_GLYPH_BYTES in main_data, four bytes per
+ * row, the low nibble the even pixel and the high nibble the odd pixel. */
+enum {
+    VF2_TILE_FONT_BASE = 0x00805cb8u,
+    VF2_TILE_GLYPH_BYTES = 32u,
+    VF2_TILE_GLYPH_W = 8u,
+    VF2_TILE_GLYPH_H = 8u,
+    VF2_TILE_GLYPH_PIXELS = 64u
+};
+
+/* Extract the 8x8 glyph for an ASCII character from the main_data ROM into
+ * out[64], one 4-bit palette index per pixel, row-major (y*8 + x). Returns
+ * VF2_OK, or VF2_ERROR_OUT_OF_BOUNDS if main_data is too small / arguments are
+ * null. A zero glyph (e.g. space, 0x20) yields all-zero indices. */
+vf2_status vf2_tile_font_glyph(
+    const uint8_t *main_data,
+    size_t main_data_size,
+    uint8_t ascii,
+    uint8_t out[VF2_TILE_GLYPH_PIXELS]
+);
+
+/* Name-table entry format: 16-bit little-endian (bank << 8) | char. */
+uint8_t vf2_tile_name_char(uint16_t entry);
+uint8_t vf2_tile_name_bank(uint16_t entry);
+
+#endif
