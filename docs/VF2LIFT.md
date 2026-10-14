@@ -158,7 +158,19 @@ session advance.
    set (`task_registry_initialize`, `iac_reinitialize_copy`,
    `scheduler_dispatch`) matches exactly (647/5/2 instructions). The default
    (OFF) build and the 133/133 non-fixture suite are unchanged.
-3. Per-function admission gate over the full Phase 3 coverage union (drive the
-   `VF2_LIFT_FUNCTIONS` set from the backlog; skip any that does not match).
+3. **Coverage-driven lift set (done, 2026-10-14):** `vf2lift --backlog <csv>`
+   reads the committed Phase 3 coverage backlog and lifts the function
+   containing each executed run start (seeding the observed addresses so the
+   indirect-only corridor is bounded). The build drives the set from
+   `decomp/i960/coverage_attract_backlog.csv`. The generated body is a
+   range-guarded block switch (`while (ip in [address,end))`), which makes its
+   stop condition identical to the interpreter reference and fails closed on a
+   CFG gap, so the per-function differential is exact. All 87 functions of the
+   attract corridor (85 backlog + 3 explicit) match the interpreter from the
+   cold entry state (ctest `vf2_lift_differential`). Functions whose seeded CFG
+   has no in-range block are skipped with a comment, never half-emitted.
 4. Dispatch registry (recovered > lifted > interpreted) and the attract-session
-   `interpreted == 0` demonstration with the three-way status split.
+   `interpreted == 0` demonstration with the three-way status split. (Note: the
+   cold-state differential validates structure; functions whose behaviour is
+   input-dependent will be re-validated in their real context by the
+   session-level digest here, which is the stronger gate.)

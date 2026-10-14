@@ -211,15 +211,18 @@ install(TARGETS vf2 vf2rom vf2i960 vf2cycles vf2recover vf2probe vf2m68k vf2lift
 )
 
 # --- Lifted i960->C bridge (opt-in, scaffolding; docs/VF2LIFT.md) ------------
-# When enabled, vf2lift regenerates one C function per listed guest function
+# When enabled, vf2lift regenerates one C function per selected guest function
 # from the user's ROM into the build directory at build time. The generated C
-# is never committed. The set below is the slice-2 validation set; later slices
-# drive the set from the Phase 3 coverage union.
+# is never committed. The lift set is driven by the committed Phase 3 coverage
+# backlog (the functions the attract session actually reached) plus any extra
+# addresses listed in VF2_LIFT_FUNCTIONS.
 set(VF2_LIFT_FUNCTIONS
     0x00010cbc  # task_registry_initialize
     0x00000b58  # iac_reinitialize_copy
     0x00010d54  # scheduler_dispatch
-    CACHE STRING "Guest entry addresses vf2lift emits when VF2_ENABLE_LIFTED=ON")
+    CACHE STRING "Extra guest entry addresses vf2lift emits when VF2_ENABLE_LIFTED=ON")
+set(VF2_LIFT_BACKLOG "${CMAKE_SOURCE_DIR}/decomp/i960/coverage_attract_backlog.csv"
+    CACHE FILEPATH "Coverage backlog CSV that selects the lifted function set")
 
 if(VF2_ENABLE_LIFTED)
   if(EXISTS "${VF2_ROM_DIR}")
@@ -230,8 +233,9 @@ if(VF2_ENABLE_LIFTED)
       OUTPUT "${VF2_LIFT_GEN_C}" "${VF2_LIFT_GEN_H}"
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${VF2_LIFT_GEN_DIR}"
       COMMAND "$<TARGET_FILE:vf2lift>" "${VF2_ROM_DIR}"
-              "${VF2_LIFT_GEN_C}" "${VF2_LIFT_GEN_H}" ${VF2_LIFT_FUNCTIONS}
-      DEPENDS vf2lift
+              "${VF2_LIFT_GEN_C}" "${VF2_LIFT_GEN_H}"
+              --backlog "${VF2_LIFT_BACKLOG}" ${VF2_LIFT_FUNCTIONS}
+      DEPENDS vf2lift "${VF2_LIFT_BACKLOG}"
       COMMENT "vf2lift: generating lifted i960->C bridge into ${VF2_LIFT_GEN_DIR}"
       VERBATIM
     )
