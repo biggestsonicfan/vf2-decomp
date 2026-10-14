@@ -43,6 +43,7 @@ static void usage(const char *program)
         "  %s coverage <rom-directory> <input.vf2snap> <frames> <output.json> [frame:mask,...]\n"
         "  %s geometry-census <rom-directory> <input.vf2snap> <frames>\n"
         "  %s attract-irq-probe <rom-directory> <input.vf2snap> <frames> [inject]\n"
+        "  %s boot-trace <rom-directory> <frames> [read-cap]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
         "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address] [raise-irq] [enter-vector] [enter-level]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
@@ -73,6 +74,7 @@ static void usage(const char *program)
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
         program, /* attract-irq-probe */
+        program, /* boot-trace */
         program,
         program,
         program,
@@ -6955,6 +6957,209 @@ done:
     return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
+/* ---- boot-trace ----------------------------------------------------------
+ * Boot the pure i960 interpreter from reset (no snapshot, no recovered HLE of
+ * the phase logic) with vblank injection, and trace the writes/reads that the
+ * MAME reference pins the attract divergence to: the phase byte 0x50002a
+ * (MAME: 0x00->0x01 @f84 ip 0xa970, 0x02 @f723, 0x03 @f724, never 0x11), the
+ * TGP result port 0x884000 (the 0xa520-0xa6ac routine reads 64 words @~f23)
+ * and the TGP start/ready handshake at 0x980000/0x980004 (@~f10). Our TGP
+ * model does not produce real result words, so the real ROM routine takes a
+ * different branch here -- this command shows exactly what the native reads and
+ * where 0x50002a goes, to locate the branch that drives it to 0x11.
+ * Diagnostic only; prints to stdout; commits nothing. */
+
+typedef struct {
+    const vf2_i960_cpu *cpu;
+    const uint32_t *frame;
+    uint32_t read_884_logged;
+    uint32_t read_884_cap;
+    uint32_t total_884;
+    uint32_t read_980004_logged;
+} boot_trace_ctx;
+
+static uint32_t boot_trace_le32(const void *p)
+{
+    uint32_t v = 0u;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static void boot_trace_observer(
+    const vf2_model2a_memory_access *a, void *vctx
+)
+{
+    boot_trace_ctx *c = (boot_trace_ctx *)vctx;
+    uint32_t ip = 0u;
+    uint32_t f = 0u;
+    if (a == NULL || a->data == NULL || c == NULL) {
+        return;
+    }
+    ip = c->cpu != NULL ? c->cpu->ip : 0u;
+    f = c->frame != NULL ? *c->frame : 0u;
+    if (a->kind == VF2_MODEL2A_MEMORY_WRITE) {
+        if (a->address == 0x0050002au) {
+            printf("  f%-4u ip=%08x  W 0x50002a <- 0x%02x\n",
+                   (unsigned)f, (unsigned)ip, (unsigned)((const uint8_t *)a->data)[0]);
+        } else if (a->address >= 0x00500704u && a->address < 0x00500708u) {
+            printf("  f%-4u ip=%08x  W [%08x] <- (sz%u) 0x%08x  (0x500704 gate word)",
+                   (unsigned)f, (unsigned)ip, (unsigned)a->address,
+                   (unsigned)a->size,
+                   a->size == 4u ? (unsigned)boot_trace_le32(a->data)
+                                 : (unsigned)((const uint8_t *)a->data)[0]);
+            if (c->cpu != NULL) {
+                printf("  [r6=%08x r7=%08x r11=%08x]",
+                       (unsigned)c->cpu->registers[6], (unsigned)c->cpu->registers[7],
+                       (unsigned)c->cpu->registers[11]);
+            }
+            printf("\n");
+        } else if (a->address >= 0x005000a6u && a->address < 0x005000a8u) {
+            printf("  f%-4u ip=%08x  W [%08x] <- (sz%u) 0x%02x  (0x5000a6)\n",
+                   (unsigned)f, (unsigned)ip, (unsigned)a->address,
+                   (unsigned)a->size, (unsigned)((const uint8_t *)a->data)[0]);
+        } else if (a->address == 0x00980000u && a->size == 4u) {
+            printf("  f%-4u ip=%08x  W [980000] <- 0x%08x  (TGP start)\n",
+                   (unsigned)f, (unsigned)ip, (unsigned)boot_trace_le32(a->data));
+        } else if (a->address == 0x00980004u && a->size == 4u) {
+            printf("  f%-4u ip=%08x  W [980004] <- 0x%08x\n",
+                   (unsigned)f, (unsigned)ip, (unsigned)boot_trace_le32(a->data));
+        }
+    } else { /* READ */
+        if (a->address >= 0x00884000u && a->address < 0x00884100u &&
+            a->size == 4u) {
+            ++c->total_884;
+            if (c->read_884_logged < c->read_884_cap) {
+                printf("  f%-4u ip=%08x  R [%08x] = 0x%08x\n",
+                       (unsigned)f, (unsigned)ip, (unsigned)a->address,
+                       (unsigned)boot_trace_le32(a->data));
+                ++c->read_884_logged;
+            }
+        } else if (a->address == 0x00980004u && a->size == 4u) {
+            if (c->read_980004_logged < 16u) {
+                printf("  f%-4u ip=%08x  R [980004] = 0x%08x  (TGP ready)\n",
+                       (unsigned)f, (unsigned)ip, (unsigned)boot_trace_le32(a->data));
+                ++c->read_980004_logged;
+            }
+        }
+    }
+}
+
+/* Read N 32-bit little-endian words from the maincpu image (for inspecting
+ * jump tables and other data the disassembler cannot decode). */
+static int command_read_words(
+    const char *rom_directory, uint32_t address, uint32_t count
+)
+{
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    uint32_t i = 0u;
+    vf2_status status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status != VF2_OK) {
+        fprintf(stderr, "Could not load maincpu: %s\n", vf2_status_string(status));
+        return EXIT_FAILURE;
+    }
+    for (i = 0u; i < count; ++i) {
+        const uint32_t a = address + i * 4u;
+        uint32_t w = 0u;
+        if ((size_t)a + 4u > image_size) {
+            printf("  %08x  <out of image>\n", (unsigned)a);
+            continue;
+        }
+        w = (uint32_t)image[a] | ((uint32_t)image[a + 1u] << 8) |
+            ((uint32_t)image[a + 2u] << 16) | ((uint32_t)image[a + 3u] << 24);
+        printf("  %08x  %08x\n", (unsigned)a, (unsigned)w);
+    }
+    free(image);
+    return EXIT_SUCCESS;
+}
+
+static int command_boot_trace(
+    const char *rom_directory, uint32_t frames, uint32_t read_cap
+)
+{
+    const uint64_t per_frame_budget = UINT64_C(50000000);
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_hybrid_frame_wait_state frame_wait;
+    boot_trace_ctx ctx;
+    uint32_t frame = 0u;
+    int hung = 0;
+    vf2_status status = VF2_OK;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&ctx, 0, sizeof(ctx));
+
+    status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(rom_directory, &machine, image, image_size);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_reset_from_machine(
+            &cpu, &machine, vectors.system_address_table,
+            vectors.initial_prcb, vectors.start_ip);
+    }
+    if (status == VF2_OK) status = vf2_hybrid_frame_wait_initialize(&frame_wait, 4u);
+    if (status != VF2_OK) {
+        fprintf(stderr, "boot-trace setup failed: %s\n", vf2_status_string(status));
+        goto done;
+    }
+
+    ctx.cpu = &cpu;
+    ctx.frame = &frame;
+    ctx.read_884_cap = read_cap;
+    vf2_model2a_set_memory_observer(&machine, boot_trace_observer, &ctx);
+
+    printf("boot-trace: pure interpreter from reset (start_ip=0x%08x), up to "
+           "%u frames; tracing 0x50002a writes, 0x884000 reads (cap %u), "
+           "0x98000x TGP handshake.\n",
+           (unsigned)vectors.start_ip, (unsigned)frames, (unsigned)read_cap);
+
+    while (status == VF2_OK && frame < frames) {
+        uint64_t steps = 0u;
+        for (;;) {
+            vf2_hybrid_frame_wait_report wait_report;
+            status = vf2_hybrid_frame_wait_observe(
+                &machine, &cpu, &frame_wait, &wait_report);
+            if (status != VF2_OK) break;
+            if (wait_report.interrupt_injected) { ++frame; break; }
+            status = vf2_i960_step(&cpu, &machine, NULL);
+            if (status != VF2_OK) break;
+            if (++steps >= per_frame_budget) { hung = 1; break; }
+        }
+        if (status != VF2_OK || hung) break;
+    }
+
+    vf2_model2a_set_memory_observer(&machine, NULL, NULL);
+    if (hung) {
+        printf("\nboot-trace: STUCK at frame %u, ip=0x%08x after %llu steps "
+               "(interpreter from reset does not reach the attract phase loop "
+               "unaided).\n",
+               (unsigned)frame, (unsigned)cpu.ip,
+               (unsigned long long)per_frame_budget);
+    } else if (status == VF2_OK) {
+        uint8_t sel = 0u, a6 = 0u;
+        (void)vf2_model2a_read(&machine, 0x0050002au, &sel, 1u);
+        (void)vf2_model2a_read(&machine, 0x005000a6u, &a6, 1u);
+        printf("\nboot-trace: %u frames, ip=0x%08x, 0x50002a=0x%02x, "
+               "0x5000a6=0x%02x, total 0x884000 reads=%u.\n",
+               (unsigned)frame, (unsigned)cpu.ip, (unsigned)sel, (unsigned)a6,
+               (unsigned)ctx.total_884);
+    } else {
+        fprintf(stderr, "boot-trace failed at frame %u ip=0x%08x: %s\n",
+                (unsigned)frame, (unsigned)cpu.ip, vf2_status_string(status));
+    }
+
+done:
+    vf2_model2a_shutdown(&machine);
+    free(image);
+    return (status == VF2_OK) ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
 static int command_coverage(
     const char *rom_directory,
     const char *snapshot_path,
@@ -7211,6 +7416,31 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         return command_attract_irq_probe(argv[2], argv[3], frames, inject);
+    }
+
+    if (strcmp(argv[1], "boot-trace") == 0 && (argc == 4 || argc == 5)) {
+        uint32_t frames = 0u;
+        uint32_t read_cap = 80u;
+        if (!parse_u32(argv[3], &frames) || frames == 0u) {
+            fprintf(stderr, "Invalid frame count: %s\n", argv[3]);
+            return EXIT_FAILURE;
+        }
+        if (argc == 5 && !parse_u32(argv[4], &read_cap)) {
+            fprintf(stderr, "Invalid read cap: %s\n", argv[4]);
+            return EXIT_FAILURE;
+        }
+        return command_boot_trace(argv[2], frames, read_cap);
+    }
+
+    if (strcmp(argv[1], "read-words") == 0 && argc == 5) {
+        uint32_t address = 0u;
+        uint32_t count = 0u;
+        if (!parse_u32(argv[3], &address) || !parse_u32(argv[4], &count) ||
+            count == 0u) {
+            fprintf(stderr, "Invalid address or count\n");
+            return EXIT_FAILURE;
+        }
+        return command_read_words(argv[2], address, count);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
