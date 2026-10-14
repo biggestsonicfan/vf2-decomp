@@ -90,9 +90,37 @@ decrement, so the per-frame phase worker that would advance the attract is not
 running (or is gated before it decrements). This -- not the interrupt cadence --
 is the concrete freeze point.
 
-Next step to pin it: (a) in MAME, does `0x500024` fall from `0x27f` (or 0x100)
-during attract frames 30-967, and what does `0x500028` become -- i.e. is the
-phase worker running there? (b) in the native, find the routine that decrements
-`0x500024` and why it is not reached each frame (same method as
-`frame_geometry_gate` in attract_geometry_gate_chain.md). The freeze is upstream
-of both the geometry commit gate and the interrupt handling.
+### The countdown worker (0xa950 setter / 0xa974 decrementer)
+
+Tracing which instruction writes `0x500024` over a natural boot: the countdown
+is managed by two tiny phase workers near the frame dispatch:
+
+```
+a950 setter:      0x500024 = 5 << 7 (= 0x280); 0x50002a++ ; ret
+a974 decrementer: r5 = 0x500024 - 1; 0x500024 = r5
+                  if (r5 <= 0) 0x50002a++   ; advance phase when countdown hits 0
+                  ret
+```
+
+Measured: ip `0xa954` sets `0x500024 = 0x280` at frame 16, ip `0xa980` decrements
+it to `0x27f` at frame 17, and then the decrementer is **never called again** --
+the frame dispatch stops selecting it. So the attract advanced through the early
+phases, entered the phase marked by `0x500028 = 0x11110000`, and that phase's
+worker runs every frame without ever advancing. `0x500024` stays `0x27f`.
+
+### This is v0366's gate, independently confirmed
+
+`attract_phases_ready_gate_v0366.md` already mapped the sel3 phases and found
+they gate on the video/ready latch `0x00550000` and the task-ready word
+`0x00515b50` (phase 8->10 needs `0x515b50 == 1` and `0x550000 == 0`; phase 14
+locks when `0x550000` returns to 1), and concluded the logo/3D phase cannot be
+driven without a witness. The current native state has `0x550000 == 0` and
+`0x515b50 == 0`, so the phase worker waits for `0x515b50` to become 1, which
+nothing in the modelled hardware sets. The gates are the **video/TGP-ready
+handshake**, not the timer/sound interrupts.
+
+Next step to pin it (needs the MAME reference): around attract frames 727-967,
+(a) what writes `0x00515b50 = 1` and `0x00550000`, and (b) is the TGP program
+upload (which MAME does at boot) a prerequisite for that ready handshake? The
+native freeze is upstream of the geometry commit gate and the interrupts, at
+this video/TGP-ready wait.
