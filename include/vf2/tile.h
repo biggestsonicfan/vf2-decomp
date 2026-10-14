@@ -50,4 +50,11 @@ vf2_status vf2_tile_render_row(
     uint8_t *out
 );
 
+/* Decode a 16-bit Model 2 palette entry to 0x00RRGGBB. The entries are RGB555
+ * with bit 15 a flag: bits [14:10] red, [9:5] green, [4:0] blue, each 5-bit
+ * channel expanded to 8 bits. Validated self-consistently against the attract
+ * palette (0xffff -> white, 0xfc00 -> red, 0x83e0 -> green, 0x801f -> blue;
+ * decomp/i960/notes/tile_layer_glyph_format.md). */
+uint32_t vf2_tile_palette_rgb555(uint16_t entry);
+
 #endif

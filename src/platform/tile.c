@@ -71,3 +71,14 @@ vf2_status vf2_tile_render_row(
     }
     return VF2_OK;
 }
+
+uint32_t vf2_tile_palette_rgb555(uint16_t entry)
+{
+    const uint32_t r5 = (uint32_t)((entry >> 10) & 0x1fu);
+    const uint32_t g5 = (uint32_t)((entry >> 5) & 0x1fu);
+    const uint32_t b5 = (uint32_t)(entry & 0x1fu);
+    const uint32_t r8 = (r5 << 3) | (r5 >> 2);
+    const uint32_t g8 = (g5 << 3) | (g5 >> 2);
+    const uint32_t b8 = (b5 << 3) | (b5 >> 2);
+    return (r8 << 16) | (g8 << 8) | b8;
+}

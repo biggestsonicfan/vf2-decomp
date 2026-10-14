@@ -41,6 +41,14 @@ static void test_guards(void)
           VF2_ERROR_OUT_OF_BOUNDS);
     CHECK(vf2_tile_name_char(0x8041u) == 0x41u);
     CHECK(vf2_tile_name_bank(0x8041u) == 0x80u);
+
+    /* RGB555 palette decode (pure, synthetic known values from the attract
+     * palette). */
+    CHECK(vf2_tile_palette_rgb555(0xffffu) == 0xffffffu); /* white */
+    CHECK(vf2_tile_palette_rgb555(0x8000u) == 0x000000u); /* black (flag only) */
+    CHECK(vf2_tile_palette_rgb555(0xfc00u) == 0xff0000u); /* red  */
+    CHECK(vf2_tile_palette_rgb555(0x83e0u) == 0x00ff00u); /* green */
+    CHECK(vf2_tile_palette_rgb555(0x801fu) == 0x0000ffu); /* blue */
 }
 
 static void test_font(const char *rom_dir)
