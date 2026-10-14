@@ -196,3 +196,20 @@ the correct MAME trajectory is verifiable on master, while the default model
 stays byte-compatible with the recovered native runtime (whose boot bridges do
 not yet cover the corrected 3D-active path -- see the bit13/0xc94 section above).
 Making it the default requires recovering that path.
+
+## Why it cannot land as a partial/green slice (AGENTS.md rule 5)
+
+`native-sixth-dispatch` validates the recovered runtime against the interpreter
+oracle to hardcoded counts (`expected_blocks = 870`,
+`expected_instructions = 7404901`) for the old boot trajectory, and the native
+runtime has no interpreter fallback (every unrecovered block returns
+`VF2_ERROR_UNSUPPORTED`). With the fix the whole 870-block trajectory changes
+(into the bit13 / 0xc94 3D-active path), so the recovered runtime no longer
+matches the oracle. AGENTS.md rule 5 forbids weakening that validation to make
+the recovery pass, and rule 3 requires matching the oracle. Therefore the ONLY
+compliant way to make the fix the model default is to recover the entire
+corrected boot trajectory (and recompute the differential constants) as one
+coherent change -- no intermediate compliant/green commit exists. That is a
+multi-session recovery effort (and a rendered 3D frame additionally needs the
+TGP pipeline / G2). This note + the boot-trace `apply-io-fix` capability are the
+compliant hand-off; the recovery itself awaits an explicit go-ahead.
