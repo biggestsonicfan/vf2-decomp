@@ -358,18 +358,58 @@ int vf2_tgp_command_payload_words(uint32_t opcode)
 {
     switch (opcode) {
     case 0x0bu:
-        return 12; /* 3x4 transform matrix */
+        return 12; /* 3x4 transform matrix (both occurrences) */
     case 0x34u:
-        return 1;
-    case 0x00u: /* pad */
-    case 0x01u: /* object: model referenced via geo/prg, not inline */
-    case 0x02u: /* direct */
-    case 0x13u:
-    case 0x1fu: /* end */
+        return 1;  /* 89/89 */
+    case 0x00u: /* pad (zero words, header-only) */
+    case 0x01u: /* object: model referenced via geo/prg, not inline (117/117) */
+    case 0x02u: /* direct (119/119) */
+    case 0x13u: /* header-only (54/54) */
         return 0;
     default:
-        return -1; /* variable or not yet pinned: fail closed */
+        /* variable, or not yet pinned, including the end marker (7-bit opcode
+         * 0x3f, i.e. 0x1f803f3f -- NOT 0x1f): fail closed. */
+        return -1;
     }
+}
+
+size_t vf2_tgp_next_command(
+    const uint32_t *words,
+    size_t count,
+    size_t pos,
+    vf2_tgp_command *cmd
+)
+{
+    uint32_t opcode = 0u;
+    int fixed = 0;
+    size_t payload = 0u;
+
+    if (words == NULL || cmd == NULL || pos >= count ||
+        !vf2_tgp_is_command_header(words[pos])) {
+        return 0u;
+    }
+    opcode = vf2_tgp_command_opcode(words[pos]);
+    fixed = vf2_tgp_command_payload_words(opcode);
+    if (fixed >= 0) {
+        payload = (size_t)fixed;
+        if (pos + 1u + payload > count) {
+            return 0u; /* truncated */
+        }
+        cmd->length_verified = 1;
+    } else {
+        /* header-delimited: payload runs until the next header */
+        size_t j = pos + 1u;
+        while (j < count && !vf2_tgp_is_command_header(words[j])) {
+            ++j;
+        }
+        payload = j - (pos + 1u);
+        cmd->length_verified = 0;
+    }
+    cmd->opcode = opcode;
+    cmd->header_index = pos;
+    cmd->payload_index = pos + 1u;
+    cmd->payload_count = payload;
+    return pos + 1u + payload;
 }
 
 static vf2_status geometry_count_words(

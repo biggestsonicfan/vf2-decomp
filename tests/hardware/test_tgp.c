@@ -396,9 +396,49 @@ static void test_tgp_command_header_decode(void)
     CHECK(vf2_tgp_command_payload_words(0x01u) == 0);
     CHECK(vf2_tgp_command_payload_words(0x02u) == 0);
     CHECK(vf2_tgp_command_payload_words(0x13u) == 0);
-    CHECK(vf2_tgp_command_payload_words(0x1fu) == 0);
+    CHECK(vf2_tgp_command_payload_words(0x00u) == 0);
     CHECK(vf2_tgp_command_payload_words(0x29u) == -1); /* variable-length */
+    CHECK(vf2_tgp_command_payload_words(0x3fu) == -1); /* end marker, not pinned */
     CHECK(vf2_tgp_command_payload_words(0x7fu) == -1);
+
+    /* Framer over a synthetic stream: matrix (0x0b, 12 payload), object
+     * (0x01, 0), op 0x34 (1), a variable op 0x29 (header-delimited to 2 here),
+     * end (0x1f, 0). Payload words are arbitrary non-header constants. */
+    {
+        static const uint32_t hdr0b = UINT32_C(0x05800b0b);
+        static const uint32_t hdr01 = UINT32_C(0x00800101);
+        static const uint32_t hdr34 = UINT32_C(0x1a003434);
+        static const uint32_t hdr29 = UINT32_C(0x14802929);
+        static const uint32_t hdr1f = UINT32_C(0x1f803f3f);
+        const uint32_t pay = UINT32_C(0x12345678); /* not a header */
+        uint32_t stream[32];
+        size_t n = 0u, pos = 0u;
+        vf2_tgp_command cmd;
+        size_t k;
+
+        CHECK(vf2_tgp_is_command_header(hdr34)); /* 0x1a003434 -> op 0x34 */
+        CHECK(vf2_tgp_command_opcode(hdr34) == 0x34u);
+        CHECK(!vf2_tgp_is_command_header(pay));
+
+        stream[n++] = hdr0b; for (k = 0u; k < 12u; ++k) stream[n++] = pay;
+        stream[n++] = hdr01;
+        stream[n++] = hdr34; stream[n++] = pay;
+        stream[n++] = hdr29; stream[n++] = pay; stream[n++] = pay;
+        stream[n++] = hdr1f;
+
+        pos = vf2_tgp_next_command(stream, n, 0u, &cmd);
+        CHECK(cmd.opcode == 0x0bu && cmd.payload_count == 12u && cmd.length_verified && pos == 13u);
+        pos = vf2_tgp_next_command(stream, n, pos, &cmd);
+        CHECK(cmd.opcode == 0x01u && cmd.payload_count == 0u && cmd.length_verified && pos == 14u);
+        pos = vf2_tgp_next_command(stream, n, pos, &cmd);
+        CHECK(cmd.opcode == 0x34u && cmd.payload_count == 1u && cmd.length_verified && pos == 16u);
+        pos = vf2_tgp_next_command(stream, n, pos, &cmd);
+        CHECK(cmd.opcode == 0x29u && cmd.payload_count == 2u && !cmd.length_verified && pos == 19u);
+        pos = vf2_tgp_next_command(stream, n, pos, &cmd);
+        CHECK(cmd.opcode == 0x3fu && cmd.payload_count == 0u && pos == 20u);
+        CHECK(pos == n); /* framed the whole synthetic stream */
+        CHECK(vf2_tgp_next_command(stream, n, 1u, &cmd) == 0u); /* not a header */
+    }
 }
 
 int main(void)

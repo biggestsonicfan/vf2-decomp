@@ -85,14 +85,20 @@ Counting payload words between consecutive command headers (header =
 | 0x01 | 0 | 117/117 | object -- model referenced via geo/prg, not inline |
 | 0x02 | 0 | 119/119 | direct |
 | 0x13 | 0 | 54/54 | (header-only) |
-| 0x00 | 0 | pad | |
-| 0x1f | 0 | end | |
+| 0x00 | 0 | pad | zero words, header-only |
 
 Encoded (verified) in `vf2_tgp_command_payload_words()` with a unit test; every
-other opcode returns -1 (fail closed). Variable-length opcodes measure 0..3
-payload words data-dependently (e.g. 0x29 n=54, 0x37 n=69, 0x39 n=60) and are
-NOT pinned from one frame -- that framing, and the triangle assembly, need the
-reference output below.
+other opcode returns -1 (fail closed). Note the end marker is 7-bit opcode
+**0x3f** (`0x1f803f3f`), NOT 0x1f -- the older 5-bit decode read it as 0x1f; its
+length is not independently pinned here, so it is left -1. Variable-length
+opcodes measure 0..3 payload words data-dependently (e.g. 0x29 n=54, 0x37 n=69,
+0x39 n=60) and are NOT pinned from one frame -- that framing, and the triangle
+assembly, need the reference output below.
+
+The whole stream frames by header delimitation (payload = words to the next
+header), a rule consistent with every pinned fixed length; `vf2_tgp_next_command`
+implements it (fixed length where pinned, delimitation otherwise, with
+`length_verified` flagging which), with a unit test over a synthetic stream.
 
 ## What is needed to validate
 

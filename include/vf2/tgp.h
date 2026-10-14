@@ -161,6 +161,33 @@ int vf2_tgp_is_command_header(uint32_t word);
  * (decomp/i960/notes/mame_3d_frame_geometry_format.md). */
 int vf2_tgp_command_payload_words(uint32_t opcode);
 
+typedef struct vf2_tgp_command {
+    uint32_t opcode;        /* 7-bit opcode of this command's header          */
+    size_t header_index;    /* index of the header word in the stream         */
+    size_t payload_index;   /* index of the first payload word (header + 1)    */
+    size_t payload_count;   /* number of payload words                        */
+    int length_verified;    /* 1 if payload_count came from the pinned fixed
+                             * length, 0 if from header delimitation           */
+} vf2_tgp_command;
+
+/* Frame the command that begins at words[pos] (which must be a command header)
+ * and advance. The command's payload is the pinned fixed length when the opcode
+ * has one (vf2_tgp_command_payload_words != -1), otherwise every word up to the
+ * next header -- the stream is header-delimited, a rule consistent with all the
+ * pinned fixed lengths (decomp/i960/notes/mame_3d_frame_geometry_format.md).
+ * Fills *cmd and returns the index of the next command's header (pos + 1 +
+ * payload_count), or 0 on error (pos out of range, or words[pos] is not a
+ * header). Caveat: a payload word that coincidentally equals a header pattern
+ * can over-split a variable-length command; disambiguating that needs the
+ * reference output, so a caller that requires exactness should restrict itself
+ * to length_verified == 1 commands. */
+size_t vf2_tgp_next_command(
+    const uint32_t *words,
+    size_t count,
+    size_t pos,
+    vf2_tgp_command *cmd
+);
+
 vf2_status vf2_tgp_geometry_command_words(
     const uint32_t *words,
     size_t word_count,
