@@ -105,3 +105,22 @@ two ways forward are:
   This needs the exact clear condition: `0x5000a6` has no static xref (it is
   written through a computed base+offset), so finding it needs a dynamic trace
   of the store, or the MAME answer for what writes `0x5000a6 = 0` and when.
+
+## Where the TGP microcode actually lives (not in the game romset)
+
+Cross-checking the romset against the manifest: every `epr-/mpr-/opr-` file is
+mapped, and the only unmapped entries are the `vf2a` / `vf2b` / `vf2o`
+subdirectories, which hold *other game revisions* of the i960 main program
+(`epr-17562..17569`, 128 KiB each) -- not TGP data. The `opr-1474x` files are the
+TGP math tables (sin/cos, atan, 1/x), and `mpr-1631x` are the video-board
+lookup. There is **no copro/TGP program ROM in the VF2 romset**, and
+`VF2_REGION_COPRO_DATA` has no source file (it is zero-filled).
+
+So the MB86234 (TGPx4) microcode is the **chip's internal program**, the same
+across Model 2 titles, which MAME carries as a device ROM (not part of a game's
+romset). Obtaining it is a chip-microcode / clean-room question for the
+maintainer, distinct from the game ROMs the user supplies. Without it, Option 2
+cannot decode/lift a program, and the only in-tree route is (b): a faithful
+HLE-TEMP model of the selector-17 self-test response -- which, as measured, must
+reproduce the TGP's actual result (a flat `0x5000a6=0` poke advances one sub-step
+then the test re-arms), not just a flag.
