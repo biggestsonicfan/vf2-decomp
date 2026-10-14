@@ -119,6 +119,31 @@ polygon-ROM vertices and matching the result to `prg`, which needs the matrix
 element order -- unverifiable from one frame without the reference output. But it
 establishes the `prg`<->polygon-ROM link concretely for the first time.
 
+### Verbatim 13-word model copy (clean pin)
+
+Searching for the longest *contiguous* run of `prg` words that matches the
+polygon ROM contiguously: `prg[133..145]` is a 13-word run equal to
+`polygons[0x001bb870..0x001bb8a4]` word for word, e.g.
+
+```
+prg[133]=bd4da1c1 == poly[0x001bb870]   prg[138]=3db43958 == poly[0x001bb884]
+prg[134]=3f50c691 == poly[0x001bb874]   prg[139]=3d0ce704 == poly[0x001bb888]
+prg[135]=bf1397b0 == poly[0x001bb878]   prg[140]=bc83e426 == poly[0x001bb88c]
+prg[136]=3d0ce704 == poly[0x001bb87c]   prg[141]=3db43958 == poly[0x001bb890]
+prg[137]=bc83e426 == poly[0x001bb880]   prg[142]=00040401 == poly[0x001bb894]
+```
+
+The run includes an attribute word `0x00040401` (the same token seen in the
+`prg` header), so the match is not a coincidental float field -- it is a
+verbatim stretch of a polygon-ROM **model record** (vertex floats interleaved
+with attribute/flag words) copied into the geo port. This pins, concretely and
+in-tree (against the committed polygon ROM), that `prg` carries polygon-ROM model
+records verbatim; the TGP then transforms them with the FIFO matrices. The model
+record format (vertex count, attribute bitfields, triangle connectivity) can now
+be recovered by aligning `prg` copies with the polygon-ROM bytes at the pinned
+offsets -- the reference-free part of the model decode -- while the transform/
+projection output still needs the MAME reference to validate.
+
 ## What is needed to validate
 
 A MAME **reference triangle list** (or the rendered image) for the same frame(s)
