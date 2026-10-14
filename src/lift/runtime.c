@@ -45,3 +45,29 @@ const vf2_lift_entry *vf2_lift_table_lookup(
     }
     return NULL;
 }
+
+vf2_status vf2_lift_dispatch_step(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    const vf2_lift_entry *table,
+    size_t count,
+    vf2_lift_tier *tier
+)
+{
+    const vf2_lift_entry *entry = NULL;
+
+    if (machine == NULL || cpu == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    entry = vf2_lift_table_lookup(table, count, cpu->ip);
+    if (entry != NULL) {
+        if (tier != NULL) {
+            *tier = VF2_LIFT_TIER_LIFTED;
+        }
+        return entry->fn(machine, cpu);
+    }
+    if (tier != NULL) {
+        *tier = VF2_LIFT_TIER_INTERPRETED;
+    }
+    return vf2_i960_step(cpu, machine, NULL);
+}

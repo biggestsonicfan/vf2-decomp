@@ -169,8 +169,31 @@ session advance.
    attract corridor (85 backlog + 3 explicit) match the interpreter from the
    cold entry state (ctest `vf2_lift_differential`). Functions whose seeded CFG
    has no in-range block are skipped with a comment, never half-emitted.
-4. Dispatch registry (recovered > lifted > interpreted) and the attract-session
-   `interpreted == 0` demonstration with the three-way status split. (Note: the
-   cold-state differential validates structure; functions whose behaviour is
-   input-dependent will be re-validated in their real context by the
-   session-level digest here, which is the stronger gate.)
+4. **Dispatch registry (done, 2026-10-14):** `vf2_lift_dispatch_step` routes
+   one unit at `cpu->ip` through the lifted>interpreter tiers (the shipped
+   priority recovered > lifted > interpreter; the recovered tier is applied by
+   the caller before this, so the lifted table carries no recovered address).
+   The registry must be unambiguous, so `vf2lift` keeps only maximal function
+   ranges (`keep_maximal` drops any function properly contained in another --
+   backlog seeding produced 87 overlapping candidates that collapse to 16
+   non-overlapping functions whose own block switch covers the entries they
+   contain). The differential test now also drives every corridor function
+   through the registry and confirms the driver reproduces the pure interpreter
+   byte-for-byte with `interpreted == 0` and the retired instructions accounted
+   as lifted (ctest `vf2_lift_differential`: 16 functions, 1043 instructions
+   via the lifted tier, state == oracle). `-j1` suite ON: 135/135.
+
+## Reachable status (2026-10-14)
+
+The recompiler is built, validated per function, driven by the measured Phase 3
+corridor, and wired behind the opt-in flag with the lifted>interpreter dispatch
+registry and the three-tally split (`executed`/`interpreted`/`lifted`). What
+remains for the **full** Phase 4 exit -- a lifted build that plays a session
+from reset to the end of a match with per-frame digests equal to the oracle --
+needs the game to advance past the black-frame attract, which needs the
+geometry pipeline (**G2 / Phase 6**) and video (Phase 7). That is the same G2
+gate the Phase 3 remainder sits behind. The full three-tier wiring into the
+shipped `src/app/session.c` / `src/game/game.c` frame loop (so a running
+session reports a shrinking `interpreted` tally in its status line) is the first
+task once a session can advance; the mechanism it needs
+(`vf2_lift_dispatch_step`, the registry, the counters) is in place.

@@ -275,6 +275,19 @@ Exit (A): the Phase 3 backlog is ordered and the existing
 `completion_plan_v0734.md` phases 3-4 continue, now measured against the
 coverage map.
 
+Status (B, 2026-10-14): the reachable half is done -- `tools/vf2lift` exists,
+emits one C function per guest function reusing the executor semantics
+(`vf2_i960_step_lifted`), is driven by the committed Phase 3 coverage backlog,
+and is gated per function by a differential against the interpreter; the
+`recovered > lifted > interpreter` dispatch core (`vf2_lift_dispatch_step`) and
+the `executed`/`interpreted`/`lifted` split are in place; opt-in
+`VF2_ENABLE_LIFTED` (default OFF). 16 non-overlapping attract-corridor functions
+lift and match the oracle byte-for-byte with `interpreted == 0`. The remaining
+half of the exit -- a lifted build that plays reset-to-match with matching
+per-frame digests, and the three-tier wiring into the shipped session loop -- is
+gated on G2 (geometry) and Phase 7 (video), since the attract corridor cannot
+advance to a match without them. Detail and the slice log: `docs/VF2LIFT.md`.
+
 ## Phase 5 - Game flow and simulation
 
 Goal: a full match runs natively with correct logic.

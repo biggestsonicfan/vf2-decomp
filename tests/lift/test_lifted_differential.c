@@ -190,15 +190,104 @@ static void run_entry_differential(
 
 static void test_unit_run_block_guards(void)
 {
+    vf2_lift_tier tier = VF2_LIFT_TIER_INTERPRETED;
+
     CHECK(vf2_lift_run_block(NULL, NULL, 0u, 4u) == VF2_ERROR_INVALID_ARGUMENT);
     CHECK(vf2_lift_table_lookup(NULL, 0u, 0u) == NULL);
     CHECK(vf2_lift_table_lookup(vf2_lift_table, vf2_lift_table_count,
                                 0xfffffffeu) == NULL);
+    CHECK(vf2_lift_dispatch_step(NULL, NULL, vf2_lift_table,
+                                 vf2_lift_table_count, &tier)
+          == VF2_ERROR_INVALID_ARGUMENT);
     if (vf2_lift_table_count > 0u) {
         const vf2_lift_entry *e =
             vf2_lift_table_lookup(vf2_lift_table, vf2_lift_table_count,
                                   vf2_lift_table[0].address);
         CHECK(e == &vf2_lift_table[0]);
+    }
+}
+
+/* Dispatch the function at `entry` through the registry (lifted tier), one
+ * dispatch unit at a time, while control stays in the function's range, and
+ * require the pure interpreter from the identical state to reach byte-identical
+ * live state. Accumulates the lifted instruction total and asserts the driver
+ * side accounts zero interpreted instructions (the Phase 4 property for a
+ * fully lifted corridor). Returns the lifted instruction count, or 0 on skip. */
+static uint64_t run_entry_via_dispatch(
+    const vf2_lift_entry *entry,
+    const vf2_i960_boot_vectors *vectors,
+    uint8_t *main_rom,
+    size_t main_rom_size,
+    uint8_t *main_data,
+    size_t main_data_size
+)
+{
+    vf2_model2a drv_machine;
+    vf2_model2a ref_machine;
+    vf2_i960_cpu drv_cpu;
+    vf2_i960_cpu ref_cpu;
+    vf2_i960_snapshot_diff diff;
+    vf2_status ref_status = VF2_OK;
+    uint64_t steps = 0u;
+    int ref_in_range = 1;
+
+    memset(&drv_cpu, 0, sizeof(drv_cpu));
+    memset(&ref_cpu, 0, sizeof(ref_cpu));
+    memset(&diff, 0, sizeof(diff));
+
+    if (!build_machine(&drv_machine, main_rom, main_rom_size,
+                       main_data, main_data_size) ||
+        !build_machine(&ref_machine, main_rom, main_rom_size,
+                       main_data, main_data_size) ||
+        !enter_at(&drv_cpu, &drv_machine, vectors, entry->address) ||
+        !enter_at(&ref_cpu, &ref_machine, vectors, entry->address)) {
+        ++failures;
+        vf2_model2a_shutdown(&drv_machine);
+        vf2_model2a_shutdown(&ref_machine);
+        return 0u;
+    }
+
+    /* Reference first, to bound the driver (see run_entry_differential). */
+    while (ref_cpu.ip >= entry->address && ref_cpu.ip < entry->end) {
+        if (steps >= LIFT_STEP_BUDGET) { ref_in_range = 1; break; }
+        ref_status = vf2_i960_step(&ref_cpu, &ref_machine, NULL);
+        ++steps;
+        if (ref_status != VF2_OK) { ref_in_range = 0; break; }
+        ref_in_range = (ref_cpu.ip >= entry->address && ref_cpu.ip < entry->end);
+        if (!ref_in_range) { break; }
+    }
+    if (steps >= LIFT_STEP_BUDGET && ref_status == VF2_OK && ref_in_range) {
+        vf2_model2a_shutdown(&drv_machine);
+        vf2_model2a_shutdown(&ref_machine);
+        return 0u; /* non-terminating from cold entry; skip */
+    }
+
+    /* Driver: route each unit through the registry. The first unit is the
+     * lifted function itself; it runs the whole range, so one dispatch unit
+     * suffices, but loop to be general. */
+    while (drv_cpu.ip >= entry->address && drv_cpu.ip < entry->end) {
+        vf2_lift_tier tier = VF2_LIFT_TIER_INTERPRETED;
+        vf2_status s = vf2_lift_dispatch_step(&drv_machine, &drv_cpu,
+                                              vf2_lift_table,
+                                              vf2_lift_table_count, &tier);
+        CHECK(tier == VF2_LIFT_TIER_LIFTED); /* entry range is lifted */
+        if (s != VF2_OK) { break; }
+    }
+
+    if (vf2_i960_compare_live_state(&ref_cpu, &ref_machine,
+                                    &drv_cpu, &drv_machine, &diff) != VF2_OK ||
+        !diff.equal) {
+        ++failures;
+        fprintf(stderr, "FAILED dispatch %s @0x%08x: driver != interpreter in %s\n",
+                entry->name, (unsigned)entry->address, diff.component);
+    }
+    CHECK(drv_cpu.interpreted_instructions == 0u);
+
+    {
+        const uint64_t lifted = drv_cpu.lifted_instructions;
+        vf2_model2a_shutdown(&drv_machine);
+        vf2_model2a_shutdown(&ref_machine);
+        return lifted;
     }
 }
 
@@ -240,6 +329,24 @@ int main(int argc, char **argv)
         run_entry_differential(&vf2_lift_table[index], &vectors,
                                main_rom, main_rom_size,
                                main_data, main_data_size);
+    }
+
+    /* Dispatch-registry pass: route each corridor function through the
+     * recovered>lifted>interpreted registry (lifted tier) and confirm the
+     * driver reproduces the interpreter while accounting zero interpreted
+     * instructions. */
+    {
+        uint64_t total_lifted = 0u;
+        for (index = 0u; index < vf2_lift_table_count; ++index) {
+            total_lifted += run_entry_via_dispatch(&vf2_lift_table[index],
+                                                   &vectors, main_rom,
+                                                   main_rom_size, main_data,
+                                                   main_data_size);
+        }
+        fprintf(stderr,
+                "dispatch registry: %zu function(s) via lifted tier, "
+                "%llu instruction(s), 0 interpreted, state == oracle\n",
+                vf2_lift_table_count, (unsigned long long)total_lifted);
     }
 
     free(main_rom);

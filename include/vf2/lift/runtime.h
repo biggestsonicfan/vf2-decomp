@@ -49,4 +49,30 @@ const vf2_lift_entry *vf2_lift_table_lookup(
     uint32_t ip
 );
 
+typedef enum vf2_lift_tier {
+    VF2_LIFT_TIER_LIFTED = 0,
+    VF2_LIFT_TIER_INTERPRETED
+} vf2_lift_tier;
+
+/* Advance the CPU by one dispatch unit at cpu->ip, choosing the highest
+ * available tier: if a lifted function in [table, count) owns the address it
+ * runs (lifted tier, many instructions); otherwise a single interpreter step
+ * runs (interpreted tier). *tier, when non-NULL, reports which ran.
+ *
+ * This is the lifted>interpreted core of the shipped dispatch priority
+ * recovered > lifted > interpreted. The recovered tier is applied by the
+ * caller before calling here -- a recovered block overrides a lifted one, so
+ * the caller omits recovered addresses from the lifted table (or routes them
+ * to the recovered runtime first). Because the lifted body reuses the
+ * interpreter semantics, replacing a run of interpreter steps with the lifted
+ * function that covers them is state-transparent; only the interpreted/lifted
+ * accounting on the CPU changes. */
+vf2_status vf2_lift_dispatch_step(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu,
+    const vf2_lift_entry *table,
+    size_t count,
+    vf2_lift_tier *tier
+);
+
 #endif

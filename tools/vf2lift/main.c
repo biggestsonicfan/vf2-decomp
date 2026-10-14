@@ -155,6 +155,49 @@ static void resolve_backlog_functions(
             resolved, start_count, *requested_count, unresolved);
 }
 
+/* Filter requested[] in place to the maximal function ranges: drop any
+ * requested function whose [address,end) is properly contained in another
+ * requested function's range. Backlog seeding can resolve many addresses into
+ * one real function's span (overlapping/nested ranges); a dispatch registry
+ * must be non-overlapping, and a containing function's own block switch already
+ * covers the entries of the functions it contains. Returns the kept count. */
+static size_t keep_maximal(
+    const vf2_i960_analysis *analysis,
+    uint32_t *requested,
+    size_t requested_count
+)
+{
+    uint32_t kept[VF2LIFT_MAX_ENTRIES];
+    size_t kept_count = 0u;
+    size_t i = 0u;
+    size_t j = 0u;
+
+    for (i = 0u; i < requested_count; ++i) {
+        const vf2_function *fi = vf2_i960_find_function(analysis, requested[i]);
+        int contained = 0;
+        if (fi == NULL) {
+            continue;
+        }
+        for (j = 0u; j < requested_count && !contained; ++j) {
+            const vf2_function *fj = NULL;
+            if (j == i) { continue; }
+            fj = vf2_i960_find_function(analysis, requested[j]);
+            if (fj == NULL) { continue; }
+            if (fj->address <= fi->address && fi->end <= fj->end &&
+                (fj->address < fi->address || fj->end > fi->end)) {
+                contained = 1;
+            }
+        }
+        if (!contained) {
+            add_unique(kept, &kept_count, VF2LIFT_MAX_ENTRIES, fi->address);
+        }
+    }
+    for (i = 0u; i < kept_count; ++i) {
+        requested[i] = kept[i];
+    }
+    return kept_count;
+}
+
 static void emit_banner(FILE *out, const char *rom_dir)
 {
     fprintf(out,
@@ -392,6 +435,13 @@ int main(int argc, char **argv)
         resolve_backlog_functions(backlog_starts, backlog_start_count, &analysis,
                                   requested, &requested_count,
                                   VF2LIFT_MAX_ENTRIES);
+    }
+    if (requested_count > 0u) {
+        const size_t before = requested_count;
+        requested_count = keep_maximal(&analysis, requested, requested_count);
+        fprintf(stderr, "vf2lift: %zu function(s) after dropping contained "
+                "(non-overlapping registry)\n", requested_count);
+        (void)before;
     }
 
     out_c = fopen(out_c_path, "w");
