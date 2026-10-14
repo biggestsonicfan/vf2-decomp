@@ -57,4 +57,22 @@ vf2_status vf2_tile_render_row(
  * decomp/i960/notes/tile_layer_glyph_format.md). */
 uint32_t vf2_tile_palette_rgb555(uint16_t entry);
 
+/* Render a row of `cols` name-table entries to RGB: out is a (cols*8) x 8
+ * buffer of 0x00RRGGBB, out[y*(cols*8) + col*8 + x]. Each pixel's 4-bit glyph
+ * index selects palette entry (palette_base + index) from palette_ram (16-bit
+ * RGB555 entries, little-endian), decoded via vf2_tile_palette_rgb555. This
+ * composes the validated font / row / palette pieces; palette_base (the per-tile
+ * palette bank) is a parameter rather than assumed, pending its name-table
+ * attribute mapping. Returns VF2_ERROR_OUT_OF_BOUNDS on null/short arguments. */
+vf2_status vf2_tile_render_row_rgb(
+    const uint8_t *main_data,
+    size_t main_data_size,
+    const uint16_t *entries,
+    size_t cols,
+    const uint8_t *palette_ram,
+    size_t palette_size,
+    size_t palette_base,
+    uint32_t *out
+);
+
 #endif

@@ -107,6 +107,40 @@ static void test_font(const char *rom_dir)
                 }
             }
         }
+
+        /* RGB composition: a synthetic 16-entry palette where index i maps to a
+         * known colour; every output pixel must equal the decode of that
+         * palette entry for the glyph's nibble. */
+        {
+            uint8_t pal[32];
+            uint32_t rgb[4u * VF2_TILE_GLYPH_W * VF2_TILE_GLYPH_H];
+            size_t i;
+            for (i = 0u; i < 16u; ++i) {
+                const uint16_t e = (uint16_t)(0x8000u | (i << 10) | (i << 5) | i);
+                pal[i * 2u] = (uint8_t)(e & 0xffu);
+                pal[i * 2u + 1u] = (uint8_t)(e >> 8);
+            }
+            CHECK(vf2_tile_render_row_rgb(main_data, size, sega, 4u,
+                                          pal, sizeof(pal), 0u, rgb) == VF2_OK);
+            for (col = 0u; col < 4u; ++col) {
+                CHECK(vf2_tile_font_glyph(main_data, size,
+                                          (uint8_t)(sega[col] & 0xffu), glyph) == VF2_OK);
+                for (y = 0u; y < VF2_TILE_GLYPH_H; ++y) {
+                    for (x = 0u; x < VF2_TILE_GLYPH_W; ++x) {
+                        const uint8_t idx = glyph[y * VF2_TILE_GLYPH_W + x];
+                        const uint16_t e =
+                            (uint16_t)(0x8000u | (idx << 10) | (idx << 5) | idx);
+                        CHECK(rgb[y * (4u * VF2_TILE_GLYPH_W) +
+                                  col * VF2_TILE_GLYPH_W + x] ==
+                              vf2_tile_palette_rgb555(e));
+                    }
+                }
+            }
+            /* Out-of-range palette base fails closed. */
+            CHECK(vf2_tile_render_row_rgb(main_data, size, sega, 4u,
+                                          pal, sizeof(pal), 1000u, rgb) ==
+                  VF2_ERROR_OUT_OF_BOUNDS);
+        }
     }
 
     free(main_data);

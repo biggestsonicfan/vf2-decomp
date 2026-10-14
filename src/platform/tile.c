@@ -82,3 +82,49 @@ uint32_t vf2_tile_palette_rgb555(uint16_t entry)
     const uint32_t b8 = (b5 << 3) | (b5 >> 2);
     return (r8 << 16) | (g8 << 8) | b8;
 }
+
+vf2_status vf2_tile_render_row_rgb(
+    const uint8_t *main_data,
+    size_t main_data_size,
+    const uint16_t *entries,
+    size_t cols,
+    const uint8_t *palette_ram,
+    size_t palette_size,
+    size_t palette_base,
+    uint32_t *out
+)
+{
+    const size_t stride = cols * VF2_TILE_GLYPH_W;
+    size_t col = 0u;
+
+    if (main_data == NULL || entries == NULL || palette_ram == NULL ||
+        out == NULL || cols == 0u) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (col = 0u; col < cols; ++col) {
+        uint8_t glyph[VF2_TILE_GLYPH_PIXELS];
+        size_t y = 0u;
+        const vf2_status status = vf2_tile_font_glyph(
+            main_data, main_data_size, vf2_tile_name_char(entries[col]), glyph
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        for (y = 0u; y < VF2_TILE_GLYPH_H; ++y) {
+            size_t x = 0u;
+            for (x = 0u; x < VF2_TILE_GLYPH_W; ++x) {
+                const uint8_t index = glyph[y * VF2_TILE_GLYPH_W + x];
+                const size_t pal = (palette_base + index) * 2u;
+                uint16_t entry = 0u;
+                if (pal + 1u >= palette_size) {
+                    return VF2_ERROR_OUT_OF_BOUNDS;
+                }
+                entry = (uint16_t)(palette_ram[pal] |
+                                   ((uint16_t)palette_ram[pal + 1u] << 8));
+                out[y * stride + col * VF2_TILE_GLYPH_W + x] =
+                    vf2_tile_palette_rgb555(entry);
+            }
+        }
+    }
+    return VF2_OK;
+}
