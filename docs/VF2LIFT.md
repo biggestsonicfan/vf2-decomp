@@ -198,6 +198,23 @@ session advance.
    85847. This is the shipped-path demonstration of the hybrid runtime for the
    reachable corridor.
 
+## Attract already reaches interpreted == 0 under the recovered runtime
+
+Measured 2026-10-14: `vf2_session_step` (the recovered native runtime) runs 120
+attract frames from the cold snapshot with `ok=120 fail=0` and
+`interpreted == 0`. The recovered C already models the whole attract corridor --
+including the words `coverage_report.py` labels unrecovered-per-function, which
+are covered by larger hand-written native-runtime blocks rather than by
+`functions.csv` entries. So **Phase 4's reachable exit (attract `interpreted ->
+0`) is already met by the recovered runtime alone**; the lifted bridge does not
+need to raise attract coverage. The lifted bridge's role is the corridors the
+recovered runtime does NOT yet cover -- the post-attract 3D/gameplay code -- for
+which it provides native execution (`interpreted` stays 0) until those functions
+are hand-recovered. Those corridors are unreachable today (the TGP self-test
+blocker; see `docs/NATIVE_WINDOWS_PLAN.md` Phase 6 Status), so the lifted bridge
+is validated per function and in a lifted-only session (57% of attract retired
+natively, byte-identical to the oracle) and waits for the game to advance.
+
 ## Reachable status (2026-10-14)
 
 The recompiler is built, validated per function AND in the real session frame
