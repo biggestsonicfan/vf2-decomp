@@ -41,6 +41,7 @@ typedef struct uart_hit {
     uint32_t address;
     uint32_t size;
     uint8_t first_byte;
+    uint8_t is_write;
 } uart_hit;
 
 typedef struct uart_capture {
@@ -54,12 +55,31 @@ typedef struct uart_capture {
     uint64_t observed;
 } uart_capture;
 
+/* Watched windows (v0825 table-watch): the UART data range plus the
+ * three static 0x009c0000 table entries (debug table @0x111e2, MMIO
+ * tables @0x29bd8/@0x50db4, 4 bytes each). ROM data loads go through
+ * the observed public bus symbols, so any code that fetches the UART
+ * address from its tables shows up here even when it never writes. */
+static int in_watched_window(uint32_t address)
+{
+    if (address >= UART_BASE && address < UART_END) {
+        return 1;
+    }
+    if ((address >= UINT32_C(0x29bd8) && address < UINT32_C(0x29bdc)) ||
+        (address >= UINT32_C(0x50db4) && address < UINT32_C(0x50db8)) ||
+        (address >= UINT32_C(0x111e2) && address < UINT32_C(0x111e6))) {
+        return 1;
+    }
+    return 0;
+}
+
 static void uart_observe(
     const vf2_model2a_memory_access *access,
     void *context
 )
 {
     uart_capture *capture = (uart_capture *)context;
+    int is_uart = 0;
 
     if (access == NULL || capture == NULL) {
         return;
@@ -67,11 +87,12 @@ static void uart_observe(
     if (capture->observed < UINT64_MAX) {
         ++capture->observed;
     }
-    if (access->kind != VF2_MODEL2A_MEMORY_WRITE ||
-        access->address < UART_BASE || access->address >= UART_END) {
+    if (!in_watched_window(access->address)) {
         return;
     }
-    if (capture->write_count < UINT32_MAX) {
+    is_uart = (access->address >= UART_BASE && access->address < UART_END);
+    if (is_uart && access->kind == VF2_MODEL2A_MEMORY_WRITE &&
+        capture->write_count < UINT32_MAX) {
         ++capture->write_count;
     }
     if (capture->hit_count < MAX_HITS && access->data != NULL &&
@@ -81,6 +102,8 @@ static void uart_observe(
         hit->address = access->address;
         hit->size = (uint32_t)access->size;
         hit->first_byte = *(const uint8_t *)access->data;
+        hit->is_write =
+            (uint8_t)(access->kind == VF2_MODEL2A_MEMORY_WRITE ? 1u : 0u);
     }
 }
 
@@ -183,8 +206,9 @@ int main(int argc, char **argv)
     fprintf(stderr, "uart-hunt: %u UART writes in %u frames\n",
             (unsigned)capture.write_count, (unsigned)frame);
     for (hit = 0u; hit < capture.hit_count; ++hit) {
-        fprintf(stderr, "uart-hunt: hit f=%u addr=0x%08x size=%u byte=0x%02x\n",
+        fprintf(stderr, "uart-hunt: hit f=%u %s addr=0x%08x size=%u byte=0x%02x\n",
                 (unsigned)capture.hits[hit].frame,
+                capture.hits[hit].is_write ? "W" : "R",
                 (unsigned)capture.hits[hit].address,
                 (unsigned)capture.hits[hit].size,
                 (unsigned)capture.hits[hit].first_byte);

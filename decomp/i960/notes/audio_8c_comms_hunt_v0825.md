@@ -150,6 +150,23 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    different pulse shape, or coin sound does not cross the UART
    in these states either. Next: LANDED hit (setup snapshot) or
    round-boundary (long oracle play from boot).
+
+   UPDATE (table-watch: infra stone cold, HUNT ARC CLOSED): the
+   driver also records READS of the three static 0x009c0000
+   entries (debug @0x111e2, MMIO @0x29bd8/@0x50db4 -- ROM data
+   loads travel the observed public bus symbols, so any fetch of
+   the UART address from its tables prints as an R hit). Three
+   more 10-frame runs (sixth-fresh, sega-natural-frame,
+   park-warm-coin toggle): ~10M observed accesses, ZERO hits of
+   any kind -- no table read, no UART write, anywhere reachable.
+   The i960 sound path is never touched in attract / gameplay /
+   menu / coin contexts. Remaining triggers (landed hit needing
+   a setup snapshot, round-boundary needing hours of blind
+   oracle play at ~3k insns/frame) are staged-fixture work. The
+   bridge stays unmodeled per fail-closed. 8/10 continues on its
+   completable tranches (staged-packet session WAV plumbing, V3b
+   voice naming); the hunt resumes when a round-boundary fixture
+   exists.
 3. Do NOT tick the 68k per-frame as a shortcut: the L2 stream
    engine + Loop-B are autonomous 68k programs, and silently
    stepping them in-session would hide unrecovered engine
