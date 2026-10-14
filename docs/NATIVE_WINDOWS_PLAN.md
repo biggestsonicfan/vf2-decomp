@@ -344,9 +344,24 @@ from.** Verified four independent ways:
 
 Consistent with the recovery notes (`matrix_ports_p2_v0377.md` `absent`;
 `tgp_w2_consumption_v0378.md` "unproven — this is the gap"): the reachable
-i960 bus carries only object pointers and copro protocol immediates, never a
-matrix/focus/vertex stream, and the function/upload ports (`0x880000`,
-`0x980000`) see zero writes.
+i960 bus carries only ring bookkeeping and copro arithmetic, never a
+matrix/focus/vertex stream.
+
+Phase 6 step 1 done (2026-10-14): `vf2i960 geometry-census` (and
+`scripts/geometry_census.*`) observes every 32-bit write into the geometry ring
+(`0x800000`), the copro port (`0x880000`) and the geometry buffer RAM
+(`0x900000`) over N attract frames and classifies by
+`class = (word >> 23) & 0x1f`, reporting per class the count, distinct words,
+known-protocol-immediate matches and sample headers. Over 600 attract frames
+the entire stream is: class 0x00/0x01 ring status and buffer-RAM pointers;
+class 0x04 (`0x12002424`) and 0x16 (`0x0b001616`) copro arithmetic tags (100%
+protocol); class 0x06 (`223.2f`/`172.8f`) and 0x08 (`600.0f`) camera float
+operands. There are **no renderable TGP geometry opcodes** (no object-with-
+polygon-pointer, matrix, or vertex class) — the attract corridor computes
+camera scalars on the copro FPU and never submits a mesh, so there is nothing
+for a pipeline to turn into triangles until the game advances to a 3D scene.
+This grounds the plan's "decode every command class seen" in-tree and
+reproducibly; it is not the pipeline, which stays blocked as above.
 
 **Prerequisite for Phase 6 (either option):** advance the i960 past the attract
 loop into the self-running 3D demo or into gameplay, so the game uploads the TGP

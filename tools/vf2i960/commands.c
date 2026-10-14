@@ -41,6 +41,7 @@ static void usage(const char *program)
         "  %s task-profile <rom-directory> [output.csv]\n"
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
         "  %s coverage <rom-directory> <input.vf2snap> <frames> <output.json> [frame:mask,...]\n"
+        "  %s geometry-census <rom-directory> <input.vf2snap> <frames>\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
         "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address] [raise-irq] [enter-vector] [enter-level]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
@@ -70,6 +71,7 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program,
         program,
         program,
         program,
@@ -6541,6 +6543,170 @@ static int parse_input_script(const char *text, coverage_input_script *script)
     return 1;
 }
 
+/* Phase 6 step 1: census of the geometry command stream the i960 submits.
+ *
+ * A memory observer classifies every 32-bit write into the geometry ring
+ * (0x00800000), the coprocessor port (0x00880000) and the geometry buffer RAM
+ * (0x00900000) by command class = (word >> 23) & 0x1f, the Model 2 header
+ * convention. For each class it tracks the write count, how many DISTINCT full
+ * words were seen (a handful of samples kept), and how many writes matched a
+ * known copro protocol immediate -- the v0375-v0378 recovery notes established
+ * that many words whose class bits alias a geometry opcode are actually copro
+ * arithmetic/protocol tags, not TGP stream opcodes, so the census reports the
+ * split rather than overclaiming. Distinct counts separate a single repeated
+ * immediate (distinct ~ 1) from a varied opcode such as object submission
+ * (distinct large). ROM is never emitted: output is class tallies and a few
+ * sample header words, which are safe to inspect. */
+enum { GEO_CENSUS_SAMPLE_CAP = 32u };
+
+typedef struct geo_census {
+    uint64_t class_count[32];
+    uint64_t class_protocol[32];
+    uint32_t sample[32][GEO_CENSUS_SAMPLE_CAP];
+    uint32_t sample_n[32];      /* distinct words recorded, capped at cap */
+    int sample_overflow[32];    /* true once distinct exceeded the cap */
+    uint64_t geo_writes;
+    uint64_t copro_writes;
+    uint64_t buffer_writes;
+    uint64_t total;
+} geo_census;
+
+static int geo_census_is_protocol(uint32_t word)
+{
+    /* Known copro protocol immediates (KNOWN_PROTOCOL_WORDS in
+     * tools/python/extract_fifo_transforms.py, from the measured parks). */
+    static const uint32_t known[] = {
+        0x00800101u, 0x01800303u, 0x03000606u, 0x1a003434u,
+        0x14802929u, 0x1c803939u, 0x09801313u, 0xffffffffu,
+        /* copro arithmetic tags measured on attract (matrix_ports_p2_v0377,
+         * tgp_camera_state_v0376): class bits alias geometry opcodes but these
+         * drive the copro FPU, not the TGP stream. */
+        0x12002424u, 0x0b001616u
+    };
+    size_t i;
+    for (i = 0u; i < sizeof(known) / sizeof(known[0]); ++i) {
+        if (word == known[i]) return 1;
+    }
+    return 0;
+}
+
+static void geo_census_record(geo_census *c, uint32_t word)
+{
+    const uint32_t cls = (word >> 23) & 0x1fu;
+    uint32_t i;
+    ++c->class_count[cls];
+    ++c->total;
+    if (geo_census_is_protocol(word)) ++c->class_protocol[cls];
+    for (i = 0u; i < c->sample_n[cls]; ++i) {
+        if (c->sample[cls][i] == word) return; /* already recorded */
+    }
+    if (c->sample_n[cls] < GEO_CENSUS_SAMPLE_CAP) {
+        c->sample[cls][c->sample_n[cls]++] = word;
+    } else {
+        c->sample_overflow[cls] = 1;
+    }
+}
+
+static void geo_census_observer(
+    const vf2_model2a_memory_access *access, void *context
+)
+{
+    geo_census *c = (geo_census *)context;
+    uint32_t word = 0u;
+    uint32_t addr = 0u;
+    int in_range = 0;
+
+    if (access == NULL || c == NULL ||
+        access->kind != VF2_MODEL2A_MEMORY_WRITE || access->size != 4u ||
+        access->data == NULL) {
+        return;
+    }
+    addr = access->address;
+    if (addr >= 0x00800000u && addr < 0x00808000u) { ++c->geo_writes; in_range = 1; }
+    else if (addr >= 0x00880000u && addr < 0x00888000u) { ++c->copro_writes; in_range = 1; }
+    else if (addr >= 0x00900000u && addr < 0x00980000u) { ++c->buffer_writes; in_range = 1; }
+    if (!in_range) return;
+    memcpy(&word, access->data, sizeof(word));
+    geo_census_record(c, word);
+}
+
+static int command_geometry_census(
+    const char *rom_directory,
+    const char *snapshot_path,
+    uint32_t frames
+)
+{
+    const uint64_t per_frame_budget = UINT64_C(50000000);
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_i960_snapshot snapshot;
+    vf2_hybrid_frame_wait_state frame_wait;
+    geo_census census;
+    uint32_t frame = 0u;
+    uint32_t cls = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&census, 0, sizeof(census));
+    vf2_i960_snapshot_init(&snapshot);
+
+    status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(rom_directory, &machine, image, image_size);
+    }
+    if (status == VF2_OK) status = vf2_i960_snapshot_read_file(&snapshot, snapshot_path);
+    if (status == VF2_OK) status = vf2_i960_snapshot_restore(&snapshot, &cpu, &machine);
+    if (status == VF2_OK) status = vf2_hybrid_frame_wait_initialize(&frame_wait, 4u);
+    if (status == VF2_OK) vf2_model2a_set_memory_observer(&machine, geo_census_observer, &census);
+
+    while (status == VF2_OK && frame < frames) {
+        uint64_t steps = 0u;
+        for (;;) {
+            vf2_hybrid_frame_wait_report wait_report;
+            status = vf2_hybrid_frame_wait_observe(&machine, &cpu, &frame_wait, &wait_report);
+            if (status != VF2_OK) break;
+            if (wait_report.interrupt_injected) { ++frame; break; }
+            status = vf2_i960_step(&cpu, &machine, NULL);
+            if (status != VF2_OK) break;
+            if (++steps >= per_frame_budget) { status = VF2_ERROR_UNSUPPORTED; break; }
+        }
+    }
+
+    if (status == VF2_OK) {
+        printf("geometry-census: %u frames, geo=%llu copro=%llu buffer=%llu "
+               "writes (%llu classified)\n",
+               (unsigned)frame, (unsigned long long)census.geo_writes,
+               (unsigned long long)census.copro_writes,
+               (unsigned long long)census.buffer_writes,
+               (unsigned long long)census.total);
+        printf("  class  count      distinct  protocol  samples\n");
+        for (cls = 0u; cls < 32u; ++cls) {
+            uint32_t i;
+            if (census.class_count[cls] == 0u) continue;
+            printf("  0x%02x   %-9llu  %s%-7u  %-8llu ", (unsigned)cls,
+                   (unsigned long long)census.class_count[cls],
+                   census.sample_overflow[cls] ? ">=" : "  ",
+                   (unsigned)census.sample_n[cls],
+                   (unsigned long long)census.class_protocol[cls]);
+            for (i = 0u; i < census.sample_n[cls] && i < 4u; ++i) {
+                printf("%08x ", (unsigned)census.sample[cls][i]);
+            }
+            printf("\n");
+        }
+    } else {
+        fprintf(stderr, "geometry-census failed: %s\n", vf2_status_string(status));
+    }
+
+    vf2_i960_snapshot_destroy(&snapshot);
+    vf2_model2a_shutdown(&machine);
+    free(image);
+    return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
 static int command_coverage(
     const char *rom_directory,
     const char *snapshot_path,
@@ -6774,6 +6940,15 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         return command_coverage(argv[2], argv[3], frames, argv[5], &script);
+    }
+
+    if (strcmp(argv[1], "geometry-census") == 0 && argc == 5) {
+        uint32_t frames = 0u;
+        if (!parse_u32(argv[4], &frames) || frames == 0u) {
+            fprintf(stderr, "Invalid frame count: %s\n", argv[4]);
+            return EXIT_FAILURE;
+        }
+        return command_geometry_census(argv[2], argv[3], frames);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
