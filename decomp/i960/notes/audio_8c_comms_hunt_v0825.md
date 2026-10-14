@@ -117,6 +117,27 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    the frame (unmapped range), so VF2_OK frames mean genuinely
    absent, not unobserved. Next: round-start/match-boundary
    snapshots, or static hunt for the MMIO-table users.
+
+   UPDATE (attract negative + main-loop map): 10 oracle frames
+   from sega-natural-frame (boot/attract, START at frame 5):
+   4.5M observed accesses, hook live, ZERO UART writes -- even
+   the attract jingle does not cross the UART. 68k reset entry
+   (0x100) verified by disassembly to match the C init exactly
+   (0x222 vector copy, 0x28e SCSP, 0x320/0x336/0x3a8/0x3cc/
+   0x402/0x422 inits, `jmp $2242`). Main loop at 0x2242: flag
+   byte at (a0) gates `jmp $7a6` (DRAIN call from the main
+   loop), $1c/$1a counter pair, $0409(a5) bit-7 MIDI gate
+   (v0813's register), then movem stream programming. Working
+   model: BGM/streams run AUTONOMOUSLY (boot-loaded $2000
+   records + L2 tick, no ring involved); the $1500 ring + UART
+   carry ONE-SHOTS (hit SFX, coin, announcements). That is why
+   40 frames of whiffed punches, menu edits, held coin and
+   attract are all silent on the UART. Next fixtures, in order:
+   (1) coin-EDGE toggling (held COIN is level, the acceptor
+   wants 0->1; needs a per-frame-toggle pattern in the driver);
+   (2) a LANDED hit (attacker in range -- needs a setup
+   snapshot, not pressure); (3) round-announce (needs a
+   round-boundary snapshot). No src change this slice.
 3. Do NOT tick the 68k per-frame as a shortcut: the L2 stream
    engine + Loop-B are autonomous 68k programs, and silently
    stepping them in-session would hide unrecovered engine
