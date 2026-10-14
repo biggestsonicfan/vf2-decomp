@@ -801,13 +801,126 @@ static vf2_status sound_board_dispatch_80(
     return VF2_ERROR_UNSUPPORTED;
 }
 
+static vf2_status sound_board_read_table_u8(
+    vf2_sound_board *board,
+    uint32_t address,
+    uint8_t *value
+)
+{
+    return vf2_sound_board_read_u8(board, address, value);
+}
+
+static vf2_status sound_board_read_table_word(
+    vf2_sound_board *board,
+    uint32_t address,
+    uint16_t *value
+)
+{
+    uint8_t high = 0u;
+    uint8_t low = 0u;
+
+    /* ROM move.w traps on odd addresses (address error); fail closed
+       the same way instead of tearing a word. */
+    if ((address & 1u) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    if (sound_board_read_table_u8(board, address, &high) != VF2_OK ||
+        sound_board_read_table_u8(board, address + 1u, &low) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    *value = (uint16_t)(((uint16_t)high << 8u) | low);
+    return VF2_OK;
+}
+
+/* ROM 0x884 HIGH table path (v0825 S2c). Returns VF2_OK with
+   *reached_door set: 0 = the 0x8a6 gate hit (word == 0x00ff ->
+   0x8b0 rts, back to the drain scan, head effects only), 1 = the
+   full path ran to the Loop-B door at 0x902 ($1511/$1512/$1516/
+   $150d filed, $1515 NOT -- that file is Loop-B's own first
+   block). Errors propagate; the caller converts the door to a
+   held-packet refusal. */
+static vf2_status sound_board_dispatch_90_high(
+    vf2_sound_board *board,
+    uint8_t *descriptor,
+    uint8_t payload,
+    int *reached_door
+)
+{
+    uint8_t select = 0u;
+    uint32_t table_base = 0u;
+    uint32_t entry = 0u;
+    uint16_t gate = 0u;
+    uint8_t filed = 0u;
+    uint16_t word = 0u;
+
+    /* ROM 0x884-0x894: d3 = desc[2]-0xf0 (byte subi), &0x7f
+       (the long-residue note in dispatch_90: the pick reads d3.w
+       only, so the mask is the whole index model), a2 =
+       be32(0x6032c6 + d3*4) + (payload&0x7f)*6. */
+    select = (uint8_t)((uint8_t)(descriptor[2u] - 0xf0u) & 0x7fu);
+    if (read_audio_be32(board,
+                        UINT32_C(0x6032c6) + (uint32_t)select * 4u,
+                        &table_base) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    entry = table_base + (uint32_t)(payload & 0x7fu) * 6u;
+    /* ROM 0x8a6: cmpi.w #$ff,(a2) -- the empty-slot word is 0x00ff,
+       not 0xffff (stepper gate-hit legs pin the 0x8b0 rts on words
+       that read 0x00ff). */
+    if (sound_board_read_table_word(board, entry, &gate) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (gate == UINT16_C(0x00ff)) {
+        *reached_door = 0;
+        return VF2_OK;
+    }
+    /* ROM 0x8b2-0x8c2: d1 = byte(a2+4), or desc[6] when the table
+       byte is the 0x80 sentinel; file $1511. */
+    if (sound_board_read_table_u8(board, entry + 4u, &filed) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (filed == 0x80u) {
+        filed = descriptor[6u];
+    }
+    board->sound_ram[VF2_SOUND_LOOKUP_CONTROL] = filed;
+    /* ROM 0x8c6/0x8cc: $1512 = word(a2+2), $1516 = word(a2). */
+    if (sound_board_read_table_word(board, entry + 2u, &word) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    write_be16(board->sound_ram + VF2_SOUND_LOOKUP_WORD_ALT, word);
+    if (sound_board_read_table_word(board, entry, &word) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    write_be16(board->sound_ram + VF2_SOUND_LOOKUP_WORD, word);
+    /* ROM 0x8d2-0x8f6: d1 = desc[13]; nonzero files itself and
+       clears desc[13] (bra past the desc[12] logic); zero falls to
+       d1 = desc[12], kept unless (d1&7) == 0, when d1 =
+       byte(a2+5). File $150d. */
+    filed = descriptor[0x0du];
+    if (filed != 0u) {
+        descriptor[0x0du] = 0u;
+    } else {
+        filed = descriptor[0x0cu];
+        if ((filed & 0x07u) == 0u) {
+            if (sound_board_read_table_u8(board, entry + 5u, &filed) !=
+                VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+        }
+    }
+    board->sound_ram[VF2_SOUND_LOOKUP_RELEASE] = filed;
+    *reached_door = 1;
+    return VF2_OK;
+}
+
 static vf2_status sound_board_dispatch_90(
     vf2_sound_board *board,
     uint8_t *descriptor,
     uint8_t command,
     uint8_t payload,
     uint8_t ring_byte2,
-    vf2_sound_dispatch_report *report
+    vf2_sound_dispatch_report *report,
+    int *reached_door
 )
 {
     /* ROM 0x858 (v0825 S2b primer correction): the switch's beq
@@ -855,16 +968,30 @@ static vf2_status sound_board_dispatch_90(
     report->selected_value = mode;
     /* Split at 0x878 (`move.b desc[2],d3` / cmpi.b #$f0 / bcs):
        - < 0xf0 -> 0xa3e low path (row-table walk, files
-         $1516/$1518/$1515/$1511, bra $f12 -- never Loop-B);
-       - >= 0xf0 -> HIGH table path (0x884+: stride payload&0x7f*6,
-         0x8a6 gate, 0x8b2 file $1511/$1512/$1516, 0x8d2/0x8e4 file
-         $150d, $1515, fall-through 0x8fe into Loop-B 0x902).
+         $1516/$1518/$1515/$1511, bra $f12 -- never Loop-B).
+         Unrecovered (S2d backlog): refuse with head filed.
+       - >= 0xf0 -> HIGH table path (sound_board_dispatch_90_high,
+         v0825 S2c): gate-hit returns OK with the door shut (back
+         to the drain scan); the door returns OK with files applied
+         and the caller converts to a held-packet refusal at 0x902.
        The d3 upper survives subi.b/andi.w as long-residue, but the
        table pick reads d3.w only (0x894 `move.l (a1,d3.w)`), so the
-       index is exact. NEITHER arm is recovered yet (S2c owns the
-       HIGH path + Loop-B door; S3 the setup arms). Refuse with head
-       filed and the packet held. */
-    return VF2_ERROR_UNSUPPORTED;
+       index is exact. */
+    if (descriptor[2u] < 0xf0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    {
+        vf2_status high_status =
+            sound_board_dispatch_90_high(board, descriptor, payload,
+                                         reached_door);
+        if (high_status != VF2_OK) {
+            return high_status;
+        }
+        if (*reached_door) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        return VF2_OK;
+    }
 }
 
 static vf2_status sound_board_dispatch_a0(
@@ -1171,14 +1298,21 @@ vf2_status vf2_sound_board_dispatch_next(
                 return status;
             }
         } else if (local.command_class == 0x90u) {
+            int at_door = 0;
             vf2_status status = sound_board_dispatch_90(
                 board, descriptor, local.command, local.payload,
                 ram[VF2_SOUND_COMMAND_RING_BASE +
-                    ((cursor + 2u) & UINT16_C(0x0fffu))], &local
+                    ((cursor + 2u) & UINT16_C(0x0fffu))], &local,
+                &at_door
             );
-            if (status != VF2_OK) {
+            /* Gate-hit (0x8b0 rts): head effects only, back to the
+               drain scan -- a later descriptor may still match, so
+               continue like the default-ignore arm. Anything else
+               (trap / low split / door / bus error) holds the
+               packet. */
+            if (status != VF2_OK || at_door) {
                 *report = local;
-                return status;
+                return status != VF2_OK ? status : VF2_ERROR_UNSUPPORTED;
             }
         } else if (local.command_class != 0x80u &&
                    local.command_class != 0xa0u &&

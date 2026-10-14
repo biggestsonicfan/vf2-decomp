@@ -432,6 +432,118 @@ int main(void)
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         }
 
+        /* 90 HIGH door, synthetic table (S2c): desc[2] = 0xf0 ->
+           select 0, pointer at 0x6032c6 -> 0x605000; payload 0x02
+           -> stride 12 -> entry 0x60500c {0x1234, 0x5678, 0x41,
+           0x9a}. Gate word != 0x00ff (passes); byte4 != 0x80 (no
+           sentinel); desc[13] = 0 + desc[12] = 0x08 (&7 == 0) ->
+           $150d = byte(a2+5) = 0x9a. Refuse at the Loop-B door,
+           packet held. (The drain-entry differentials prove the
+           same path on real ROM; this leg pins the exact table
+           arithmetic.) */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0xc6a6u + 2u] = 0x44u;
+        audio_rom[0x32c6u] = 0x00u; audio_rom[0x32c7u] = 0x60u;
+        audio_rom[0x32c8u] = 0x50u; audio_rom[0x32c9u] = 0x00u;
+        audio_rom[0x500cu] = 0x12u; audio_rom[0x500du] = 0x34u;
+        audio_rom[0x500eu] = 0x56u; audio_rom[0x500fu] = 0x78u;
+        audio_rom[0x5010u] = 0x41u; audio_rom[0x5011u] = 0x9au;
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 3u;
+        descriptor[2] = 0xf0u;
+        descriptor[4] = 0x10u;
+        descriptor[6] = 0x55u;
+        descriptor[12] = 0x08u;
+        descriptor[13] = 0x00u;
+        {
+            const uint8_t packet[4] = {0x93u, 0x02u, 0x02u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        EXPECT_TRUE(dispatch.channel == 3u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x12u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x44u);
+        EXPECT_TRUE(board.sound_ram[0x2511u] == 0x41u);
+        EXPECT_TRUE(board.sound_ram[0x2512u] == 0x56u);
+        EXPECT_TRUE(board.sound_ram[0x2513u] == 0x78u);
+        EXPECT_TRUE(board.sound_ram[0x2516u] == 0x12u);
+        EXPECT_TRUE(board.sound_ram[0x2517u] == 0x34u);
+        EXPECT_TRUE(board.sound_ram[0x250du] == 0x9au);
+        EXPECT_TRUE(board.sound_ram[0x2515u] == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+
+        /* 90 HIGH 0x80 sentinel (S2c): same table with byte4 =
+           0x80 -> $1511 = desc[6] = 0x55; desc[13] = 0x07 (nonzero)
+           files itself and clears. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0xc6a6u + 2u] = 0x44u;
+        audio_rom[0x32c6u] = 0x00u; audio_rom[0x32c7u] = 0x60u;
+        audio_rom[0x32c8u] = 0x50u; audio_rom[0x32c9u] = 0x00u;
+        audio_rom[0x500cu] = 0x12u; audio_rom[0x500du] = 0x34u;
+        audio_rom[0x500eu] = 0x56u; audio_rom[0x500fu] = 0x78u;
+        audio_rom[0x5010u] = 0x80u; audio_rom[0x5011u] = 0x9au;
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 3u;
+        descriptor[2] = 0xf0u;
+        descriptor[4] = 0x10u;
+        descriptor[6] = 0x55u;
+        descriptor[12] = 0x08u;
+        descriptor[13] = 0x07u;
+        {
+            const uint8_t packet[4] = {0x93u, 0x02u, 0x02u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        EXPECT_TRUE(board.sound_ram[0x2511u] == 0x55u);
+        EXPECT_TRUE(board.sound_ram[0x250du] == 0x07u);
+        EXPECT_TRUE(descriptor[13] == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+
+        /* 90 HIGH gate-hit (S2c): entry word 0x00ff -> 0x8b0 rts,
+           head effects only, scan continues, packet consumed. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0xc6a6u + 2u] = 0x44u;
+        audio_rom[0x32c6u] = 0x00u; audio_rom[0x32c7u] = 0x60u;
+        audio_rom[0x32c8u] = 0x50u; audio_rom[0x32c9u] = 0x00u;
+        audio_rom[0x500cu] = 0x00u; audio_rom[0x500du] = 0xffu;
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 3u;
+        descriptor[2] = 0xf0u;
+        descriptor[4] = 0x10u;
+        {
+            const uint8_t packet[4] = {0x93u, 0x02u, 0x02u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        EXPECT_TRUE(dispatch.channel == 3u);
+        EXPECT_TRUE(dispatch.handled != 0);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x12u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x44u);
+        EXPECT_TRUE(board.sound_ram[0x2511u] == 0u);
+        EXPECT_TRUE(board.sound_ram[0x2512u] == 0u);
+        EXPECT_TRUE(board.sound_ram[0x2516u] == 0u);
+        EXPECT_TRUE(board.sound_ram[0x250du] == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
+
         /* Default class (S2b): ROM rts at 0x856 -- no body, no
            $150f/$1510 writes. The drain still consumes the packet
            (count 0, cursor 4, handled). */
