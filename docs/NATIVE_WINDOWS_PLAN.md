@@ -372,6 +372,19 @@ to a 3D frame. Until then Phase 6, Phase 5's match validation, the Phase 3
 coin/select/match sessions and Phase 4's full-session exit all share this one
 blocker.
 
+Attract->3D interrupt analysis (2026-10-14, against a MAME reference;
+`decomp/i960/notes/attract_interrupt_injection_vs_mame.md`): MAME fires, besides
+vector 12 (VsyncScr), vector 14 (timer @0xd50, sets `0x50008c`) and vector 15
+(sound @0xe10, drains the sound ring `0x504020` to serial `0x01c80000`) ~twice
+per 2.4 frames during the attract wait, and transitions sound(725)->loading(727)
+->3D(967). The native injects only vector 12. Injecting 14/15 at that cadence
+(natural boot and from the cold snapshot) runs them correctly (vector 14 sets
+`0x50008c` bit 0) but does NOT advance the attract over 1100+ frames -- so 14/15
+are necessary but not sufficient. Leading hypothesis: the loading phase is gated
+on the sound-board consuming/acking the command stream, which the oracle sound
+model does not do. Pinning it needs a MAME RAM-state capture near frame 727
+(`0x500704`/`0x5000a6`/`0x50008c` and the loading/ready flag the loop polls).
+
 ## Phase 7 - Video and the Vulkan/SDL_GPU renderer
 
 Work
