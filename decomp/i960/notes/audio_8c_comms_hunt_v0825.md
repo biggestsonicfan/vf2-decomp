@@ -98,6 +98,25 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    writer IP falls out of the first observed 0x009c0000
    access; its byte + surrounding disassembly is the bridge
    fixture. Tooling slice first, bridge second.
+
+   UPDATE (8d driver built, still unreached): the driver exists
+   as tests/host/test_session_uart.c + the 5-line
+   vf2_session_set_memory_observer forward in session.h/c
+   (passive; NULL detaches, invalid session fails closed).
+   ctest entry vf2_session_uart_probe (10 oracle frames from
+   sixth-fresh, punch pattern; skips 77 without the gitignored
+   snap). Results: 30 frames across 3 contexts (sixth-fresh
+   punch-pattern, indk-c TEST MENU punch-pattern, park-warm-coin
+   COIN-held), every frame VF2_OK with changing digests, ZERO
+   UART writes. The negative is load-bearing: the hook's
+   positive control counts every observed access (2.6M over the
+   sixth-fresh run, ~260/accesses-per-instruction through the
+   public bus symbols the executor calls), and the test FAILS
+   any frame with zero observations -- a dead hook cannot pose
+   as a silent game. Bonus proof: failed UART writes would abort
+   the frame (unmapped range), so VF2_OK frames mean genuinely
+   absent, not unobserved. Next: round-start/match-boundary
+   snapshots, or static hunt for the MMIO-table users.
 3. Do NOT tick the 68k per-frame as a shortcut: the L2 stream
    engine + Loop-B are autonomous 68k programs, and silently
    stepping them in-session would hide unrecovered engine

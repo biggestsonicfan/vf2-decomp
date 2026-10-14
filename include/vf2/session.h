@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "vf2/lift/runtime.h"
+#include "vf2/model2a.h"
 #include "vf2/status.h"
 
 #define VF2_SESSION_WIDTH 496u
@@ -70,6 +71,17 @@ vf2_status vf2_session_audio_status(const vf2_session *session);
 
 /* FNV-1a of the work RAM (0x00500000..0x005fffff); determinism checks. */
 vf2_status vf2_session_work_ram_digest(vf2_session *session, uint32_t *digest);
+
+/* Passive bus observer for hunts (oracle-frame drivers). Forwards to
+ * vf2_model2a_set_memory_observer on the session machine: observes
+ * successful accesses only and never affects their result. NULL
+ * detaches. Instrumentation must stay passive -- see the Model 2A
+ * observer contract. */
+vf2_status vf2_session_set_memory_observer(
+    vf2_session *session,
+    vf2_model2a_memory_observer observer,
+    void *context
+);
 
 /* The input mask last passed to the game (for host tests). */
 uint32_t vf2_session_last_input(const vf2_session *session);

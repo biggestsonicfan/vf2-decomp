@@ -357,6 +357,23 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_host_tests)
     add_test(NAME vf2_host COMMAND vf2_host_tests)
 
+    # Oracle-frame UART hunt driver (v0825 8d): steps real frames through
+    # the interpreter oracle with a passive bus observer on the Model 2A
+    # serial port (0x009c0000). Needs the gitignored sixth-fresh snapshot;
+    # skips (exit 77) where it is absent, per the p1-demo precedent.
+    add_executable(vf2_session_uart_tests tests/host/test_session_uart.c)
+    target_link_libraries(vf2_session_uart_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_session_uart_tests)
+    if(EXISTS "${VF2_ROM_DIR}")
+        add_test(NAME vf2_session_uart_probe
+            COMMAND vf2_session_uart_tests
+                "${VF2_ROM_DIR}"
+                "${CMAKE_SOURCE_DIR}/out/sixth-fresh.vf2snap")
+        set_tests_properties(vf2_session_uart_probe PROPERTIES
+            SKIP_RETURN_CODE 77
+            TIMEOUT 900)
+    endif()
+
     add_executable(vf2_game_tests tests/game/test_game.c)
     target_link_libraries(vf2_game_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_game_tests)

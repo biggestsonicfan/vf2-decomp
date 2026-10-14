@@ -256,6 +256,20 @@ vf2_status vf2_session_audio_status(const vf2_session *s)
     return s != NULL ? s->audio_status : VF2_ERROR_INVALID_ARGUMENT;
 }
 
+vf2_status vf2_session_set_memory_observer(
+    vf2_session *s,
+    vf2_model2a_memory_observer observer,
+    void *context
+)
+{
+    if (s == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    return vf2_model2a_set_memory_observer(
+        &s->machine, observer, context
+    );
+}
+
 vf2_status vf2_session_work_ram_digest(vf2_session *s, uint32_t *digest)
 {
     /* FNV-1a over 0x00500000..0x005fffff as little-endian words: the work RAM
