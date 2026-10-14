@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "vf2/rom.h"
+#include "vf2/session.h"
 #include "vf2/tile.h"
 
 static int failures = 0;
@@ -174,11 +175,51 @@ static void test_font(const char *rom_dir)
     free(main_data);
 }
 
+/* End-to-end: render the session's tile layer from the cold snapshot (the
+ * TEST MENU screen) and require the recovered renderer to draw visible,
+ * structured text. */
+static void test_session_layer(const char *rom_dir, const char *snapshot)
+{
+    vf2_session *session = NULL;
+    uint32_t *fb = NULL;
+    const size_t w = VF2_SESSION_WIDTH;
+    const size_t h = VF2_SESSION_HEIGHT;
+    size_t nonblack = 0u;
+    size_t i;
+
+    if (vf2_session_open(rom_dir, snapshot, &session) != VF2_OK) {
+        fprintf(stderr, "skip session layer: cannot open session from %s\n", snapshot);
+        return;
+    }
+    fb = (uint32_t *)calloc(w * h, sizeof(uint32_t));
+    if (fb == NULL) { ++failures; vf2_session_close(session); return; }
+
+    CHECK(vf2_session_render_tile_layer(NULL, fb, w, h, 0u) ==
+          VF2_ERROR_INVALID_ARGUMENT);
+    CHECK(vf2_session_render_tile_layer(session, fb, w, h, 0u) == VF2_OK);
+
+    for (i = 0u; i < w * h; ++i) {
+        if ((fb[i] & 0x00ffffffu) != 0u) {
+            ++nonblack;
+        }
+    }
+    /* The TEST MENU screen has substantial text; the layer must not be blank. */
+    CHECK(nonblack > 1000u);
+    fprintf(stderr, "session tile layer: %zu/%zu non-black pixels\n",
+            nonblack, w * h);
+
+    free(fb);
+    vf2_session_close(session);
+}
+
 int main(int argc, char **argv)
 {
     test_guards();
     if (argc >= 2) {
         test_font(argv[1]);
+    }
+    if (argc >= 3) {
+        test_session_layer(argv[1], argv[2]);
     }
     if (failures != 0) {
         fprintf(stderr, "%d tile test(s) failed\n", failures);

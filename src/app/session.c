@@ -7,6 +7,7 @@
 #include "vf2/hybrid/frame_wait.h"
 #include "vf2/i960/snapshot.h"
 #include "vf2/rom.h"
+#include "vf2/tile.h"
 
 struct vf2_session {
     uint8_t *maincpu;
@@ -236,6 +237,23 @@ vf2_status vf2_session_step_lifted(
 const uint32_t *vf2_session_pixels(vf2_session *s)
 {
     return (s != NULL && s->have_frame) ? s->pixels : NULL;
+}
+
+vf2_status vf2_session_render_tile_layer(
+    vf2_session *s, uint32_t *out, size_t width, size_t height,
+    size_t palette_base
+)
+{
+    if (s == NULL || out == NULL || width == 0u || height == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    return vf2_tile_render_layer(
+        s->machine.tile_ram, s->machine.tile_ram_size,
+        width / VF2_TILE_GLYPH_W, height / VF2_TILE_GLYPH_H,
+        s->machine.main_data, s->machine.main_data_size,
+        s->machine.palette_ram, s->machine.palette_ram_size,
+        palette_base, out
+    );
 }
 
 vf2_status vf2_session_render_audio(

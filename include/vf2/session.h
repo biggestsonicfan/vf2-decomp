@@ -58,6 +58,22 @@ vf2_status vf2_session_step_lifted(
  * next step.  Returns NULL if no frame has been produced. */
 const uint32_t *vf2_session_pixels(vf2_session *session);
 
+/* Render the 2D tile layer (Phase 7) from this session's tile RAM, font
+ * (main_data ROM) and palette into `out`, a width x height buffer of
+ * 0x00RRGGBB (width/height should be VF2_SESSION_WIDTH x VF2_SESSION_HEIGHT).
+ * `palette_base` is the per-tile palette bank (its name-table attribute mapping
+ * is not yet recovered; pass a text palette base, e.g. 0). Uses the recovered,
+ * self-consistently validated tile pipeline (include/vf2/tile.h); on the attract
+ * TEST MENU state it draws the real menu text. Returns VF2_ERROR_* on bad
+ * arguments or geometry. */
+vf2_status vf2_session_render_tile_layer(
+    vf2_session *session,
+    uint32_t *out,
+    size_t width,
+    size_t height,
+    size_t palette_base
+);
+
 vf2_status vf2_session_render_audio(
     vf2_session *session,
     int16_t *left,

@@ -359,6 +359,21 @@ if(VF2_BUILD_TESTS)
     add_test(NAME vf2_tile COMMAND vf2_tile_tests)
     if(EXISTS "${VF2_ROM_DIR}")
         add_test(NAME vf2_tile_font COMMAND vf2_tile_tests "${VF2_ROM_DIR}")
+        # Cold snapshot for the end-to-end session tile-layer test (TEST MENU),
+        # generated on demand from the ROM (never committed).
+        set(VF2_TILE_COLD_SNAP "${CMAKE_BINARY_DIR}/generated/cold_tiles.vf2snap")
+        add_custom_command(
+            OUTPUT "${VF2_TILE_COLD_SNAP}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/generated"
+            COMMAND "$<TARGET_FILE:vf2i960>" native-sixth-dispatch
+                    "${VF2_ROM_DIR}" "${VF2_TILE_COLD_SNAP}"
+            DEPENDS vf2i960
+            COMMENT "tile: generating cold snapshot for the session tile-layer test"
+            VERBATIM)
+        add_custom_target(vf2_tile_cold_snapshot DEPENDS "${VF2_TILE_COLD_SNAP}")
+        add_dependencies(vf2_tile_tests vf2_tile_cold_snapshot)
+        add_test(NAME vf2_tile_session
+                 COMMAND vf2_tile_tests "${VF2_ROM_DIR}" "${VF2_TILE_COLD_SNAP}")
     endif()
 
     add_executable(vf2_host_tests tests/host/test_host.c)
