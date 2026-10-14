@@ -34,9 +34,18 @@ Live oracle evidence (vf2probe --memory-trace, passive):
   records, ZERO 0x009c accesses, run clean.
 - sega-natural-frame.vf2snap + 100000 steps (boot): 7383
   instructions to self-branch halt, ZERO 0x009c accesses.
-- Conclusion: the writer fires on events neither window
-  reaches (round-start/BGM-change/SFX triggers need live
-  inputs). NOT "no writer exists" -- unreached, not absent.
+- sixth-fresh + PUNCH held (0x10) + 300000 steps: clean, zero.
+- sixth-fresh + KICK held (0x20) + 300000 steps: clean, zero.
+- indk-c.vf2snap (TEST MENU coin context) + PUNCH + 100000
+  steps: clean, zero.
+- FIVE windows, zero traffic. AND the three sixth-fresh runs
+  (no-input / punch / kick) all park at the SAME ip=69536 with
+  IDENTICAL call/return counts (10306/10305): the inputs had NO
+  effect. vf2probe never injects frame interrupts, so the game
+  sits in its frame-wait spin forever -- held inputs are never
+  consumed, no gameplay events fire, no sound writes can occur.
+  The negative is therefore "writer unreachable from a parked
+  probe", not "writer absent".
 
 ## Sound side: L3 receiver ISR fully mapped (0x526)
 
@@ -79,11 +88,16 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    file the byte through the L3-equivalent path (C ring file +
    $49e poke). Fail closed on status/control-register shapes
    until measured.
-2. Prove end-to-end with a LIVE writer event: needs a snapshot
-   + input sequence that makes the oracle write 0x009c0000
-   (round start is the prime suspect). Drive with vf2probe
-   --memory-trace; the writer IP falls out of the failing /
-   observed access.
+2. Prove end-to-end with a LIVE writer event. vf2probe cannot
+   produce one (no frame-interrupt injection -- see the parked
+   ip=69536 evidence above). What is needed is an ORACLE-FRAME
+   DRIVER: vf2_session_step_oracle (or the hybrid frame-wait
+   observer) with the Model2A memory observer attached,
+   stepping real frames with varied inputs (round start is the
+   prime suspect: match-start BGM; coin sound second). The
+   writer IP falls out of the first observed 0x009c0000
+   access; its byte + surrounding disassembly is the bridge
+   fixture. Tooling slice first, bridge second.
 3. Do NOT tick the 68k per-frame as a shortcut: the L2 stream
    engine + Loop-B are autonomous 68k programs, and silently
    stepping them in-session would hide unrecovered engine
