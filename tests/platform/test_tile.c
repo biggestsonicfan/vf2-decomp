@@ -140,6 +140,34 @@ static void test_font(const char *rom_dir)
             CHECK(vf2_tile_render_row_rgb(main_data, size, sega, 4u,
                                           pal, sizeof(pal), 1000u, rgb) ==
                   VF2_ERROR_OUT_OF_BOUNDS);
+
+            /* Layer render over a synthetic 2-row tile-RAM with "HI" at (0,0). */
+            {
+                uint8_t tram[2u * VF2_TILE_NAME_STRIDE * 2u];
+                uint32_t frame[2u * VF2_TILE_GLYPH_W * 2u * VF2_TILE_GLYPH_H];
+                uint32_t rrow[2u * VF2_TILE_GLYPH_W * VF2_TILE_GLYPH_H];
+                uint16_t hi[2] = { 0x8048u, 0x8049u }; /* H, I */
+                size_t yy;
+                memset(tram, 0, sizeof(tram));
+                tram[0] = 0x48u; tram[1] = 0x80u; /* (0,0) = H */
+                tram[2] = 0x49u; tram[3] = 0x80u; /* (0,1) = I */
+                CHECK(vf2_tile_name_char_at(tram, sizeof(tram), 0u, 0u) == 0x48u);
+                CHECK(vf2_tile_name_char_at(tram, sizeof(tram), 0u, 1u) == 0x49u);
+                CHECK(vf2_tile_render_layer(tram, sizeof(tram), 2u, 2u,
+                                            main_data, size, pal, sizeof(pal),
+                                            0u, frame) == VF2_OK);
+                /* Row 0 of the frame must equal the per-row render of "HI". */
+                CHECK(vf2_tile_render_row_rgb(main_data, size, hi, 2u,
+                                              pal, sizeof(pal), 0u, rrow) == VF2_OK);
+                for (yy = 0u; yy < VF2_TILE_GLYPH_H; ++yy) {
+                    CHECK(memcmp(&frame[yy * (2u * VF2_TILE_GLYPH_W)],
+                                 &rrow[yy * (2u * VF2_TILE_GLYPH_W)],
+                                 2u * VF2_TILE_GLYPH_W * sizeof(uint32_t)) == 0);
+                }
+                CHECK(vf2_tile_render_layer(tram, sizeof(tram), 2u, 2u,
+                                            main_data, size, pal, sizeof(pal),
+                                            1000u, frame) == VF2_ERROR_OUT_OF_BOUNDS);
+            }
         }
     }
 

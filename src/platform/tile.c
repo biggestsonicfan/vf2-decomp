@@ -83,6 +83,68 @@ uint32_t vf2_tile_palette_rgb555(uint16_t entry)
     return (r8 << 16) | (g8 << 8) | b8;
 }
 
+uint8_t vf2_tile_name_char_at(
+    const uint8_t *tile_ram, size_t tile_ram_size, size_t row, size_t col
+)
+{
+    const size_t off = (row * (size_t)VF2_TILE_NAME_STRIDE + col) * 2u;
+    if (tile_ram == NULL || off + 1u >= tile_ram_size) {
+        return 0u;
+    }
+    return vf2_tile_name_char(
+        (uint16_t)(tile_ram[off] | ((uint16_t)tile_ram[off + 1u] << 8))
+    );
+}
+
+vf2_status vf2_tile_render_layer(
+    const uint8_t *tile_ram,
+    size_t tile_ram_size,
+    size_t cols,
+    size_t rows,
+    const uint8_t *main_data,
+    size_t main_data_size,
+    const uint8_t *palette_ram,
+    size_t palette_size,
+    size_t palette_base,
+    uint32_t *out
+)
+{
+    const size_t fb_w = cols * VF2_TILE_GLYPH_W;
+    size_t row = 0u;
+
+    if (tile_ram == NULL || out == NULL || cols == 0u || rows == 0u ||
+        cols > (size_t)VF2_TILE_NAME_STRIDE ||
+        (rows * (size_t)VF2_TILE_NAME_STRIDE) * 2u > tile_ram_size) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    for (row = 0u; row < rows; ++row) {
+        uint16_t entries[VF2_TILE_NAME_STRIDE];
+        uint32_t strip[VF2_TILE_NAME_STRIDE * VF2_TILE_GLYPH_W * VF2_TILE_GLYPH_H];
+        size_t col = 0u, y = 0u;
+        vf2_status status = VF2_OK;
+        for (col = 0u; col < cols; ++col) {
+            const size_t off =
+                (row * (size_t)VF2_TILE_NAME_STRIDE + col) * 2u;
+            entries[col] = (uint16_t)(tile_ram[off] |
+                                      ((uint16_t)tile_ram[off + 1u] << 8));
+        }
+        status = vf2_tile_render_row_rgb(main_data, main_data_size, entries,
+                                         cols, palette_ram, palette_size,
+                                         palette_base, strip);
+        if (status != VF2_OK) {
+            return status;
+        }
+        for (y = 0u; y < VF2_TILE_GLYPH_H; ++y) {
+            size_t px = 0u;
+            for (px = 0u; px < fb_w; ++px) {
+                out[(row * VF2_TILE_GLYPH_H + y) * fb_w + px] =
+                    strip[y * fb_w + px];
+            }
+        }
+    }
+    return VF2_OK;
+}
+
 vf2_status vf2_tile_render_row_rgb(
     const uint8_t *main_data,
     size_t main_data_size,

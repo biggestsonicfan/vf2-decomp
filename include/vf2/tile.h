@@ -17,7 +17,10 @@ enum {
     VF2_TILE_GLYPH_BYTES = 32u,
     VF2_TILE_GLYPH_W = 8u,
     VF2_TILE_GLYPH_H = 8u,
-    VF2_TILE_GLYPH_PIXELS = 64u
+    VF2_TILE_GLYPH_PIXELS = 64u,
+    /* Name-table row stride in 16-bit entries, pinned by the TEST MENU reading
+     * correctly at this width (decomp/i960/notes/tile_layer_glyph_format.md). */
+    VF2_TILE_NAME_STRIDE = 64u
 };
 
 /* Extract the 8x8 glyph for an ASCII character from the main_data ROM into
@@ -69,6 +72,30 @@ vf2_status vf2_tile_render_row_rgb(
     size_t main_data_size,
     const uint16_t *entries,
     size_t cols,
+    const uint8_t *palette_ram,
+    size_t palette_size,
+    size_t palette_base,
+    uint32_t *out
+);
+
+/* Decode one name-table cell (row, col) from a raw tile-RAM image to its ASCII
+ * character, using VF2_TILE_NAME_STRIDE. Returns 0 on out-of-range. This is the
+ * text self-consistency hook: the TEST MENU reads correctly through it. */
+uint8_t vf2_tile_name_char_at(
+    const uint8_t *tile_ram, size_t tile_ram_size, size_t row, size_t col
+);
+
+/* Render a `cols` x `rows` block of the tile layer (from name-table cell (0,0),
+ * stride VF2_TILE_NAME_STRIDE, in the raw tile-RAM image) to out, a (cols*8) x
+ * (rows*8) RGB buffer, out[py*(cols*8) + px]. Composes the per-row renderer with
+ * the font and palette. Returns VF2_ERROR_OUT_OF_BOUNDS on null/short args. */
+vf2_status vf2_tile_render_layer(
+    const uint8_t *tile_ram,
+    size_t tile_ram_size,
+    size_t cols,
+    size_t rows,
+    const uint8_t *main_data,
+    size_t main_data_size,
     const uint8_t *palette_ram,
     size_t palette_size,
     size_t palette_base,

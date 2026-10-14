@@ -37,6 +37,30 @@ char 0x41 'A' -> ##....##  ###..###  ########  ... .##..##.   (an 'A')
 The glyphs are a bold/filled style (the ink nibble covers most of the cell with
 gaps forming the letter); the exact nibble value selects the palette entry.
 
+## Name-table geometry pinned: stride 64 (the TEST MENU reads correctly)
+
+Decoding the name table at `tile-ram 0x0000` as ASCII (`vf2_tile_name_char`) at
+candidate strides: at **64 cells/row** the text is clean and correct, at 128 it
+is garbled. The cold snapshot's layer is the **TEST MENU** screen:
+
+```
+ r2:   TEST MENU
+ r8:   MEMORY TEST
+r11:   INPUT TEST
+r14:   SOUND TEST
+r17:   DISPLAY TEST
+r20:   GAME ASSIGNMENT
+r23:   COIN ASSIGNMENT
+r26:   BOOKKEEPING
+```
+
+(and, further down, TGP TEST / VS DIAGRAM / BACKUP RAM / SELECT BY SERVICE
+BUTTON). These are exactly the selector-17 TEST-MENU items seen in the attract
+investigation. So the name-table stride is 64 16-bit entries per row, and this
+is an **end-to-end self-consistency validation of the whole tile pipeline**: the
+recovered font + name-table decode + stride reproduce the game's real on-screen
+UI text, with no reference needed.
+
 ## What this gives, and what remains
 
 Pinned in-tree (self-consistent): the font location and tile stride, the 8x8
