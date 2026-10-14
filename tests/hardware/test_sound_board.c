@@ -374,8 +374,8 @@ int main(void)
 
         /* 90-class prefix (S2b primer truth: head = payload 0x05,
            second = ring byte 2 = 0x02). Base 0x15 (0x05 + 0x10),
-           mode = ROM[0x60c6a6+2]. Then refuse at the 0x878
-           desc[2] split (both arms unrecovered -- S2c owns them),
+           mode = ROM[0x60c6a6+2]. desc[2] = 3 is LOW: refuse at the
+           0x878 split (S2d owns Loop-B only past the HIGH door),
            packet held. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
@@ -465,7 +465,10 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        /* S2d: the HIGH door falls through to Loop-B, which doors
+           0xf12 here ($150e ch 3, $152e 0). $1515 reads 0x00 from
+           this synthetic image. */
+        EXPECT_TRUE(dispatch.handler_address == 0xf12u);
         EXPECT_TRUE(dispatch.channel == 3u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x12u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x44u);
@@ -506,7 +509,10 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        /* S2d: the HIGH door falls through to Loop-B, which doors
+           0xf12 here ($150e ch 3, $152e 0). $1515 reads 0x00 from
+           this synthetic image. */
+        EXPECT_TRUE(dispatch.handler_address == 0xf12u);
         EXPECT_TRUE(board.sound_ram[0x2511u] == 0x55u);
         EXPECT_TRUE(board.sound_ram[0x250du] == 0x07u);
         EXPECT_TRUE(descriptor[13] == 0u);

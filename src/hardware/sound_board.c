@@ -913,6 +913,96 @@ static vf2_status sound_board_dispatch_90_high(
     return VF2_OK;
 }
 
+/* ROM Loop-B 0x902 (v0825 S2d): the sequencer core the 90 HIGH
+   path falls into. Files $1515, gates on $150e-channel and $152e,
+   scans 32 voices stride 0x10 for the first +9 == 0xff with +5 ==
+   0, arms it (0x95a: SCSP slot key with $10 control, stream-slot
+   clear, +5 = 5, +5 rebalance over 0xff-aged voices, $152e--).
+   All three exits (0xa8c setup arm, 0x9ba setup scan, 0xf12
+   compactor) are unrecovered doors: the handler is set to the
+   door address and the packet is held (UNSUPPORTED). d4/d7 are
+   freshly loaded on every path (0x8fe andi.w indexes d4.w only;
+   both dbf loops reload d7) -- no caller residue participates. */
+static vf2_status sound_board_run_loopb(
+    vf2_sound_board *board,
+    vf2_sound_dispatch_report *report
+)
+{
+    uint8_t *ram = board->sound_ram;
+    uint8_t index = 0u;
+    uint8_t filed = 0u;
+    size_t i = 0u;
+
+    /* ROM 0x8fa-0x908: d4 = $150f&0x7f, $1515 =
+       ROM[0x60c3e6+d4]. */
+    index = (uint8_t)(ram[VF2_SOUND_LOOKUP_CURRENT] & 0x7fu);
+    if (read_audio_byte_absolute(board, UINT32_C(0x60c3e6) + index,
+                                 &filed) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    ram[VF2_SOUND_LOOKUP_BYTE] = filed;
+    /* ROM 0x90e-0x91a: d3 = $150e&0xf; channel 0xf takes the 0x9a2
+       setup-gate: $1515 == 0xb6/0xb8 doors to the 0x9ba scan,
+       anything else to 0xf12. */
+    if ((ram[VF2_SOUND_CURRENT_COMMAND] & 0x0fu) == 0x0fu) {
+        report->handler_address = (filed == 0xb6u || filed == 0xb8u)
+            ? UINT32_C(0x000009ba) : UINT32_C(0x00000f12);
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* ROM 0x91e-0x926: $152e < 5 doors to 0xf12 (scan skipped,
+       $152e untouched). */
+    if (ram[VF2_SOUND_SHARED_COUNTER_152E] < 5u) {
+        report->handler_address = UINT32_C(0x00000f12);
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* ROM 0x92a-0x94c: 32-voice scan for +9 == 0xff with +5 == 0
+       (byte compares, stride 0x10 from the 0x2800 table). */
+    for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
+        uint8_t *voice = ram + VF2_SOUND_VOICE_TABLE_BASE +
+            i * VF2_SOUND_VOICE_BYTES;
+        if (voice[9u] == 0xffu && voice[5u] == 0u) {
+            uint16_t slot = read_be16(voice);
+            size_t j = 0u;
+
+            /* ROM 0x95a-0x974: d4 = slot word; SCSP[slot+0x0b] =
+               0x1f, SCSP[slot] = 0x10, ram[0x2000+slot] = 0,
+               voice+5 = 5. */
+            if (vf2_scsp_write_u8(&board->scsp,
+                                  (uint32_t)slot + 0x0bu,
+                                  UINT8_C(0x1f)) != VF2_OK ||
+                vf2_scsp_write_u8(&board->scsp, (uint32_t)slot,
+                                  UINT8_C(0x10)) != VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            if ((uint32_t)0x2000 + (uint32_t)slot >=
+                VF2_SOUND_RAM_BYTES) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            ram[0x2000u + slot] = 0u;
+            voice[5u] = 5u;
+            /* ROM 0x97a-0x996: rebalance -- every 0xff-aged voice's
+               +5 decrements, INCLUDING the just-armed one (5->4;
+               stepper-pinned). +9 is never cleared on this path. */
+            for (j = 0u; j < VF2_SOUND_VOICE_COUNT; ++j) {
+                uint8_t *target = ram + VF2_SOUND_VOICE_TABLE_BASE +
+                    j * VF2_SOUND_VOICE_BYTES;
+                if (target[9u] != 0xffu) {
+                    continue;
+                }
+                --target[5u];
+            }
+            /* ROM 0x99a: $152e--, bra 0xa8c (setup arm, S3 door). */
+            --ram[VF2_SOUND_SHARED_COUNTER_152E];
+            report->handler_address = UINT32_C(0x00000a8c);
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    /* ROM 0x950: scan miss zeroes $152e, bra 0xf12. */
+    ram[VF2_SOUND_SHARED_COUNTER_152E] = 0u;
+    report->handler_address = UINT32_C(0x00000f12);
+    return VF2_ERROR_UNSUPPORTED;
+}
+
 static vf2_status sound_board_dispatch_90(
     vf2_sound_board *board,
     uint8_t *descriptor,
@@ -988,7 +1078,8 @@ static vf2_status sound_board_dispatch_90(
             return high_status;
         }
         if (*reached_door) {
-            return VF2_ERROR_UNSUPPORTED;
+            /* Fall-through 0x8fe into Loop-B (S2d). */
+            return sound_board_run_loopb(board, report);
         }
         return VF2_OK;
     }
