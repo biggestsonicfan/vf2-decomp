@@ -925,6 +925,18 @@ if(VF2_BUILD_TESTS)
             vf2_game_geometry_helpers_differential vf2_third_sweep_observation
             PROPERTIES TIMEOUT 180
         )
+        # Parallel-safety (v0825): native-nth-dispatch 11/12 share the
+        # fixed CWD temp pair .vf2i960-native-nth-base6.vf2snap[.runtime]
+        # (tools/vf2i960/main.c) -- concurrent runs tear each other's
+        # checkpoint (observed: twelfth "I/O error" under -j12, green
+        # serially). Everything else in the suite is parallel-safe
+        # (stable-input reads, tempdirs, distinct files), so only these
+        # two serialize.
+        set_tests_properties(
+            vf2_native_eleventh_dispatch
+            vf2_native_twelfth_dispatch
+            PROPERTIES RUN_SERIAL TRUE
+        )
     endif()
 
     # Python factory tooling tests (v0729a-e). They guard the analysis

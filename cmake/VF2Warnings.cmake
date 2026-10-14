@@ -9,6 +9,11 @@ function(vf2_set_project_warnings target_name)
 
     if(MSVC)
         target_compile_options(${target_name} PRIVATE /W4 /permissive-)
+        # /MP: compile translation units in parallel within a target.
+        # `cmake --build --parallel` only parallelizes across targets;
+        # without /MP each target's .c files compile serially. Safe here:
+        # no precompiled headers, no /Gm minimal rebuild in this repo.
+        target_compile_options(${target_name} PRIVATE /MP)
         if(VF2_WARNINGS_AS_ERRORS)
             target_compile_options(${target_name} PRIVATE /WX)
         endif()

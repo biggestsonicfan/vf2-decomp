@@ -75,6 +75,16 @@ cmake --build build --config Debug --parallel
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
+For speed, compiles use `/MP` (parallel TUs within a target,
+set in `cmake/VF2Warnings.cmake`) and the suite is
+parallel-safe (audited v0825: shared paths are reads, tempdirs,
+or distinct files), so use the wrapper which jobs to the
+machine's logical processor count:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/ctest-fast.ps1
+```
+
 MSBuild is invoked through `cmake --build` (the VS generator resolves it), so no
 separate developer prompt is required. Python recovery/analysis tooling also runs
 natively under `python tools/python/...`; adapt the documented `build/...` binary
