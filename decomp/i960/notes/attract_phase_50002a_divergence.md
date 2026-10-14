@@ -128,6 +128,34 @@ relative 0x1c is exactly `0xff` (pulled-up/open-bus) against the 315-5649 I/O
 datasheet or a MAME `0x01c0001c` read, rather than inferring it purely from the
 `0x500704 == 0` requirement.
 
+## The fix also unblocks attract -> 3D (part 2), measured
+
+`boot-trace` now also counts writes into the geometry program region
+(`0x804000`+, TGP model records) and the copro FIFO (`0x884000`+). From reset,
+1100 frames, pure interpreter:
+
+| metric                     | no fix (phase 0x11, stuck) | fix (phase 0x03) |
+|----------------------------|----------------------------|------------------|
+| geometry-program writes    | 11,520                     | 171,706 (~15x)   |
+| FIFO command writes        | 13,643                     | 446,986 (~33x)   |
+| 0x884000 reads             | 3,294                      | 93,209  (~28x)   |
+| final 0x50002a             | 0x11                       | 0x03             |
+| final 0x5000a6             | 0xff                       | 0x00             |
+
+So the one-byte fix does not merely correct the phase byte: it moves the game out
+of the attract self-test wait (the 0x11 worker 0x10b5c that sets 0x5000a6=0xff)
+into the state that actively submits geometry -- MAME keeps 0x50002a at 0x03
+"3D included", and our interpreter, with the fix, reaches that same 0x03 state and
+pours model records + FIFO commands (15-33x the stuck baseline). This is the
+attract->3D game-flow transition that has blocked Phases 5/6/8/9. Whether those
+submitted meshes render into a visible 3D frame still depends on the TGP geometry
+pipeline (Phase 6 / G2), but the game-flow side is now reached.
+
+This sharpens the celsowm decision: the fix is a correct one-byte hardware-model
+change that unblocks the project's central attract->3D blocker; the only cost is
+re-validating the recovered boot bridges + regenerating the native-dispatch
+snapshots against the corrected I/O.
+
 ## Reproduce
 
 ```

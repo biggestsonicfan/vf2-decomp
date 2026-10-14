@@ -6976,6 +6976,11 @@ typedef struct {
     uint32_t read_884_cap;
     uint32_t total_884;
     uint32_t read_980004_logged;
+    /* 3D-scene indicators: writes into the geometry program region (0x804000+,
+     * TGP model records) and the copro command FIFO (0x884000+). */
+    uint32_t geo_prg_writes;
+    uint32_t fifo_writes;
+    uint32_t first_geo_frame;   /* frame of first prg write, or 0xffffffff */
 } boot_trace_ctx;
 
 static uint32_t boot_trace_le32(const void *p)
@@ -7017,6 +7022,18 @@ static void boot_trace_observer(
             printf("  f%-4u ip=%08x  W [%08x] <- (sz%u) 0x%02x  (0x5000a6)\n",
                    (unsigned)f, (unsigned)ip, (unsigned)a->address,
                    (unsigned)a->size, (unsigned)((const uint8_t *)a->data)[0]);
+        } else if (a->address >= 0x00804000u && a->address < 0x00808000u) {
+            if (c->geo_prg_writes == 0u) {
+                printf("  f%-4u ip=%08x  W [%08x] <- 0x%08x  (FIRST geometry "
+                       "program write -> 3D upload)\n",
+                       (unsigned)f, (unsigned)ip, (unsigned)a->address,
+                       a->size == 4u ? (unsigned)boot_trace_le32(a->data)
+                                     : (unsigned)((const uint8_t *)a->data)[0]);
+                c->first_geo_frame = f;
+            }
+            ++c->geo_prg_writes;
+        } else if (a->address >= 0x00884000u && a->address < 0x00888000u) {
+            ++c->fifo_writes;
         } else if (a->address == 0x00980000u && a->size == 4u) {
             printf("  f%-4u ip=%08x  W [980000] <- 0x%08x  (TGP start)\n",
                    (unsigned)f, (unsigned)ip, (unsigned)boot_trace_le32(a->data));
@@ -7112,6 +7129,7 @@ static int command_boot_trace(
     ctx.cpu = &cpu;
     ctx.frame = &frame;
     ctx.read_884_cap = read_cap;
+    ctx.first_geo_frame = 0xffffffffu;
     vf2_model2a_set_memory_observer(&machine, boot_trace_observer, &ctx);
 
     printf("boot-trace: pure interpreter from reset (start_ip=0x%08x), up to "
@@ -7149,6 +7167,11 @@ static int command_boot_trace(
                "0x5000a6=0x%02x, total 0x884000 reads=%u.\n",
                (unsigned)frame, (unsigned)cpu.ip, (unsigned)sel, (unsigned)a6,
                (unsigned)ctx.total_884);
+        printf("  geometry-program writes (0x804000+)=%u, fifo writes "
+               "(0x884000+)=%u, first geo frame=%s.\n",
+               (unsigned)ctx.geo_prg_writes, (unsigned)ctx.fifo_writes,
+               ctx.first_geo_frame == 0xffffffffu ? "none"
+                   : "see above");
     } else {
         fprintf(stderr, "boot-trace failed at frame %u ip=0x%08x: %s\n",
                 (unsigned)frame, (unsigned)cpu.ip, vf2_status_string(status));
