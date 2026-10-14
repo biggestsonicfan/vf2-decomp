@@ -78,3 +78,30 @@ attract never emits.
 3. With the program captured, a lifted/interpreted MB8623x can run the test
    geometry and produce the response that clears `0x5000a6`, letting the attract
    advance -- the first time real geometry would be emitted natively.
+
+## The TGP microcode is not in our ROM set
+
+Capturing the ~8200 words the boot writes to the geo port `0x00804000`: they are
+all to the single port address and are **mostly zero** (first words
+`00000000 00000800 00000000...`), i.e. a geo buffer/command fill, **not** dense
+MB86233 instruction words. And `VF2_REGION_COPRO_DATA` is zero-filled (no files
+in the manifest). So the MB86234/TGP microcode is **not present** in our romset,
+and it is not uploaded as code by the i960 either. MAME's "the TGP receives its
+program at boot" is satisfied by a TGP program ROM MAME has that our manifest
+lacks (the Model 2A TGPx4 program), or by the chip's internal ROM.
+
+Consequence: **both** Phase 6 options are blocked on the same missing input --
+Option 2 (lift the microcode) has no microcode, and Option 1 (native pipeline)
+has no geometry stream because the attract never leaves the TGP self-test. The
+two ways forward are:
+
+- **(a) obtain the TGP program ROM** (from a complete MAME vf2 romset -- the
+  likely-missing copro/TGP program file) and add it to the manifest, then do
+  Option 2 (decode/interpret/lift the MB86233 and model the copro response); or
+- **(b) model only the TGP self-test response as HLE-TEMP scaffolding**: clear
+  `0x005000a6` when selector 17's test geometry has been submitted, so the
+  attract advances to 3D and emits the real geometry stream (matching the
+  user's `vf2_attract_frame_geometry_f1000.txt`), which then feeds Option 1.
+  This needs the exact clear condition: `0x5000a6` has no static xref (it is
+  written through a computed base+offset), so finding it needs a dynamic trace
+  of the store, or the MAME answer for what writes `0x5000a6 = 0` and when.
