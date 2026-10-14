@@ -153,6 +153,21 @@ vf2_status vf2_sound_board_dispatch_next(
     vf2_sound_dispatch_report *report
 );
 
+/* Run the ROM 0xa8c setup-authoring arm on one descriptor/voice
+ * pair (S3c): the shared head (+2 seed, slot key, +6 word) then
+ * the HIGH (desc[2] >= 0xf0) or LOW authoring branch. Effects
+ * applied, UNSUPPORTED at the 0xc1e common-tail door.
+ * Indices (not pointers) keep RAM ownership inside the board.
+ * Drain-unreachable bodies (LOW branch, ch-0xf seeding) are
+ * proven through this entry with synthetic-entry differentials;
+ * dispatch_next drives the HIGH/ch!=0xf shape. */
+vf2_status vf2_sound_board_setup_author(
+    vf2_sound_board *board,
+    size_t descriptor_index,
+    size_t voice_index,
+    vf2_sound_dispatch_report *report
+);
+
 /* Emit one four-byte packet through the ROM stream-interpreter ring state. */
 vf2_status vf2_sound_board_emit_command(
     vf2_sound_board *board,

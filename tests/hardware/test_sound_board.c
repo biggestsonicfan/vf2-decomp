@@ -550,6 +550,18 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
 
+        /* Setup-author entry guards (S3c public boundary). */
+        EXPECT_TRUE(vf2_sound_board_setup_author(
+            NULL, 0u, 0u, &dispatch) == VF2_ERROR_INVALID_ARGUMENT);
+        EXPECT_TRUE(vf2_sound_board_setup_author(
+            &board, 0u, 0u, NULL) == VF2_ERROR_INVALID_ARGUMENT);
+        EXPECT_TRUE(vf2_sound_board_setup_author(
+            &board, 20u, 0u,
+            &dispatch) == VF2_ERROR_INVALID_ARGUMENT);
+        EXPECT_TRUE(vf2_sound_board_setup_author(
+            &board, 0u, 32u,
+            &dispatch) == VF2_ERROR_INVALID_ARGUMENT);
+
         /* Default class (S2b): ROM rts at 0x856 -- no body, no
            $150f/$1510 writes. The drain still consumes the packet
            (count 0, cursor 4, handled). */

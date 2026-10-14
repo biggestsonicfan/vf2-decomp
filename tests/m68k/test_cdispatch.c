@@ -1476,6 +1476,161 @@ static void test_a8c_high(
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
 }
 
+/* S3c: synthetic-entry 0xa8c differentials (drain-unreachable
+ * bodies). Entry: pc 0xa8c, a0 = descriptor, a1 = voice, a5/a6/a7
+ * standard; every d-reg and a2/a3 seeded with garbage
+ * (residue-independence: each is written before read on both
+ * branches -- a leak fails C==S). Run to the 0xc1e door. C:
+ * vf2_sound_board_setup_author(board, 0, 0). Compared: full
+ * voice0 record, $151e/$152e, SCSP equal + lanes, lookup_word vs
+ * live d2, zero events.
+ * - "low": desc[2] = 0x03, $150e ch 3. +3/8/4/9/10 filed (no +2
+ *   bsets, no +5/$152e traffic); volume corner voice8 = 0xff x
+ *   desc10 = 0xff -> 0x00 absolute; 0x1062 picker; 0x12 word
+ *   with BOTH channel rows (0x4220<<5&e0 | 0x4240&7); 0x15 =
+ *   desc[12]; 0x16 = ($1511&0x1f)|0x60.
+ * - "high-f": HIGH desc, $150e ch 0xf (the 0xaf0 path): +9 =
+ *   $151e ($151e++), +2 = 0x50 (no 0x08 bset), +5 preserved. */
+static void test_a8c_synth(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size,
+    int low,
+    const char *tag
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint8_t *voice0 = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+    size_t i = 0u;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = low ? 0x03u : 0x0fu;
+    desc[2] = low ? 0x03u : 0xf5u;
+    desc[4] = 0x00u;
+    desc[5] = 0x04u;
+    desc[6] = 0x00u;
+    desc[8] = 0x02u;
+    desc[9] = 0x01u;
+    desc[10] = low ? 0xffu : 0x80u;
+    desc[12] = 0x0bu;
+    cram[VF2_SOUND_LOOKUP_CURRENT] = 0x00u;
+    cram[VF2_SOUND_LOOKUP_MODE] = low ? 0xffu : 0x09u;
+    cram[VF2_SOUND_LOOKUP_CONTROL] = 0x05u;
+    cram[VF2_SOUND_LOOKUP_WORD_ALT] = 0xe0u;
+    cram[VF2_SOUND_LOOKUP_WORD_ALT + 1u] = 0x03u;
+    cram[VF2_SOUND_LOOKUP_WORD] = 0x12u;
+    cram[VF2_SOUND_LOOKUP_WORD + 1u] = 0x34u;
+    cram[VF2_SOUND_LOOKUP_BYTE] = 0x41u;
+    cram[VF2_SOUND_LOOKUP_RELEASE] = 0x09u;
+    cram[VF2_SOUND_CURRENT_COMMAND] = low ? 0x93u : 0x9fu;
+    cram[VF2_SOUND_SHARED_COUNTER_151E] = 0x20u;
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 0x07u;
+    cram[0x2518u] = 0x07u;
+    cram[0x4206u] = 0x12u;
+    cram[0x4207u] = 0x34u;
+    cram[0x4223u] = 0x07u;
+    cram[0x4243u] = 0x05u;
+    voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[0] = 0x00u;
+    voice0[1] = 0x20u;
+    voice0[5] = 0x77u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_setup_author(&board, 0u, 0u, &creport);
+    fprintf(stderr, "dispatch a8c-syn-%s: c-status=%d handler=0x%05x d2=%04x v0=%02x/%02x/%02x/%02x/%02x/%02x/%02x/%02x 1e=%02x 2e=%02x\n",
+            tag, (int)cstatus, (unsigned)creport.handler_address,
+            (unsigned)creport.lookup_word,
+            (unsigned)cram[0x2802u], (unsigned)cram[0x2803u],
+            (unsigned)cram[0x2804u], (unsigned)cram[0x2805u],
+            (unsigned)cram[0x2806u], (unsigned)cram[0x2808u],
+            (unsigned)cram[0x2809u], (unsigned)cram[0x280au],
+            (unsigned)cram[VF2_SOUND_SHARED_COUNTER_151E],
+            (unsigned)cram[VF2_SOUND_SHARED_COUNTER_152E]);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xc1e));
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    for (i = 0u; i < 8u; ++i) {
+        regs.d[i] = UINT32_C(0xa5000000) + (uint32_t)(i * 0x1111111u);
+    }
+    regs.a[0] = VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    regs.a[1] = VF2_SOUND_VOICE_TABLE_BASE;
+    regs.a[2] = UINT32_C(0xdead0002);
+    regs.a[3] = UINT32_C(0xdead0003);
+    regs.a[4] = UINT32_C(0xdead0004);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0xa8c);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xc1e), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch a8c-syn-%s: s-status=%d pc=0x%05x steps=%u events=%u d2=%04x v0=%02x/%02x/%02x/%02x/%02x/%02x/%02x/%02x 1e=%02x 2e=%02x\n",
+            tag, (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count, (unsigned)regs.d[2],
+            (unsigned)step_ram[0x2802u], (unsigned)step_ram[0x2803u],
+            (unsigned)step_ram[0x2804u], (unsigned)step_ram[0x2805u],
+            (unsigned)step_ram[0x2806u], (unsigned)step_ram[0x2808u],
+            (unsigned)step_ram[0x2809u], (unsigned)step_ram[0x280au],
+            (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_151E],
+            (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_152E]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xc1e));
+    EXPECT_TRUE(done == (low ? 84u : 75u));
+    EXPECT_TRUE(bus.event_count == 0u);
+    for (i = 0u; i < VF2_SOUND_VOICE_BYTES; ++i) {
+        if (cram[VF2_SOUND_VOICE_TABLE_BASE + i] !=
+            step_ram[VF2_SOUND_VOICE_TABLE_BASE + i]) {
+            fprintf(stderr, "dispatch a8c-syn-%s: voice0[%u] differ: C=%02x S=%02x\n",
+                    tag, (unsigned)i,
+                    (unsigned)cram[VF2_SOUND_VOICE_TABLE_BASE + i],
+                    (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + i]);
+            EXPECT_TRUE(0);
+        }
+    }
+    EXPECT_TRUE(cram[VF2_SOUND_SHARED_COUNTER_151E] ==
+                step_ram[VF2_SOUND_SHARED_COUNTER_151E]);
+    EXPECT_TRUE(cram[VF2_SOUND_SHARED_COUNTER_152E] ==
+                step_ram[VF2_SOUND_SHARED_COUNTER_152E]);
+    EXPECT_TRUE(creport.lookup_word == (uint16_t)regs.d[2]);
+    if (low) {
+        /* Volume corner (absolute): 0xff*0xff = 0xfe01 >> 8 =
+           0xfe ~ 0x01 >> 1 = 0x00. */
+        uint8_t level = 0u;
+        EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, 0x2du, &level) ==
+                    VF2_OK);
+        EXPECT_TRUE(level == 0u);
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -1538,6 +1693,9 @@ int main(int argc, char **argv)
                   0x40u, 0xbbu, 0x0fu, 3u,
                   0x00u, 0xbau, 0x0eu, 7u, 203u, "skip");
     test_a8c_high(audio_rom, audio_rom_size);
+    /* S3c synthetic entries (drain-unreachable bodies). */
+    test_a8c_synth(audio_rom, audio_rom_size, 1, "low");
+    test_a8c_synth(audio_rom, audio_rom_size, 0, "high-f");
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);
