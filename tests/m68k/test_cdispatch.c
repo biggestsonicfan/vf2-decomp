@@ -21,9 +21,8 @@ static int failures;
  * audio_switch_audit_v0819.md). The ROM switch reads the filed
  * $150e byte and jumps: $90->$858, $80->$10d0, $e0->$12b4,
  * $b0->$13ca, $c0->$1e5a, $a0->$1e74, anything else->rts at $856
- * (byte-verified 4e 75). That default rts contradicts the C
- * dispatch_next default arm (->dispatch_90): reported, C untouched
- * pending the consumer mapping (S7b).
+ * (byte-verified 4e 75). S2b retired the C's default->90 mapping:
+ * unlisted classes ignore (handler 0x856) with drain consume.
  */
 
 static void make_bus(
@@ -498,6 +497,294 @@ static void test_drain_e0_entry(
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
 }
 
+/* S2b: drain-entry 90-head differential (primer proof).
+ *
+ * Fixture: ring {0x93, 0x05, byte2}, desc[1] = 3 (byte-match),
+ * desc[2] = 0xf5 (HIGH) or 0x03 (LOW), desc[4] = 0x10. Under the
+ * old d2=command C, base would be 0xa3 and mode ROM[..+5]; under
+ * the primer truth (d2 = payload, second = ring byte 2) base is
+ * 0x15 and mode is ROM[0x60c6a6+2] (real ROM bytes -- both sides
+ * share audio_rom, so no staging; the assert is C==S equality).
+ * C: dispatch_next refuses at the 0x878 split (S2c owns both
+ * arms), packet held. Stepper: drain 0x7a6 to the split target
+ * (0x884 HIGH / 0xa3e LOW -- the step delta + target pin the split
+ * direction on silicon; the C claims neither arm).
+ * Compared: $150f/$1510 C==S, $1511 still 0 both sides, SCSP
+ * equal (head touches none), zero bus events. Drain-only state
+ * (count subq'd at entry, $150e file, stack residue) is excluded
+ * by construction -- the head path is 8 linear instructions past
+ * the switch, all accounted (base file, second peek+branch,
+ * mode-table file). */
+static void test_drain_90_head(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size,
+    uint8_t desc2,
+    uint32_t stop_pc,
+    const char *tag
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0x93u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 5u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 2u] = 2u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x03u;
+    desc[2] = desc2;
+    desc[3] = 0x00u;
+    desc[4] = 0x10u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "dispatch drain-90-%s: c-status=%d ch=%u handler=0x%05x base=%02x mode=%02x count=%u\n",
+            tag, (int)cstatus, (unsigned)creport.channel,
+            (unsigned)creport.handler_address,
+            (unsigned)cram[VF2_SOUND_LOOKUP_CURRENT],
+            (unsigned)cram[VF2_SOUND_LOOKUP_MODE],
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.channel == 3u);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0x858));
+    EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
+    EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    status = vf2_m68k_run(&bus, &regs, stop_pc, 0, 20000u, &done);
+    fprintf(stderr, "dispatch drain-90-%s: s-status=%d pc=0x%05x steps=%u events=%u base=%02x mode=%02x\n",
+            tag, (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count,
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_CURRENT],
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_MODE]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == stop_pc);
+    EXPECT_TRUE(done == 36u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
+    EXPECT_TRUE(step_ram[0x2511u] == 0u);
+    EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] ==
+                step_ram[VF2_SOUND_LOOKUP_CURRENT]);
+    EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_MODE] ==
+                step_ram[VF2_SOUND_LOOKUP_MODE]);
+    EXPECT_TRUE(cram[0x2511u] == step_ram[0x2511u]);
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
+/* S2b: 90 zero-second trap. Ring {0x93, 0x05, 0x00}: the head
+ * files base 0x15, then 0x866/0x868 beq-takes into the 80 body
+ * mid-instruction (0x10e2) -- trap on HW. C refuses with mode
+ * untouched, packet held. Stepper stop: 0x10e2. */
+static void test_drain_90_trap(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0x93u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 5u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 2u] = 0u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x03u;
+    desc[2] = 0xf5u;
+    desc[4] = 0x10u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "dispatch drain-90-trap: c-status=%d handler=0x%05x base=%02x mode=%02x count=%u\n",
+            (int)cstatus, (unsigned)creport.handler_address,
+            (unsigned)cram[VF2_SOUND_LOOKUP_CURRENT],
+            (unsigned)cram[VF2_SOUND_LOOKUP_MODE],
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0x858));
+    EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
+    EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_MODE] == 0u);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x10e2), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch drain-90-trap: s-status=%d pc=0x%05x steps=%u events=%u base=%02x mode=%02x\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count,
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_CURRENT],
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_MODE]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x10e2));
+    EXPECT_TRUE(done == 31u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_LOOKUP_MODE] == 0u);
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
+/* S2b: drain-entry 80-head differential. Ring {0x81, 0x06, x},
+ * desc[1] = 1, desc[4] = 0x10: base = (0x06&0x7f)+0x10 = 0x16
+ * (byte-add; desc[5] never participates). Old word-add C gave
+ * (0x01)+be16(desc+4); old command-head gave 0x01+... -- both
+ * dead. C refuses at the 0x10e2 split, packet held. Stepper stop:
+ * 0x10e2 (the split load, pre-branch). */
+static void test_drain_80_head(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0x81u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 6u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 2u] = 0u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x01u;
+    desc[2] = 0x03u;
+    desc[4] = 0x10u;
+    desc[5] = 0x20u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "dispatch drain-80: c-status=%d ch=%u handler=0x%05x base=%02x count=%u\n",
+            (int)cstatus, (unsigned)creport.channel,
+            (unsigned)creport.handler_address,
+            (unsigned)cram[VF2_SOUND_LOOKUP_CURRENT],
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.channel == 1u);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0x10d0));
+    EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] == 0x16u);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x10e2), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch drain-80: s-status=%d pc=0x%05x steps=%u events=%u base=%02x\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count,
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_CURRENT]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x10e2));
+    EXPECT_TRUE(done == 31u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x16u);
+    EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] ==
+                step_ram[VF2_SOUND_LOOKUP_CURRENT]);
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -520,6 +807,12 @@ int main(int argc, char **argv)
     test_a0_overmax(audio_rom, audio_rom_size);
     test_e0_differential(audio_rom, audio_rom_size);
     test_drain_e0_entry(audio_rom, audio_rom_size);
+    test_drain_90_head(audio_rom, audio_rom_size, 0xf5u,
+                       UINT32_C(0x884), "high");
+    test_drain_90_head(audio_rom, audio_rom_size, 0x03u,
+                       UINT32_C(0xa3e), "low");
+    test_drain_90_trap(audio_rom, audio_rom_size);
+    test_drain_80_head(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);

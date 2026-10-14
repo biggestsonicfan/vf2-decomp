@@ -344,9 +344,10 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[0x2003u] == 0u);
         EXPECT_TRUE(board.sound_ram[0x2000u] == 0xaau);
 
-        /* 90-class with a zero second byte traps at 0x866 (continues
-           into the 80 body mid-instruction): base is stored, mode is not
-           read, and the packet stays queued. */
+        /* 90-class with a zero second byte (S2b primer truth: head
+           = payload 0, second = ring byte 2 = 0): base 0x10 stored
+           (0x00 + 0x10), then the 0x866 beq-trap into the 80 body
+           mid-instruction. Mode unread, packet held. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -363,22 +364,24 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x85au);
+        EXPECT_TRUE(dispatch.handler_address == 0x858u);
         EXPECT_TRUE(dispatch.channel == 0u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0xa0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x10u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
-        /* 90-class prefix (v0794b): d2 = command, second = payload. Base,
-           mode, then refuse at the low/high split (low is a stale
-           branch, high cannot match the drain). */
+        /* 90-class prefix (S2b primer truth: head = payload 0x05,
+           second = ring byte 2 = 0x02). Base 0x15 (0x05 + 0x10),
+           mode = ROM[0x60c6a6+2]. Then refuse at the 0x878
+           desc[2] split (both arms unrecovered -- S2c owns them),
+           packet held. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
-        audio_rom[0xc6a6u + 5u] = 0x44u;
+        audio_rom[0xc6a6u + 2u] = 0x44u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 3u;
@@ -390,23 +393,24 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x85au);
+        EXPECT_TRUE(dispatch.handler_address == 0x858u);
         EXPECT_TRUE(dispatch.channel == 3u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0xa3u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x44u);
         EXPECT_TRUE(dispatch.selected_value == 0x44u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
-        /* 90-class mode with a nonzero middle byte: the long index
-           ((base>>8)<<16)+second is exact (d3.mid = 0 proven). Needs a
-           bigger image: mid 1 reads file 0x1c6a6+. */
+        /* 90-class mode with a nonzero base high byte (S2b: base =
+           0x05 + 0x80 = 0x85, mid 0, so the marker lives at
+           0x60c6a6+2 -- the old +0x10000 file read a mode the new
+           head never addresses). */
         {
             static uint8_t big_rom[0x20000u];
             memset(big_rom, 0, sizeof(big_rom));
             test_boot_rom(big_rom);
-            big_rom[0xc6a6u + 0x10000u + 5u] = 0x2au;
+            big_rom[0xc6a6u + 2u] = 0x2au;
             EXPECT_TRUE(vf2_sound_board_initialize(&board, big_rom, sizeof(big_rom),
                                        sample_rom, sizeof(sample_rom)) == VF2_OK);
             descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -420,19 +424,17 @@ int main(void)
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                         VF2_ERROR_UNSUPPORTED);
-            EXPECT_TRUE(dispatch.handler_address == 0x85au);
+            EXPECT_TRUE(dispatch.handler_address == 0x858u);
             EXPECT_TRUE(dispatch.channel == 15u);
-            EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x1fu);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x85u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x2au);
             EXPECT_TRUE(dispatch.selected_value == 0x2au);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         }
 
-        /* Default class via the 0x858 primer: d2 = payload, second =
-           ring byte 2, handler 0x858. (S2a: desc[1] = channel
-           restores the match; whether the default arm SHOULD enter
-           the 90 body is the v0819 divergence -- ROM rts at 0x856 --
-           owned by S2b's 90 re-recovery, not this pin.) */
+        /* Default class (S2b): ROM rts at 0x856 -- no body, no
+           $150f/$1510 writes. The drain still consumes the packet
+           (count 0, cursor 4, handled). */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -447,19 +449,20 @@ int main(void)
             const uint8_t packet[4] = {0xd3u, 0x07u, 0x09u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
-                    VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x856u);
         EXPECT_TRUE(dispatch.command_class == 0xd0u);
         EXPECT_TRUE(dispatch.channel == 3u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x17u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x33u);
-        EXPECT_TRUE(dispatch.selected_value == 0x33u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
-        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+        EXPECT_TRUE(dispatch.descriptors_matched == 1u);
+        EXPECT_TRUE(dispatch.handled != 0);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
-        /* Default class with a zero second byte: base stored, mode
-           untouched, refuse. */
+        /* Default class with a zero ring byte 2: identical ignore
+           (the old zero-second trap belonged to the 90 body the
+           default arm no longer enters). */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -474,12 +477,14 @@ int main(void)
             const uint8_t packet[4] = {0xd3u, 0x07u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
-                    VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x858u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x17u);
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x856u);
+        EXPECT_TRUE(dispatch.descriptors_matched == 1u);
+        EXPECT_TRUE(dispatch.handled != 0);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
         /* A0 refuses at entry (v0795b): the body splits on cmp.l
            d2,d0 with d2 never loaded, so stale-vs-primary mis-splits by
@@ -909,10 +914,10 @@ int main(void)
             EXPECT_TRUE(dispatch.cursor_after == 4u);
         }
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u] == 0u);
-        /* 80 minimal (v0795a): d2 = command (primer skipped), base =
-           (command&0x7f) + desc[4..5]-word, then refuse. The low arm is
-           the only matchable shape (stale branch); the high arm cannot
-           match the drain. */
+        /* 80 head (S2b primer truth: d2 = payload, base =
+           (payload&0x7f) + desc[4]-byte -- 0x10da is add.b, desc[5]
+           never participates). Packet {0x81, 0, ..} -> base 0x00.
+           Then refuse at the 0x10e2 split, packet held. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -929,14 +934,15 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x10d2u);
+        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
         EXPECT_TRUE(dispatch.channel == 1u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x21u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x00u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
-        /* 80 base word-add with low truncation: 0x0f + 0x100 -> 0x0f. */
+        /* 80 head with desc[4] = 1 (S2b: base 0x01 -- the old
+           word-add pin 0x0f read desc[5] = 0 into the base). */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -953,9 +959,9 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x10d2u);
+        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
         EXPECT_TRUE(dispatch.channel == 15u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x0fu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x01u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
@@ -995,9 +1001,9 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
 
-        /* The ROM class switch has no ignore arm: a 0xd3 command falls
-           through into the 0x90 head at 0x858 (bne.w from 0x84e). With a
-           zero second byte it traps at 0x866: base stored, packet held. */
+        /* Unlisted class ignore (S2b): a 0xd3 command takes the
+           switch rts at 0x856 -- no 90-body entry, no trap, no
+           $150f/$1510 writes. Consumed, handled. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -1008,15 +1014,16 @@ int main(void)
             const uint8_t packet[4] = {0xd3u, 0u, 0u, 0u};
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
-        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
-                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.command_class == 0xd0u);
-        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        EXPECT_TRUE(dispatch.handler_address == 0x856u);
         EXPECT_TRUE(dispatch.channel == 3u);
+        EXPECT_TRUE(dispatch.descriptors_matched == 1u);
+        EXPECT_TRUE(dispatch.handled != 0);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
-        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
     }
     {
         /* Boot mirror (v0794a): voice slot words, stream records,

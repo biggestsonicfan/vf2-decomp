@@ -775,23 +775,29 @@ static vf2_status sound_board_dispatch_80(
 )
 {
     const uint8_t channel = (uint8_t)(command & 0x0fu);
-    /* ROM 0x10d2 (the switch skips the fetch primer): d2 = command.
-       Base = (command&0x7f) + desc[4..5]-word; d0.upper is clean
-       (drain andi.l + move.b chain), so the word add is exact and the
-       low byte escapes to $150f. Payload/byte2 are never read. */
+    /* ROM 0x10d0 (v0825 S2b primer correction): the switch's beq
+       lands ON the primer (`move.b (a3)+,d0` with a3 at ring+1 as
+       the drain leaves it), so d2 = PAYLOAD, not command. Base =
+       (payload&0x7f) + desc[4]-byte: ROM 0x10da is `add.b`
+       (disassembled, same byte-add shape as the 90 arm's 0x860),
+       so desc[5] never participates -- the old word-add was a
+       print-era assumption. The 0x10d4 andi.l #$7f is LONG, so
+       d0's upper is zeroed entry-independently and the low byte
+       escapes to $150f clean. Payload/byte2 are never read past
+       the head. */
     const uint16_t base =
-        (uint16_t)((uint16_t)(command & 0x7fu) + read_be16(descriptor + 4u));
+        (uint16_t)(((uint16_t)(payload & 0x7fu) + descriptor[4u]) &
+                   0xffu);
 
-    (void)payload;
-    report->handler_address = UINT32_C(0x000010d2);
+    report->handler_address = UINT32_C(0x000010d0);
     report->channel = channel;
     board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)base;
-    /* The only matchable shape (drain matches desc[1..2].w ==
-       channel <= 15, so desc[1] = 0 and desc[2] <= 15) takes the low
-       arm, which is a stale branch into mid-lea (bcs lands inside
-       the row-table lea). The high arm needs desc[2] >= 0xf0 and
-       cannot match the drain. Everything past (row/$1515/voice
-       update) is unreachable. Refuse. */
+    /* Split at 0x10e2 (`move.b desc[2],d3` / cmpi #$f0 / bcs):
+       the low arm is a stale branch into mid-lea and the high arm
+       needs desc[2] >= 0xf0, which byte-match (S2a: desc[1] ==
+       channel <= 15) leaves free to differ -- but NEITHER arm is
+       recovered yet. Everything past (row/$1515/voice update) is
+       post-refusal. Refuse with the head filed. */
     return VF2_ERROR_UNSUPPORTED;
 }
 
@@ -804,23 +810,30 @@ static vf2_status sound_board_dispatch_90(
     vf2_sound_dispatch_report *report
 )
 {
-    /* ROM class switch: 0x90-class enters at 0x85a with d2 = command;
-       default classes run the 0x858 primer with d2 = payload. The
-       second byte is payload (0x90, a3 = +1 peek) or ring byte 2
-       (default, a3 = +2 after the primer fetch). */
+    /* ROM 0x858 (v0825 S2b primer correction): the switch's beq
+       lands ON the primer (`move.b (a3)+,d0` with a3 at ring+1 as
+       the drain leaves it -- stepper-proven switch-90 leg enters at
+       0x858 in 4 steps), so d2 = PAYLOAD (ring byte 1) and the
+       second byte is ring byte 2 (the (a3) peek with a3 at ring+2).
+       The old "d2 = command / second = payload" matched the C's own
+       head-entry staging, not the drain's reality -- the same trap
+       class as the S2a e0 primer fix, caught the same way (a
+       drain-entry differential, not a re-read of the print).
+       Channel (report only -- the body itself never reads the
+       command byte) stays command & 0xf. */
     const uint8_t channel = (uint8_t)(command & 0x0fu);
-    const int high_class = (command & 0xf0u) == 0x90u;
-    const uint8_t head = high_class ? command : payload;
-    const uint8_t second = high_class ? payload : ring_byte2;
+    const uint8_t head = payload;
+    const uint8_t second = ring_byte2;
     uint16_t base_full = 0u;
     uint8_t mode = 0u;
 
-    report->handler_address =
-        high_class ? UINT32_C(0x0000085a) : UINT32_C(0x00000858);
+    report->handler_address = UINT32_C(0x00000858);
     report->channel = channel;
-    /* ROM 0x85c: base = d2 + desc[4] (d3.mid = 0 proven: boot clr.l,
-       only byte-writes and the 0x23d2 record-long reload on the loop
-       path, whose +0x17 byte is never stored). Low byte escapes. */
+    /* ROM 0x85c: base = head + desc[4]-byte (`move.b`/`add.b`; only
+       the low byte adds). d0's upper is zero on entry (the drain's
+       0x7be/0x7c8 andi.l chain clears it and every move.b preserves
+       the zero), so the byte add is exact and the low byte escapes
+       to $150f. */
     base_full = (uint16_t)((uint16_t)head + descriptor[4u]);
     board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)base_full;
     /* ROM 0x866: second == 0 continues into the 80 body
@@ -828,25 +841,29 @@ static vf2_status sound_board_dispatch_90(
     if (second == 0u) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    /* ROM 0x86c mode table. d0.mid = ((head+desc[4])>>8) with a clean
-       upper (drain andi.l + move.b chain), so the long index is exact
-       even past the 128-byte table. */
+    /* ROM 0x86c mode table: `move.b (a1,d0.l)` with d0.l == second
+       exactly (upper zero per the chain above -- no masking exists
+       on this path, none is needed). */
     if (read_audio_byte_absolute(
             board,
-            UINT32_C(0x60c6a6) +
-                ((uint32_t)(base_full >> 8u) << 16u) + second,
+            UINT32_C(0x60c6a6) + second,
             &mode
         ) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
     board->sound_ram[VF2_SOUND_LOOKUP_MODE] = mode;
     report->selected_value = mode;
-    /* What follows in ROM is never reachable on a matched descriptor:
-       the low arm (desc[2] < 0xf0, the only matchable shape since the
-       drain matches desc[1..2].w == channel <= 15) is a stale branch
-       into mid-lea, and the high arm needs desc[2] >= 0xf0, which
-       cannot match. Everything past (scan/compact/kill/alloc, and the
-       0x8d2 mid-instruction trap) is post-trap. Refuse. */
+    /* Split at 0x878 (`move.b desc[2],d3` / cmpi.b #$f0 / bcs):
+       - < 0xf0 -> 0xa3e low path (row-table walk, files
+         $1516/$1518/$1515/$1511, bra $f12 -- never Loop-B);
+       - >= 0xf0 -> HIGH table path (0x884+: stride payload&0x7f*6,
+         0x8a6 gate, 0x8b2 file $1511/$1512/$1516, 0x8d2/0x8e4 file
+         $150d, $1515, fall-through 0x8fe into Loop-B 0x902).
+       The d3 upper survives subi.b/andi.w as long-residue, but the
+       table pick reads d3.w only (0x894 `move.l (a1,d3.w)`), so the
+       index is exact. NEITHER arm is recovered yet (S2c owns the
+       HIGH path + Loop-B door; S3 the setup arms). Refuse with head
+       filed and the packet held. */
     return VF2_ERROR_UNSUPPORTED;
 }
 
@@ -1140,13 +1157,11 @@ vf2_status vf2_sound_board_dispatch_next(
             continue;
         }
         ++local.descriptors_matched;
-        /* DIVERGENCE (v0819): under the +2 PC-relative base the ROM
-           switch's fall-through lands on rts at 0x856 (byte-verified
-           4e 75; stepper leg switch-00 @14 steps): unlisted classes
-           are ignored with no effects and no consume. The C default
-           arm below (->dispatch_90 + cursor/count consume) does not
-           match ROM. Fix deferred to the ring-consumer mapping (S7b);
-           the 0x90 arm itself stays for the listed $90 class. */
+        /* Switch mapping (v0825 S2b): the ROM switch reads filed
+           $150e and jumps per class ($90->0x858, $80->0x10d0,
+           $e0->0x12b4, $b0->0x13ca, $c0->0x1e5a, $a0->0x1e74,
+           else rts at 0x856 -- the C's own switch-routing legs pin
+           every one). The old default->90 mapping is retired. */
         if (local.command_class == 0x80u) {
             vf2_status status = sound_board_dispatch_80(
                 board, descriptor, local.command, local.payload, &local
@@ -1155,14 +1170,7 @@ vf2_status vf2_sound_board_dispatch_next(
                 *report = local;
                 return status;
             }
-        } else if (local.command_class == 0x90u ||
-                   /* ROM default arm: every other class, including
-                      0x70/0xd0/0xf0, enters the 0x90 head. */
-                   (local.command_class != 0x80u &&
-                    local.command_class != 0xa0u &&
-                    local.command_class != 0xb0u &&
-                    local.command_class != 0xc0u &&
-                    local.command_class != 0xe0u)) {
+        } else if (local.command_class == 0x90u) {
             vf2_status status = sound_board_dispatch_90(
                 board, descriptor, local.command, local.payload,
                 ram[VF2_SOUND_COMMAND_RING_BASE +
@@ -1172,6 +1180,19 @@ vf2_status vf2_sound_board_dispatch_next(
                 *report = local;
                 return status;
             }
+        } else if (local.command_class != 0x80u &&
+                   local.command_class != 0xa0u &&
+                   local.command_class != 0xb0u &&
+                   local.command_class != 0xc0u &&
+                   local.command_class != 0xe0u) {
+            /* ROM switch rts at 0x856 (v0825 S2b): unlisted classes
+               run no body -- the old default->90 mapping contradicted
+               the C's own switch-00 leg (filed 0x00 reaches 0x856 in
+               14 steps). The drain still consumes the packet and a
+               later descriptor may still match a listed class, so
+               record the ignore and continue the scan. */
+            local.handler_address = UINT32_C(0x00000856);
+            local.channel = (uint8_t)(local.command & 0x0fu);
         } else if (local.command_class == 0xa0u) {
             vf2_status status = sound_board_dispatch_a0(
                 board, local.command, &local
