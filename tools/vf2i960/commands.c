@@ -43,7 +43,7 @@ static void usage(const char *program)
         "  %s coverage <rom-directory> <input.vf2snap> <frames> <output.json> [frame:mask,...]\n"
         "  %s geometry-census <rom-directory> <input.vf2snap> <frames>\n"
         "  %s attract-irq-probe <rom-directory> <input.vf2snap> <frames> [inject]\n"
-        "  %s boot-trace <rom-directory> <frames> [read-cap]\n"
+        "  %s boot-trace <rom-directory> <frames> [read-cap] [apply-io-fix]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
         "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address] [raise-irq] [enter-vector] [enter-level]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
@@ -7092,7 +7092,7 @@ static int command_read_words(
 }
 
 static int command_boot_trace(
-    const char *rom_directory, uint32_t frames, uint32_t read_cap
+    const char *rom_directory, uint32_t frames, uint32_t read_cap, uint32_t apply_io_fix
 )
 {
     const uint64_t per_frame_budget = UINT64_C(50000000);
@@ -7126,6 +7126,22 @@ static int command_boot_trace(
         goto done;
     }
 
+    if (apply_io_fix) {
+        /* Apply the proven IO_CONTROL fix (io_control[0x1c] = 0xff open-bus)
+         * that makes the boot match MAME; see
+         * decomp/i960/notes/attract_phase_50002a_divergence.md. Done here (not
+         * in vf2_model2a_initialize) so the default model stays byte-compatible
+         * with the recovered native runtime, whose boot bridges do not yet cover
+         * the corrected (3D-active) path. */
+        const uint8_t open_bus = 0xffu;
+        status = vf2_model2a_write(&machine, 0x01c0001cu, &open_bus, 1u);
+        if (status != VF2_OK) {
+            fprintf(stderr, "boot-trace: could not apply io fix: %s\n",
+                    vf2_status_string(status));
+            goto done;
+        }
+    }
+
     ctx.cpu = &cpu;
     ctx.frame = &frame;
     ctx.read_884_cap = read_cap;
@@ -7133,9 +7149,11 @@ static int command_boot_trace(
     vf2_model2a_set_memory_observer(&machine, boot_trace_observer, &ctx);
 
     printf("boot-trace: pure interpreter from reset (start_ip=0x%08x), up to "
-           "%u frames; tracing 0x50002a writes, 0x884000 reads (cap %u), "
+           "%u frames%s; tracing 0x50002a writes, 0x884000 reads (cap %u), "
            "0x98000x TGP handshake.\n",
-           (unsigned)vectors.start_ip, (unsigned)frames, (unsigned)read_cap);
+           (unsigned)vectors.start_ip, (unsigned)frames,
+           apply_io_fix ? " [io_control[0x1c]=0xff fix APPLIED]" : "",
+           (unsigned)read_cap);
 
     while (status == VF2_OK && frame < frames) {
         uint64_t steps = 0u;
@@ -7441,18 +7459,24 @@ int main(int argc, char **argv)
         return command_attract_irq_probe(argv[2], argv[3], frames, inject);
     }
 
-    if (strcmp(argv[1], "boot-trace") == 0 && (argc == 4 || argc == 5)) {
+    if (strcmp(argv[1], "boot-trace") == 0 &&
+        (argc == 4 || argc == 5 || argc == 6)) {
         uint32_t frames = 0u;
         uint32_t read_cap = 80u;
+        uint32_t apply_io_fix = 0u;
         if (!parse_u32(argv[3], &frames) || frames == 0u) {
             fprintf(stderr, "Invalid frame count: %s\n", argv[3]);
             return EXIT_FAILURE;
         }
-        if (argc == 5 && !parse_u32(argv[4], &read_cap)) {
+        if (argc >= 5 && !parse_u32(argv[4], &read_cap)) {
             fprintf(stderr, "Invalid read cap: %s\n", argv[4]);
             return EXIT_FAILURE;
         }
-        return command_boot_trace(argv[2], frames, read_cap);
+        if (argc == 6 && !parse_u32(argv[5], &apply_io_fix)) {
+            fprintf(stderr, "Invalid io-fix flag: %s\n", argv[5]);
+            return EXIT_FAILURE;
+        }
+        return command_boot_trace(argv[2], frames, read_cap, apply_io_fix);
     }
 
     if (strcmp(argv[1], "read-words") == 0 && argc == 5) {

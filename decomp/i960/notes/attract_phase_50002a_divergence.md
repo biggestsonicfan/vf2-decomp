@@ -184,7 +184,15 @@ scope are the hand-off.
 ## Reproduce
 
 ```
-vf2i960 boot-trace roms/vf2 90          # phase + TGP + 0x500704 trace from reset
-vf2i960 read-words roms/vf2 0xa6f8 18   # the phase jump table
-vf2i960 disasm    roms/vf2 0xa748 12    # frame_geometry_gate
+vf2i960 boot-trace roms/vf2 90           # buggy default: phase races to 0x11
+vf2i960 boot-trace roms/vf2 820 1 1      # with the fix: 0x01 -> 0x02 -> 0x03, MAME-like
+vf2i960 read-words roms/vf2 0xa6f8 18    # the phase jump table
+vf2i960 disasm    roms/vf2 0xa748 12     # frame_geometry_gate
 ```
+
+The fix is committed on master as the `apply-io-fix` flag of `boot-trace` (the
+4th argument, `1`): it pokes `io_control[0x1c]=0xff` after boot-machine init so
+the correct MAME trajectory is verifiable on master, while the default model
+stays byte-compatible with the recovered native runtime (whose boot bridges do
+not yet cover the corrected 3D-active path -- see the bit13/0xc94 section above).
+Making it the default requires recovering that path.
