@@ -85,16 +85,48 @@ pulled-up / open-bus state `0xff` -- consistent with the neighbouring IO_CONTROL
 bytes the init already sets to `0xff` (relative `0x02/0x04/0x06/0x10/0x16/0x18`;
 `0x1c` is simply missing from that list).
 
-## Candidate fix (next slice)
+## Fix PROVEN, but gated on a celsowm decision
 
-Initialise `io_control[0x1c]` (and audit its open-bus neighbours) so the IO_CONTROL
-status byte at relative 0x1c reads `0xff` like the others. Expected result: at
-f17 `r7 = 0xffffffff`, `0x500704 = 0`, `frame_geometry_gate` falls through, the
-phase stays `0x01`, counts down in the `0xa974` handler and advances `0x01 ->
-0x02 -> 0x03` as in MAME, never reaching `0x10`/`0x11`. Validate with
-`boot-trace` (phase trajectory) and the full suite. Whether the IO_CONTROL
-power-on/open-bus value is exactly `0xff` is a hardware-model fact worth
-confirming against the 315-5649 I/O datasheet / MAME before locking in.
+Setting `machine->io_control[0x1c] = 0xff` in `vf2_model2a_initialize` (matching
+the neighbours `0x02/0x04/0x06/0x10/0x16/0x18`) makes the **interpreter boot
+match MAME exactly**, verified with `vf2i960 boot-trace roms/vf2 820`:
+
+```
+0x50002a: 0x00 -> 0x01 @f16  ip 0xa970   (MAME ip 0xa970)
+          0x01 -> 0x02 @f656 ip 0xa9a0   (MAME ip 0xa9a0; countdown span 640 vs MAME 639)
+          0x02 -> 0x03 @f657 ip 0xacf4   (MAME ip 0xacf4)
+then frozen at 0x03, never 0x10/0x11; 0x5000a6 = 0, 0x500704 = 0.
+```
+
+The instruction pointers are identical to MAME's and the phase-1 countdown span
+(640 frames) matches MAME's (639); the absolute frame numbers differ only because
+our from-reset vblank-injection cadence is not MAME's wall-clock vblank.
+
+**Why it is not yet committed:** the one-byte fix changes the reachable boot path
+(the phase holds at 0x01 instead of racing to 0x11), so the recovered native
+runtime -- whose boot BRIDGE BLOCKS hardcode post-states captured from the old,
+buggy path -- no longer validates. `vf2i960 native-sixth-dispatch` fails with:
+
+```
+Bridge block interrupt-initial-cluster post-state address mismatch:
+  IP=0x00000c74/0x00000c78 depth=2/2
+Native first-dispatch validation failed during second-scheduler-pass:
+  unsupported operation
+```
+
+i.e. with correct I/O the real code at 0x0c74 goes somewhere the recovered
+bridge (built for the 0x11 path) does not expect, and later a scheduler task that
+only the corrected path reaches has no recovered block. So applying the fix
+requires **re-validating / re-recovering the boot bridges (src/recovered/boot/*
+and the interrupt-initial-cluster bridge) against the corrected I/O**, and
+regenerating the committed `native-*-dispatch` snapshots. That reshapes celsowm's
+recovered-C corpus and the Phase 4 lifting corridor built on it -- a maintainer
+decision, so per the session goal work stops here for celsowm's call.
+
+Open sub-question for that decision: confirm the IO_CONTROL power-on value at
+relative 0x1c is exactly `0xff` (pulled-up/open-bus) against the 315-5649 I/O
+datasheet or a MAME `0x01c0001c` read, rather than inferring it purely from the
+`0x500704 == 0` requirement.
 
 ## Reproduce
 
