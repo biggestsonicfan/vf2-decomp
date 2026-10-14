@@ -243,6 +243,21 @@ if(VF2_ENABLE_LIFTED)
     target_include_directories(vf2_lifted PUBLIC "${VF2_LIFT_GEN_DIR}")
     target_link_libraries(vf2_lifted PUBLIC vf2_core)
     vf2_set_project_warnings(vf2_lifted)
+
+    # Cold boot snapshot for the session-scope lifted check (ROM-derived, never
+    # committed). Generated once by the recovered runtime to its sixth-dispatch
+    # checkpoint, the same snapshot scripts/coverage_report uses.
+    set(VF2_LIFT_COLD_SNAP "${VF2_LIFT_GEN_DIR}/cold.vf2snap")
+    add_custom_command(
+      OUTPUT "${VF2_LIFT_COLD_SNAP}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${VF2_LIFT_GEN_DIR}"
+      COMMAND "$<TARGET_FILE:vf2i960>" native-sixth-dispatch
+              "${VF2_ROM_DIR}" "${VF2_LIFT_COLD_SNAP}"
+      DEPENDS vf2i960
+      COMMENT "vf2lift: generating cold boot snapshot for the session check"
+      VERBATIM
+    )
+    add_custom_target(vf2_lift_cold_snapshot DEPENDS "${VF2_LIFT_COLD_SNAP}")
     message(STATUS "VF2_ENABLE_LIFTED=ON: lifted bridge will be generated from ${VF2_ROM_DIR}")
   else()
     message(WARNING "VF2_ENABLE_LIFTED=ON but VF2_ROM_DIR (${VF2_ROM_DIR}) not found; "
@@ -1043,15 +1058,20 @@ if(VF2_BUILD_TESTS)
             "Python3 not found; skipping vf2_python_factory_* ctest wiring")
     endif()
 
-    # Per-function differential for the lifted bridge (opt-in; docs/VF2LIFT.md).
+    # Per-function + session-scope differential for the lifted bridge
+    # (opt-in; docs/VF2LIFT.md).
     if(VF2_ENABLE_LIFTED AND TARGET vf2_lifted)
         add_executable(vf2_lift_differential_tests tests/lift/test_lifted_differential.c)
         target_link_libraries(vf2_lift_differential_tests PRIVATE vf2_lifted vf2_core)
         vf2_set_project_warnings(vf2_lift_differential_tests)
         add_test(NAME vf2_lift_differential_unit COMMAND vf2_lift_differential_tests)
         if(EXISTS "${VF2_ROM_DIR}")
+            # The cold snapshot is built on demand; make the test depend on it
+            # so it exists before the (3-arg) session check runs.
+            add_dependencies(vf2_lift_differential_tests vf2_lift_cold_snapshot)
             add_test(NAME vf2_lift_differential
-                     COMMAND vf2_lift_differential_tests "${VF2_ROM_DIR}")
+                     COMMAND vf2_lift_differential_tests
+                             "${VF2_ROM_DIR}" "${VF2_LIFT_COLD_SNAP}")
         endif()
     endif()
 endif()

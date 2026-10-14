@@ -26,6 +26,7 @@
 #include "vf2/lift/runtime.h"
 #include "vf2/model2a.h"
 #include "vf2/rom.h"
+#include "vf2/session.h"
 
 #include "vf2_lifted.h" /* generated: vf2_lift_table, vf2_lifted_* */
 
@@ -291,6 +292,64 @@ static uint64_t run_entry_via_dispatch(
     }
 }
 
+/* Session-scope validation: run the attract corridor through
+ * vf2_session_step_lifted (lifted>interpreter registry) and the pure-interpreter
+ * vf2_session_step_oracle from the same cold snapshot, and require identical
+ * per-frame work-RAM digests while the lifted session accounts fewer
+ * interpreted instructions (the corridor ran via the lifted tier). */
+static void run_session_lifted_vs_oracle(const char *rom_dir, const char *snap)
+{
+    vf2_session *lifted = NULL;
+    vf2_session *oracle = NULL;
+    const unsigned frames = 120u;
+    unsigned f = 0u;
+    int mismatch = 0;
+    uint64_t le = 0u, li = 0u, oe = 0u, oi = 0u;
+
+    if (vf2_session_open(rom_dir, snap, &lifted) != VF2_OK) {
+        fprintf(stderr, "skip session check: cannot open lifted session from %s\n", snap);
+        return;
+    }
+    if (vf2_session_open(rom_dir, snap, &oracle) != VF2_OK) {
+        fprintf(stderr, "skip session check: cannot open oracle session\n");
+        vf2_session_close(lifted);
+        return;
+    }
+    for (f = 0u; f < frames; ++f) {
+        uint32_t da = 0u, db = 0u;
+        vf2_status a = vf2_session_step_lifted(lifted, 0u,
+                                               vf2_lift_table, vf2_lift_table_count);
+        vf2_status b = vf2_session_step_oracle(oracle, 0u);
+        CHECK(a == VF2_OK);
+        CHECK(b == VF2_OK);
+        if (a != VF2_OK || b != VF2_OK) { mismatch = 1; break; }
+        (void)vf2_session_work_ram_digest(lifted, &da);
+        (void)vf2_session_work_ram_digest(oracle, &db);
+        if (da != db) {
+            ++failures;
+            mismatch = 1;
+            fprintf(stderr, "session frame %u digest mismatch: lifted=%08x oracle=%08x\n",
+                    f, (unsigned)da, (unsigned)db);
+            break;
+        }
+    }
+    vf2_session_instruction_counts(lifted, &le, &li);
+    vf2_session_instruction_counts(oracle, &oe, &oi);
+    fprintf(stderr,
+        "session %u frames: lifted exec=%llu interp=%llu lifted=%llu | "
+        "oracle exec=%llu interp=%llu%s\n",
+        frames, (unsigned long long)le, (unsigned long long)li,
+        (unsigned long long)(le - li), (unsigned long long)oe,
+        (unsigned long long)oi, mismatch ? "  MISMATCH" : "");
+    CHECK(!mismatch);
+    CHECK(le == oe);       /* same total instructions retired */
+    CHECK(li < oi);        /* lifted session interpreted strictly fewer */
+    CHECK((le - li) > 0u); /* some instructions ran via the lifted tier */
+
+    vf2_session_close(lifted);
+    vf2_session_close(oracle);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *main_rom = NULL;
@@ -302,7 +361,7 @@ int main(int argc, char **argv)
 
     test_unit_run_block_guards();
 
-    if (argc != 2) {
+    if (argc < 2) {
         if (failures != 0) {
             fprintf(stderr, "%d lifted unit test(s) failed\n", failures);
             return EXIT_FAILURE;
@@ -351,6 +410,11 @@ int main(int argc, char **argv)
 
     free(main_rom);
     free(main_data);
+
+    /* Session-scope check, when a cold snapshot path is supplied. */
+    if (argc >= 3) {
+        run_session_lifted_vs_oracle(argv[1], argv[2]);
+    }
 
     if (failures != 0) {
         fprintf(stderr, "%d lifted differential test(s) failed\n", failures);

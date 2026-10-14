@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vf2/lift/runtime.h"
 #include "vf2/status.h"
 
 #define VF2_SESSION_WIDTH 496u
@@ -32,6 +33,25 @@ vf2_status vf2_session_step(vf2_session *session, uint32_t input);
  * runtime reproduces the oracle.  A session mixes the two steppers at its
  * peril; run one session per mode. */
 vf2_status vf2_session_step_oracle(vf2_session *session, uint32_t input);
+
+/* Like vf2_session_step_oracle, but dispatches each instruction through the
+ * lifted>interpreter tiers of the recovered>lifted>interpreter registry, using
+ * the caller-supplied lifted table (the generated vf2_lift_table /
+ * vf2_lift_table_count when VF2_ENABLE_LIFTED is on; NULL/0 degrades to the
+ * pure interpreter). The frame boundary and the work-RAM digest are identical
+ * to vf2_session_step_oracle, so their per-frame digests must match exactly --
+ * lifted reuses the interpreter semantics. What differs is the instruction
+ * split: instructions retired by a lifted body count as lifted, not
+ * interpreted (plan phase 4 / docs/VF2LIFT.md), so this is where a running
+ * session's `interpreted` tally shrinks as the corridor is lifted. The
+ * recovered tier (vf2_session_step's native runtime) overrides lifted, so the
+ * caller omits recovered addresses from the table. */
+vf2_status vf2_session_step_lifted(
+    vf2_session *session,
+    uint32_t input,
+    const vf2_lift_entry *table,
+    size_t count
+);
 
 /* XRGB8888 pixels, VF2_SESSION_WIDTH x VF2_SESSION_HEIGHT, valid until the
  * next step.  Returns NULL if no frame has been produced. */

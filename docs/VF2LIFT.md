@@ -183,17 +183,32 @@ session advance.
    as lifted (ctest `vf2_lift_differential`: 16 functions, 1043 instructions
    via the lifted tier, state == oracle). `-j1` suite ON: 135/135.
 
+5. **Session-loop wiring (done, 2026-10-14):** `vf2_session_step_lifted`
+   advances one frame through the lifted>interpreter registry (dependency-
+   injected lifted table, so `vf2_core` keeps no hard dependency on generated
+   symbols), with the same frame boundary and work-RAM digest as
+   `vf2_session_step_oracle`. A lifted body that fails closed on a CFG gap in
+   the real session context defers that one instruction to the interpreter (the
+   bottom tier / the oracle) and continues -- the registry's documented
+   fallback, not the lifted code guessing. Validated over 120 attract frames
+   from the cold snapshot (`vf2_lift_differential` with a snapshot arg): the
+   lifted and oracle sessions retire the identical 201326 instructions with
+   byte-identical per-frame digests, and **115479 (57%) run through the lifted
+   tier**, so a running session's `interpreted` tally drops from 201326 to
+   85847. This is the shipped-path demonstration of the hybrid runtime for the
+   reachable corridor.
+
 ## Reachable status (2026-10-14)
 
-The recompiler is built, validated per function, driven by the measured Phase 3
-corridor, and wired behind the opt-in flag with the lifted>interpreter dispatch
-registry and the three-tally split (`executed`/`interpreted`/`lifted`). What
-remains for the **full** Phase 4 exit -- a lifted build that plays a session
-from reset to the end of a match with per-frame digests equal to the oracle --
-needs the game to advance past the black-frame attract, which needs the
-geometry pipeline (**G2 / Phase 6**) and video (Phase 7). That is the same G2
-gate the Phase 3 remainder sits behind. The full three-tier wiring into the
-shipped `src/app/session.c` / `src/game/game.c` frame loop (so a running
-session reports a shrinking `interpreted` tally in its status line) is the first
-task once a session can advance; the mechanism it needs
-(`vf2_lift_dispatch_step`, the registry, the counters) is in place.
+The recompiler is built, validated per function AND in the real session frame
+loop, driven by the measured Phase 3 corridor, and wired behind the opt-in flag
+with the lifted>interpreter dispatch registry and the three-tally split
+(`executed`/`interpreted`/`lifted`). Over the attract corridor a running
+session now retires 57% of its instructions through lifted C, byte-identical to
+the oracle. What remains for the **full** Phase 4 exit -- a lifted build that
+plays reset to the end of a match with per-frame digests equal to the oracle,
+and `interpreted` driven fully to 0 -- needs the game to advance past the
+black-frame attract, which needs the geometry pipeline (**G2 / Phase 6**) and
+video (Phase 7). That is the same blocker the Phase 3 remainder and Phase 6 sit
+behind (see `docs/NATIVE_WINDOWS_PLAN.md` Phase 6 Status): the TGP is never
+exercised in any reachable state, so the game cannot reach a match.

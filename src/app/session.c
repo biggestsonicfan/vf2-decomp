@@ -178,6 +178,61 @@ vf2_status vf2_session_step_oracle(vf2_session *s, uint32_t input)
     }
 }
 
+vf2_status vf2_session_step_lifted(
+    vf2_session *s, uint32_t input,
+    const vf2_lift_entry *table, size_t count
+)
+{
+    /* Mirror vf2_session_step_oracle's frame loop exactly, but take each unit
+     * through the lifted>interpreter registry instead of a bare interpreter
+     * step. Identical frame boundary and semantics -> identical per-frame
+     * digest; the only change is that lifted bodies retire instructions as
+     * lifted rather than interpreted. The two recognized frame-wait spins are
+     * always single-stepped so vf2_hybrid_frame_wait_observe counts every
+     * visit (a lifted body covering a spin would never yield); the corridor
+     * table never owns them, this is defence in depth. */
+    const uint32_t frame_wait_a = UINT32_C(0x00000f7c);
+    const uint32_t frame_wait_b = UINT32_C(0x00010f98);
+    const uint64_t per_frame_budget = UINT64_C(50000000);
+    uint64_t steps = 0u;
+    vf2_status st;
+
+    if (s == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    st = vf2_model2a_set_input(&s->machine, input);
+    if (st != VF2_OK) return st;
+    s->last_input = input;
+    for (;;) {
+        vf2_hybrid_frame_wait_report wait_report;
+        st = vf2_hybrid_frame_wait_observe(
+            &s->machine, &s->cpu, &s->oracle_frame_wait, &wait_report
+        );
+        if (st != VF2_OK) return st;
+        if (wait_report.interrupt_injected) {
+            return VF2_OK;
+        }
+        if (s->cpu.ip == frame_wait_a || s->cpu.ip == frame_wait_b) {
+            st = vf2_i960_step(&s->cpu, &s->machine, NULL);
+        } else {
+            vf2_lift_tier tier = VF2_LIFT_TIER_INTERPRETED;
+            st = vf2_lift_dispatch_step(
+                &s->machine, &s->cpu, table, count, &tier
+            );
+            /* A lifted body fails closed (VF2_ERROR_UNSUPPORTED) when this
+             * context reaches an address inside the function that is not a
+             * recovered block start -- a gap in the lifted CFG. The lifted
+             * body has advanced cpu->ip to that gap with consistent state, so
+             * defer the one gap instruction to the interpreter (the bottom
+             * tier, and the oracle) and continue. This is the registry's
+             * documented fallback, not the lifted code guessing. */
+            if (st == VF2_ERROR_UNSUPPORTED && tier == VF2_LIFT_TIER_LIFTED) {
+                st = vf2_i960_step(&s->cpu, &s->machine, NULL);
+            }
+        }
+        if (st != VF2_OK) return st;
+        if (++steps >= per_frame_budget) return VF2_ERROR_UNSUPPORTED;
+    }
+}
+
 const uint32_t *vf2_session_pixels(vf2_session *s)
 {
     return (s != NULL && s->have_frame) ? s->pixels : NULL;
