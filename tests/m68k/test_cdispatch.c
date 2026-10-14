@@ -2065,6 +2065,36 @@ static void test_session_attach(const char *rom_dir)
     free(sample_rom);
 }
 
+/* 8c-hunt: receiver vector pins (read-only ROM asserts).
+ *
+ * The comm hunt maps the sound-side receiver to the L3 ISR at
+ * 0x526 (UART byte at $405(a5) -> $1500 ring file, 0xff =
+ * sound-CPU reset to 0x100) and the stream tick to the L2 ISR
+ * at 0x1f16. This leg pins the vector-table words that route
+ * there (BE32 in the audio region): reset@0x04, L1@0x64,
+ * L2@0x68, L3@0x6c. If a future ROM set moves the receiver,
+ * this fails first, before any bridge code trusts it. */
+static void test_vectors(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static const uint8_t want_reset[4] = {0x00u, 0x60u, 0x01u, 0x00u};
+    static const uint8_t want_l1[4] = {0x00u, 0x60u, 0x05u, 0xfeu};
+    static const uint8_t want_l2[4] = {0x00u, 0x60u, 0x1fu, 0x16u};
+    static const uint8_t want_l3[4] = {0x00u, 0x60u, 0x05u, 0x26u};
+
+    EXPECT_TRUE(audio_rom_size >= 0x70u);
+    if (audio_rom_size < 0x70u) {
+        return;
+    }
+    EXPECT_TRUE(memcmp(audio_rom + 0x04u, want_reset, 4u) == 0);
+    EXPECT_TRUE(memcmp(audio_rom + 0x64u, want_l1, 4u) == 0);
+    EXPECT_TRUE(memcmp(audio_rom + 0x68u, want_l2, 4u) == 0);
+    EXPECT_TRUE(memcmp(audio_rom + 0x6cu, want_l3, 4u) == 0);
+    fprintf(stderr, "vectors: reset=060100 L1=0605fe L2=061f16 L3=060526\n");
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -2134,6 +2164,7 @@ int main(int argc, char **argv)
     test_chain_render(audio_rom, audio_rom_size);
     test_chain_audible(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
+    test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);
