@@ -620,6 +620,74 @@ int main(int argc, char **argv)
             EXPECT_TRUE(steps == 21u);
         }
     }
+    {
+        /* F11 90-feeder (S1 Loop-B caller hunt, v0825): the 0x90 arm
+           at 0x858 with desc[2] = 0xf5 (>= 0xf0) takes the HIGH
+           table path (0x884+: a2 = be32(0x6032da) = 0x603c9c real;
+           word 0x0140 != $ffff skips the 0x8b0 rts) and falls
+           through 0x8c2/0x8d2/0x8e4/0x8f6 into the 0x902 Loop-B
+           entry -- 37 steps, zero direct callers anywhere in the
+           image (whole-image branch census: 0 candidates). The
+           0xa3e path (desc[2] < 0xf0) exits via bra to 0xf12 and
+           never reaches Loop-B. Entry-state recipe for S2: d4 =
+           $150f & 0x7f (= 0 here), $1515/$1510/$1511/$1512/$1516/
+           $150d filed as pinned below. */
+        static uint8_t ram[VF2_SOUND_RAM_BYTES];
+        static vf2_scsp scsp;
+        vf2_m68k_bus bus;
+        vf2_m68k_regs regs;
+        uint32_t done = 0u;
+        vf2_status status = VF2_OK;
+        memset(ram, 0, sizeof(ram));
+        vf2_scsp_initialize(&scsp);
+        ram[0x2000u] = 0x00u;
+        ram[0x2001u] = 0x01u;
+        ram[0x4002u] = 0xf5u;
+        ram[0x4004u] = 0x00u;
+        ram[0x400cu] = 0x01u;
+        ram[0x400du] = 0x00u;
+        bus.ram = ram;
+        bus.ram_size = sizeof(ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = NULL;
+        bus.sample_rom_size = 0u;
+        bus.scsp = &scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.a[0] = UINT32_C(0x4000);
+        regs.a[3] = UINT32_C(0x2000);
+        regs.pc = UINT32_C(0x858);
+        status = vf2_m68k_run(&bus, &regs, UINT32_C(0x902), 0, 20000u,
+                              &done);
+        /* NOTE: $15xx(a6) fields are a6-relative: absolute 0x25xx
+           (the first version of this leg read 0x15xx absolute and
+           pinned zeros -- same trap class as the v0732p synthetic-
+           address fixture, caught because $150d stayed 0). */
+        fprintf(stderr, "f11-feeder: status=%d pc=0x%05x steps=%u "
+                "$250f=%02x $2515=%02x $2510=%02x $2511=%02x "
+                "$250d=%02x d4=%08x\n",
+                (int)status, (unsigned)regs.pc, (unsigned)done,
+                (unsigned)ram[0x250fu], (unsigned)ram[0x2515u],
+                (unsigned)ram[0x2510u], (unsigned)ram[0x2511u],
+                (unsigned)ram[0x250du], (unsigned)regs.d[4]);
+        EXPECT_TRUE(status == VF2_OK);
+        EXPECT_TRUE(regs.pc == UINT32_C(0x902));
+        EXPECT_TRUE(done == 38u);
+        EXPECT_TRUE(bus.event_count == 0u);
+        EXPECT_TRUE(ram[0x250fu] == 0x00u);
+        /* $2515 is filed by Loop-B's own first block (0x902 lea +
+           0x908 move.b) -- the stop fires BEFORE it executes, so it
+           is still 0 here. Pinning the zero proves the write belongs
+           to Loop-B, not the feeder (S2's head must produce 0x80). */
+        EXPECT_TRUE(ram[0x2515u] == 0x00u);
+        EXPECT_TRUE(ram[0x2510u] == 0x09u);
+        EXPECT_TRUE(ram[0x2511u] == 0x00u);
+        EXPECT_TRUE(ram[0x250du] == 0x01u);
+    }
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "loopb: %d failures\n", failures);
