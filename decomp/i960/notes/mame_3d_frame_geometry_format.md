@@ -54,6 +54,25 @@ modelled.
 3. Validate per the plan's Phase 6 exit: triangle lists (count, vertices to 1/16
    pixel, texture+colour ids) equal to the reference for the captured frames.
 
+## Format finding: the opcode is 7 bits (word>>23)&0x7f, not 5
+
+Examining the FIFO headers: a command header is self-describing -- its low byte
+equals `(word>>23)&0xff` and byte2==byte3 (e.g. `0x00800101`, `0x03000606`,
+`0x05800b0b`, `0x13802727`, `0x1f803f3f`, `0x35806b6b`), while payload floats do
+not. The opcode is therefore `(word>>23)&0x7f` (7 bits), e.g. `0x13802727`->0x27,
+`0x05800b0b`->0x0b, `0x1f803f3f`->0x3f. The plan's Phase 6 text uses
+`class = (word>>23)&0x1f` (5 bits), which **conflates** distinct opcodes
+(0x07/0x27/0x47/0x67 all map to 0x07, etc.) -- this is exactly why `tgp.c`'s
+5-bit parser mis-frames the real stream. (geometry-census's 5-bit tally is still
+fine for the attract wait, which carries no real opcodes, but 3D needs 7 bits.)
+
+A naive low-byte==opcode discriminator over the whole frame still over-matches
+(zero words and coincidental payload also satisfy it), so a clean frame needs
+the per-opcode payload lengths, which come from the opcode semantics. That is
+the part that needs either the MB86234 behaviour or a reference output to pin
+(below) -- the 7-bit opcode and the self-describing header are the verifiable
+in-tree findings so far.
+
 ## What is needed to validate
 
 A MAME **reference triangle list** (or the rendered image) for the same frame(s)
