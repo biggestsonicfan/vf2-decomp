@@ -354,6 +354,24 @@ int vf2_tgp_is_command_header(uint32_t word)
     return word == ((opcode << 23u) | (opcode << 8u) | opcode);
 }
 
+int vf2_tgp_command_payload_words(uint32_t opcode)
+{
+    switch (opcode) {
+    case 0x0bu:
+        return 12; /* 3x4 transform matrix */
+    case 0x34u:
+        return 1;
+    case 0x00u: /* pad */
+    case 0x01u: /* object: model referenced via geo/prg, not inline */
+    case 0x02u: /* direct */
+    case 0x13u:
+    case 0x1fu: /* end */
+        return 0;
+    default:
+        return -1; /* variable or not yet pinned: fail closed */
+    }
+}
+
 static vf2_status geometry_count_words(
     const uint32_t *words,
     size_t word_count,

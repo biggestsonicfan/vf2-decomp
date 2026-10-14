@@ -73,6 +73,27 @@ the part that needs either the MB86234 behaviour or a reference output to pin
 (below) -- the 7-bit opcode and the self-describing header are the verifiable
 in-tree findings so far.
 
+## Verified opcode payload lengths (self-consistent framing)
+
+Counting payload words between consecutive command headers (header =
+`op<<23|op<<8|op`) across the frame pins the fixed-length opcodes:
+
+| opcode | payload words | samples | role |
+| --- | --- | --- | --- |
+| 0x0b | 12 | 2/2 | 3x4 transform matrix (matches the reference model) |
+| 0x34 | 1 | 89/89 | (single data word) |
+| 0x01 | 0 | 117/117 | object -- model referenced via geo/prg, not inline |
+| 0x02 | 0 | 119/119 | direct |
+| 0x13 | 0 | 54/54 | (header-only) |
+| 0x00 | 0 | pad | |
+| 0x1f | 0 | end | |
+
+Encoded (verified) in `vf2_tgp_command_payload_words()` with a unit test; every
+other opcode returns -1 (fail closed). Variable-length opcodes measure 0..3
+payload words data-dependently (e.g. 0x29 n=54, 0x37 n=69, 0x39 n=60) and are
+NOT pinned from one frame -- that framing, and the triangle assembly, need the
+reference output below.
+
 ## What is needed to validate
 
 A MAME **reference triangle list** (or the rendered image) for the same frame(s)

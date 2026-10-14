@@ -389,6 +389,16 @@ static void test_tgp_command_header_decode(void)
     CHECK(vf2_tgp_command_opcode(UINT32_C(0x13802727)) != 0x07u);
     CHECK(vf2_tgp_is_command_header(UINT32_C(0x03800707)));          /* op 0x07 */
     CHECK(vf2_tgp_command_opcode(UINT32_C(0x03800707)) == 0x07u);
+
+    /* Verified fixed payload lengths; everything else fails closed (-1). */
+    CHECK(vf2_tgp_command_payload_words(0x0bu) == 12);
+    CHECK(vf2_tgp_command_payload_words(0x34u) == 1);
+    CHECK(vf2_tgp_command_payload_words(0x01u) == 0);
+    CHECK(vf2_tgp_command_payload_words(0x02u) == 0);
+    CHECK(vf2_tgp_command_payload_words(0x13u) == 0);
+    CHECK(vf2_tgp_command_payload_words(0x1fu) == 0);
+    CHECK(vf2_tgp_command_payload_words(0x29u) == -1); /* variable-length */
+    CHECK(vf2_tgp_command_payload_words(0x7fu) == -1);
 }
 
 int main(void)

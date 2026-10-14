@@ -142,6 +142,25 @@ vf2_status vf2_tgp_render_triangle(
 uint32_t vf2_tgp_command_opcode(uint32_t word);
 int vf2_tgp_is_command_header(uint32_t word);
 
+/* Number of FIFO payload words that follow a command header, for the opcodes
+ * whose fixed length is verified by self-consistent framing of the measured 3D
+ * frame (counts given are the sample sizes behind each):
+ *   op 0x0b (matrix)   -> 12  (3x4 transform; both occurrences, matches the
+ *                              matrix semantics the reference model uses)
+ *   op 0x34            ->  1  (89/89)
+ *   op 0x01 (object)   ->  0  (117/117; the model is referenced via the geo/
+ *                              prg streams, not carried inline in the FIFO)
+ *   op 0x02 (direct)   ->  0  (119/119)
+ *   op 0x13            ->  0  (54/54)
+ *   op 0x00 (pad)      ->  0
+ *   op 0x1f (end)      ->  0
+ * Returns -1 for every other opcode: either a variable-length command (e.g.
+ * 0x29/0x37/0x39 measure 0..3 payload words, data-dependent) or one not yet
+ * seen enough to pin. Callers fail closed on -1 -- the full length table and
+ * the variable-length framing need a reference triangle/vertex dump to pin
+ * (decomp/i960/notes/mame_3d_frame_geometry_format.md). */
+int vf2_tgp_command_payload_words(uint32_t opcode);
+
 vf2_status vf2_tgp_geometry_command_words(
     const uint32_t *words,
     size_t word_count,
