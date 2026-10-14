@@ -106,7 +106,7 @@ int main(int argc, char **argv)
     uint64_t prev_observed = 0u;
 
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <rom-dir> <snapshot> [held-input]\n",
+        fprintf(stderr, "usage: %s <rom-dir> <snapshot> [held-input] [alt-input]\n",
                 argv[0]);
         return 2;
     }
@@ -140,9 +140,15 @@ int main(int argc, char **argv)
 
         /* Optional argv[3] overrides the pattern with one held mask
          * (decimal or 0x-hex): coin runs, start runs, single-move
-         * pressure without touching the default evidence. */
+         * pressure without touching the default evidence. Optional
+         * argv[4] is the odd-frame alternate: the driver toggles
+         * A,B,A,B... so edge-triggered acceptors (coin slot wants
+         * 0->1, not level) see rising edges every other frame. */
         if (argc >= 4) {
             input = (uint32_t)strtoul(argv[3], NULL, 0);
+            if (argc >= 5 && (frame & 1u) != 0u) {
+                input = (uint32_t)strtoul(argv[4], NULL, 0);
+            }
         }
 
         /* Stamp the current frame for hits recorded during it. */
@@ -162,12 +168,13 @@ int main(int argc, char **argv)
         CHECK(capture.observed > prev_observed);
         prev_observed = capture.observed;
         vf2_session_instruction_counts(session, &executed, &interpreted);
-        fprintf(stderr, "uart-hunt: frame %u digest=0x%08x exec=%llu interp=%llu obs=%llu writes=%u\n",
+        fprintf(stderr, "uart-hunt: frame %u digest=0x%08x exec=%llu interp=%llu obs=%llu writes=%u input=0x%x\n",
                 (unsigned)frame, (unsigned)digest,
                 (unsigned long long)executed,
                 (unsigned long long)interpreted,
                 (unsigned long long)capture.observed,
-                (unsigned)capture.write_count);
+                (unsigned)capture.write_count,
+                (unsigned)input);
     }
     /* Detach: leave no instrumentation behind. */
     CHECK(vf2_session_set_memory_observer(session, NULL, NULL) == VF2_OK);

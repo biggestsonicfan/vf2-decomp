@@ -138,6 +138,18 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    (2) a LANDED hit (attacker in range -- needs a setup
    snapshot, not pressure); (3) round-announce (needs a
    round-boundary snapshot). No src change this slice.
+
+   UPDATE (coin-edge toggling, still silent): the driver takes
+   an optional argv[4] odd-frame alternate mask (A,B,A,B...) and
+   prints the per-frame input. Two 0/COIN toggle runs, 5 rising
+   edges each, both VF2_OK with live hooks:
+   park-warm-coin + indk-c TEST MENU, zero UART writes. Inputs
+   demonstrably steer the game (toggle digests diverge from the
+   held-COIN run exactly on the first 0-frame). Six contexts /
+   60 oracle frames total, all silent. The acceptor wants a
+   different pulse shape, or coin sound does not cross the UART
+   in these states either. Next: LANDED hit (setup snapshot) or
+   round-boundary (long oracle play from boot).
 3. Do NOT tick the 68k per-frame as a shortcut: the L2 stream
    engine + Loop-B are autonomous 68k programs, and silently
    stepping them in-session would hide unrecovered engine
