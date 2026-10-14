@@ -299,7 +299,7 @@ int main(void)
         vf2_sound_dispatch_report dispatch;
 
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 1u;
         descriptor[2] = 0x01u;
         voice[0] = 0u;
         voice[1] = 3u;
@@ -381,7 +381,7 @@ int main(void)
         audio_rom[0xc6a6u + 5u] = 0x44u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 3u;
         descriptor[2] = 3u;
         descriptor[4] = 0x10u;
         {
@@ -411,7 +411,7 @@ int main(void)
                                        sample_rom, sizeof(sample_rom)) == VF2_OK);
             descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
             descriptor[0] = 0x80u;
-            descriptor[1] = 0u;
+            descriptor[1] = 15u;
             descriptor[2] = 15u;
             descriptor[4] = 0x80u;
             {
@@ -429,7 +429,10 @@ int main(void)
         }
 
         /* Default class via the 0x858 primer: d2 = payload, second =
-           ring byte 2, handler 0x858. */
+           ring byte 2, handler 0x858. (S2a: desc[1] = channel
+           restores the match; whether the default arm SHOULD enter
+           the 90 body is the v0819 divergence -- ROM rts at 0x856 --
+           owned by S2b's 90 re-recovery, not this pin.) */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -437,7 +440,7 @@ int main(void)
         audio_rom[0xc6a6u + 9u] = 0x33u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 3u;
         descriptor[2] = 3u;
         descriptor[4] = 0x10u;
         {
@@ -464,7 +467,7 @@ int main(void)
         audio_rom[0xc6a6u] = 0x77u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 3u;
         descriptor[2] = 3u;
         descriptor[4] = 0x10u;
         {
@@ -507,7 +510,7 @@ int main(void)
         test_boot_rom(audio_rom);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 5u;
         descriptor[2] = 5u;
         {
             const uint8_t packet[4] = {0xa5u, 0x02u, 0x03u, 0u};
@@ -578,13 +581,13 @@ int main(void)
         audio_rom[0x2b27u] = 0x60u;
         audio_rom[0x2b28u] = 0x10u;
         audio_rom[0x2b29u] = 0x00u;
-        /* Bit-8 rule: transformed 3 has bit8 clear, so the index
-           negates (3 -> 0xfd). The marker lives at the NEGATED
-           index: a bit-0-rule model would read +3 instead. */
-        audio_rom[0x1000u + 0xfdu] = 0x5au;
+        /* Primer-corrected head (S2a): payload 0 + byte2 0 ->
+           transformed 0, bit8 clear, negated via the zero->0xFF
+           rule. The marker lives at the NEGATED index 0xFF. */
+        audio_rom[0x1000u + 0xffu] = 0x5au;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 0x09u;
         descriptor[2] = 0x09u;
         descriptor[7] = 0u;
         {
@@ -608,22 +611,19 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 18u] == 0xffu);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 19u] == 0xa6u);
 
-        /* No stale word (v0819): the 0x12ba/0x12c0 andi.l #$7f are
-           LONG (byte-verified), so both uppers are zeroed
-           entry-independently and the stored word is ±selected.
-           Payload 0x42 -> no stale 0x2100; bit8 of transformed is
-           set here, so no negation either: selected 0x05 stored
-           as +0x0005. */
+        /* Primer-corrected head (S2a): payload 0x42 + byte2 0 ->
+           transformed 2, bit8 clear, negated (2 -> 0xfe): selected
+           0x05 stored as -0x0005. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
         audio_rom[0x2b26u] = 0x00u; audio_rom[0x2b27u] = 0x60u;
         audio_rom[0x2b28u] = 0x40u; audio_rom[0x2b29u] = 0x00u;
-        audio_rom[0x4000u + 0x0bu] = 0x05u;
+        audio_rom[0x4000u + 0xfeu] = 0x05u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 2u;
         descriptor[2] = 2u;
         descriptor[7] = 0u;
         {
@@ -634,12 +634,12 @@ int main(void)
         EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
         EXPECT_TRUE(dispatch.channel == 2u);
         EXPECT_TRUE(dispatch.selected_value == 0x05u);
-        EXPECT_TRUE(dispatch.signed_value == (int16_t)0x0005);
+        EXPECT_TRUE(dispatch.signed_value == (int16_t)-0x05);
         EXPECT_TRUE(dispatch.voices_matched == 0u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 6u] == 0x00u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 7u] == 0x05u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 4u] == 0x00u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 5u] == 0x05u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 6u] == 0xffu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E + 7u] == 0xfbu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 4u] == 0xffu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_CHANNEL_TABLE_BASE + 5u] == 0xfbu);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
 
         /* e0 voice tail (0x1356): per-match SCSP+0x10 and ram[0x601a]. */
@@ -649,19 +649,22 @@ int main(void)
         test_boot_rom(audio_rom);
         audio_rom[0x2b26u] = 0x00u; audio_rom[0x2b27u] = 0x60u;
         audio_rom[0x2b28u] = 0x40u; audio_rom[0x2b29u] = 0x00u;
-        audio_rom[0x4000u + 0x0bu] = 0x05u;
+        /* Primer-corrected index is 0xFE (payload 0x42, byte2 0):
+           the 0x05 marker lives there (shared = -5). */
+        audio_rom[0x4000u + 0xfeu] = 0x05u;
         audio_rom[0x2682u] = 0x00u; audio_rom[0x2683u] = 0x60u;
         audio_rom[0x2684u] = 0x50u; audio_rom[0x2685u] = 0x00u;
-        /* Slide is 0x0025 under the corrected result (+5 shared +
-           0x20 addend), so the picker/timer bytes live at the
-           +0x4a offsets, not the legacy +0x424a ones. */
-        audio_rom[0x504au] = 0x12u; audio_rom[0x504bu] = 0x34u;
+        /* Slide is 0x001b under the primer-corrected result (-5
+           shared + 0x20 addend), so the picker/timer bytes live at
+           the +0x36/+0x96 offsets. Values unchanged (same picker ->
+           same shaped 0x2234); only addresses move. */
+        audio_rom[0x5036u] = 0x12u; audio_rom[0x5037u] = 0x34u;
         audio_rom[0xc72eu] = 0x00u; audio_rom[0xc72fu] = 0x60u;
         audio_rom[0xc730u] = 0x60u; audio_rom[0xc731u] = 0x00u;
-        audio_rom[0x60aau] = 0xabu; audio_rom[0x60abu] = 0xcdu;
+        audio_rom[0x6096u] = 0xabu; audio_rom[0x6097u] = 0xcdu;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 2u;
         descriptor[2] = 2u;
         /* P6 fixture shift (here and at the small-shaped e0 tail
            below): ROM 0x135e is `add.b`, so only descriptor[5] (the
@@ -717,16 +720,19 @@ int main(void)
         test_boot_rom(audio_rom);
         audio_rom[0x2b26u] = 0x00u; audio_rom[0x2b27u] = 0x60u;
         audio_rom[0x2b28u] = 0x40u; audio_rom[0x2b29u] = 0x00u;
-        audio_rom[0x4000u + 0x0bu] = 0x05u;
+        /* Primer-corrected index is 0xFE (see above). */
+        audio_rom[0x4000u + 0xfeu] = 0x05u;
         audio_rom[0x2682u] = 0x00u; audio_rom[0x2683u] = 0x60u;
         audio_rom[0x2684u] = 0x50u; audio_rom[0x2685u] = 0x00u;
-        audio_rom[0x504au] = 0x00u; audio_rom[0x504bu] = 0x20u;
+        /* Slide 0x001b (see above): picker at +0x36, timer at +0x96.
+           Values unchanged (shaped stays picker = 0x0020). */
+        audio_rom[0x5036u] = 0x00u; audio_rom[0x5037u] = 0x20u;
         audio_rom[0xc726u] = 0x00u; audio_rom[0xc727u] = 0x60u;
         audio_rom[0xc728u] = 0x60u; audio_rom[0xc729u] = 0x00u;
-        audio_rom[0x60aau] = 0xabu; audio_rom[0x60abu] = 0xcdu;
+        audio_rom[0x6096u] = 0xabu; audio_rom[0x6097u] = 0xcdu;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 2u;
         descriptor[2] = 2u;
         /* P6 fixture shift: see the matching note in the first e0
            fixture above. desc[6] = 0 here too; slide is 0x0025. */
@@ -768,7 +774,7 @@ int main(void)
         test_boot_rom(audio_rom);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 1u;
         descriptor[2] = 1u;
         {
             const uint8_t packet[4] = {0xb1u, 0x01u, 0x50u, 0u};
@@ -790,7 +796,7 @@ int main(void)
         test_boot_rom(audio_rom);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 15u;
         descriptor[2] = 15u;
         {
             const uint8_t packet[4] = {0xbfu, 0x01u, 0x02u, 0u};
@@ -816,7 +822,7 @@ int main(void)
                                        sample_rom, sizeof(sample_rom)) == VF2_OK);
             descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
             descriptor[0] = 0x80u;
-            descriptor[1] = 0u;
+            descriptor[1] = 10u;
             descriptor[2] = 10u;
             {
                 const uint8_t packet[4] = {0xbau, 0x7fu, 0u, 0u};
@@ -866,7 +872,7 @@ int main(void)
                                        sample_rom, sizeof(sample_rom)) == VF2_OK);
             descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
             descriptor[0] = 0x80u;
-            descriptor[1] = 0u;
+            descriptor[1] = 10u;
             descriptor[2] = 10u;
             {
                 const uint8_t packet[4] = {0xbau, 0x05u, 0u, 0u};
@@ -913,7 +919,7 @@ int main(void)
         test_boot_rom(audio_rom);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 1u;
         descriptor[2] = 1u;
         descriptor[4] = 0u;
         descriptor[5] = 0x20u;
@@ -937,7 +943,7 @@ int main(void)
         test_boot_rom(audio_rom);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 15u;
         descriptor[2] = 15u;
         descriptor[4] = 1u;
         descriptor[5] = 0u;
@@ -959,7 +965,7 @@ int main(void)
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 3u;
         descriptor[2] = 0x03u;
         {
             const uint8_t packet[4] = {0xb3u, 0x7du, 0u, 0u};
@@ -976,7 +982,7 @@ int main(void)
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 3u;
         descriptor[2] = 0x03u;
         {
             const uint8_t packet[4] = {0xb3u, 0x7eu, 0u, 0u};
@@ -996,7 +1002,7 @@ int main(void)
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
-        descriptor[1] = 0u;
+        descriptor[1] = 3u;
         descriptor[2] = 0x03u;
         {
             const uint8_t packet[4] = {0xd3u, 0u, 0u, 0u};

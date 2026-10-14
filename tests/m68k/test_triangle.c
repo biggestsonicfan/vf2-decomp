@@ -304,10 +304,11 @@ static void test_e0_tail(
     /* Filed current-command, as the drain would file it; the stepper
        side inherits it via the memcpy below. */
     rc[VF2_SOUND_CURRENT_COMMAND] = 0xe4u;
-    /* Descriptor 0 matches channel 4. */
+    /* Descriptor 0 matches channel 4 (S2a byte-match: [1] carries
+       the channel; [2] is free for e0). */
     dc = rc + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
     dc[0] = 0x80u;
-    dc[1] = 0x00u;
+    dc[1] = 0x04u;
     dc[2] = 0x04u;
     dc[5] = 0x12u;
     dc[6] = 0x01u;
@@ -323,14 +324,14 @@ static void test_e0_tail(
     vc[5] = 0x04u;
     vc[10] = 0x07u;
     /* Stepper side starts identical (head reads the same descriptor,
-       voice, filed command; the stream below mirrors the ring). The
-       stream staging lives in compared RAM, so it is staged on BOTH
-       sides (the C never reads it -- identical inputs, not an
-       agreement). */
+       voice, filed command; the stream below mirrors ring bytes 1-2,
+       primer-correct). The stream staging lives in compared RAM, so
+       it is staged on BOTH sides BEFORE the copy (the C never reads
+       it -- identical inputs, not an agreement). */
+    rc[0x7300u] = 4u;
+    rc[0x7301u] = 0u;
     rs = board_s.sound_ram;
     memcpy(rs, rc, VF2_SOUND_RAM_BYTES);
-    rc[0x7300u] = 0xe4u;
-    rc[0x7301u] = 4u;
 
     status_c = vf2_sound_board_dispatch_next(&board_c, &report);
     EXPECT_TRUE(status_c == VF2_OK);
@@ -351,8 +352,10 @@ static void test_e0_tail(
     regs.a[6] = UINT32_C(0x1000);
     regs.a[7] = UINT32_C(0x7f00);
     regs.pc = UINT32_C(0x12b4);
-    rs[0x7300u] = 0xe4u;
-    rs[0x7301u] = 4u;
+    /* Primer-correct stream (S2a): {payload, ring byte 2}, as the
+       drain leaves a3 at ring+1 -- NOT {command, payload}. */
+    rs[0x7300u] = 4u;
+    rs[0x7301u] = 0u;
     status_s = vf2_m68k_run(&bus, &regs, UINT32_C(0x1354), 0, 20000u,
                             &done);
     EXPECT_TRUE(status_s == VF2_OK);
@@ -484,9 +487,10 @@ static void test_upload_first(
     rc[VF2_SOUND_COMMAND_RING_BASE] = 0xbau;
     rc[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0u;
     /* The drain routes every class through a descriptor match
-       (command&0xf = 0xa here); B0 needs no descriptor FIELDS. */
+       (command&0xf = 0xa here, S2a byte-match on [1]); B0 needs no
+       descriptor FIELDS. */
     rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE] = 0x80u;
-    rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x00u;
+    rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x0au;
     rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 2u] = 0x0au;
     memcpy(board_s.sound_ram, rc, VF2_SOUND_RAM_BYTES);
 
@@ -637,7 +641,7 @@ static void run_upload_synth_case(
     rc[VF2_SOUND_COMMAND_RING_BASE] = 0xbau;
     rc[VF2_SOUND_COMMAND_RING_BASE + 1u] = payload;
     rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE] = 0x80u;
-    rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x00u;
+    rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x0au;
     rc[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 2u] = 0x0au;
     memcpy(board_s.sound_ram, rc, VF2_SOUND_RAM_BYTES);
 

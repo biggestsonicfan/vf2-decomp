@@ -53,6 +53,28 @@ static void reset_regs(vf2_m68k_regs *regs)
     regs->pc = UINT32_C(0x81a);
 }
 
+static int scsp_equal(const vf2_scsp *a, const vf2_scsp *b)
+{
+    size_t i = 0u;
+    if (memcmp(a->registers, b->registers, sizeof(a->registers)) != 0) {
+        return 0;
+    }
+    for (i = 0u; i < VF2_SCSP_SLOT_COUNT; ++i) {
+        if (a->slot_address[i] != b->slot_address[i] ||
+            a->slot_step[i] != b->slot_step[i] ||
+            a->slot_envelope[i] != b->slot_envelope[i] ||
+            a->slot_active[i] != b->slot_active[i] ||
+            a->slot_envelope_state[i] != b->slot_envelope_state[i] ||
+            a->slot_backward[i] != b->slot_backward[i]) {
+            return 0;
+        }
+    }
+    return (memcmp(a->midi_input, b->midi_input, sizeof(a->midi_input)) ==
+            0 &&
+            a->midi_read_index == b->midi_read_index &&
+            a->midi_write_index == b->midi_write_index);
+}
+
 /* Switch routing: filed class -> arm entry. Step counts predicted
    from the linear cmpi/beq chain (2 steps per rejected class). */
 static void test_switch_routing(
@@ -264,12 +286,11 @@ static void test_e0_differential(
     uint16_t c_timer = 0u;
     uint16_t s_timer = 0u;
 
-    /* NOTE: vf2_sound_board_initialize FAILS on the real 0x80000
-       audio region (it was proven on synthetic ROM only; one of its
-       table reads falls outside — descriptor images? voice tables?
-       Bisect pending, separate probe). The differential targets
-       dispatch_e0 semantics, not boot, so both sides are built
-       manually with bare-init SCSPs (identical start states). */
+    /* NOTE (v0822): vf2_sound_board_initialize now attaches on the
+       real 0x80000 audio region (T4 proves OK); the old failure was
+       the uploader's misread row pointer. Bare-init SCSPs are still
+       used here to keep both sides' start states identical without
+       depending on boot. */
     memset(&board, 0, sizeof(board));
     board.audio_rom = audio_rom;
     board.audio_rom_size = audio_rom_size;
@@ -284,10 +305,11 @@ static void test_e0_differential(
     cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0x05u;
     cram[VF2_SOUND_COMMAND_COUNT] = 1u;
     cram[VF2_SOUND_CURRENT_COMMAND] = 0xe3u;
-    /* Descriptor $4000: active, channel 3, table 0. */
+    /* Descriptor $4000: active, byte-match channel 3 (S2a: the
+       drain matches descriptor[1] == command&0xf), table 0. */
     desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
     desc[0] = 0x80u;
-    desc[1] = 0x00u;
+    desc[1] = 0x03u;
     desc[2] = 0x03u;
     desc[3] = 0x00u;
     desc[5] = 0x02u;
@@ -321,8 +343,11 @@ static void test_e0_differential(
     regs.pc = UINT32_C(0x12b4);
     regs.a[3] = UINT32_C(0x7300);
     regs.a[0] = UINT32_C(0x4000);
-    step_ram[0x7300u] = 0xe3u;
-    step_ram[0x7301u] = 0x05u;
+    /* Primer-correct stream (S2a): the drain leaves a3 at ring+1,
+       so the primer reads payload first, then ring byte 2 --
+       NOT {command, payload}. */
+    step_ram[0x7300u] = 0x05u;
+    step_ram[0x7301u] = 0x00u;
     status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1354), 0, 20000u,
                           &done);
     fprintf(stderr, "dispatch e0-diff: s-status=%d pc=0x%05x steps=%u\n",
@@ -347,6 +372,132 @@ static void test_e0_differential(
     EXPECT_TRUE(board.scsp.registers[0x11u] == step_scsp.registers[0x11u]);
 }
 
+/* S2a: drain-entry e0 differential -- the byte-match proof.
+ *
+ * The fixture discriminates byte vs word routing: desc[1] = 0x04
+ * (byte-MATCHES channel 4), desc[2] = 0x00 (word be16 = 0x0400
+ * MISMATCHES). Command 0xE4. Under the old word-match C the ring
+ * is consumed with no handler; under byte-match (silicon: 0x7e6
+ * `cmp.b $0001(a0),d0` after the 0x7d2 `andi.b #$f`) both sides
+ * run the e0 head+tail through the real drain entry.
+ * C: dispatch_next (ring E4/04, count 1, CURRENT pre-zeroed --
+ * the drain files it). Stepper: drain entry 0x7a6 (a4 = $1506
+ * count, standard a5/a6/a7; a3/a0/d regs set by the drain
+ * itself), run to the tail exit 0x1354. Compared: the T1 segment
+ * set + SCSP. Drain-only regions stay excluded (ring consume,
+ * count/cursor, $150e file, stack window with the switch-jsr and
+ * tail-jsr residue); a7 is unbalanced mid-call by construction
+ * (drain movem + switch jsr + tail jsr outstanding) -- no assert.
+ * Voice0 byte-matches ch 4 (V1 fixture shape). */
+static void test_drain_e0_entry(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *voice0 = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0xe4u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 4u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x04u;
+    desc[2] = 0x00u;
+    desc[3] = 0x00u;
+    desc[5] = 0x12u;
+    desc[6] = 0x01u;
+    desc[7] = 0x00u;
+    voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[0] = 0x00u;
+    voice0[1] = 0x20u;
+    voice0[2] = 0x01u;
+    voice0[3] = 0x3au;
+    voice0[4] = 0x04u;
+    voice0[5] = 0x04u;
+    voice0[10] = 0x07u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "dispatch drain-e0: c-status=%d ch=%u matched=%u handler=0x%05x\n",
+            (int)cstatus, (unsigned)creport.channel,
+            (unsigned)creport.voices_matched,
+            (unsigned)creport.handler_address);
+    EXPECT_TRUE(cstatus == VF2_OK);
+    EXPECT_TRUE(creport.channel == 4u);
+    EXPECT_TRUE(creport.voices_matched == 1u);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0x12b6));
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1354), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch drain-e0: s-status=%d pc=0x%05x steps=%u events=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x1354));
+    EXPECT_TRUE(bus.event_count == 0u);
+
+    {
+        static const uint32_t lo[] = { 0u, 0x1020u, 0x2526u, 0x4140u,
+                                       0x4240u, 0x7f00u };
+        static const uint32_t hi[] = { 0x1000u, 0x2500u, 0x4000u, 0x4200u,
+                                       0x7eccu, VF2_SOUND_RAM_BYTES };
+        size_t seg = 0u;
+        for (seg = 0u; seg < 6u; ++seg) {
+            size_t i = 0u;
+            for (i = 0u; i < hi[seg] - lo[seg]; ++i) {
+                if (board.sound_ram[lo[seg] + i] !=
+                    step_ram[lo[seg] + i]) {
+                    fprintf(stderr, "dispatch drain-e0: RAM mismatch [%05x,%05x) +0x%x: C=0x%02x S=0x%02x\n",
+                            lo[seg], hi[seg], (unsigned)i,
+                            (unsigned)board.sound_ram[lo[seg] + i],
+                            (unsigned)step_ram[lo[seg] + i]);
+                    EXPECT_TRUE(0);
+                    break;
+                }
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -368,6 +519,7 @@ int main(int argc, char **argv)
     test_e0_gate_rts(audio_rom, audio_rom_size);
     test_a0_overmax(audio_rom, audio_rom_size);
     test_e0_differential(audio_rom, audio_rom_size);
+    test_drain_e0_entry(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);

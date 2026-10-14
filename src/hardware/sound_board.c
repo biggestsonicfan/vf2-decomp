@@ -971,18 +971,25 @@ static vf2_status sound_board_dispatch_e0(
     uint8_t *descriptor,
     uint8_t command,
     uint8_t payload,
+    uint8_t ring_byte2,
     vf2_sound_dispatch_report *report
 )
 {
-    /* ROM switch enters at 0x12b6 (primer skipped): d2 = command,
-       d0 = payload peek. Combined = (command&0x7f)|((payload&0x7f)<<7),
-       >> 5. The 0x12ba/0x12c0 andi.l #$7f are LONG (byte-verified):
-       both uppers are zeroed entry-independently, so NO payload
-       upper rides into the stored word (the old "stale" term was a
-       size misread: lsl.w #7 feeds the low word only). The stored
-       word is ±selected, negated when transformed-bit8 is clear. */
-    uint16_t combined = (uint16_t)((command & 0x7fu) |
-                                   ((uint32_t)(payload & 0x7fu) << 7u));
+    /* ROM e0 entry 0x12b4 (v0825 S2a primer correction): the primer
+       is `move.b (a3)+,d0` / `move.b d0,d2` / `move.b (a3),d0` with
+       a3 = ring+cursor+1 as the drain leaves it -- so d2 = PAYLOAD
+       (ring byte 1) and d0 = ring byte 2, NOT command/payload. The
+       S7b model (d2 = command via a stream staged {cmd,payload})
+       matched its own staging, not the drain's reality; the
+       drain-e0 differential caught it (shared 0xfff2 vs 0xfff1).
+       Combined = (payload&0x7f)|((byte2&0x7f)<<7), >> 5. The
+       0x12ba/0x12c0 andi.l #$7f are LONG (byte-verified): both
+       uppers are zeroed entry-independently, so NO residue rides
+       into the stored word. The stored word is ±selected, negated
+       when transformed-bit8 is clear. Channel (voice match +
+       channel-table word) stays command & 0xf. */
+    uint16_t combined = (uint16_t)((payload & 0x7fu) |
+                                   ((uint32_t)(ring_byte2 & 0x7fu) << 7u));
     uint16_t transformed = (uint16_t)(combined >> 5u);
     uint8_t table_index = (uint8_t)transformed;
     uint8_t table_number = (uint8_t)(descriptor[7u] & 0x0fu);
@@ -1119,9 +1126,17 @@ vf2_status vf2_sound_board_dispatch_next(
         uint8_t *descriptor = ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
             index * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
         ++local.descriptors_scanned;
+        /* ROM drain scan 0x7dc-0x7ea (v0825 S2a): `btst #7,$0000`
+           gate, then `cmp.b $0001(a0),d0` with d0 = command & 0xf
+           (0x7d2 `andi.b`) -- a BYTE match on descriptor[1]. The old
+           word-match (be16(desc+1) == channel) was a print-era
+           assumption with no silicon behind it; it made Loop-B
+           unreachable (no boot descriptor both word-matches and
+           carries desc[2] >= 0xf0) while byte-match routes img2's
+           0x0a-0x0e rows into the 0x90 HIGH path. Proven by the
+           drain-e0 differential (desc[1] = ch, desc[2] = 0). */
         if ((descriptor[0] & 0x80u) == 0u ||
-            read_be16(descriptor + 1u) !=
-                (uint16_t)(local.command & 0x0fu)) {
+            descriptor[1u] != (uint8_t)(local.command & 0x0fu)) {
             continue;
         }
         ++local.descriptors_matched;
@@ -1186,8 +1201,13 @@ vf2_status vf2_sound_board_dispatch_next(
                 return VF2_ERROR_OUT_OF_BOUNDS;
             }
         } else {
+            /* Primer-correct byte 2 (S2a): the drain leaves a3 at
+               ring+cursor+1, so the head's d0 comes from ring byte 2. */
             vf2_status status = sound_board_dispatch_e0(
-                board, descriptor, local.command, local.payload, &local
+                board, descriptor, local.command, local.payload,
+                ram[VF2_SOUND_COMMAND_RING_BASE +
+                    ((cursor + 2u) & UINT16_C(0x0fffu))],
+                &local
             );
             if (status != VF2_OK) {
                 *report = local;
