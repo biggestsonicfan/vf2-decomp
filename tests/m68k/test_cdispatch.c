@@ -1,4 +1,5 @@
 #include "vf2/m68k_step.h"
+#include "vf2/game.h"
 #include "vf2/rom.h"
 #include "vf2/sound_board.h"
 
@@ -1997,6 +1998,73 @@ static void test_chain_audible(
     free(bank);
 }
 
+/* 8b: session-attach leg (real banks via the session's own path).
+ *
+ * Builds the real AUDIOCPU + SAMPLES regions (bank order 73/72/
+ * 71/70 per rom_manifest, NOT numeric -- S4b's test window had
+ * it backwards; only timbre was at stake there) and attaches via
+ * game_initialize + game_attach_audio, the exact calls
+ * vf2_session_open makes. Gates: attach VF2_OK (kills the stale
+ * "boot refuses the real audio ROM" claim), one video frame
+ * (735) renders OK twice with bit-identical buffers. Silence is
+ * EXPECTED and reported, not gated: no in-session producer keys
+ * voices (see the 8a hunt note), so init state renders zeros. */
+static void test_session_attach(const char *rom_dir)
+{
+    static vf2_game game;
+    static int16_t left_a[735u];
+    static int16_t right_a[735u];
+    static int16_t left_b[735u];
+    static int16_t right_b[735u];
+    uint8_t *audio_rom = NULL;
+    uint8_t *sample_rom = NULL;
+    size_t audio_size = 0u;
+    size_t sample_size = 0u;
+    size_t i = 0u;
+    int32_t peak = 0;
+
+    EXPECT_TRUE(vf2_romset_build_region(rom_dir, VF2_REGION_AUDIOCPU,
+                                       &audio_rom, &audio_size) == VF2_OK);
+    EXPECT_TRUE(vf2_romset_build_region(rom_dir, VF2_REGION_SAMPLES,
+                                       &sample_rom, &sample_size) == VF2_OK);
+    if (audio_rom == NULL || sample_rom == NULL) {
+        fprintf(stderr, "session-attach: region build failed\n");
+        EXPECT_TRUE(0);
+        free(audio_rom);
+        free(sample_rom);
+        return;
+    }
+    fprintf(stderr, "session-attach: audio 0x%x samples 0x%x\n",
+            (unsigned)audio_size, (unsigned)sample_size);
+    EXPECT_TRUE(audio_size == 0x80000u);
+    EXPECT_TRUE(sample_size == 0x800000u);
+    memset(&game, 0, sizeof(game));
+    EXPECT_TRUE(vf2_game_initialize(&game) == VF2_OK);
+    EXPECT_TRUE(vf2_game_attach_audio(&game, audio_rom, audio_size,
+                                     sample_rom, sample_size) == VF2_OK);
+    EXPECT_TRUE(vf2_game_render_audio(&game, left_a, right_a, 735u) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_game_render_audio(&game, left_b, right_b, 735u) ==
+                VF2_OK);
+    EXPECT_TRUE(memcmp(left_a, left_b, sizeof(left_a)) == 0);
+    EXPECT_TRUE(memcmp(right_a, right_b, sizeof(right_a)) == 0);
+    for (i = 0u; i < 735u; ++i) {
+        int32_t al = left_a[i] < 0 ? -(int32_t)left_a[i] : left_a[i];
+        int32_t ar = right_a[i] < 0 ? -(int32_t)right_a[i] : right_a[i];
+        if (al > peak) {
+            peak = al;
+        }
+        if (ar > peak) {
+            peak = ar;
+        }
+    }
+    fprintf(stderr, "session-attach: peak=%d (0 expected, no producer)\n",
+            (int)peak);
+    vf2_game_shutdown(&game);
+    free(audio_rom);
+    free(sample_rom);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -2065,6 +2133,7 @@ int main(int argc, char **argv)
     test_chain_production(audio_rom, audio_rom_size);
     test_chain_render(audio_rom, audio_rom_size);
     test_chain_audible(argv[1], audio_rom, audio_rom_size);
+    test_session_attach(argv[1]);
     free(audio_rom);
     if (failures != 0) {
         fprintf(stderr, "cdispatch: %d failures\n", failures);

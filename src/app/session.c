@@ -94,10 +94,12 @@ vf2_status vf2_session_open(
         );
     }
     if (st == VF2_OK) {
-        /* The recovered sound-board boot still refuses the real audio ROM
-         * (its first upload row points below the 68000 ROM window).  Video
-         * must not depend on it: the session stays silent and reports why
-         * through vf2_session_audio_status().  Phase 8 removes this. */
+        /* Sound-board boot is real-ROM clean (v0825 S4a/8b: init OK
+         * on the 0x80000 audio + 8MB sample regions; session-attach
+         * leg pins attach + render determinism). No in-session
+         * producer keys voices yet (8a hunt: unmapped), so session
+         * audio renders init-state silence until the dispatch
+         * bridge lands. Status is still reported for that reason. */
         s->audio_status = vf2_game_attach_audio(
             &s->game, s->audio_rom, audio_size, s->sample_rom, sample_size
         );
