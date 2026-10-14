@@ -42,6 +42,7 @@ static void usage(const char *program)
         "  %s trace <rom-directory> <output.csv> [max-steps]\n"
         "  %s coverage <rom-directory> <input.vf2snap> <frames> <output.json> [frame:mask,...]\n"
         "  %s geometry-census <rom-directory> <input.vf2snap> <frames>\n"
+        "  %s attract-irq-probe <rom-directory> <input.vf2snap> <frames> [inject]\n"
         "  %s snapshot <rom-directory> <output.vf2snap>\n"
         "  %s resume-trace <rom-directory> <input.vf2snap> [max-steps] [clear-task-index] [fighter-flags-or] [write-address] [write-value] [output.vf2snap] [stop-address] [raise-irq] [enter-vector] [enter-level]\n"
         "  %s native-resume <rom-directory> <input.vf2snap> [max-blocks] [fighter-flags-or] [stop-address] [output.vf2snap]\n"
@@ -71,6 +72,7 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
         VF2_VERSION_STRING,
+        program, /* attract-irq-probe */
         program,
         program,
         program,
@@ -6707,6 +6709,252 @@ static int command_geometry_census(
     return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
+/* ---- attract-irq-probe ---------------------------------------------------
+ * MAME-directed experiment (decomp/i960/notes/attract_interrupt_injection_vs_mame.md).
+ * On a live Model 2 (MAME, romset vf2) the i960 takes, besides vblank (vector
+ * 12), two further external interrupts ~every 2.4 attract frames: vector 14
+ * (a timer whose handler touches 0x50008c) and vector 15 (the sound-ring
+ * drain).  Our native/oracle loop injects ONLY vector 12.  The open question
+ * (relayed from the maintainer): do 0x500704 bit 2/26 and 0x5000a6 ever move,
+ * and would injecting vectors 14/15 at that cadence let the attract phase
+ * machine advance past the TEST/geometry gate it is stuck on?
+ *
+ * Part A (always): resolve the PRCB interrupt table and print the handler
+ *   address for vectors 12..15, disassembling 14/15 so the gate memory they
+ *   touch is visible straight from this snapshot.
+ * Part B (inject != 0): run `frames` attract frames; on ~every 2.4th frame
+ *   raise+enter vector 14 (timer3 request bit 5 -> matches the 0x50008c
+ *   evidence) at the first frame-wait visit and enter vector 15 at the second,
+ *   before vblank fires at the fourth.  Record the gate words per frame and
+ *   report every change, so a baseline (inject 0) and an injected run are
+ *   directly comparable.  This is scaffolding (HLE-TEMP): it never ships. */
+
+#define VF2_IRQ_PROBE_GATE_FLAGS UINT32_C(0x00500704) /* bit 2 and bit 26 */
+#define VF2_IRQ_PROBE_GATE_SEL   UINT32_C(0x0050002a) /* == 17 to proceed */
+#define VF2_IRQ_PROBE_GATE_A6    UINT32_C(0x005000a6) /* == 0 to proceed */
+#define VF2_IRQ_PROBE_WAIT_FLAG  UINT32_C(0x0050008c) /* vector-14 target */
+#define VF2_IRQ_PROBE_TIMER3_MASK UINT32_C(0x00000020)
+
+typedef struct {
+    uint32_t flags;   /* 0x500704 */
+    uint8_t sel;      /* 0x50002a */
+    uint8_t a6;       /* 0x5000a6 */
+    uint8_t wait;     /* 0x50008c */
+} irq_probe_gate;
+
+static vf2_status irq_probe_read_gate(vf2_model2a *machine, irq_probe_gate *g)
+{
+    vf2_status status = vf2_model2a_read_u32(
+        machine, VF2_IRQ_PROBE_GATE_FLAGS, &g->flags);
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, VF2_IRQ_PROBE_GATE_SEL, &g->sel, sizeof(g->sel));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, VF2_IRQ_PROBE_GATE_A6, &g->a6, sizeof(g->a6));
+    }
+    if (status == VF2_OK) {
+        status = vf2_model2a_read(
+            machine, VF2_IRQ_PROBE_WAIT_FLAG, &g->wait, sizeof(g->wait));
+    }
+    return status;
+}
+
+static void irq_probe_print_gate(const char *tag, uint32_t frame,
+                                 const irq_probe_gate *g)
+{
+    printf("  %-7s f%-4u  0x500704=%08x [b2=%u b26=%u]  "
+           "0x50002a=%02x  0x5000a6=%02x  0x50008c=%02x\n",
+           tag, (unsigned)frame, (unsigned)g->flags,
+           (unsigned)((g->flags >> 2) & 1u), (unsigned)((g->flags >> 26) & 1u),
+           (unsigned)g->sel, (unsigned)g->a6, (unsigned)g->wait);
+}
+
+static int irq_probe_gate_eq(const irq_probe_gate *a, const irq_probe_gate *b)
+{
+    return a->flags == b->flags && a->sel == b->sel &&
+           a->a6 == b->a6 && a->wait == b->wait;
+}
+
+static void irq_probe_dump_handler(const uint8_t *image, size_t image_size,
+                                   uint32_t vector, uint32_t handler,
+                                   uint32_t count)
+{
+    uint32_t address = handler;
+    uint32_t i;
+    printf("  vector %u -> handler 0x%08x%s\n", (unsigned)vector,
+           (unsigned)handler,
+           handler == 0u ? " (none)" :
+           (handler >= image_size ? " (outside maincpu image)" : ""));
+    if (handler == 0u || handler >= image_size) {
+        return;
+    }
+    for (i = 0u; i < count; ++i) {
+        vf2_i960_instruction instruction;
+        char text[256];
+        if (vf2_i960_decode(image, image_size, address, &instruction) != VF2_OK) {
+            break;
+        }
+        if (vf2_i960_format_instruction(&instruction, text, sizeof(text)) != VF2_OK) {
+            break;
+        }
+        printf("    %08x  %08x  %s\n", (unsigned)address,
+               (unsigned)instruction.words[0], text);
+        address += instruction.size;
+    }
+}
+
+static vf2_status irq_probe_inject_vector(vf2_model2a *machine,
+                                          vf2_i960_cpu *cpu,
+                                          uint32_t vector, uint32_t raise_mask)
+{
+    vf2_status status = VF2_OK;
+    if (raise_mask != 0u) {
+        status = vf2_model2a_raise_interrupt(machine, raise_mask);
+    }
+    if (status == VF2_OK) {
+        status = vf2_i960_cpu_enter_interrupt(cpu, machine, vector, 1u);
+    }
+    return status;
+}
+
+static int command_attract_irq_probe(
+    const char *rom_directory,
+    const char *snapshot_path,
+    uint32_t frames,
+    uint32_t inject
+)
+{
+    const uint64_t per_frame_budget = UINT64_C(50000000);
+    uint8_t *image = NULL;
+    size_t image_size = 0u;
+    vf2_i960_boot_vectors vectors;
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_i960_snapshot snapshot;
+    vf2_hybrid_frame_wait_state frame_wait;
+    uint32_t interrupt_table = 0u;
+    uint32_t frame = 0u;
+    uint32_t v = 0u;
+    uint32_t accum = 0u; /* cadence: +10 per frame, inject when >= 24 (2.4) */
+    uint32_t changes = 0u;
+    uint32_t injected_frames = 0u;
+    int cadence_frame = 0;
+    irq_probe_gate prev;
+    vf2_status status = VF2_OK;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&prev, 0, sizeof(prev));
+    vf2_i960_snapshot_init(&snapshot);
+
+    status = load_maincpu(rom_directory, &image, &image_size, &vectors);
+    if (status == VF2_OK) {
+        status = initialize_boot_machine(rom_directory, &machine, image, image_size);
+    }
+    if (status == VF2_OK) status = vf2_i960_snapshot_read_file(&snapshot, snapshot_path);
+    if (status == VF2_OK) status = vf2_i960_snapshot_restore(&snapshot, &cpu, &machine);
+    if (status == VF2_OK) status = vf2_hybrid_frame_wait_initialize(&frame_wait, 4u);
+    if (status != VF2_OK) {
+        fprintf(stderr, "attract-irq-probe setup failed: %s\n",
+                vf2_status_string(status));
+        goto done;
+    }
+
+    /* Part A: resolve and show the interrupt handlers for vectors 12..15. */
+    status = vf2_model2a_read_u32(&machine, cpu.prcb + 20u, &interrupt_table);
+    if (status != VF2_OK) { goto done; }
+    printf("attract-irq-probe: prcb=0x%08x interrupt_table=0x%08x\n",
+           (unsigned)cpu.prcb, (unsigned)interrupt_table);
+    for (v = 12u; v <= 15u; ++v) {
+        uint32_t handler = 0u;
+        status = vf2_model2a_read_u32(
+            &machine, interrupt_table + 36u + (v - 8u) * 4u, &handler);
+        if (status != VF2_OK) { goto done; }
+        irq_probe_dump_handler(image, image_size, v, handler,
+                               (v == 14u || v == 15u) ? 20u : 1u);
+    }
+
+    /* Part B: run attract frames, recording the gate words; optionally inject
+     * vectors 14/15 at the ~2.4-frame cadence. */
+    printf("\nrun: %u frames, inject=%u (%s)\n", (unsigned)frames,
+           (unsigned)inject,
+           inject ? "v12 + v14/v15 at ~1/2.4 frames" : "v12 only (baseline)");
+    status = irq_probe_read_gate(&machine, &prev);
+    if (status != VF2_OK) { goto done; }
+    irq_probe_print_gate("start", 0u, &prev);
+
+    while (status == VF2_OK && frame < frames) {
+        uint64_t steps = 0u;
+        int this_frame_injected = 0;
+        accum += 10u;
+        cadence_frame = inject && (accum >= 24u);
+        if (cadence_frame) { accum -= 24u; }
+        for (;;) {
+            vf2_hybrid_frame_wait_report wait_report;
+            status = vf2_hybrid_frame_wait_observe(
+                &machine, &cpu, &frame_wait, &wait_report);
+            if (status != VF2_OK) break;
+            if (wait_report.interrupt_injected) { ++frame; break; }
+            if (cadence_frame && wait_report.wait_observed) {
+                if (wait_report.visit_count == 1u) {
+                    status = irq_probe_inject_vector(
+                        &machine, &cpu, 14u, VF2_IRQ_PROBE_TIMER3_MASK);
+                    this_frame_injected = 1;
+                    if (status != VF2_OK) break;
+                    continue; /* re-observe: cpu now in handler, not at spin */
+                }
+                if (wait_report.visit_count == 2u) {
+                    status = irq_probe_inject_vector(&machine, &cpu, 15u, 0u);
+                    if (status != VF2_OK) break;
+                    continue;
+                }
+            }
+            status = vf2_i960_step(&cpu, &machine, NULL);
+            if (status != VF2_OK) break;
+            if (++steps >= per_frame_budget) { status = VF2_ERROR_UNSUPPORTED; break; }
+        }
+        if (status != VF2_OK) break;
+        if (this_frame_injected) { ++injected_frames; }
+        {
+            irq_probe_gate now;
+            status = irq_probe_read_gate(&machine, &now);
+            if (status != VF2_OK) break;
+            if (!irq_probe_gate_eq(&prev, &now)) {
+                irq_probe_print_gate(this_frame_injected ? "chg*" : "chg",
+                                     frame, &now);
+                ++changes;
+                prev = now;
+            }
+        }
+    }
+
+    if (status == VF2_OK) {
+        irq_probe_gate now;
+        status = irq_probe_read_gate(&machine, &now);
+        if (status == VF2_OK) {
+            irq_probe_print_gate("end", frame, &now);
+            printf("\nsummary: %u frames, %u injected frames, %u gate changes; "
+                   "gate proceeds when 0x500704 bit2&26 set AND 0x50002a==17 "
+                   "AND 0x5000a6==0 -> %s\n",
+                   (unsigned)frame, (unsigned)injected_frames, (unsigned)changes,
+                   (((now.flags >> 2) & 1u) && ((now.flags >> 26) & 1u) &&
+                    now.sel == 17u && now.a6 == 0u) ? "OPEN" : "still closed");
+        }
+    }
+
+done:
+    if (status != VF2_OK) {
+        fprintf(stderr, "attract-irq-probe failed: %s\n",
+                vf2_status_string(status));
+    }
+    vf2_i960_snapshot_destroy(&snapshot);
+    vf2_model2a_shutdown(&machine);
+    free(image);
+    return status == VF2_OK ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
 static int command_coverage(
     const char *rom_directory,
     const char *snapshot_path,
@@ -6949,6 +7197,20 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         return command_geometry_census(argv[2], argv[3], frames);
+    }
+
+    if (strcmp(argv[1], "attract-irq-probe") == 0 && (argc == 5 || argc == 6)) {
+        uint32_t frames = 0u;
+        uint32_t inject = 0u;
+        if (!parse_u32(argv[4], &frames) || frames == 0u) {
+            fprintf(stderr, "Invalid frame count: %s\n", argv[4]);
+            return EXIT_FAILURE;
+        }
+        if (argc == 6 && !parse_u32(argv[5], &inject)) {
+            fprintf(stderr, "Invalid inject flag: %s\n", argv[5]);
+            return EXIT_FAILURE;
+        }
+        return command_attract_irq_probe(argv[2], argv[3], frames, inject);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&

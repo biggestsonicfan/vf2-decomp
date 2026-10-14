@@ -124,3 +124,37 @@ Next step to pin it (needs the MAME reference): around attract frames 727-967,
 upload (which MAME does at boot) a prerequisite for that ready handshake? The
 native freeze is upstream of the geometry commit gate and the interrupts, at
 this video/TGP-ready wait.
+
+## Committed reproduction: `vf2i960 attract-irq-probe`
+
+The experiment above is now a committed, deterministic CLI command (no ROM data
+committed; it generates/consumes snapshots at runtime):
+
+```
+vf2i960 attract-irq-probe <rom-dir> <input.vf2snap> <frames> [inject]
+```
+
+It first resolves the PRCB interrupt table and disassembles the vector 12/14/15
+handlers (so the gate memory they touch is visible straight from the snapshot),
+then runs `frames` attract frames recording the gate words `0x500704` (bits
+2/26), `0x50002a`, `0x5000a6` and the timer flag `0x50008c`, printing every
+change. With `inject=1` it raises timer-request bit 5 + enters vector 14 at the
+first frame-wait visit and enters vector 15 at the second, on ~every 2.4th
+frame (MAME's cadence), before vblank fires at the fourth.
+
+Verified result (cold sixth-dispatch snapshot, 300 frames, 2026-10-14):
+
+- handlers match the recovered code exactly: v12=`0xbc0`, v13=`0xd30` (the
+  `0xe80000` int-ack), v14=`0xd50` (timer: `0x421` enable, `0xf00000` base,
+  `0xfffff` reload), v15=`0xe10` (sound ring, acts only if request bit 10 set).
+- `inject=0` (baseline): **0 gate changes** over 300 frames.
+- `inject=1`: the only change is `0x50008c` `00 -> 01` at frame 3 (vector 14 ran
+  and set the timer flag), and it then **stays 1 -- never consumed** -- while
+  `0x500704` stays `0` and `0x5000a6` stays `0xff`. Gate stays closed.
+
+That `0x50008c` latches at 1 and is never read back is the crisp confirmation:
+the mainline in this state is not waiting on the timer flag, so servicing the
+timer/sound interrupts cannot release it. The wait is the video/TGP-ready
+handshake above. This is a one-command regression check for the negative result
+and for any future model change that might alter it. HLE-TEMP (scaffolding only;
+never ships).
