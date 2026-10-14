@@ -372,6 +372,19 @@ if(VF2_BUILD_TESTS)
         set_tests_properties(vf2_session_uart_probe PROPERTIES
             SKIP_RETURN_CODE 77
             TIMEOUT 900)
+        # Session->host audio plumbing (v0825 8e): attach + render
+        # determinism + ring round-trip + WAV artifact. Same snapshot
+        # rule as the UART probe.
+        add_executable(vf2_session_audio_tests tests/host/test_session_audio.c)
+        target_link_libraries(vf2_session_audio_tests PRIVATE vf2_core)
+        vf2_set_project_warnings(vf2_session_audio_tests)
+        add_test(NAME vf2_session_audio_plumbing
+            COMMAND vf2_session_audio_tests
+                "${VF2_ROM_DIR}"
+                "${CMAKE_SOURCE_DIR}/out/sixth-fresh.vf2snap")
+        set_tests_properties(vf2_session_audio_plumbing PROPERTIES
+            SKIP_RETURN_CODE 77
+            TIMEOUT 900)
     endif()
 
     add_executable(vf2_game_tests tests/game/test_game.c)
