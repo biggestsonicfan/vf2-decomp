@@ -156,6 +156,31 @@ change that unblocks the project's central attract->3D blocker; the only cost is
 re-validating the recovered boot bridges + regenerating the native-dispatch
 snapshots against the corrected I/O.
 
+## The reconciliation is 3D-path recovery, not a hardcode tweak (measured)
+
+The first `native-sixth-dispatch` failure under the fix is in the recovered
+vblank bridge `execute_interrupt_fighter_compare_prefix`
+(src/recovered/texture_bridge_match.c): it reads `0x00508000` and **returns
+VF2_ERROR_UNSUPPORTED if bit 13 is set**, hardcoding the exit `0xc78` only for the
+bit13-clear case:
+
+```
+c6c  ld   0x00508000, r15
+c74  bbs  13, r15, 0xc94     ; bit13 SET -> 0xc94 (skips the attract calls)
+c78  call 0x00024534         ; bit13 CLEAR -> the attract path the bridge reproduces
+c7c  call 0x00023f6c
+```
+
+In the old stuck boot `0x508000` bit 13 is clear, so the handler takes `0xc78`
+and the recovered bridge matches. With the fix the corrected boot **sets
+`0x508000` bit 13** and takes `0xc94` -- the branch the recovered corpus never
+implemented. So reconciling the recovered runtime is not "update one hardcoded
+IP": it is recovering the bit13-set (3D-active) handler path and everything the
+corrected boot reaches downstream -- i.e. the 3D boot/geometry code of Phases
+5/6. That is celsowm's roadmap and a multi-session effort, which is why the
+session goal stops here for celsowm's call. The proven fix, the evidence and this
+scope are the hand-off.
+
 ## Reproduce
 
 ```
