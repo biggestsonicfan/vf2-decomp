@@ -138,11 +138,34 @@ The run includes an attribute word `0x00040401` (the same token seen in the
 verbatim stretch of a polygon-ROM **model record** (vertex floats interleaved
 with attribute/flag words) copied into the geo port. This pins, concretely and
 in-tree (against the committed polygon ROM), that `prg` carries polygon-ROM model
-records verbatim; the TGP then transforms them with the FIFO matrices. The model
-record format (vertex count, attribute bitfields, triangle connectivity) can now
-be recovered by aligning `prg` copies with the polygon-ROM bytes at the pinned
-offsets -- the reference-free part of the model decode -- while the transform/
-projection output still needs the MAME reference to validate.
+records verbatim; the TGP then transforms them with the FIFO matrices.
+
+### Model record structure (recovered reference-free by prg/poly alignment)
+
+Aligning `prg[120..150]` with `polygons[0x1bb850..0x1bb8b0]` shows a model record
+is:
+
+```
+[control word]  [vertex x,y,z float triples]  [attribute 0x00040401]  [zero pad]
+```
+
+- The **vertex floats are copied verbatim** (prg == poly), e.g. the triple
+  `3d0ce704 bc83e426 3db43958` -- which appears twice in a row, i.e. a vertex
+  **shared** between adjacent triangles/strip entries.
+- The **control word is rewritten** by the i960: `poly 0x1bb86c = f9101602`
+  becomes `prg[132] = 01101602` -- the low three bytes `0x101602` are preserved
+  (a vertex-group / type descriptor; another record has `...901502`), only the
+  top byte changes (0xf9 -> 0x01/0x00). So the i960 reads the model, keeps the
+  vertices and the descriptor low bytes, and resets the top-byte flag before
+  handing the record to the geo port.
+- The record ends with the attribute word `0x00040401` and zero padding before
+  the next record.
+
+What is pinned reference-free: the record framing (control + verbatim vertices +
+attribute + pad), the vertex encoding (IEEE floats, shared-vertex repeats), and
+the model location in the polygon ROM. What still needs the reference: the
+control-word / attribute bitfield meanings (triangle vs strip, texture/colour
+id) and the transform/projection output.
 
 ## What is needed to validate
 
