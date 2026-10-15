@@ -1,7 +1,11 @@
 #include "vf2/m68k_step.h"
 #include "vf2/game.h"
+#include "vf2/hybrid.h"
+#include "vf2/i960/executor.h"
+#include "vf2/model2a.h"
 #include "vf2/rom.h"
 #include "vf2/sound_board.h"
+#include "vf2/status.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -2276,6 +2280,259 @@ static void test_l3_file(
     }
 }
 
+/* 8h synthetic chain bridge (queue -> bytes -> ring -> voices -> WAV).
+ *
+ * Every link is stepper-proven C with its own green differential;
+ * this leg proves the COMPOSITION, end to end, with no
+ * emit_command shortcut:
+ *
+ *   filer 0x43888 (v0746, gate-A-open path) files g0 = 0x009a0001
+ *     into the i960 queue (count 0 -> 1, ring[0] staged);
+ *   drainer 0x43800 (8f) runs 3x (bidx ff -> 2 -> 1 -> 0 -> ff),
+ *     emitting staged[2],[1],[0] = 0x9a,0x00,0x01 through the
+ *     0x01c80000 UART slot (count 1 -> 0);
+ *   L3 file_uart_byte (8g) files the 3 bytes in emission order,
+ *     assembling ring {0x9a,0x00,0x01,0x00} -- exactly the S4
+ *     production packet (4th byte is untouched zero);
+ *   dispatch_next (S4) consumes it to the 0xc68 engine door;
+ *   keyed render (S4b, real banks) is non-silent + deterministic.
+ *
+ * Gates: emission order pins {9a,00,01}; ring pins the S4 packet;
+ * voice-count == 1 (+2 == 0x58); re-render bit-identical;
+ * peak > 1000. WAV bonus artifact to out/chain-uart.wav
+ * (gitignored). Prints: queue transitions, bytes, ring, voice,
+ * peak/meansq. */
+static void test_chain_uart_bridge(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static vf2_sound_board board;
+    static vf2_sound_board snapshot;
+    static int16_t left[2048u];
+    static int16_t right[2048u];
+    static int16_t left_b[2048u];
+    static int16_t right_b[2048u];
+    vf2_model2a machine;
+    vf2_i960_cpu cpu;
+    vf2_sound_dispatch_report report;
+    uint8_t *bank = NULL;
+    uint8_t *ram = NULL;
+    uint8_t *voice0 = NULL;
+    uint8_t emitted[3] = {0u, 0u, 0u};
+    uint8_t byte = 0u;
+    uint8_t count = 0u;
+    uint8_t wcur = 0u;
+    uint8_t staged_le[4] = {0u, 0u, 0u, 0u};
+    uint32_t filed = 0u;
+    uint16_t slot = 0u;
+    uint16_t control = 0u;
+    uint8_t ctl = 0u;
+    size_t i = 0u;
+    int call = 0;
+    int32_t peak = 0;
+    int64_t sum_sq = 0;
+
+    memset(&machine, 0, sizeof(machine));
+    memset(&cpu, 0, sizeof(cpu));
+    EXPECT_TRUE(vf2_model2a_initialize(&machine) != 0);
+    if (machine.work_ram == NULL) {
+        fprintf(stderr, "chain-bridge: no work ram\n");
+        EXPECT_TRUE(0);
+        vf2_model2a_shutdown(&machine);
+        return;
+    }
+    /* Gate A open (0x50002c == 0 from init); queue empty;
+     * bidx 0xff parks the drainer on the entry-load path. */
+    byte = 0xffu;
+    EXPECT_TRUE(vf2_model2a_write(&machine, UINT32_C(0x00504014),
+                                 &byte, sizeof(byte)) == VF2_OK);
+    vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00043888));
+    cpu.registers[VF2_I960_G0_REGISTER + 0u] = UINT32_C(0x009a0001);
+    EXPECT_TRUE(vf2_i960_cpu_enter_procedure(&cpu,
+                                            UINT32_C(0x00043888),
+                                            UINT32_C(0x0004394c)) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_hybrid_player_43888_execute(&machine, &cpu) ==
+                VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(&machine, UINT32_C(0x00504001),
+                                 &count, sizeof(count)) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(&machine, UINT32_C(0x00504003),
+                                 &wcur, sizeof(wcur)) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(&machine, UINT32_C(0x00504020),
+                                 staged_le, sizeof(staged_le)) == VF2_OK);
+    filed = (uint32_t)staged_le[0] |
+            ((uint32_t)staged_le[1] << 8u) |
+            ((uint32_t)staged_le[2] << 16u) |
+            ((uint32_t)staged_le[3] << 24u);
+    fprintf(stderr, "chain-bridge: filed count=%u wcur=%u ring0=0x%08x\n",
+            (unsigned)count, (unsigned)wcur, (unsigned)filed);
+    EXPECT_TRUE(count == 1u);
+    EXPECT_TRUE(wcur == 1u);
+    EXPECT_TRUE(filed == UINT32_C(0x009a0001));
+    /* Three drainer ticks: ff -> 2 -> 1 -> 0 -> ff. */
+    for (call = 0; call < 3; ++call) {
+        vf2_i960_cpu_reset(&cpu, 0u, 0u, UINT32_C(0x00043800));
+        cpu.registers[6] = UINT32_C(0x00e80004);
+        EXPECT_TRUE(vf2_hybrid_sound_43800_execute(&machine, &cpu) ==
+                    VF2_OK);
+        EXPECT_TRUE(cpu.ip == UINT32_C(0x00043884));
+        EXPECT_TRUE(vf2_model2a_read(&machine, UINT32_C(0x01c80000),
+                                     &byte, sizeof(byte)) == VF2_OK);
+        emitted[call] = byte;
+    }
+    EXPECT_TRUE(vf2_model2a_read(&machine, UINT32_C(0x00504001),
+                                 &count, sizeof(count)) == VF2_OK);
+    EXPECT_TRUE(vf2_model2a_read(&machine, UINT32_C(0x00504014),
+                                 &byte, sizeof(byte)) == VF2_OK);
+    fprintf(stderr, "chain-bridge: bytes %02x %02x %02x count=%u bidx=%02x\n",
+            (unsigned)emitted[0], (unsigned)emitted[1],
+            (unsigned)emitted[2], (unsigned)count, (unsigned)byte);
+    EXPECT_TRUE(emitted[0] == 0x9au);
+    EXPECT_TRUE(emitted[1] == 0x00u);
+    EXPECT_TRUE(emitted[2] == 0x01u);
+    EXPECT_TRUE(count == 0u);
+    EXPECT_TRUE(byte == 0xffu);
+    vf2_model2a_shutdown(&machine);
+
+    {
+        static const char *names[4] = {
+            "mpr-17570.37", "mpr-17571.36",
+            "mpr-17572.32", "mpr-17573.31"
+        };
+        bank = (uint8_t *)malloc(0x800000u);
+        EXPECT_TRUE(bank != NULL);
+        if (bank == NULL) {
+            return;
+        }
+        memset(bank, 0, 0x800000u);
+        for (i = 0u; i < 4u; ++i) {
+            char path[512];
+            FILE *f = NULL;
+            size_t got = 0u;
+            snprintf(path, sizeof(path), "%s/%s", rom_dir, names[i]);
+            f = fopen(path, "rb");
+            if (f == NULL) {
+                fprintf(stderr, "chain-bridge: missing %s\n", path);
+                EXPECT_TRUE(0);
+                free(bank);
+                return;
+            }
+            got = fread(bank + i * 0x200000u, 1u, 0x200000u, f);
+            fclose(f);
+            EXPECT_TRUE(got == 0x200000u);
+        }
+    }
+    memset(&board, 0, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom,
+                                          audio_rom_size, bank,
+                                          0x800000u) == VF2_OK);
+    ram = board.sound_ram;
+    for (call = 0; call < 3; ++call) {
+        EXPECT_TRUE(vf2_sound_board_file_uart_byte(&board,
+                                                   emitted[call]) ==
+                    VF2_OK);
+    }
+    fprintf(stderr, "chain-bridge: ring %02x %02x %02x %02x count=%u\n",
+            (unsigned)ram[VF2_SOUND_COMMAND_RING_BASE],
+            (unsigned)ram[VF2_SOUND_COMMAND_RING_BASE + 1u],
+            (unsigned)ram[VF2_SOUND_COMMAND_RING_BASE + 2u],
+            (unsigned)ram[VF2_SOUND_COMMAND_RING_BASE + 3u],
+            (unsigned)ram[VF2_SOUND_COMMAND_COUNT]);
+    EXPECT_TRUE(ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+    EXPECT_TRUE(ram[VF2_SOUND_COMMAND_RING_BASE] == 0x9au);
+    EXPECT_TRUE(ram[VF2_SOUND_COMMAND_RING_BASE + 1u] == 0x00u);
+    EXPECT_TRUE(ram[VF2_SOUND_COMMAND_RING_BASE + 2u] == 0x01u);
+    EXPECT_TRUE(ram[VF2_SOUND_COMMAND_RING_BASE + 3u] == 0x00u);
+    /* S4 production tail: cursor 0, staged arming, dispatch to the
+     * 0xc68 engine door (UNSUPPORTED by design). */
+    ram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    ram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    voice0 = ram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[9] = 0xffu;
+    voice0[5] = 0x00u;
+    ram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) ==
+                VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(report.handler_address == UINT32_C(0xc68));
+    {
+        size_t voiced = 0u;
+        for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
+            if (ram[VF2_SOUND_VOICE_TABLE_BASE +
+                    i * VF2_SOUND_VOICE_BYTES + 2u] != 0u) {
+                ++voiced;
+            }
+        }
+        fprintf(stderr, "chain-bridge: voiced=%u v0+2=%02x\n",
+                (unsigned)voiced, (unsigned)voice0[2]);
+        EXPECT_TRUE(voiced == 1u);
+        EXPECT_TRUE(voice0[2] == 0x58u);
+    }
+    /* S4b keying (experiment harness, engine-owned mechanism). */
+    slot = (uint16_t)(((uint16_t)voice0[0] << 8u) | voice0[1]);
+    EXPECT_TRUE(vf2_scsp_read_u8(&board.scsp, slot, &ctl) == VF2_OK);
+    ctl |= 0x18u;
+    EXPECT_TRUE(vf2_scsp_write_u8(&board.scsp, slot, ctl) == VF2_OK);
+    EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, slot, &control) ==
+                VF2_OK);
+    control |= 0x0800u;
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, slot, control) ==
+                VF2_OK);
+    EXPECT_TRUE(board.scsp.slot_active[slot] == 1u);
+    memcpy(&snapshot, &board, sizeof(snapshot));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left, right, 2048u) ==
+                VF2_OK);
+    for (i = 0u; i < 2048u; ++i) {
+        int32_t al = left[i] < 0 ? -(int32_t)left[i] : left[i];
+        int32_t ar = right[i] < 0 ? -(int32_t)right[i] : right[i];
+        if (al > peak) {
+            peak = al;
+        }
+        if (ar > peak) {
+            peak = ar;
+        }
+        sum_sq += (int64_t)left[i] * left[i] + (int64_t)right[i] * right[i];
+    }
+    fprintf(stderr, "chain-bridge: peak=%d meansq=%lld\n", (int)peak,
+            (long long)(sum_sq / 4096));
+    EXPECT_TRUE(peak > 1000);
+    memcpy(&board, &snapshot, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left_b, right_b,
+                                      2048u) == VF2_OK);
+    EXPECT_TRUE(memcmp(left, left_b, sizeof(left)) == 0);
+    EXPECT_TRUE(memcmp(right, right_b, sizeof(right)) == 0);
+    {
+        static const uint8_t hdr[44] = {
+            0x52u, 0x49u, 0x46u, 0x46u, 0x24u, 0x20u, 0x00u, 0x00u,
+            0x57u, 0x41u, 0x56u, 0x45u, 0x66u, 0x6du, 0x74u, 0x20u,
+            0x10u, 0x00u, 0x00u, 0x00u, 0x01u, 0x00u, 0x02u, 0x00u,
+            0x44u, 0xacu, 0x00u, 0x00u, 0x10u, 0xb1u, 0x02u, 0x00u,
+            0x04u, 0x00u, 0x10u, 0x00u, 0x64u, 0x61u, 0x74u, 0x61u,
+            0x00u, 0x20u, 0x00u, 0x00u
+        };
+        FILE *wav = fopen("out/chain-uart.wav", "wb");
+        if (wav != NULL) {
+            uint8_t frame[4];
+            size_t f = 0u;
+            (void)fwrite(hdr, 1u, sizeof(hdr), wav);
+            for (f = 0u; f < 2048u; ++f) {
+                frame[0] = (uint8_t)left[f];
+                frame[1] = (uint8_t)((uint16_t)left[f] >> 8u);
+                frame[2] = (uint8_t)right[f];
+                frame[3] = (uint8_t)((uint16_t)right[f] >> 8u);
+                (void)fwrite(frame, 1u, sizeof(frame), wav);
+            }
+            (void)fclose(wav);
+            fprintf(stderr, "chain-bridge: wrote out/chain-uart.wav\n");
+        } else {
+            fprintf(stderr, "chain-bridge: out/ missing, WAV skipped\n");
+        }
+    }
+    free(bank);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -2363,6 +2620,7 @@ int main(int argc, char **argv)
     test_chain_production(audio_rom, audio_rom_size);
     test_chain_render(audio_rom, audio_rom_size);
     test_chain_audible(argv[1], audio_rom, audio_rom_size);
+    test_chain_uart_bridge(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);
