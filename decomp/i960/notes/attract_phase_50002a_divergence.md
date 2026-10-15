@@ -319,10 +319,28 @@ a different count branch (or the ROM takes a different helper path), so the
 bridge's reported `recovered_instruction_count` is one short of the interpreter
 -- the observed 0xc74/0xc78 off-by-one.
 
-Fix (next slice, needs validation, no validation-weakening): capture `control`,
-`old_flags`, `newly_enabled`, `callback` and the interpreter's actual instruction
-count through 0x1064 at the diverging frame (with the fix), and correct the
-count-branch logic (lines 112-150) so the bridge reproduces the corrected-boot
-helper path exactly. Then re-measure fourth-dispatch (and recompute its
-`expected_blocks`/`expected_instructions`), then walk any further divergences
-toward the bit13/0xc94 3D handler.
+### Divergence #1 FIXED (texture_bridge_video.c)
+
+Captured at the diverging frame (native-fourth-dispatch VRC trace, model fix
+applied): `control=0xffffffff`, `inverted=0`, `callback=0`. So the ROM helper
+0x1200 runs Path B: `bbs 3`(no) -> `bbs 27`(no) -> `bbc 24` -> `0x1268`
+`mov 0,r11` -> `st 0x5001dc` -> `ret` = 7 instructions, callback stays 0 -- ONE
+more than the `callback==0 -> 0x1270` Path A (6 instrs, callback:=0x1284) the base
+count assumes. Added that case to `execute_video_register_compose` (callback==0 &&
+inverted bits 3/27/24 all clear -> `instructions += 1`, callback left 0). Result:
+the 0xc74/0xc78 off-by-one is gone -- the differential now advances past the whole
+interrupt cluster and both IPs match at **0x1645c** (the next divergence). The fix
+is INERT for the old boot (old boot has inverted bit 27 set, so the new condition
+never fires) -- all of native-first/fourth/sixth-dispatch still MATCH -- so it is
+committed on its own as a non-regressive recovery slice, exercised only once the
+model fix lands.
+
+### Divergence #2 (next): task entry 0x1645c
+
+With #1 fixed, native-fourth-dispatch (corrected boot) next fails "unsupported
+operation" with both IPs at **0x0001645c** (the sixth task entry): the recovered
+runtime has no body for what the corrected boot runs there. That is the next
+recovery target, then onward. Each divergence is one recovered body; none makes a
+green dispatch checkpoint until its whole span is done (then recompute
+`expected_blocks`/`expected_instructions`), and the bit13/0xc94 3D handler plus
+G2's TGP pipeline remain beyond that.

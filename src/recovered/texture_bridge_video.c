@@ -109,7 +109,22 @@ vf2_status execute_video_register_compose(
         return status;
     }
 
-    if (callback == 0u) {
+    if (callback == 0u &&
+        (inverted & UINT32_C(0x00000008)) == 0u &&
+        (inverted & (UINT32_C(1) << 27u)) == 0u &&
+        (inverted & (UINT32_C(1) << 24u)) == 0u) {
+        /* Helper 0x1200, "video enable" scan, when none of r8(=inverted) bits
+         * 3/27/24 is set: the ROM takes bbs 3 (no) -> bbs 27 (no) ->
+         * bbc 24 -> 0x1268, which does `mov 0, r11` (callback stays 0) and
+         * stores it, i.e. one more instruction than the callback==0 -> 0x1270
+         * ("install 0x1284") path the base count assumes, and it does NOT
+         * promote callback to 0x1284. Reached on the corrected boot
+         * (io_control[0x1c]=0xff makes control's top byte 0xff, so inverted's
+         * top byte is 0). Evidence: native-fourth-dispatch VRC trace
+         * control=0xffffffff inverted=0 callback=0. See
+         * decomp/i960/notes/attract_phase_50002a_divergence.md. */
+        instructions += UINT64_C(1);
+    } else if (callback == 0u) {
         callback = UINT32_C(0x00001284);
     } else if (callback == UINT32_C(0x00001284) &&
                (inverted & UINT32_C(0x00000008)) != 0u &&
