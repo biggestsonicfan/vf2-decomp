@@ -213,3 +213,31 @@ coherent change -- no intermediate compliant/green commit exists. That is a
 multi-session recovery effort (and a rendered 3D frame additionally needs the
 TGP pipeline / G2). This note + the boot-trace `apply-io-fix` capability are the
 compliant hand-off; the recovery itself awaits an explicit go-ahead.
+
+## Experimentally mapped recovery frontier (2026-10-15)
+
+Applying the fix to the model default (uncommitted experiment) and running the
+recovered-runtime differential at each checkpoint:
+
+- `native-first-dispatch`: **MATCH** -- the early boot (43 blocks) is fully
+  compatible with the fix; the recovered runtime reproduces the corrected
+  interpreter there.
+- `native-fourth/fifth/sixth-dispatch`: fail at the `interrupt-initial-cluster`
+  on the **second** scheduler pass, `IP=0xc74/0xc78`.
+
+So the divergence is NOT a broad early-boot cascade; it is localised to the
+second-pass vblank handler. Recovering the `bbs 13, r15, 0xc94` branch in
+`execute_interrupt_fighter_compare_prefix` (bit13-set -> ip 0xc94, CC unchanged,
+which is the faithful bbs semantic) did **not** clear the mismatch: it still
+exits 0xc78, because the recovered machine's `0x508000` bit 13 is **clear** while
+the corrected interpreter's is **set**. The two machines diverge *upstream* of
+the bbs -- a recovered bridge sets `0x508000` (or an input to it) from a
+hardcoded old-boot assumption, so the corrected 3D-active bit never gets set on
+the recovered side. That confirms the cascade empirically: the recovery is a
+chain of hardcoded intermediate states (starting with whatever sets `0x508000`
+bit 13 on the corrected path) that each need re-recovering against the corrected
+interpreter, then the bit13/0xc94 handler and its downstream 3D code, then the
+differential constants. First concrete next step for the recovery: trace what
+writes `0x508000` bit 13 on the corrected boot and which recovered bridge pins it
+clear. (Per AGENTS.md rules 1/2/9 the bit13 bbs recovery was reverted -- it is
+correct but unvalidatable until the upstream divergence is fixed.)
