@@ -132,6 +132,17 @@ int main(int argc, char **argv)
              inputs, input_count, budget);
     run_hunt(argv[1], argv[2], UINT32_C(0x00043abc), "flusher",
              inputs, input_count, budget);
+    /* Optional argv[6] stop-IP override: single custom arrival
+     * (gate-bypass tails like 0x438ec, second stops past a first
+     * hit). Prints with the same fixture detail. */
+    if (argc >= 7) {
+        uint32_t custom =
+            (uint32_t)strtoul(argv[6], NULL, 0);
+        if (custom != 0u) {
+            run_hunt(argv[1], argv[2], custom, "custom",
+                     inputs, input_count, budget);
+        }
+    }
     if (g_fail != 0) {
         fprintf(stderr, "queue-hunt: %d failures\n", g_fail);
     }
