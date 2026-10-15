@@ -4293,11 +4293,27 @@ windowing, gamepad mappings, frame pacing and production platform
 integration remain unimplemented.
 
 A standing methodological note for this section: 68k audio
-recoveries are static-match, not differential-proven. No 68k
-execution oracle exists (the i960 differential machinery does not
-cover the sound CPU), so 68k fixtures are C-vs-C
-self-consistency: planted gates prove only that the tests can
-fail. Every accepted 68k behavior is additionally verified at the
+recoveries were static-match, not differential-proven, until
+v0825: the m68k stepper (`src/m68k/stepper.c`, `vf2_m68k_run`)
+is now the sound-CPU oracle, and every 8g/T2/8h leg is a
+C-vs-stepper differential (full-RAM + regs + SCSP + step pins).
+What stays C-vs-C is only the never-stepped remainder (the
+engine past 0xc68, the a0 body effects). On the i960 side the
+queue filer (0x43888, v0746) and drainer (0x43800, 8f) are
+recovered; the live boot chain runs scheduler task dispatch
+`callx` -> flag-flusher 0x43abc (frame 17) -> `0x58eac`
+immediate filer filing 0x00ae101f (frame 18, count 2 -> 3),
+proven by the T4 oracle-frame hunt with return-address
+capture. The 80 direct `call 0x43888` sites group in 16
+clusters (T1 byte census; repo xrefs/callgraph show 2 and are
+lower bounds). `vf2_session_pump_audio` (T3, shadow-CPU drain,
+silicon-consume dispatch, host-driven) flows the live queue
+into the board in-session: 9 bytes / 3 filed / 0 dispatched /
+3 refused on the init-state board (correct -- no staging),
+determinism holds. The 8/10 session bar is claimed on this
+chain (`audio_t5_closeout_v0825.md`); open: gameplay writers
+(all hunt contexts negative), engine keying, a0 body.
+Every accepted 68k behavior is additionally verified at the
 byte level against the ROM disassembly (v0797-v0799 corrected
 three mode-6 print merges and two missing handlers this way).
 

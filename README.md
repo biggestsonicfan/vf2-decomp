@@ -39,7 +39,7 @@ camera                   ████████░░
 HUD / game_disp          █████████░  TEST / COIN ASSIGNMENT / F2-F4 post-edit menu corridors
 fighter / game logic     ████████░░  post-29414 player corridor; hash/record-rebuild + display-object cascade leaves
 geometry / rendering     ███████░░░  TGP/object paths recovered; rasterizer open
-audio                    ██████░░░░  boot attaches on real ROM; voice-tick/upload re-recovered; first render audible; Loop-B/walk/L2 live circuits mapped; voice-start/trigger open
+audio                    ██████░░░░  live boot queue (3 filed stops) drains/filed/dispatches in-session via the pump; filer/flusher writers mapped, 80-site census; first render audible; Loop-B/walk/L2 mapped; gameplay trigger + engine keying open
 complete game flow       █████░░░░░  boot/menu/phase corridors; F2/F3/F4 post-edit; match flow open
 fully playable match     ██░░░░░░░░  combat/physics/AI still open
 ```
