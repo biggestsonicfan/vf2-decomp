@@ -2868,6 +2868,193 @@ static void test_chain_live_queue(
     free(bank);
 }
 
+/* E1: engine key-block probe (slot programming + copy-loop fault).
+ *
+ * First-run prints only (no pins): S4-shape board (real init,
+ * production packet {9a,0,1,0}, S4 arming) driven two ways --
+ * S drain 0x7a6 with progressive stops (0xc82 slot-program
+ * entry, 0xcb2 copy-loop head, then unstopped to the stepper
+ * fault), C dispatch_next as today. Prints: S regs at each
+ * stop, S fault status/steps/pc, C report, post-state RAM
+ * comparison. Purpose: pin the engine entry state, the slot
+ * -program effects, and the 0x48d2 fault for the recovery
+ * design. The copy loop is dead-on-silicon (movem.l d0-d7,(a2)
+ * is a real illegal-instruction; the 0x4fe fault handler blinks
+ * forever), so the C will refuse at 0xcb2 by design. */
+static void test_engine_probe(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static uint8_t pristine_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_scsp pristine_scsp;
+    static vf2_sound_board board;
+    static uint8_t *sample_window = NULL;
+    static size_t sample_window_size = 0u;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *voice0 = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    uint32_t stop = 0u;
+    (void)rom_dir;
+    memset(&board, 0, sizeof(board));
+    memset(step_ram, 0, sizeof(step_ram));
+    {
+        static const char *names[4] = {
+            "mpr-17570.37", "mpr-17571.36",
+            "mpr-17572.32", "mpr-17573.31"
+        };
+        size_t bi = 0u;
+        sample_window = (uint8_t *)malloc(0x800000u);
+        if (sample_window == NULL) {
+            fprintf(stderr, "engine-probe: no bank\n");
+            EXPECT_TRUE(0);
+            return;
+        }
+        memset(sample_window, 0, 0x800000u);
+        sample_window_size = 0x800000u;
+        for (bi = 0u; bi < 4u; ++bi) {
+            char path[512];
+            FILE *f = NULL;
+            size_t got = 0u;
+            snprintf(path, sizeof(path), "%s/%s", rom_dir, names[bi]);
+            f = fopen(path, "rb");
+            if (f == NULL) {
+                fprintf(stderr, "engine-probe: missing %s\n", path);
+                EXPECT_TRUE(0);
+                free(sample_window);
+                sample_window = NULL;
+                return;
+            }
+            got = fread(sample_window + bi * 0x200000u, 1u, 0x200000u,
+                        f);
+            fclose(f);
+            EXPECT_TRUE(got == 0x200000u);
+        }
+    }
+    if (vf2_sound_board_initialize(&board, audio_rom, audio_rom_size,
+                                   sample_window,
+                                   sample_window_size) != VF2_OK) {
+        fprintf(stderr, "engine-probe: init failed\n");
+        EXPECT_TRUE(0);
+        return;
+    }
+    cram = board.sound_ram;
+    {
+        uint8_t packet[4];
+        packet[0] = 0x9au;
+        packet[1] = 0u;
+        packet[2] = 1u;
+        packet[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[9] = 0xffu;
+    voice0[5] = 0x00u;
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memcpy(pristine_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&pristine_scsp, &board.scsp, sizeof(pristine_scsp));
+    memset(&creport, 0, sizeof(creport));
+    EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &creport) ==
+                VF2_ERROR_UNSUPPORTED);
+    fprintf(stderr, "engine-probe: C handler=0x%05x count=%u\n",
+            (unsigned)creport.handler_address,
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
+    /* S runs start from the PRE-dispatch image (S4 pattern). */
+    for (stop = 0u; stop < 3u; ++stop) {
+        uint32_t stop_ip = stop == 0u ? UINT32_C(0xc82)
+            : stop == 1u ? UINT32_C(0xcb2) : UINT32_C(0xffffff);
+        memcpy(step_ram, pristine_ram, VF2_SOUND_RAM_BYTES);
+        memcpy(&step_scsp, &pristine_scsp, sizeof(step_scsp));
+        bus.ram = step_ram;
+        bus.ram_size = sizeof(step_ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = sample_window;
+        bus.sample_rom_size = sample_window_size;
+        bus.scsp = &step_scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x7a6);
+        status = vf2_m68k_run(&bus, &regs, stop_ip, 0, 20000u, &done);
+        fprintf(stderr, "engine-probe: stop=0x%05x s-status=%d pc=0x%05x steps=%u events=%u\n",
+                (unsigned)stop_ip, (int)status, (unsigned)regs.pc,
+                (unsigned)done, (unsigned)bus.event_count);
+        fprintf(stderr, "engine-probe: d0=%08x d2=%08x d3=%08x d4=%08x d5=%08x d6=%08x a0=%08x a1=%08x a2=%08x a3=%08x a4=%08x a5=%08x\n",
+                (unsigned)regs.d[0], (unsigned)regs.d[2],
+                (unsigned)regs.d[3], (unsigned)regs.d[4],
+                (unsigned)regs.d[5], (unsigned)regs.d[6],
+                (unsigned)regs.a[0], (unsigned)regs.a[1],
+                (unsigned)regs.a[2], (unsigned)regs.a[3],
+                (unsigned)regs.a[4], (unsigned)regs.a[5]);
+        if (stop == 0u) {
+            size_t k = 0u;
+            fprintf(stderr, "engine-probe: desc10=");
+            for (k = 0u; k < 16u; ++k) {
+                fprintf(stderr, "%02x", (unsigned)cram[0x40a0u + k]);
+            }
+            fprintf(stderr, "\nengine-probe: voice0=");
+            for (k = 0u; k < 16u; ++k) {
+                fprintf(stderr, "%02x", (unsigned)cram[VF2_SOUND_VOICE_TABLE_BASE + k]);
+            }
+            fprintf(stderr, "\nengine-probe: tab7f80=");
+            for (k = 0u; k < 8u; ++k) {
+                fprintf(stderr, "%02x", (unsigned)cram[0x7f80u + k]);
+            }
+            fprintf(stderr, "\n");
+            /* Engine entry state (stepper-measured, S4 packet):
+             * d2 = rate word, d3.w = $5000 table index, d5/a0 =
+             * table pair at 0x5000+d3 ({sample ptr, value}),
+             * a1 = voice ptr, a2 = table base. 372 steps. */
+            EXPECT_TRUE(status == VF2_OK);
+            EXPECT_TRUE(regs.pc == UINT32_C(0xc82));
+            EXPECT_TRUE(done == 372u);
+            EXPECT_TRUE(regs.d[2] == UINT32_C(0x1004));
+            EXPECT_TRUE(regs.d[3] == UINT32_C(0x2f80));
+            EXPECT_TRUE(regs.d[5] == UINT32_C(0x4a62));
+            EXPECT_TRUE(regs.a[0] == UINT32_C(0xf00000));
+            EXPECT_TRUE(regs.a[1] == UINT32_C(0x2800));
+            EXPECT_TRUE(regs.a[2] == UINT32_C(0x5000));
+        } else if (stop == 1u) {
+            /* Post slot-program: d5 -= 0x200, d6 = KEYON word,
+             * d2 += 0xeba (rate pair), a2/a3 re-based. 383 steps. */
+            EXPECT_TRUE(status == VF2_OK);
+            EXPECT_TRUE(regs.pc == UINT32_C(0xcb2));
+            EXPECT_TRUE(done == 383u);
+            EXPECT_TRUE(regs.d[2] == UINT32_C(0x1ebe));
+            EXPECT_TRUE(regs.d[5] == UINT32_C(0x4862));
+            EXPECT_TRUE(regs.d[6] == UINT32_C(0x10310000));
+            EXPECT_TRUE(regs.a[2] == UINT32_C(0x10000));
+            EXPECT_TRUE(regs.a[3] == UINT32_C(0x2000));
+        } else {
+            /* Stepper fault on the 0x48d2 store word (movem.l
+             * d0-d7,(a2) is illegal on silicon; the 0x4fe handler
+             * blinks forever): the copy loop is dead-on-silicon
+             * and the C refuses at 0xcb2 by design. */
+            EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(regs.pc == UINT32_C(0xcb6));
+            EXPECT_TRUE(done == 384u);
+        }
+    }
+    free(sample_window);
+    sample_window = NULL;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -2957,6 +3144,7 @@ int main(int argc, char **argv)
     test_chain_audible(argv[1], audio_rom, audio_rom_size);
     test_chain_uart_bridge(argv[1], audio_rom, audio_rom_size);
     test_chain_live_queue(argv[1], audio_rom, audio_rom_size);
+    test_engine_probe(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);
