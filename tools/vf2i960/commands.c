@@ -20,6 +20,7 @@
 #include "vf2/native_differential.h"
 #include "vf2/recovered.h"
 #include "vf2/status.h"
+#include "vf2/texture_link.h"
 #include "vf2/texture_sheet.h"
 #include "vf2/version.h"
 
@@ -7104,6 +7105,137 @@ static int command_read_words(
     return EXIT_SUCCESS;
 }
 
+/* --- texture-link: dump an object's decoded polygon->texture link ------------
+ *
+ * Reads the object-table entry {w0=tpa, w1=tha, w2=oba, w3=obc} at 0x020e0004,
+ * walks the polygon record's primitives, and for each one decodes the texture
+ * header (sheet rectangle + flags) and the per-vertex UVs from the texture
+ * region, advancing the UV and header pointers per the geometrizer rules (see
+ * include/vf2/texture_link.h). ROM-only, local; not exercised by CI (the decode
+ * itself is covered synthetically by tests/platform/test_texture_link.c). */
+static uint32_t tl_u32(const uint8_t *b, size_t n, size_t off)
+{
+    if (off + 4u > n) {
+        return 0u;
+    }
+    return (uint32_t)b[off] | ((uint32_t)b[off + 1u] << 8) |
+           ((uint32_t)b[off + 2u] << 16) | ((uint32_t)b[off + 3u] << 24);
+}
+
+static uint16_t tl_u16(const uint8_t *b, size_t n, uint32_t index)
+{
+    size_t off = (size_t)index * 2u;
+    if (off + 2u > n) {
+        return 0u;
+    }
+    return (uint16_t)((uint16_t)b[off] | ((uint16_t)b[off + 1u] << 8));
+}
+
+static int command_texture_link(const char *rom_directory, const char *id_arg)
+{
+    uint8_t *main_data = NULL;
+    uint8_t *poly = NULL;
+    uint8_t *tex = NULL;
+    size_t main_size = 0u;
+    size_t poly_size = 0u;
+    size_t tex_size = 0u;
+    uint32_t object_id = 0u;
+    uint32_t w0;
+    uint32_t w1;
+    uint32_t w2;
+    uint32_t w3;
+    size_t table_entry;
+    uint32_t rec_byte;
+    size_t off;
+    uint32_t uv_ptr;
+    uint32_t th_ptr;
+    uint32_t prim;
+    vf2_status st;
+
+    if (!parse_u32(id_arg, &object_id)) {
+        fprintf(stderr, "texture-link: bad object id\n");
+        return EXIT_FAILURE;
+    }
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data,
+                                 &main_size);
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly,
+                                     &poly_size);
+    }
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_TEXTURES, &tex,
+                                     &tex_size);
+    }
+    if (st != VF2_OK) {
+        fprintf(stderr, "Could not build ROM regions: %s\n",
+                vf2_status_string(st));
+        free(main_data);
+        free(poly);
+        free(tex);
+        return EXIT_FAILURE;
+    }
+
+    table_entry = 0x000e0004u + (size_t)object_id * 16u;
+    w0 = tl_u32(main_data, main_size, table_entry + 0u);
+    w1 = tl_u32(main_data, main_size, table_entry + 4u);
+    w2 = tl_u32(main_data, main_size, table_entry + 8u);
+    w3 = tl_u32(main_data, main_size, table_entry + 12u);
+    rec_byte = (w2 & 0x7fffffu) * 4u;
+    uv_ptr = w0 & 0x7fffffu;  /* texture-point (UV) table, u16 index */
+    th_ptr = w1 & 0x7fffffu;  /* texture-header table, u16 index */
+
+    printf("object 0x%x: w0/tpa=%08x w1/tha=%08x w2/oba=%08x w3/obc=%08x\n",
+           (unsigned)object_id, (unsigned)w0, (unsigned)w1, (unsigned)w2,
+           (unsigned)w3);
+    printf("  record @ poly byte 0x%x; primitives:\n", (unsigned)rec_byte);
+
+    off = (size_t)rec_byte + 24u; /* skip the initial p0,p1 edge (6 floats) */
+    for (prim = 0u; prim < 4096u; ++prim) {
+        uint32_t attr = tl_u32(poly, poly_size, off);
+        uint32_t numv;
+        uint16_t thw[4];
+        vf2_texture_header h;
+        uint32_t v;
+
+        off += 4u;
+        if (attr == 0x00040401u || (attr & 3u) == 0u) {
+            break;
+        }
+        numv = (attr & 1u) ? 4u : 3u;
+
+        thw[0] = tl_u16(tex, tex_size, th_ptr + 0u);
+        thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
+        thw[2] = tl_u16(tex, tex_size, th_ptr + 2u);
+        thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
+        vf2_texture_header_decode(thw, &h);
+
+        printf("  prim %3u attr=%08x nv=%u  sheet%u x%u y%u %ux%u "
+               "wrap%u%u mir%u%u rend%u col%u  UV:",
+               (unsigned)prim, (unsigned)attr, (unsigned)numv, (unsigned)h.sheet,
+               (unsigned)h.tex_x, (unsigned)h.tex_y, (unsigned)h.tex_width,
+               (unsigned)h.tex_height, (unsigned)h.wrap_x, (unsigned)h.wrap_y,
+               (unsigned)h.mirror_x, (unsigned)h.mirror_y, (unsigned)h.renderer,
+               (unsigned)h.color_base);
+        for (v = 0u; v < numv; ++v) {
+            uint16_t pv = tl_u16(tex, tex_size, uv_ptr + v * 2u + 0u);
+            uint16_t pu = tl_u16(tex, tex_size, uv_ptr + v * 2u + 1u);
+            printf(" (%.1f,%.1f)", (double)vf2_texture_uv_texels(pu),
+                   (double)vf2_texture_uv_texels(pv));
+        }
+        printf("\n");
+
+        uv_ptr += numv * 2u;
+        th_ptr = (uint32_t)((int32_t)th_ptr +
+                            vf2_texture_header_advance_words(attr));
+        off += 36u; /* normal(3) + vA(3) + vB(3) */
+    }
+
+    free(main_data);
+    free(poly);
+    free(tex);
+    return EXIT_SUCCESS;
+}
+
 /* --- decode-texture-sheet: a texture-RAM bank -> grayscale PGM ----------------
  *
  * Reads a raw texture bank (local-only, e.g. a MAME capture of texture RAM
@@ -7920,6 +8052,10 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "decode-texture-sheet") == 0 && argc == 6) {
         return command_decode_texture_sheet(argv[2], argv[3], argv[4], argv[5]);
+    }
+
+    if (strcmp(argv[1], "texture-link") == 0 && argc == 4) {
+        return command_texture_link(argv[2], argv[3]);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
