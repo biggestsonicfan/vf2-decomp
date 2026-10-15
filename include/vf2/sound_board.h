@@ -43,6 +43,21 @@ enum {
     VF2_SOUND_SHARED_COUNTER_152E = 0x00252eu,
     VF2_SOUND_VOICE_BYTES = 0x10u,
     VF2_SOUND_VOICE_COUNT = 32u,
+    /* Voice-record layout (v0825 V3b, 16 bytes, stride 0x10 x32).
+     * Every name is behaviorally grounded in >=2 committed
+     * recoveries; bytes 0x07/0x0d-0x0f are untouched by all of
+     * them and stay unnamed (honest gap, not padding claimed). */
+    VF2_SOUND_VOICE_SLOT = 0x00u,
+    VF2_SOUND_VOICE_FLAGS = 0x02u,
+    VF2_SOUND_VOICE_BYTE = 0x03u,
+    VF2_SOUND_VOICE_CHANNEL = 0x04u,
+    VF2_SOUND_VOICE_AGE_RELEASE = 0x05u,
+    VF2_SOUND_VOICE_SELECT = 0x06u,
+    VF2_SOUND_VOICE_MODE = 0x08u,
+    VF2_SOUND_VOICE_AGE = 0x09u,
+    VF2_SOUND_VOICE_META = 0x0au,
+    VF2_SOUND_VOICE_RATE = 0x0bu,
+    VF2_SOUND_VOICE_SAMPLE = 0x0cu,
     VF2_SOUND_AUDIO_ROM_BASE = 0x600000u,
     VF2_SOUND_SAMPLE_ROM_BASE = 0x800000u,
     VF2_SOUND_SAMPLE_DIRECT_BYTES = 0x200000u

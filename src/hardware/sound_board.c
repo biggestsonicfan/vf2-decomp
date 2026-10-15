@@ -35,7 +35,7 @@ static vf2_status sound_board_key_off(
        rate) and sound_ram[0x2000+slot] = 0. No slot-control
        read-modify-write exists on ROM; the earlier control-bit form
        came from a misread of indexed move.b #imm as absolute. */
-    const uint16_t slot_word = read_be16(voice);
+    const uint16_t slot_word = read_be16(voice + VF2_SOUND_VOICE_SLOT);
     const uint32_t scsp_address = (uint32_t)slot_word + 0x0bu;
     const uint32_t ram_address =
         UINT32_C(0x2000) + (uint32_t)slot_word;
@@ -413,8 +413,8 @@ vf2_status vf2_sound_board_initialize(
                             &sample) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
-        write_be16(record, slot);
-        write_be32(record + 0x0cu, sample);
+        write_be16(record + VF2_SOUND_VOICE_SLOT, slot);
+        write_be32(record + VF2_SOUND_VOICE_SAMPLE, sample);
     }
     /* ROM 0x3cc stream records. */
     for (voice = 0u; voice < 32u; ++voice) {
@@ -621,14 +621,14 @@ vf2_status vf2_sound_board_maintain_voices(
         size_t other = 0u;
 
         ++local.voices_scanned;
-        if ((voice[2u] & 1u) == 0u) {
+        if ((voice[VF2_SOUND_VOICE_FLAGS] & 1u) == 0u) {
             continue;
         }
-        --voice[0x0bu];
-        if (voice[0x0bu] != 0u) {
+        --voice[VF2_SOUND_VOICE_RATE];
+        if (voice[VF2_SOUND_VOICE_RATE] != 0u) {
             continue;
         }
-        release_path = (voice[2u] & 8u) != 0u;
+        release_path = (voice[VF2_SOUND_VOICE_FLAGS] & 8u) != 0u;
         if (sound_board_key_off(board, voice) != VF2_OK) {
             local.counter_151e_after =
                 board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
@@ -637,17 +637,17 @@ vf2_status vf2_sound_board_maintain_voices(
             *report = local;
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
-        voice[2u] = 0u;
+        voice[VF2_SOUND_VOICE_FLAGS] = 0u;
         ++local.voices_expired;
         if (!release_path) {
             /* Normal arm 0x636-0x680. */
-            age = voice[9u];
-            voice[9u] = 0u;
+            age = voice[VF2_SOUND_VOICE_AGE];
+            voice[VF2_SOUND_VOICE_AGE] = 0u;
             --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
             ++local.normal_expirations;
             for (other = 0u; other < VF2_SOUND_VOICE_COUNT; ++other) {
                 uint8_t *target =
-                    voices + other * VF2_SOUND_VOICE_BYTES + 9u;
+                    voices + other * VF2_SOUND_VOICE_BYTES + VF2_SOUND_VOICE_AGE;
                 /* ROM 0x666-0x674: skip 0xff slots; bcc skips when
                    d2 >= mem (unsigned); else decrement. The expired
                    voice itself (now 0) always skips via bcc. */
@@ -659,16 +659,16 @@ vf2_status vf2_sound_board_maintain_voices(
             }
         } else {
             /* Release arm 0x684-0x6d2. */
-            age = voice[5u];
-            voice[9u] = 0u;
-            voice[5u] = 0u;
+            age = voice[VF2_SOUND_VOICE_AGE_RELEASE];
+            voice[VF2_SOUND_VOICE_AGE] = 0u;
+            voice[VF2_SOUND_VOICE_AGE_RELEASE] = 0u;
             --board->sound_ram[VF2_SOUND_SHARED_COUNTER_152E];
             ++local.release_expirations;
             for (other = 0u; other < VF2_SOUND_VOICE_COUNT; ++other) {
                 uint8_t *slot9 =
-                    voices + other * VF2_SOUND_VOICE_BYTES + 9u;
+                    voices + other * VF2_SOUND_VOICE_BYTES + VF2_SOUND_VOICE_AGE;
                 uint8_t *slot5 =
-                    voices + other * VF2_SOUND_VOICE_BYTES + 5u;
+                    voices + other * VF2_SOUND_VOICE_BYTES + VF2_SOUND_VOICE_AGE_RELEASE;
                 /* ROM 0x6b6-0x6c8: only 0xff-aged slots; then the
                    same unsigned d2 >= mem skip; else decrement +5. */
                 if (*slot9 != UINT8_MAX || age >= *slot5) {
@@ -732,10 +732,10 @@ static vf2_status sound_board_clear_c0_voices(
         uint16_t slot_word = 0u;
         uint32_t scsp_base = 0u;
         uint32_t stream_slot = 0u;
-        if ((voice[2u] & 0x40u) == 0u ||
+        if ((voice[VF2_SOUND_VOICE_FLAGS] & 0x40u) == 0u ||
             /* ROM 0x1e1c is cmp.B (like the 0x1332 scan match): the
                channel test is the single voice[4] byte. */
-            voice[4u] != channel) {
+            voice[VF2_SOUND_VOICE_CHANNEL] != channel) {
             continue;
         }
         /* ROM 0x1e24-0x1e38 (V5 key form): d4 = voice[0], the slot
@@ -745,7 +745,7 @@ static vf2_status sound_board_clear_c0_voices(
            same indexed-#imm decoder misread as the key_off fiction.
            The $151e decrement is unconditional; there is no age
            rebalance on this path. */
-        slot_word = read_be16(voice);
+        slot_word = read_be16(voice + VF2_SOUND_VOICE_SLOT);
         scsp_base = (uint32_t)slot_word;
         stream_slot = UINT32_C(0x2000) + (uint32_t)slot_word;
         if (vf2_scsp_write_u8(&board->scsp, scsp_base + 0x0bu,
@@ -758,8 +758,8 @@ static vf2_status sound_board_clear_c0_voices(
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
         board->sound_ram[stream_slot] = 0u;
-        voice[2u] = 0u;
-        voice[4u] = 0u;
+        voice[VF2_SOUND_VOICE_FLAGS] = 0u;
+        voice[VF2_SOUND_VOICE_CHANNEL] = 0u;
         --board->sound_ram[VF2_SOUND_SHARED_COUNTER_151E];
         ++report->voices_cleared;
     }
@@ -1144,24 +1144,24 @@ static vf2_status sound_board_run_setup_author_high(
 
     /* ROM 0xab0-0xaca: +2 |= 0x10; +3 = $1515; +8 = $1510 mode;
        +4 = $150e-channel. (Head done by the core.) */
-    voice[2u] |= 0x10u;
-    voice[3u] = ram[VF2_SOUND_LOOKUP_BYTE];
-    voice[8u] = ram[VF2_SOUND_LOOKUP_MODE];
+    voice[VF2_SOUND_VOICE_FLAGS] |= 0x10u;
+    voice[VF2_SOUND_VOICE_BYTE] = ram[VF2_SOUND_LOOKUP_BYTE];
+    voice[VF2_SOUND_VOICE_MODE] = ram[VF2_SOUND_LOOKUP_MODE];
     channel = (uint8_t)(ram[VF2_SOUND_CURRENT_COMMAND] & 0x0fu);
-    voice[4u] = channel;
+    voice[VF2_SOUND_VOICE_CHANNEL] = channel;
     /* ROM 0xace-0xaf6: ch 0xf seeds +9 = $151e ($151e++); else
        +9 = 0xff, +5 = $152e ($152e++), +2 |= 8. */
     if (channel == 0x0fu) {
-        voice[9u] = ram[VF2_SOUND_SHARED_COUNTER_151E];
+        voice[VF2_SOUND_VOICE_AGE] = ram[VF2_SOUND_SHARED_COUNTER_151E];
         ++ram[VF2_SOUND_SHARED_COUNTER_151E];
     } else {
-        voice[9u] = 0xffu;
-        voice[5u] = ram[VF2_SOUND_SHARED_COUNTER_152E];
+        voice[VF2_SOUND_VOICE_AGE] = 0xffu;
+        voice[VF2_SOUND_VOICE_AGE_RELEASE] = ram[VF2_SOUND_SHARED_COUNTER_152E];
         ++ram[VF2_SOUND_SHARED_COUNTER_152E];
-        voice[2u] |= 0x08u;
+        voice[VF2_SOUND_VOICE_FLAGS] |= 0x08u;
     }
     /* ROM 0xafa-0xb12 volume math (shared helper). */
-    if (sound_board_author_volume(board, slot, voice[8u],
+    if (sound_board_author_volume(board, slot, voice[VF2_SOUND_VOICE_MODE],
                                   descriptor[10u]) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
@@ -1233,21 +1233,21 @@ static vf2_status sound_board_run_setup_author_low(
     uint16_t word = 0u;
     uint16_t d2 = 0u;
 
-    voice[3u] = ram[VF2_SOUND_LOOKUP_BYTE];
-    voice[8u] = ram[VF2_SOUND_LOOKUP_MODE];
+    voice[VF2_SOUND_VOICE_BYTE] = ram[VF2_SOUND_LOOKUP_BYTE];
+    voice[VF2_SOUND_VOICE_MODE] = ram[VF2_SOUND_LOOKUP_MODE];
     channel = (uint8_t)(ram[VF2_SOUND_CURRENT_COMMAND] & 0x0fu);
-    voice[4u] = channel;
-    voice[9u] = ram[VF2_SOUND_SHARED_COUNTER_151E];
+    voice[VF2_SOUND_VOICE_CHANNEL] = channel;
+    voice[VF2_SOUND_VOICE_AGE] = ram[VF2_SOUND_SHARED_COUNTER_151E];
     ++ram[VF2_SOUND_SHARED_COUNTER_151E];
-    voice[10u] = ram[VF2_SOUND_LOOKUP_META];
-    if (sound_board_author_volume(board, slot, voice[8u],
+    voice[VF2_SOUND_VOICE_META] = ram[VF2_SOUND_LOOKUP_META];
+    if (sound_board_author_volume(board, slot, voice[VF2_SOUND_VOICE_MODE],
                                   descriptor[10u]) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
     /* ROM 0xbbc: jsr 0x1062 (d3 = channel from the 0xb86 andi.l,
        carried in the parameter). */
     if (sound_board_voice_picker_1062(
-            board, slot, channel, voice[3u], voice[10u],
+            board, slot, channel, voice[VF2_SOUND_VOICE_BYTE], voice[VF2_SOUND_VOICE_META],
             descriptor[5u], &d2) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
@@ -1310,17 +1310,17 @@ static vf2_status sound_board_setup_author_at(
 )
 {
     uint8_t *ram = board->sound_ram;
-    uint16_t slot = read_be16(voice);
+    uint16_t slot = read_be16(voice + VF2_SOUND_VOICE_SLOT);
 
     if ((slot & 1u) != 0u) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    voice[2u] = 0x40u;
+    voice[VF2_SOUND_VOICE_FLAGS] = 0x40u;
     if (vf2_scsp_write_u8(&board->scsp, (uint32_t)slot,
                           UINT8_C(0x10)) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    write_be16(voice + 6u, read_be16(ram + VF2_SOUND_LOOKUP_WORD));
+    write_be16(voice + VF2_SOUND_VOICE_SELECT, read_be16(ram + VF2_SOUND_LOOKUP_WORD));
     {
         vf2_status branch_status = VF2_OK;
 
@@ -1366,7 +1366,7 @@ static vf2_status sound_board_run_sample_tail(
     uint8_t rate = 0u;
     uint8_t southern = 0u;
 
-    d3 = (uint32_t)(read_be16(voice + 6u) & UINT16_C(0x07ff)) *
+    d3 = (uint32_t)(read_be16(voice + VF2_SOUND_VOICE_SELECT) & UINT16_C(0x07ff)) *
         UINT32_C(20);
     entry = UINT32_C(0x5000) + d3;
     if (vf2_scsp_write_u16(&board->scsp, (uint32_t)slot + 8u,
@@ -1391,7 +1391,7 @@ static vf2_status sound_board_run_sample_tail(
                                  &southern) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    ((uint8_t *)voice)[0x0bu] = southern;
+    ((uint8_t *)voice)[VF2_SOUND_VOICE_RATE] = southern;
     report->handler_address = UINT32_C(0x00000c68);
     return VF2_ERROR_UNSUPPORTED;
 }
@@ -1429,17 +1429,17 @@ static vf2_status sound_board_run_setup_scan(
     for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
         uint8_t *voice = ram + VF2_SOUND_VOICE_TABLE_BASE +
             i * VF2_SOUND_VOICE_BYTES;
-        if (voice[2u] == 0u || voice[3u] != 0xbau ||
-            voice[4u] != 0x0fu) {
+        if (voice[VF2_SOUND_VOICE_FLAGS] == 0u || voice[VF2_SOUND_VOICE_BYTE] != 0xbau ||
+            voice[VF2_SOUND_VOICE_CHANNEL] != 0x0fu) {
             continue;
         }
         {
-            uint8_t age = voice[9u];
-            uint16_t slot = read_be16(voice);
+            uint8_t age = voice[VF2_SOUND_VOICE_AGE];
+            uint16_t slot = read_be16(voice + VF2_SOUND_VOICE_SLOT);
             size_t j = 0u;
 
-            voice[2u] = 0u;
-            voice[9u] = 0u;
+            voice[VF2_SOUND_VOICE_FLAGS] = 0u;
+            voice[VF2_SOUND_VOICE_AGE] = 0u;
             if (vf2_scsp_write_u8(&board->scsp, (uint32_t)slot,
                                   UINT8_C(0x10)) != VF2_OK) {
                 return VF2_ERROR_OUT_OF_BOUNDS;
@@ -1452,7 +1452,7 @@ static vf2_status sound_board_run_setup_scan(
             --ram[VF2_SOUND_SHARED_COUNTER_151E];
             for (j = 0u; j < VF2_SOUND_VOICE_COUNT; ++j) {
                 uint8_t *target = ram + VF2_SOUND_VOICE_TABLE_BASE +
-                    j * VF2_SOUND_VOICE_BYTES + 9u;
+                    j * VF2_SOUND_VOICE_BYTES + VF2_SOUND_VOICE_AGE;
                 if (*target == UINT8_MAX || age >= *target) {
                     continue;
                 }
@@ -1505,8 +1505,8 @@ static vf2_status sound_board_run_loopb(
     for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
         uint8_t *voice = ram + VF2_SOUND_VOICE_TABLE_BASE +
             i * VF2_SOUND_VOICE_BYTES;
-        if (voice[9u] == 0xffu && voice[5u] == 0u) {
-            uint16_t slot = read_be16(voice);
+        if (voice[VF2_SOUND_VOICE_AGE] == 0xffu && voice[VF2_SOUND_VOICE_AGE_RELEASE] == 0u) {
+            uint16_t slot = read_be16(voice + VF2_SOUND_VOICE_SLOT);
             size_t j = 0u;
 
             /* ROM 0x95a-0x974: d4 = slot word; SCSP[slot+0x0b] =
@@ -1524,7 +1524,7 @@ static vf2_status sound_board_run_loopb(
                 return VF2_ERROR_OUT_OF_BOUNDS;
             }
             ram[0x2000u + slot] = 0u;
-            voice[5u] = 5u;
+            voice[VF2_SOUND_VOICE_AGE_RELEASE] = 5u;
             /* ROM 0x97a-0x996: rebalance -- every 0xff-aged voice's
                +5 decrements, INCLUDING the just-armed one (5->4;
                stepper-pinned). +9 is never cleared on this path. */
@@ -1684,10 +1684,10 @@ static vf2_status sound_board_e0_voice_tail(
        ROM 0x135e; only the low byte adds, ext.w sign-extends it).
        d5 = $1524-word plus d3, sign-extended (ext.l drops the
        caller-upper). */
-    addend = (int16_t)(int8_t)(uint8_t)(voice[0x0au] + descriptor[5u]);
+    addend = (int16_t)(int8_t)(uint8_t)(voice[VF2_SOUND_VOICE_META] + descriptor[5u]);
     slide = (int32_t)(int16_t)(uint16_t)(shared +
                                          (uint16_t)(uint16_t)addend);
-    voice_nibble = (uint8_t)(voice[3u] & 0x0fu);
+    voice_nibble = (uint8_t)(voice[VF2_SOUND_VOICE_BYTE] & 0x0fu);
     if (read_audio_be32(board, UINT32_C(0x602676) +
                         (uint32_t)voice_nibble * 4u, &table) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
@@ -1703,11 +1703,11 @@ static vf2_status sound_board_e0_voice_tail(
     }
     /* d0 = (voice[3]&0xf0)<<7; add.l table-word; andi.w #$7bff (upper
        never escapes: only the low word is stored). */
-    shaped = (uint16_t)((((uint16_t)(voice[3u] & 0xf0u) << 7u) + picker) &
+    shaped = (uint16_t)((((uint16_t)(voice[VF2_SOUND_VOICE_BYTE] & 0xf0u) << 7u) + picker) &
                         UINT16_C(0x7bff));
     {
         /* ROM 0x1396: move.w d0,$10(a5,d4.w). Slot+0x10 word = d0. */
-        const uint32_t slot_base = (uint32_t)read_be16(voice);
+        const uint32_t slot_base = (uint32_t)read_be16(voice + VF2_SOUND_VOICE_SLOT);
         vf2_status voice_status = VF2_OK;
         if ((slot_base & 1u) != 0u) {
             return VF2_ERROR_UNSUPPORTED;
@@ -1719,12 +1719,12 @@ static vf2_status sound_board_e0_voice_tail(
             return voice_status;
         }
     }
-    row = (uint8_t)(((uint8_t)(voice[3u] & 0xf0u) >> 2u) & 0x3cu);
+    row = (uint8_t)(((uint8_t)(voice[VF2_SOUND_VOICE_BYTE] & 0xf0u) >> 2u) & 0x3cu);
     if (read_audio_be32(board, UINT32_C(0x60c726) + row, &row_table) !=
         VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    offset = ((uint32_t)(voice[3u] & 0x0fu) << 5u) & 0xffu;
+    offset = ((uint32_t)(voice[VF2_SOUND_VOICE_BYTE] & 0x0fu) << 5u) & 0xffu;
     store_at = (int64_t)row_table + (int64_t)offset + 2LL * (int64_t)slide;
     if (store_at < (int64_t)VF2_SOUND_AUDIO_ROM_BASE ||
         (uint64_t)store_at + 2u >
@@ -1738,7 +1738,7 @@ static vf2_status sound_board_e0_voice_tail(
         /* ROM 0x13c4: move.w d2,$1a(a2,d4.w) with a2 = 0x2000 and d4
            = voice[0] (slot word). Stream-slot timer, not ram[0x601a]. */
         const uint32_t timer_at = UINT32_C(0x201a) +
-            (uint32_t)read_be16(voice);
+            (uint32_t)read_be16(voice + VF2_SOUND_VOICE_SLOT);
         if (timer_at + 2u > (uint32_t)VF2_SOUND_RAM_BYTES) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
@@ -1830,8 +1830,8 @@ static vf2_status sound_board_dispatch_e0(
         /* ROM 0x1332 is cmp.B voice+4 (byte-verified opcode; the old
            cmp.w print hid it): match on the single channel byte, not
            a word. voice[5] is ignored by the scan. */
-        if (voice[4u] == channel &&
-            (voice[2u] & 0x7fu) != 0u) {
+        if (voice[VF2_SOUND_VOICE_CHANNEL] == channel &&
+            (voice[VF2_SOUND_VOICE_FLAGS] & 0x7fu) != 0u) {
             vf2_status status =
                 sound_board_e0_voice_tail(board, voice, descriptor, result);
             if (status != VF2_OK) {
