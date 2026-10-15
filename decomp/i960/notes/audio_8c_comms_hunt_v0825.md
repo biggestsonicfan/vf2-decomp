@@ -153,6 +153,27 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    in these states either. Next: LANDED hit (setup snapshot) or
    round-boundary (long oracle play from boot).
 
+   UPDATE (SOUND TEST detour -- queue architecture found,
+   recipe park-mismatch): recovery note selector17_index2_sound_test
+   documents the other half of the design: the i960 holds a
+   WORK-RAM sound QUEUE (PUNCH files 0x00ad1001, cursor 3->4;
+   TEST files five stops, cursor ->8; lever walks BGM/SFX names
+   "No.0 Advertise".."No.296 Wo13"). So the writer is really TWO
+   unknowns: the queue FILER (game/test code, proven to exist)
+   and the queue DRAINER (queue -> UART bytes, never observed).
+   The note's deterministic recipe (0xa6c0 -> 0xa010, ~1873
+   insns) did NOT replay from park-sixth-a6c0.vf2snap: three
+   variants (plain, full input/phase staging per the note)
+   all run an identical 36-step tail with identical call counts
+   -- the park point sits PAST the recipe's input gating, or the
+   pre-branch state needs more than $500700/$500704/phase-a4.
+   The recipe needs a pre-branch snapshot (sixth-fresh is the
+  top-level menu park candidate) or a seq-capable driver
+   (walk-then-enter isn't expressible in held/alt masks). The
+   queue ADDRESS itself is undocumented -- grep the note for it
+   before the next attempt; without it the queue can't be
+   watched directly either.
+
    UPDATE (table-watch: infra stone cold, HUNT ARC CLOSED): the
    driver also records READS of the three static 0x009c0000
    entries (debug @0x111e2, MMIO @0x29bd8/@0x50db4 -- ROM data
