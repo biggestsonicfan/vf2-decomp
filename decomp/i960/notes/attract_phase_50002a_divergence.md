@@ -270,17 +270,33 @@ c6c  ld    0x508000, r15
 c74  bbs   13, r15, 0xc94
 ```
 
-An identical compare on `0x500804` precedes it. `execute_interrupt_fighter_compare_prefix`
-models only the **all-equal** path: `+=3`,`++` (first compare = 4), `+=4` (second
-= 4), `+=2` (ld 0x508000 + bbs) = **10**, and `return VF2_ERROR_UNSUPPORTED` if
-either compare is unequal. The differential shows the interpreter needs **11**
-instructions to reach 0xc78 under the corrected boot, so on the diverging frame
-one compare is **unequal** (bytes `*(*0x500804+0x69c)` vs `+0x69d`, or the
-`0x500808` pair, differ) and the real handler takes the 7-instruction unequal
-block the bridge does not model -- yet the bridge did not hit its UNSUPPORTED
-guard, which means the mismatch is an accounting/path subtlety in that block, not
-a clean unequal bail. Resolving it: trace the two byte pairs at the diverging
-frame (what the corrected boot writes to `0x69c`/`0x69d` off `*0x500804` /
-`*0x500808`) and model the unequal path in the bridge. This is one concrete
-sub-bridge; whether more divergences follow to fourth-dispatch is the next
-measurement.
+An identical compare on `0x500804` precedes it, and both compare EQ in the trace
+(the bytes match), so `execute_interrupt_fighter_compare_prefix`'s all-equal
+accounting (10 instructions, 0xc0c..0xc78) is correct -- the off-by-one is NOT in
+the compares.
+
+**Corrected via direct trace (boot-trace handler instrumentation).** The handler
+entry is:
+
+```
+bf4  ld   0x00500068, r15
+bfc  bbc  31, r15, 0xc80     ; 0x500068 bit31 CLEAR -> short path (skip to 0xc80)
+c00  call 0x00001064         ; bit31 SET -> long path: compose
+c04  call 0x00001290         ;   input-latch
+c08  call 0x0004ba80         ;   texture-dispatch
+c0c  ld   0x00500804, r3     ;   then the two 0x69c/0x69d compares, ld 0x508000, bbs
+```
+
+`0x500068` **bit 31 is the long/short-path selector**. Without the fix the early
+handler invocations take the short path (`0xbfc -> 0xc80`, trace stops at 0xbfc);
+with the fix bit 31 is set and the handler runs the long path through 0xc74. The
+recovered `interrupt-initial-cluster` models the long path as four sub-bridges:
+`execute_video_register_compose` (= call 0x1064), `execute_video_input_latch_write`
+(= 0x1290), `execute_texture_upload_dispatch` (= 0x4ba80), then
+`execute_interrupt_fighter_compare_prefix` (0xc0c..0xc78). Since the compare
+tail counts correctly, the **off-by-one is inside one of the three called
+functions** (0x1064 / 0x1290 / 0x4ba80): the corrected boot makes one of them run
+one more instruction than its sub-bridge's hardcoded `recovered_instruction_count`
+expects. Next step: trace the instruction count of each of the three at the
+diverging invocation with vs without the fix to find which sub-bridge is short,
+then correct its count + reproduced effect. Then re-measure fourth-dispatch.
