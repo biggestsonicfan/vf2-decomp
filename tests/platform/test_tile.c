@@ -130,7 +130,8 @@ static void test_font(const char *rom_dir)
                     for (x = 0u; x < VF2_TILE_GLYPH_W; ++x) {
                         const uint8_t idx = glyph[y * VF2_TILE_GLYPH_W + x];
                         const uint16_t e =
-                            (uint16_t)(0x8000u | (idx << 10) | (idx << 5) | idx);
+                            (uint16_t)(0x8000u | ((unsigned)idx << 10) |
+                                       ((unsigned)idx << 5) | idx);
                         CHECK(rgb[y * (4u * VF2_TILE_GLYPH_W) +
                                   col * VF2_TILE_GLYPH_W + x] ==
                               vf2_tile_palette_rgb555(e));
