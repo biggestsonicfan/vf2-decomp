@@ -38,6 +38,14 @@ enum {
     VF2_SOUND_COMMAND_DESCRIPTOR_BASE = 0x004000u,
     VF2_SOUND_COMMAND_DESCRIPTOR_BYTES = 0x10u,
     VF2_SOUND_COMMAND_DESCRIPTOR_COUNT = 20u,
+    /* L3 UART receiver ring files ($1500 page, a6-relative on the
+     * 68k side): the filed staging bytes at $1500-$1503, the 12-bit
+     * write cursor ($1504, shared with emit_command), the shared
+     * count ($1506), and the $1526 dance flag. The assembled ring
+     * entries land in the 0x1000 command ring the drain consumes
+     * ($0000(a6) destination = absolute 0x1000). */
+    VF2_SOUND_RING_STAGE_BASE = 0x002500u,
+    VF2_SOUND_SHARED_COUNTER_1526 = 0x002526u,
     VF2_SOUND_VOICE_TABLE_BASE = 0x002800u,
     VF2_SOUND_SHARED_COUNTER_151E = 0x00251eu,
     VF2_SOUND_SHARED_COUNTER_152E = 0x00252eu,
@@ -187,6 +195,20 @@ vf2_status vf2_sound_board_setup_author(
 vf2_status vf2_sound_board_emit_command(
     vf2_sound_board *board,
     const uint8_t packet[4]
+);
+
+/* File one received UART byte the way the ROM L3 receiver ISR
+ * (0x526, autovector 26) does: 0xff is the sound-CPU reboot door
+ * (refused cleanly -- reboot is out of scope); >= 0xf0 is
+ * ignored with no state change; otherwise the $1500 ring file,
+ * $1502 age, $1503 file, $1504 cursor, $1506 count and the $1526
+ * dance update run, with the $400001 system-port poke deferred
+ * (unmodeled port, cf04 precedent: body applied, poke skipped).
+ * The byte is the ISR's already-read d0 (the $0405(a5) hardware
+ * read stays on silicon). */
+vf2_status vf2_sound_board_file_uart_byte(
+    vf2_sound_board *board,
+    uint8_t byte
 );
 
 vf2_status vf2_sound_board_render(

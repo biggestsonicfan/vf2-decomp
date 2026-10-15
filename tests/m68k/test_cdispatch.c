@@ -2095,6 +2095,187 @@ static void test_vectors(
     fprintf(stderr, "vectors: reset=060100 L1=0605fe L2=061f16 L3=060526\n");
 }
 
+/* 8g L3 receiver legs (byte -> ring file). Staging: file1503 /
+ * file1502 (the $1503/$1502 age bytes), dance1526, src1500/src1501
+ * (ring-copy sources), cursor (12-bit). The stepper starts past
+ * the $0405(a5) hardware read (S3c pattern) with d0 = byte, so
+ * the restore pops fresh-stack zeros: post-run d0-d7/a0-a4 are 0,
+ * a7 advances to 0x7f34, and no stack residue exists (full-RAM
+ * compare, no exclusion). S event count pins the $400001 poke
+ * (1 on ring legs, 0 elsewhere -- the poke is logged,
+ * stateless). */
+static void test_l3_file(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size,
+    uint8_t byte,
+    uint8_t file1503,
+    uint8_t file1502,
+    uint8_t dance1526,
+    uint8_t src1500,
+    uint8_t src1501,
+    uint16_t cursor,
+    const char *tag
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint8_t *cram = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+    size_t i = 0u;
+    uint32_t stop = (byte == 0xffu) ? UINT32_C(0x5ec) : UINT32_C(0x5ea);
+
+    (void)audio_rom;
+    (void)audio_rom_size;
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = NULL;
+    board.audio_rom_size = 0u;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+    cram[VF2_SOUND_RING_STAGE_BASE] = src1500;
+    cram[VF2_SOUND_RING_STAGE_BASE + 1u] = src1501;
+    cram[VF2_SOUND_RING_STAGE_BASE + 2u] = file1502;
+    cram[VF2_SOUND_RING_STAGE_BASE + 3u] = file1503;
+    cram[VF2_SOUND_COMMAND_WRITE_CURSOR] = (uint8_t)(cursor >> 8u);
+    cram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] = (uint8_t)cursor;
+    cram[VF2_SOUND_SHARED_COUNTER_1526] = dance1526;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+
+    cstatus = vf2_sound_board_file_uart_byte(&board, byte);
+    fprintf(stderr, "dispatch l3-%s: c-status=%d f2=%02x f3=%02x c=%04x n=%02x 26=%02x\n",
+            tag, (int)cstatus,
+            (unsigned)cram[VF2_SOUND_RING_STAGE_BASE + 2u],
+            (unsigned)cram[VF2_SOUND_RING_STAGE_BASE + 3u],
+            (unsigned)(((uint16_t)cram[VF2_SOUND_COMMAND_WRITE_CURSOR] << 8u) |
+                       cram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]),
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)cram[VF2_SOUND_SHARED_COUNTER_1526]);
+    if (byte == 0xffu) {
+        EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    } else {
+        EXPECT_TRUE(cstatus == VF2_OK);
+    }
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    for (i = 0u; i < 8u; ++i) {
+        regs.d[i] = UINT32_C(0xa5000000) + (uint32_t)(i * 0x1111111u);
+    }
+    regs.d[0] = byte;
+    regs.a[0] = UINT32_C(0xdead0000);
+    regs.a[1] = UINT32_C(0xdead0001);
+    regs.a[2] = UINT32_C(0xdead0002);
+    regs.a[3] = UINT32_C(0xdead0003);
+    regs.a[4] = UINT32_C(0xdead0004);
+    regs.a[5] = UINT32_C(0xdead0005);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x52e);
+    status = vf2_m68k_run(&bus, &regs, stop, 0, 20000u, &done);
+    fprintf(stderr, "dispatch l3-%s: s-status=%d pc=0x%05x steps=%u events=%u f2=%02x f3=%02x c=%04x n=%02x 26=%02x\n",
+            tag, (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count,
+            (unsigned)step_ram[VF2_SOUND_RING_STAGE_BASE + 2u],
+            (unsigned)step_ram[VF2_SOUND_RING_STAGE_BASE + 3u],
+            (unsigned)(((uint16_t)step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR] << 8u) |
+                       step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]),
+            (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_1526]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == stop);
+    {
+        uint32_t addr = 0u;
+        for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+            /* jsr $49e return-address spill (ring legs, S only):
+             * 4 bytes at a7 - 4. Nothing else touches the stack
+             * (the 0x526 save is skipped by the 0x52e entry). */
+            if (addr >= 0x7efcu && addr < 0x7f00u) {
+                continue;
+            }
+            if (cram[addr] != step_ram[addr]) {
+                fprintf(stderr, "dispatch l3-%s: RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                        tag, (unsigned)addr, (unsigned)cram[addr],
+                        (unsigned)step_ram[addr]);
+                EXPECT_TRUE(0);
+                break;
+            }
+        }
+    }
+    /* Post-restore zeros (save skipped by the 0x52e entry): d0-d7
+     * and a0-a4 read back 0 -- except the 0xff door leg, which
+     * stops at 0x5ec before the restore and keeps staged regs. */
+    if (byte == 0xffu) {
+        EXPECT_TRUE(regs.d[0] == UINT32_C(0xff));
+        for (i = 1u; i < 8u; ++i) {
+            uint32_t want =
+                UINT32_C(0xa5000000) + (uint32_t)(i * 0x1111111u);
+            if (regs.d[i] != want) {
+                fprintf(stderr, "dispatch l3-%s: d%u differ: S=%08x want=%08x\n",
+                        tag, (unsigned)i, (unsigned)regs.d[i],
+                        (unsigned)want);
+                EXPECT_TRUE(0);
+            }
+        }
+        for (i = 0u; i < 5u; ++i) {
+            uint32_t want = UINT32_C(0xdead0000) + (uint32_t)i;
+            if (regs.a[i] != want) {
+                fprintf(stderr, "dispatch l3-%s: a%u differ: S=%08x want=%08x\n",
+                        tag, (unsigned)i, (unsigned)regs.a[i],
+                        (unsigned)want);
+                EXPECT_TRUE(0);
+            }
+        }
+    } else {
+        for (i = 0u; i < 8u; ++i) {
+            if (regs.d[i] != 0u) {
+                fprintf(stderr, "dispatch l3-%s: d%u nonzero: S=%08x\n",
+                        tag, (unsigned)i, (unsigned)regs.d[i]);
+                EXPECT_TRUE(0);
+            }
+        }
+        for (i = 0u; i < 5u; ++i) {
+            if (regs.a[i] != 0u) {
+                fprintf(stderr, "dispatch l3-%s: a%u nonzero: S=%08x\n",
+                        tag, (unsigned)i, (unsigned)regs.a[i]);
+                EXPECT_TRUE(0);
+            }
+        }
+    }
+    EXPECT_TRUE(regs.a[5] == UINT32_C(0xdead0005));
+    EXPECT_TRUE(regs.a[6] == UINT32_C(0x1000));
+    /* a7 advances 52 through the restore -- except the 0xff door
+     * leg, which stops at 0x5ec before any stack traffic. */
+    if (byte == 0xffu) {
+        EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
+    } else {
+        EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f34));
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+    /* The $400001 poke is logged, stateless: exactly one bus event
+     * on ring legs (C skips it by design), zero elsewhere. */
+    if (cram[VF2_SOUND_COMMAND_COUNT] != 0u) {
+        EXPECT_TRUE(bus.event_count == 1u);
+        EXPECT_TRUE(bus.events[0].address == UINT32_C(0x400001));
+        EXPECT_TRUE(bus.events[0].is_write != 0u);
+    } else {
+        EXPECT_TRUE(bus.event_count == 0u);
+    }
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -2160,6 +2341,25 @@ int main(int argc, char **argv)
     /* S3c synthetic entries (drain-unreachable bodies). */
     test_a8c_synth(audio_rom, audio_rom_size, 1, "low");
     test_a8c_synth(audio_rom, audio_rom_size, 0, "high-f");
+    /* 8g L3 receiver legs (byte -> ring file). */
+    test_l3_file(audio_rom, audio_rom_size, 0x85u, 0u, 0u, 0u, 0u, 0u,
+                 0u, "hi-word");
+    test_l3_file(audio_rom, audio_rom_size, 0xc5u, 0u, 0u, 0u, 0u, 0u,
+                 0u, "hi-c0");
+    test_l3_file(audio_rom, audio_rom_size, 0x03u, 5u, 9u, 0xaau, 0u, 0u,
+                 0u, "lo-file");
+    test_l3_file(audio_rom, audio_rom_size, 0x03u, 1u, 9u, 0xaau, 0xaau,
+                 0xbbu, 0u, "lo-ringA");
+    test_l3_file(audio_rom, audio_rom_size, 0x03u, 0u, 1u, 0xaau, 0xccu,
+                 0xddu, 0u, "lo-ringB");
+    test_l3_file(audio_rom, audio_rom_size, 0xf5u, 0u, 0u, 0u, 0u, 0u,
+                 0u, "f0");
+    test_l3_file(audio_rom, audio_rom_size, 0xffu, 0u, 0u, 0u, 0u, 0u,
+                 0u, "ff");
+    test_l3_file(audio_rom, audio_rom_size, 0x03u, 1u, 9u, 0xfeu, 0xaau,
+                 0xbbu, 0u, "dance-guard");
+    test_l3_file(audio_rom, audio_rom_size, 0x03u, 1u, 9u, 0xaau, 0xaau,
+                 0xbbu, 0xffeu, "wrap");
     test_chain_production(audio_rom, audio_rom_size);
     test_chain_render(audio_rom, audio_rom_size);
     test_chain_audible(argv[1], audio_rom, audio_rom_size);

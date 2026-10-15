@@ -1418,6 +1418,113 @@ vf2_status vf2_sound_board_setup_author(
         report);
 }
 
+/* ROM 0x49e $1526 dance (v0825 8g): ror.b #1 the flag; 0x7f forces
+ * 0xf7; store back; (low nibble | 0x10) goes to the $400001
+ * system port, which is unmodeled -- the poke is deferred
+ * (cf04 precedent) while the flag update is applied. */
+static void sound_board_run_dance_49e(vf2_sound_board *board)
+{
+    uint8_t flag = board->sound_ram[VF2_SOUND_SHARED_COUNTER_1526];
+
+    flag = (uint8_t)((flag >> 1u) | ((flag & 1u) << 7u));
+    if (flag == 0x7fu) {
+        flag = 0xf7u;
+    }
+    board->sound_ram[VF2_SOUND_SHARED_COUNTER_1526] = flag;
+}
+
+/* ROM L3 receiver 0x526 file path (v0825 8g, d0 = byte): ring
+ * assembly at $0000(a6) + ($1504 & 0xfff) = absolute 0x1000 +
+ * cursor (the command ring the drain consumes, shared with
+ * emit_command), $1504 += 4 (& 0xfff), $1506++, then the $49e
+ * dance. Two shapes share the tail: the 0x580 arm (d7 = $1502 -
+ * 1 != 0) word-copies the $1500/$1501 staging bytes plus the new
+ * byte; the 0x5b8 arm (d7 == 0, i.e. $1502 == 1) byte-copies
+ * $1500 plus the new byte. */
+static void sound_board_run_ring_file(
+    vf2_sound_board *board,
+    uint8_t byte,
+    int word_copy
+)
+{
+    uint8_t *ram = board->sound_ram;
+    uint32_t cursor =
+        ((uint32_t)(((uint32_t)ram[VF2_SOUND_COMMAND_WRITE_CURSOR] << 8u) |
+                    ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]) &
+         UINT32_C(0x0fff));
+
+    ram[VF2_SOUND_COMMAND_RING_BASE + cursor] =
+        ram[VF2_SOUND_RING_STAGE_BASE];
+    if (word_copy) {
+        ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] =
+            ram[VF2_SOUND_RING_STAGE_BASE + 1u];
+        ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 2u] = byte;
+    } else {
+        ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] = byte;
+    }
+    cursor = (cursor + UINT32_C(4)) & UINT32_C(0x0fff);
+    ram[VF2_SOUND_COMMAND_WRITE_CURSOR] =
+        (uint8_t)(cursor >> 8u);
+    ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] = (uint8_t)cursor;
+    ++ram[VF2_SOUND_COMMAND_COUNT];
+    sound_board_run_dance_49e(board);
+}
+
+vf2_status vf2_sound_board_file_uart_byte(
+    vf2_sound_board *board,
+    uint8_t byte
+)
+{
+    uint8_t *ram = NULL;
+    uint8_t d1 = 0u;
+
+    if (board == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    /* ROM 0x52e/0x532: 0xff is the sound-CPU reboot door (sr mask,
+     * $401 clear, a7 reset, bra $100) -- refused cleanly. */
+    if (byte == 0xffu) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    ram = board->sound_ram;
+    /* ROM 0x536/0x53a: >= 0xf0 is ignored with no state change
+     * (branches over the $1503 file straight to the epilogue). */
+    if (byte >= 0xf0u) {
+        return VF2_OK;
+    }
+    if ((byte & 0x80u) != 0u) {
+        /* ROM 0x560-0x57c: file $1500; d1 = 2, or 1 when
+         * 0xc0 <= byte < 0xe0; file $1502. */
+        ram[VF2_SOUND_RING_STAGE_BASE] = byte;
+        d1 = 2u;
+        if (byte >= 0xc0u && byte < 0xe0u) {
+            d1 = 1u;
+        }
+        ram[VF2_SOUND_RING_STAGE_BASE + 2u] = d1;
+    } else {
+        /* ROM 0x546-0x55c: d1 = $1503 (or $1502 when $1503 is
+         * zero); the ring-file arm is taken when d1 == 1 BEFORE
+         * the subq (beq tests d1 - 1 == 0); otherwise the byte is
+         * filed at $1501. The $1503 epilogue always files the
+         * POST-sub value. */
+        uint8_t select = ram[VF2_SOUND_RING_STAGE_BASE + 3u];
+        if (select == 0u) {
+            select = ram[VF2_SOUND_RING_STAGE_BASE + 2u];
+        }
+        d1 = (uint8_t)(select - 1u);
+        if (select == 1u) {
+            uint8_t d7 =
+                (uint8_t)(ram[VF2_SOUND_RING_STAGE_BASE + 2u] - 1u);
+            sound_board_run_ring_file(board, byte, d7 != 0u);
+        } else {
+            ram[VF2_SOUND_RING_STAGE_BASE + 1u] = byte;
+        }
+    }
+    /* ROM 0x5e2 (all non-f0 paths): file $1503. */
+    ram[VF2_SOUND_RING_STAGE_BASE + 3u] = d1;
+    return VF2_OK;
+}
+
 static vf2_status sound_board_run_setup_scan(
     vf2_sound_board *board,
     vf2_sound_dispatch_report *report
