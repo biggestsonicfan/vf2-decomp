@@ -3126,6 +3126,261 @@ static void test_engine_probe(
     sample_window = NULL;
 }
 
+/* E1c key-on leg (v0825): the 0xed8 arm as a full native
+ * dispatch. Same S4 fixture as test_engine_probe, but the gate
+ * bit is staged pre-dispatch (table+0 |= 0x80000000 at 0x7f80;
+ * init-staged, survives to the gate -- synthetic scenario,
+ * ROM-exact logic). C: full dispatch to OK (handled 1, count 0,
+ * cursor +4, all 20 descriptors scanned). S: 0xf10 in 381 steps,
+ * rts resume at 0x7f6 in 1, drain exit 0x265c in 62. Compared:
+ * full RAM under the S4 exclusions + full SCSP incl.
+ * slot_active[0]==1 both sides; render non-silence (peak>0)
+ * + determinism (no S-render oracle, S4b precedent). */
+static void test_engine_ed8_keyon(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static uint8_t pristine_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    static uint8_t *sample_window = NULL;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *voice0 = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    uint16_t w = 0u;
+    {
+        static const char *names[4] = {
+            "mpr-17570.37", "mpr-17571.36",
+            "mpr-17572.32", "mpr-17573.31"
+        };
+        size_t bi = 0u;
+        sample_window = (uint8_t *)malloc(0x800000u);
+        if (sample_window == NULL) {
+            fprintf(stderr, "ed8-scout: no bank\n");
+            EXPECT_TRUE(0);
+            return;
+        }
+        memset(sample_window, 0, 0x800000u);
+        for (bi = 0u; bi < 4u; ++bi) {
+            char path[512];
+            FILE *f = NULL;
+            size_t got = 0u;
+            snprintf(path, sizeof(path), "%s/%s", rom_dir, names[bi]);
+            f = fopen(path, "rb");
+            if (f == NULL) {
+                fprintf(stderr, "ed8-scout: missing %s\n", path);
+                EXPECT_TRUE(0);
+                free(sample_window);
+                sample_window = NULL;
+                return;
+            }
+            got = fread(sample_window + bi * 0x200000u, 1u, 0x200000u,
+                        f);
+            fclose(f);
+            EXPECT_TRUE(got == 0x200000u);
+        }
+    }
+    if (vf2_sound_board_initialize(&board, audio_rom, audio_rom_size,
+                                   sample_window,
+                                   0x800000u) != VF2_OK) {
+        fprintf(stderr, "ed8-scout: init failed\n");
+        EXPECT_TRUE(0);
+        return;
+    }
+    cram = board.sound_ram;
+    {
+        uint8_t packet[4];
+        packet[0] = 0x9au;
+        packet[1] = 0u;
+        packet[2] = 1u;
+        packet[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[9] = 0xffu;
+    voice0[5] = 0x00u;
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    /* Stage the gate bit in BOTH images (pre-dispatch): the table
+     * is init-staged, not rewritten mid-drain (scout proved the
+     * patch survives: post == pre with bit31 intact). Synthetic
+     * scenario, ROM-exact logic (a8c-syn precedent). */
+    cram[0x7f80u] |= 0x80u;
+    memcpy(pristine_ram, cram, VF2_SOUND_RAM_BYTES);
+    fprintf(stderr, "ed8-scout: table7f80=");
+    {
+        size_t k = 0u;
+        for (k = 0u; k < 16u; ++k) {
+            fprintf(stderr, "%02x", (unsigned)cram[0x7f80u + k]);
+        }
+    }
+    fprintf(stderr, "\n");
+    memset(&creport, 0, sizeof(creport));
+    {
+        vf2_status cstatus =
+            vf2_sound_board_dispatch_next(&board, &creport);
+        fprintf(stderr, "ed8-scout: C status=%d handler=0x%05x handled=%d count=%u cursor=%04x->%04x scan=%u match=%u sword=%04x\n",
+                (int)cstatus, (unsigned)creport.handler_address,
+                creport.handled,
+                (unsigned)cram[VF2_SOUND_COMMAND_COUNT],
+                (unsigned)creport.cursor_before,
+                (unsigned)creport.cursor_after,
+                (unsigned)creport.descriptors_scanned,
+                (unsigned)creport.descriptors_matched,
+                (unsigned)creport.lookup_word);
+        EXPECT_TRUE(cstatus == VF2_OK);
+    }
+    /* E1c: the key-on arm completes the dispatch -- the drain scan
+     * resumes past the rts (S: 0x7f6 in 1 step, exit 0x265c) and
+     * the packet is consumed (count 0, cursor +4, handled 1). */
+    EXPECT_TRUE(creport.handled == 1);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    EXPECT_TRUE(creport.cursor_after ==
+                (uint16_t)((creport.cursor_before + 4u) &
+                           UINT16_C(0x0fff)));
+    /* S run with the gate bit staged: table+0 |= 0x80000000. */
+    memcpy(step_ram, pristine_ram, VF2_SOUND_RAM_BYTES);
+    step_ram[0x7f80u] |= 0x80u;
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = sample_window;
+    bus.sample_rom_size = 0x800000u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xf10), 0, 20000u,
+                          &done);
+    fprintf(stderr, "ed8-scout: S s-status=%d pc=0x%05x steps=%u events=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count);
+    fprintf(stderr, "ed8-scout: S d2=%08x d4=%08x d5=%08x d6=%08x a0=%08x a2=%08x a3=%08x\n",
+            (unsigned)regs.d[2], (unsigned)regs.d[4],
+            (unsigned)regs.d[5], (unsigned)regs.d[6],
+            (unsigned)regs.a[0], (unsigned)regs.a[2],
+            (unsigned)regs.a[3]);
+    /* Stepper-pinned arm shape (measured 2026-10-15): 381 steps
+     * to the 0xf10 rts; d2 untouched rate, d4 = slot 0,
+     * d5 = post-RMW word (0x4a61 low with 0x18 low byte). */
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xf10));
+    EXPECT_TRUE(done == 381u);
+    EXPECT_TRUE(regs.d[2] == UINT32_C(0x1004));
+    EXPECT_TRUE(regs.d[4] == UINT32_C(0));
+    EXPECT_TRUE(regs.d[5] == UINT32_C(0x4a18));
+    EXPECT_TRUE(step_ram[0x2000u] == 0x40u);
+    EXPECT_TRUE(step_scsp.slot_active[0] == 1u);
+    if (vf2_scsp_read_u16(&step_scsp, 0u, &w) == VF2_OK) {
+        uint16_t w2 = 0u, w4 = 0u, w6 = 0u;
+        vf2_scsp_read_u16(&step_scsp, 4u, &w4);
+        vf2_scsp_read_u16(&step_scsp, 6u, &w6);
+        if (vf2_scsp_read_u16(&step_scsp, 2u, &w2) != VF2_OK) {
+            w2 = 0u;
+        }
+        fprintf(stderr, "ed8-scout: S slot0=%04x+%04x +4=%04x +6=%04x\n",
+                (unsigned)w, (unsigned)w2, (unsigned)w4,
+                (unsigned)w6);
+        EXPECT_TRUE(w == UINT16_C(0x1830));
+        EXPECT_TRUE(w2 == UINT16_C(0));
+        EXPECT_TRUE(w4 == UINT16_C(0));
+        EXPECT_TRUE(w6 == UINT16_C(0x4a61));
+    } else {
+        EXPECT_TRUE(0);
+    }
+    if (status == VF2_OK && regs.pc == UINT32_C(0xf10)) {
+        /* Step the rts: expect resume at 0x7f6 (drain loop). */
+        vf2_status st2 = vf2_m68k_run(&bus, &regs, UINT32_C(0x7f6),
+                                      0, 20000u, &done);
+        fprintf(stderr, "ed8-scout: S resume s-status=%d pc=0x%05x steps=%u\n",
+                (int)st2, (unsigned)regs.pc, (unsigned)done);
+        EXPECT_TRUE(st2 == VF2_OK);
+        EXPECT_TRUE(regs.pc == UINT32_C(0x7f6));
+        EXPECT_TRUE(done == 1u);
+        /* Full drain to main-loop exit: the C consumed the packet
+         * (count 0, handled 1); S must show the same poststate. */
+        st2 = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c), 0,
+                           20000u, &done);
+        fprintf(stderr, "ed8-scout: S drain-exit s-status=%d pc=0x%05x steps=%u\n",
+                (int)st2, (unsigned)regs.pc, (unsigned)done);
+        EXPECT_TRUE(st2 == VF2_OK);
+        EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+        EXPECT_TRUE(done == 62u);
+        {
+            uint32_t addr = 0u;
+            for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+                if (addr == 0x2506u ||
+                    (addr >= 0x2508u && addr < 0x250au) ||
+                    addr >= 0x7e00u) {
+                    continue;
+                }
+                if (cram[addr] != step_ram[addr]) {
+                    fprintf(stderr, "ed8-scout: RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                            (unsigned)addr, (unsigned)cram[addr],
+                            (unsigned)step_ram[addr]);
+                    EXPECT_TRUE(0);
+                    break;
+                }
+            }
+        }
+        EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+        EXPECT_TRUE(board.scsp.slot_active[0] == 1u);
+    }
+    {
+        /* First live-keyed render from a native dispatch: model
+         * gate is non-silence + determinism (no S-render oracle,
+         * S4b precedent). */
+        static int16_t left[2048];
+        static int16_t right[2048];
+        static int16_t left2[2048];
+        static int16_t right2[2048];
+        vf2_sound_board snapshot;
+        int32_t peak = 0;
+        size_t i = 0u;
+        memcpy(&snapshot, &board, sizeof(snapshot));
+        EXPECT_TRUE(vf2_sound_board_render(&board, left, right,
+                                           2048u) == VF2_OK);
+        for (i = 0u; i < 2048u; ++i) {
+            int32_t al = left[i] < 0 ? -(int32_t)left[i]
+                                     : (int32_t)left[i];
+            int32_t ar = right[i] < 0 ? -(int32_t)right[i]
+                                      : (int32_t)right[i];
+            if (al > peak) {
+                peak = al;
+            }
+            if (ar > peak) {
+                peak = ar;
+            }
+        }
+        fprintf(stderr, "ed8-scout: render peak=%d\n", (int)peak);
+        /* First live-keyed audible render from a native dispatch:
+         * non-silence proves the key-on took effect in the model. */
+        EXPECT_TRUE(peak > 0);
+        memcpy(&board, &snapshot, sizeof(board));
+        EXPECT_TRUE(vf2_sound_board_render(&board, left2, right2,
+                                           2048u) == VF2_OK);
+        EXPECT_TRUE(memcmp(left, left2, sizeof(left)) == 0);
+        EXPECT_TRUE(memcmp(right, right2, sizeof(right)) == 0);
+    }
+    free(sample_window);
+    sample_window = NULL;
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -3216,6 +3471,7 @@ int main(int argc, char **argv)
     test_chain_uart_bridge(argv[1], audio_rom, audio_rom_size);
     test_chain_live_queue(argv[1], audio_rom, audio_rom_size);
     test_engine_probe(argv[1], audio_rom, audio_rom_size);
+    test_engine_ed8_keyon(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);

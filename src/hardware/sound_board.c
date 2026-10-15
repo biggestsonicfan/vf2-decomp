@@ -1416,7 +1416,91 @@ static vf2_status sound_board_run_sample_tail(
  * d2rate and stream[slot+0x1c] = d2rate + 0xeba (16-bit exact).
  * Refuses at the 0xcb2 copy loop (dead-on-silicon: movem.l
  * d0-d7,(a2) faults -- vector 4 to the 0x4fe blink -- so no live
- * path steps it; the stepper faults at 0xcb6): handler 0xcb2. */
+ * path steps it; the stepper faults at 0xcb6): handler 0xcb2.
+ * The bit31-taken branch runs sound_board_run_engine_keyon_ed8
+ * (v0825 E1c) instead of refusing. */
+static vf2_status sound_board_run_engine_keyon_ed8(
+    vf2_sound_board *board,
+    uint16_t slot,
+    uint32_t d3,
+    vf2_sound_dispatch_report *report
+)
+{
+    uint8_t *ram = board->sound_ram;
+    uint32_t table = UINT32_C(0x5000) + d3;
+    uint32_t stream = UINT32_C(0x2000) + (uint32_t)slot;
+    uint32_t t0 = 0u;
+    uint32_t t4 = 0u;
+    uint32_t t8 = 0u;
+    uint32_t key = 0u;
+    uint16_t w6 = 0u;
+    uint8_t hib = 0u;
+
+    /* ROM 0xed8 key-on arm (v0825 E1c, 15 insns). Taken when the
+       table+0 long has BE bit31 set (stepper-pinned: 0xf10
+       arrival in 381 steps, rts resumes the drain at 0x7f6 in 1
+       step). Effects: key = (t0 & 0xfffff) | 0x10300000 to
+       SCSP[slot+0] (u16 pair); SCSP[slot+4] = low word of
+       table+8; SCSP[slot+6] = low word of table+4 minus 1
+       (subq.w: low-word wrap exact); RMW slot+0 high byte |=
+       0x18 through the model so synchronize fires -- KEYONB
+       sets and slot_active goes 1 (S slot0 0x1830/0x0000, +4
+       0x0000, +6 0x4a61, stream 0x40, active0=1); stream byte
+       ram[0x2000+slot] = 0x40. No voice writes, no 151x
+       counters, d2 untouched. Returns VF2_OK: the rts resumes
+       the drain scan, which the C 0x90 loop models by
+       continuing. */
+    if (table + 12u > VF2_SOUND_RAM_BYTES ||
+        stream >= VF2_SOUND_RAM_BYTES) {
+        report->handler_address = UINT32_C(0x00000ed8);
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }    t0 = ((uint32_t)ram[table] << 24u) |
+         ((uint32_t)ram[table + 1u] << 16u) |
+         ((uint32_t)ram[table + 2u] << 8u) | ram[table + 3u];
+    t4 = ((uint32_t)ram[table + 4u] << 24u) |
+         ((uint32_t)ram[table + 5u] << 16u) |
+         ((uint32_t)ram[table + 6u] << 8u) | ram[table + 7u];
+    t8 = ((uint32_t)ram[table + 8u] << 24u) |
+         ((uint32_t)ram[table + 9u] << 16u) |
+         ((uint32_t)ram[table + 10u] << 8u) | ram[table + 11u];
+    /* ROM 0xed8-0xee4: key long to the slot. */
+    key = (t0 & UINT32_C(0x000fffff)) | UINT32_C(0x10300000);
+    if (vf2_scsp_write_u16(&board->scsp, (uint32_t)slot,
+                           (uint16_t)(key >> 16u)) != VF2_OK ||
+        vf2_scsp_write_u16(&board->scsp, (uint32_t)slot + 2u,
+                           (uint16_t)key) != VF2_OK ||
+        vf2_scsp_write_u16(&board->scsp, (uint32_t)slot + 4u,
+                           (uint16_t)t8) != VF2_OK) {
+        report->handler_address = UINT32_C(0x00000ee4);
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    /* ROM 0xef0-0xef6: subq.w #1 on the low word, then move.w. */
+    w6 = (uint16_t)t4;
+    --w6;
+    if (vf2_scsp_write_u16(&board->scsp, (uint32_t)slot + 6u,
+                           w6) != VF2_OK) {
+        report->handler_address = UINT32_C(0x00000ef0);
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    /* ROM 0xefa-0xf02: high byte |= 0x18 (KEYONB+KEYONEX, rest
+       preserved). Read-OR-write through the model so the key-on
+       effect fires exactly as the two silicon stores. */
+    if (vf2_scsp_read_u8(&board->scsp, (uint32_t)slot,
+                         &hib) != VF2_OK) {
+        report->handler_address = UINT32_C(0x00000efa);
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    hib |= 0x18u;
+    if (vf2_scsp_write_u8(&board->scsp, (uint32_t)slot,
+                          hib) != VF2_OK) {
+        report->handler_address = UINT32_C(0x00000efa);
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    /* ROM 0xf06-0xf0a: stream flag. 0xf10 rts = continue. */
+    ram[stream] = 0x40u;
+    return VF2_OK;
+}
+
 static vf2_status sound_board_run_engine_key(
     vf2_sound_board *board,
     const uint8_t *voice,
@@ -1434,8 +1518,8 @@ static vf2_status sound_board_run_engine_key(
 
     /* ROM 0xc68-0xc80 head gates (table longs, BE). */
     if ((ram[table] & 0x80u) != 0u) {
-        report->handler_address = UINT32_C(0x00000ed8);
-        return VF2_ERROR_UNSUPPORTED;
+        return sound_board_run_engine_keyon_ed8(board, slot, d3,
+                                               report);
     }
     if ((((uint32_t)ram[table + 0x0cu] << 24u) |
          ((uint32_t)ram[table + 0x0du] << 16u) |
@@ -2132,12 +2216,19 @@ vf2_status vf2_sound_board_dispatch_next(
             );
             /* Gate-hit (0x8b0 rts): head effects only, back to the
                drain scan -- a later descriptor may still match, so
-               continue like the default-ignore arm. Anything else
-               (trap / low split / door / bus error) holds the
-               packet. */
-            if (status != VF2_OK || at_door) {
+               continue like the default-ignore arm. Trap / low
+               split / bus error (status != OK) holds the packet, as
+               does a door the C cannot complete (OK + at_door, the
+               E1b 0xcb2 shape: run_loopb's exits all refuse, so a
+               completed descent never surfaces OK+door -- except
+               E1c's 0xed8 key-on arm, whose rts resumes the drain
+               (S: 0x7f6 in 1 step, drain exit 0x265c) and must
+               consume, not hold. Hold therefore keys on status
+               alone; the OK+door=1 combination is the completed
+               path. */
+            if (status != VF2_OK) {
                 *report = local;
-                return status != VF2_OK ? status : VF2_ERROR_UNSUPPORTED;
+                return status;
             }
         } else if (local.command_class != 0x80u &&
                    local.command_class != 0xa0u &&
