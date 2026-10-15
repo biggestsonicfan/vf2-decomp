@@ -2533,6 +2533,341 @@ static void test_chain_uart_bridge(
     free(bank);
 }
 
+/* T2: live-queue chain (queue -> bytes -> ring -> voices -> WAV).
+ *
+ * The park-sixth-a6c0 snapshot holds a LIVE-filed queue: count 3,
+ * rcur 0, wcur 3, ring {0x00ae101f, 0x009e0a7f, 0x00ae101f},
+ * staged 0, bidx 0xff (filed by real game code on the
+ * boot->TEST-MENU trajectory; the drainer has no live callers
+ * so the entries were never drained). Nine reference drainer
+ * ticks (probe recipe in audio_t2_live_queue_v0825.md) emit
+ * ae 10 1f | 9e 0a 7f | ae 10 1f and leave count 0, bidx 0xff.
+ *
+ * This leg files those 9 bytes (C file_uart_byte vs stepper L3
+ * 0x52e chained x9) and dispatches all 3 ring entries (C
+ * dispatch_next vs stepper drain 0x7a6 -> 0xc68 per entry):
+ * full-RAM C==S at every stage (S4 exclusions: count/cursor
+ * cells, stack window, jsr-spill), handler/status equality per
+ * round, render determinism + WAV to out/ (gitignored). No
+ * emit_command shortcut, no voice staging ($152e untouched):
+ * the ae/9e commands act on init-state voices. Prints: ring,
+ * per-round handler/steps, voice delta, peak. */
+static void test_chain_live_queue(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static const uint8_t live_bytes[9] = {
+        0xaeu, 0x10u, 0x1fu,
+        0x9eu, 0x0au, 0x7fu,
+        0xaeu, 0x10u, 0x1fu
+    };
+    static const uint8_t want_ring[12] = {
+        0xaeu, 0x10u, 0x1fu, 0x00u,
+        0x9eu, 0x0au, 0x7fu, 0x00u,
+        0xaeu, 0x10u, 0x1fu, 0x00u
+    };
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    static vf2_sound_board snapshot;
+    static vf2_sound_board filed;
+    static int16_t left[2048u];
+    static int16_t right[2048u];
+    static int16_t left_b[2048u];
+    static int16_t right_b[2048u];
+    uint8_t *bank = NULL;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    size_t i = 0u;
+    int round = 0;
+    int32_t peak = 0;
+    {
+        static const char *names[4] = {
+            "mpr-17570.37", "mpr-17571.36",
+            "mpr-17572.32", "mpr-17573.31"
+        };
+        bank = (uint8_t *)malloc(0x800000u);
+        EXPECT_TRUE(bank != NULL);
+        if (bank == NULL) {
+            return;
+        }
+        memset(bank, 0, 0x800000u);
+        for (i = 0u; i < 4u; ++i) {
+            char path[512];
+            FILE *f = NULL;
+            size_t got = 0u;
+            snprintf(path, sizeof(path), "%s/%s", rom_dir, names[i]);
+            f = fopen(path, "rb");
+            if (f == NULL) {
+                fprintf(stderr, "chain-live: missing %s\n", path);
+                EXPECT_TRUE(0);
+                free(bank);
+                return;
+            }
+            got = fread(bank + i * 0x200000u, 1u, 0x200000u, f);
+            fclose(f);
+            EXPECT_TRUE(got == 0x200000u);
+        }
+    }
+    memset(&board, 0, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom,
+                                          audio_rom_size, bank,
+                                          0x800000u) == VF2_OK);
+    cram = board.sound_ram;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    /* File the 9 live bytes on both sides. */
+    for (i = 0u; i < 9u; ++i) {
+        EXPECT_TRUE(vf2_sound_board_file_uart_byte(&board,
+                                                   live_bytes[i]) ==
+                    VF2_OK);
+        bus.ram = step_ram;
+        bus.ram_size = sizeof(step_ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = bank;
+        bus.sample_rom_size = 0x800000u;
+        bus.scsp = &step_scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.d[0] = live_bytes[i];
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x52e);
+        status = vf2_m68k_run(&bus, &regs, UINT32_C(0x5ea), 0,
+                              20000u, &done);
+        EXPECT_TRUE(status == VF2_OK);
+        EXPECT_TRUE(regs.pc == UINT32_C(0x5ea));
+        EXPECT_TRUE(regs.a[6] == UINT32_C(0x1000));
+        if (i == 0u) {
+            fprintf(stderr, "chain-live: l3 steps=%u events=%u\n",
+                    (unsigned)done, (unsigned)bus.event_count);
+        }
+    }
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 3u);
+    for (i = 0u; i < 12u; ++i) {
+        if (cram[VF2_SOUND_COMMAND_RING_BASE + i] != want_ring[i]) {
+            fprintf(stderr, "chain-live: ring[%u]: C=%02x want=%02x\n",
+                    (unsigned)i,
+                    (unsigned)cram[VF2_SOUND_COMMAND_RING_BASE + i],
+                    (unsigned)want_ring[i]);
+            EXPECT_TRUE(0);
+        }
+    }
+    {
+        uint32_t addr = 0u;
+        for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+            if (addr >= 0x7efcu && addr < 0x7f00u) {
+                continue;
+            }
+            if (cram[addr] != step_ram[addr]) {
+                fprintf(stderr, "chain-live: file RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                        (unsigned)addr, (unsigned)cram[addr],
+                        (unsigned)step_ram[addr]);
+                EXPECT_TRUE(0);
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+    fprintf(stderr, "chain-live: filed 9 bytes, count=3, ring match, C==S\n");
+    /* Independent dispatch rounds: restore the filed snapshot per
+     * round (sequential rounds entangle residue -- measured: the
+     * a0 body spins when run after the 90-miss zeroes $152e --
+     * so rounds share nothing but the filed state). Round 1
+     * carries S4-style arming ($152e=5, voice0 +9=0xff) to admit
+     * the 90 path; the a0 rounds (0, 2) are designed refusals
+     * (d2-residue, sound_board_dispatch_a0) pinned by status +
+     * handler + S arrival, without RAM equality. */
+    for (round = 0; round < 3; ++round) {
+        vf2_status cstatus = VF2_OK;
+        uint16_t cursor = (uint16_t)(round * 4);
+        uint8_t *voice0 = NULL;
+        if (round == 0) {
+            memcpy(filed.sound_ram, cram, VF2_SOUND_RAM_BYTES);
+            memcpy(&filed.scsp, &board.scsp, sizeof(filed.scsp));
+        } else {
+            memcpy(cram, filed.sound_ram, VF2_SOUND_RAM_BYTES);
+            memcpy(&board.scsp, &filed.scsp, sizeof(board.scsp));
+            memcpy(step_ram, filed.sound_ram, VF2_SOUND_RAM_BYTES);
+            memcpy(&step_scsp, &filed.scsp, sizeof(step_scsp));
+        }
+        cram[VF2_SOUND_COMMAND_CURSOR] = (uint8_t)(cursor >> 8u);
+        cram[VF2_SOUND_COMMAND_CURSOR + 1u] = (uint8_t)cursor;
+        step_ram[VF2_SOUND_COMMAND_CURSOR] = (uint8_t)(cursor >> 8u);
+        step_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = (uint8_t)cursor;
+        if (round == 1) {
+            voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+            voice0[9] = 0xffu;
+            voice0[5] = 0x00u;
+            cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+            voice0 = step_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            voice0[9] = 0xffu;
+            voice0[5] = 0x00u;
+            step_ram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+        }
+        memset(&creport, 0, sizeof(creport));
+        cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+        bus.ram = step_ram;
+        bus.ram_size = sizeof(step_ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = bank;
+        bus.sample_rom_size = 0x800000u;
+        bus.scsp = &step_scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x7a6);
+        /* Round 1 (90) funnels to the 0xc68 engine door; the a0
+         * rounds exit the drain to the main loop (0x265c). */
+        status = vf2_m68k_run(&bus, &regs,
+                              round == 1 ? UINT32_C(0xc68)
+                                         : UINT32_C(0x265c),
+                              0, 20000u, &done);
+        fprintf(stderr, "chain-live: round %d c-status=%d s-status=%d handler=0x%05x steps=%u events=%u\n",
+                round, (int)cstatus, (int)status,
+                (unsigned)creport.handler_address, (unsigned)done,
+                (unsigned)bus.event_count);
+        EXPECT_TRUE(bus.event_count == 0u);
+        /* Step pins (print-first, now locked): a0 drain exit 249,
+         * 90 funnel 389. */
+        if (round == 1) {
+            EXPECT_TRUE(done == 389u);
+        } else {
+            EXPECT_TRUE(done == 249u);
+        }
+        if (round == 1) {
+            /* S4 shape: C runs the full 90 + setup-author path and
+             * refuses at the 0xc68 engine door with effects
+             * applied; S funnels to the same door. Full-RAM
+             * equality under the S4 exclusions. */
+            EXPECT_TRUE(status == VF2_OK);
+            EXPECT_TRUE(regs.pc == UINT32_C(0xc68));
+            EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(creport.handler_address == UINT32_C(0xc68));
+            {
+                uint32_t addr = 0u;
+                for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+                    if (addr == 0x2506u ||
+                        (addr >= 0x2508u && addr < 0x250au) ||
+                        addr >= 0x7e00u) {
+                        continue;
+                    }
+                    if (cram[addr] != step_ram[addr]) {
+                        fprintf(stderr, "chain-live: round %d RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                                round, (unsigned)addr,
+                                (unsigned)cram[addr],
+                                (unsigned)step_ram[addr]);
+                        EXPECT_TRUE(0);
+                        break;
+                    }
+                }
+            }
+            EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+        } else {
+            /* Designed a0 refusal: C stops at the 0x1e74 entry
+             * (sound_board_dispatch_a0); the S drain runs the
+             * body and returns to the main loop (jmp 0x265c).
+             * The 0xc68 arrival is main-loop funnel, NOT a per
+             * -entry contract (measured: same packet at cursor 8
+             * never funnels there), so stop at the drain exit.
+             * Pin the refusal + the clean drain exit. */
+            EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(creport.handler_address == UINT32_C(0x1e74));
+            EXPECT_TRUE(status == VF2_OK);
+            EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+        }
+    }
+    /* Render from the admitted round-1 post-state: restore filed,
+     * re-apply cursor 4 + S4 arming, dispatch C-only (the C==S for
+     * this shape was proven in-round). Gates: voice authored by
+     * the LIVE {9e} command (+2 == 0x58), render determinism.
+     * Audibility is reported, not gated (no engine keying). */
+    memcpy(cram, filed.sound_ram, VF2_SOUND_RAM_BYTES);
+    memcpy(&board.scsp, &filed.scsp, sizeof(board.scsp));
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 4u;
+    {
+        uint8_t *voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+        size_t voiced = 0u;
+        voice0[9] = 0xffu;
+        voice0[5] = 0x00u;
+        cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+        memset(&creport, 0, sizeof(creport));
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &creport) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(creport.handler_address == UINT32_C(0xc68));
+        for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
+            if (cram[VF2_SOUND_VOICE_TABLE_BASE +
+                    i * VF2_SOUND_VOICE_BYTES + 2u] != 0u) {
+                ++voiced;
+            }
+        }
+        fprintf(stderr, "chain-live: admitted voiced=%u v0+2=%02x handler=0x%05x\n",
+                (unsigned)voiced, (unsigned)voice0[2],
+                (unsigned)creport.handler_address);
+        EXPECT_TRUE(voiced == 1u);
+        EXPECT_TRUE(voice0[2] == 0x58u);
+    }
+    memcpy(&snapshot, &board, sizeof(snapshot));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left, right, 2048u) ==
+                VF2_OK);
+    for (i = 0u; i < 2048u; ++i) {
+        int32_t al = left[i] < 0 ? -(int32_t)left[i] : left[i];
+        int32_t ar = right[i] < 0 ? -(int32_t)right[i] : right[i];
+        if (al > peak) {
+            peak = al;
+        }
+        if (ar > peak) {
+            peak = ar;
+        }
+    }
+    fprintf(stderr, "chain-live: peak=%d\n", (int)peak);
+    memcpy(&board, &snapshot, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left_b, right_b,
+                                      2048u) == VF2_OK);
+    EXPECT_TRUE(memcmp(left, left_b, sizeof(left)) == 0);
+    EXPECT_TRUE(memcmp(right, right_b, sizeof(right)) == 0);
+    {
+        static const uint8_t hdr[44] = {
+            0x52u, 0x49u, 0x46u, 0x46u, 0x24u, 0x20u, 0x00u, 0x00u,
+            0x57u, 0x41u, 0x56u, 0x45u, 0x66u, 0x6du, 0x74u, 0x20u,
+            0x10u, 0x00u, 0x00u, 0x00u, 0x01u, 0x00u, 0x02u, 0x00u,
+            0x44u, 0xacu, 0x00u, 0x00u, 0x10u, 0xb1u, 0x02u, 0x00u,
+            0x04u, 0x00u, 0x10u, 0x00u, 0x64u, 0x61u, 0x74u, 0x61u,
+            0x00u, 0x20u, 0x00u, 0x00u
+        };
+        FILE *wav = fopen("out/chain-live.wav", "wb");
+        if (wav != NULL) {
+            uint8_t frame[4];
+            size_t f = 0u;
+            (void)fwrite(hdr, 1u, sizeof(hdr), wav);
+            for (f = 0u; f < 2048u; ++f) {
+                frame[0] = (uint8_t)left[f];
+                frame[1] = (uint8_t)((uint16_t)left[f] >> 8u);
+                frame[2] = (uint8_t)right[f];
+                frame[3] = (uint8_t)((uint16_t)right[f] >> 8u);
+                (void)fwrite(frame, 1u, sizeof(frame), wav);
+            }
+            (void)fclose(wav);
+            fprintf(stderr, "chain-live: wrote out/chain-live.wav\n");
+        } else {
+            fprintf(stderr, "chain-live: out/ missing, WAV skipped\n");
+        }
+    }
+    free(bank);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -2621,6 +2956,7 @@ int main(int argc, char **argv)
     test_chain_render(audio_rom, audio_rom_size);
     test_chain_audible(argv[1], audio_rom, audio_rom_size);
     test_chain_uart_bridge(argv[1], audio_rom, audio_rom_size);
+    test_chain_live_queue(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);
