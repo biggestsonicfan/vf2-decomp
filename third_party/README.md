@@ -70,9 +70,26 @@ Referências úteis deste dump:
 
 ## `mame-model2-ref/`
 
-Trechos do driver Model 2 (`model2.cpp` / `model2.h`, **BSD-3-Clause**)
-para mapa de memória copro/geo/texture e boot do TGP. Driver MAME por
-R. Belmont, Olivier Galibert, ElSemi, Angelo Salese, Matthew Daniels.
+Trechos do Model 2 do MAME **mame0289** (`src/mame/sega/`), todos
+**BSD-3-Clause**, autores R. Belmont, Olivier Galibert, ElSemi, Angelo
+Salese, Matthew Daniels. **Só referência**, fora do build (o
+`CMakeLists.txt` não inclui `third_party/`), nunca linkado em
+`src/recovered/`, no executor nem no runtime C17.
+
+| Arquivo | Papel |
+| --- | --- |
+| `model2.cpp` / `model2.h` | driver: mapa de memória copro/geo/texture, boot do TGP |
+| `model2_v.cpp` | **geometrizer/vídeo**: `geo_parse*`, `geo_object_data`, `model2_3d_process_polygon` (lê o cabeçalho de textura de 4 words + UVs por vértice) e `model2_renderer::model2_3d_render` (desempacota retângulo de planche `texx/texy/texwidth/texheight`, wrap/mirror, microtextura, luma/color base) |
+| `model2rd.ipp` | rasterização: desenho de scanline sólido/texturizado, amostragem bilinear/mip/microtextura, caminho de cor luma+gamma |
+
+- URL: `https://github.com/mamedev/mame/tree/mame0289/src/mame/sega`
+- Por que: o link polígono→textura (retângulo de planche + UV) do VF2 é
+  feito pelo **geometrizer** da placa de vídeo, não pelo microcode do TGP
+  (ver `decomp/i960/notes/tgp_microcode_no_texture_decode_v0830.md`).
+  `model2_v.cpp` + `model2rd.ipp` sugerem o formato; a recuperação
+  clean-room é **medida/provada contra a ROM de VF2 e as capturas MAME**
+  (mesmo fluxo do `model2.cpp`: MAME sugere → oráculo mede → diferencial
+  prova). **Não copiar handlers MAME para `src/recovered/`.**
 
 ## Tools de análise (repo)
 
