@@ -80,6 +80,7 @@ add_library(vf2_core STATIC
     src/platform/platform_software.c
     src/platform/tile.c
     src/platform/model_decode.c
+    src/platform/texture_sheet.c
     src/recovered/boot_entry.c
     src/recovered/camera_viewport.c
     src/recovered/hybrid.c
@@ -378,6 +379,11 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_model_decode_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_model_decode_tests)
     add_test(NAME vf2_model_decode COMMAND vf2_model_decode_tests)
+
+    add_executable(vf2_texture_sheet_tests tests/platform/test_texture_sheet.c)
+    target_link_libraries(vf2_texture_sheet_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_texture_sheet_tests)
+    add_test(NAME vf2_texture_sheet COMMAND vf2_texture_sheet_tests)
 
     add_executable(vf2_tile_tests tests/platform/test_tile.c)
     target_link_libraries(vf2_tile_tests PRIVATE vf2_core)

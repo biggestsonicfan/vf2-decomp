@@ -20,6 +20,7 @@
 #include "vf2/native_differential.h"
 #include "vf2/recovered.h"
 #include "vf2/status.h"
+#include "vf2/texture_sheet.h"
 #include "vf2/version.h"
 
 static void usage(const char *program)
@@ -7103,6 +7104,107 @@ static int command_read_words(
     return EXIT_SUCCESS;
 }
 
+/* --- decode-texture-sheet: a texture-RAM bank -> grayscale PGM ----------------
+ *
+ * Reads a raw texture bank (local-only, e.g. a MAME capture of texture RAM
+ * 0x12000000 / 0x12400000), decodes the 4-bit luma-index texels with
+ * vf2_texture_sheet_decode, and writes an 8-bit grayscale binary PGM (P5), one
+ * pixel = index*17. Input and output stay local; this never touches the repo.
+ * CI exercises the decoder on synthetic data (tests/platform/test_texture_sheet.c),
+ * not this file-I/O command. */
+static int command_decode_texture_sheet(
+    const char *bank_path,
+    const char *width_arg,
+    const char *height_arg,
+    const char *out_path
+)
+{
+    FILE *in;
+    FILE *out;
+    uint8_t *bank;
+    uint8_t *index;
+    long bank_size;
+    size_t read_count;
+    size_t texel_count;
+    size_t i;
+    uint32_t width = 0u;
+    uint32_t height = 0u;
+    vf2_status status;
+
+    if (!parse_u32(width_arg, &width) || !parse_u32(height_arg, &height)) {
+        fprintf(stderr, "decode-texture-sheet: bad width/height\n");
+        return EXIT_FAILURE;
+    }
+
+    in = fopen(bank_path, "rb");
+    if (in == NULL) {
+        fprintf(stderr, "decode-texture-sheet: cannot open %s\n", bank_path);
+        return EXIT_FAILURE;
+    }
+    if (fseek(in, 0, SEEK_END) != 0 || (bank_size = ftell(in)) < 0 ||
+        fseek(in, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "decode-texture-sheet: cannot size %s\n", bank_path);
+        fclose(in);
+        return EXIT_FAILURE;
+    }
+    bank = (uint8_t *)malloc((size_t)bank_size);
+    if (bank == NULL) {
+        fprintf(stderr, "decode-texture-sheet: out of memory\n");
+        fclose(in);
+        return EXIT_FAILURE;
+    }
+    read_count = fread(bank, 1u, (size_t)bank_size, in);
+    fclose(in);
+    if (read_count != (size_t)bank_size) {
+        fprintf(stderr, "decode-texture-sheet: short read on %s\n", bank_path);
+        free(bank);
+        return EXIT_FAILURE;
+    }
+
+    texel_count = (size_t)width * (size_t)height;
+    index = (uint8_t *)malloc(texel_count != 0u ? texel_count : 1u);
+    if (index == NULL) {
+        fprintf(stderr, "decode-texture-sheet: out of memory\n");
+        free(bank);
+        return EXIT_FAILURE;
+    }
+
+    status = vf2_texture_sheet_decode(bank, (size_t)bank_size, width, height,
+                                      index, texel_count, NULL);
+    free(bank);
+    if (status != VF2_OK) {
+        fprintf(stderr,
+                "decode-texture-sheet: decode failed (status %d); a %ux%u "
+                "sheet needs width a multiple of 8 and a bank of >= %zu bytes\n",
+                (int)status, (unsigned)width, (unsigned)height,
+                texel_count / 2u);
+        free(index);
+        return EXIT_FAILURE;
+    }
+
+    out = fopen(out_path, "wb");
+    if (out == NULL) {
+        fprintf(stderr, "decode-texture-sheet: cannot write %s\n", out_path);
+        free(index);
+        return EXIT_FAILURE;
+    }
+    fprintf(out, "P5\n%u %u\n255\n", (unsigned)width, (unsigned)height);
+    for (i = 0u; i < texel_count; ++i) {
+        index[i] = vf2_texture_sheet_index_to_gray(index[i]);
+    }
+    if (fwrite(index, 1u, texel_count, out) != texel_count) {
+        fprintf(stderr, "decode-texture-sheet: short write on %s\n", out_path);
+        fclose(out);
+        free(index);
+        return EXIT_FAILURE;
+    }
+    fclose(out);
+    free(index);
+    printf("decode-texture-sheet: wrote %ux%u grayscale PGM to %s\n",
+           (unsigned)width, (unsigned)height, out_path);
+    return EXIT_SUCCESS;
+}
+
 /* --- extract-models: decode a character's mesh from a MAME fight capture ------
  *
  * Reads the capture's geo-0x00800010 object words (= object-table w0), resolves
@@ -7814,6 +7916,10 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "extract-models") == 0 && argc == 5) {
         return command_extract_models(argv[2], argv[3], argv[4]);
+    }
+
+    if (strcmp(argv[1], "decode-texture-sheet") == 0 && argc == 6) {
+        return command_decode_texture_sheet(argv[2], argv[3], argv[4], argv[5]);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
