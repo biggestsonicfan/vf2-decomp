@@ -607,6 +607,19 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_player_cf04_tests)
     add_test(NAME vf2_player_cf04 COMMAND vf2_player_cf04_tests)
 
+    # 0x43800 sound-queue UART drainer (v0825 8f): synthetic unit
+    # legs always run; the ROM-backed C-vs-stepper differential
+    # needs a ROM dir and is wired only where one exists.
+    add_executable(vf2_sound_43800_tests tests/recovered/test_sound_43800_native.c)
+    target_link_libraries(vf2_sound_43800_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_sound_43800_tests)
+    if(EXISTS "${VF2_ROM_DIR}")
+        add_test(NAME vf2_sound_43800_drainer
+            COMMAND vf2_sound_43800_tests "${VF2_ROM_DIR}")
+    else()
+        add_test(NAME vf2_sound_43800_drainer COMMAND vf2_sound_43800_tests)
+    endif()
+
     add_executable(vf2_player_1fee4_tests tests/recovered/test_player_1fee4_native.c)
     target_link_libraries(vf2_player_1fee4_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_player_1fee4_tests)

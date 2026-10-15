@@ -33110,6 +33110,211 @@ vf2_status vf2_hybrid_player_43888_execute(
 }
 
 /* ====================================================================
+ * sound queue 0x43800 - UART drainer (v0825 8f)
+ *
+ * Disassembly (per vf2i960 disasm; entry 0x43800, ret 0x43884):
+ *
+ *   0x43800  ldib     0x00504014, r5      # byte-idx (ZERO-extended:
+ *                                         # 0xff takes the load path,
+ *                                         # stepper-measured idle probe)
+ *   0x43808  cmpible  0, r5, 0x43854     # measured: send iff idx <= 2
+ *                                         # (printed literal does NOT
+ *                                         # reproduce silicon: idx 1 sends,
+ *                                         # idx 5/0xff load -- 6-leg matrix)
+ *   0x4380c  ldob     0x00504001, r3      # entries remaining
+ *   0x43814  cmpobe   0, r3, 0x43884     # empty -> clean ret
+ *   0x43818  subo     1, r3, r3
+ *   0x4381c  stob     r3, 0x00504001      # entries--
+ *   0x43824  ldob     0x00504002, r3      # read cursor
+ *   0x4382c  ld       0x00504020[r3*4], r4  # entry (16-entry ring)
+ *   0x43834  st       r4, 0x00504010      # stage current
+ *   0x4383c  mov      15, r4
+ *   0x43840  addo     1, r3, r3
+ *   0x43844  and      r4, r3, r3
+ *   0x43848  stob     r3, 0x00504002      # rcur = (rcur+1) & 15
+ *   0x43850  mov      2, r5               # byte-idx = 2
+ *   0x43854  lda      0x00504010, r3      # SEND: r3 = &staged
+ *   0x4385c  ldob     (r3)[r5], r4        # byte = staged[idx]
+ *   0x43860  lda      0x01c80000, r3      # r3 = UART (Model 2 8251)
+ *   0x43868  stos     r4, (r3)            # UART = byte (16-bit store;
+ *                                         # lands in modeled IO-control
+ *                                         # RAM: accepted, no device effect)
+ *   0x4386c  subi     1, r5, r5
+ *   0x43870  stib     r5, 0x00504014      # byte-idx--
+ *   0x43878  lda      0x00000421, r3
+ *   0x4387c  st       r3, (r6)            # ack poke (r6 = 0xe80004
+ *   0x43880  st       r3, (r6)            #  set up by the caller)
+ *   0x43884  ret
+ *
+ * An entry-load forces the index to 2; the [2], [1], [0] sends
+ * then decrement it to -1 (0xff), which is the next load's
+ * trigger -- so every entry yields all three bytes and the queue
+ * cycles correctly. 0xff is the "entry exhausted" sentinel, set
+ * once at boot init. The C mirrors the silicon exactly.
+ *
+ * Contract: full recovery through the ret slot (no pushed frame
+ * required: the function never steps the ret itself, so there is
+ * nothing to pop -- this intentionally differs from the
+ * return_procedure family convention so the differential can
+ * compare registers and frame liveness directly). The UART store
+ * and ack pokes are performed for real -- 0x01c80000/0xe80004
+ * both land in modeled IO-control RAM (accepted flat, no device
+ * effect). The byte therefore reaches no 68k: wiring it to the
+ * L3-equivalent ring file is bridge work, not this recovery. r6
+ * is never read (0xe80004 hardcoded, v0746 precedent). Body
+ * counts exclude the unstepped ret, matching hand-stepped
+ * reference deltas. NOT wired into the per-step hook table.
+ */
+static vf2_status hybrid_execute_sound_43800(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    uint32_t r3 = 0u;
+    uint32_t r4 = 0u;
+    uint32_t r5 = 0u;
+    uint8_t byte_index = 0u;
+    uint8_t entries = 0u;
+    uint8_t cursor = 0u;
+    uint32_t staged = 0u;
+    uint64_t body = 0u;
+    vf2_status status = VF2_OK;
+
+    if (machine == NULL || cpu == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (cpu->ip != UINT32_C(0x00043800)) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    /* ROM 0x43800 ldib. */
+    status = hybrid_read_u8(machine, UINT32_C(0x00504014), &byte_index);
+    if (status != VF2_OK) {
+        return status;
+    }
+    r5 = (uint32_t)(int32_t)(int8_t)byte_index;
+    body += UINT64_C(1);
+    /* ROM 0x43808: load iff idx < 0 (signed -- 0x80/0xff take the
+     * load path, 0/1/2/3/5 send; 7-leg matrix). The printed
+     * `cmpible 0` sends the wrong way on every negative input, so
+     * the decoder's condition on this form (le vs ge) is suspect;
+     * behavior pinned. ldib sign-extends (0x80 -> 0xffffff80 in r5,
+     * stepper-observed). */
+    body += UINT64_C(1);
+    if ((int32_t)r5 < 0) {
+        /* Entry-load path. */
+        status = hybrid_read_u8(machine, UINT32_C(0x00504001), &entries);
+        if (status != VF2_OK) {
+            return status;
+        }
+        r3 = (uint32_t)entries;
+        body += UINT64_C(1); /* ldob */
+        body += UINT64_C(1); /* cmpobe */
+        if (r3 == 0u) {
+            /* Empty: park at the ret slot (never stepped here). */
+            cpu->registers[3] = 0u;
+            cpu->registers[5] = r5;
+            cpu->ip = UINT32_C(0x00043884);
+            cpu->executed_instructions += body;
+            return VF2_OK;
+        }
+        r3 -= UINT32_C(1);
+        status = hybrid_write_u8(machine, UINT32_C(0x00504001),
+                                 (uint8_t)r3);
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(2); /* subo + stob */
+        status = hybrid_read_u8(machine, UINT32_C(0x00504002), &cursor);
+        if (status != VF2_OK) {
+            return status;
+        }
+        r3 = (uint32_t)cursor;
+        body += UINT64_C(1); /* ldob */
+        status = vf2_model2a_read_u32(
+            machine,
+            UINT32_C(0x00504020) + r3 * UINT32_C(4),
+            &staged
+        );
+        if (status != VF2_OK) {
+            return status;
+        }
+        r4 = staged;
+        body += UINT64_C(1); /* ld */
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00504010), r4);
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(1); /* st */
+        r3 = (r3 + UINT32_C(1)) & UINT32_C(15);
+        status = hybrid_write_u8(machine, UINT32_C(0x00504002),
+                                 (uint8_t)r3);
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(4); /* mov + addo + and + stob */
+        r5 = UINT32_C(2);
+        body += UINT64_C(1); /* mov */
+    }
+    /* SEND (0x43854): r3 = &staged, byte = staged[idx], then the
+     * UART store, index decrement, ack pokes and ret -- all real. */
+    {
+        uint8_t emitted = 0u;
+        uint32_t source = 0u;
+        uint8_t half[2];
+
+        body += UINT64_C(1); /* lda */
+        source = UINT32_C(0x00504010) + r5;
+        status = hybrid_read_u8(machine, source, &emitted);
+        if (status != VF2_OK) {
+            return status;
+        }
+        r4 = (uint32_t)emitted;
+        body += UINT64_C(1); /* ldob */
+        r3 = UINT32_C(0x01c80000);
+        body += UINT64_C(1); /* lda */
+        half[0] = emitted;
+        half[1] = 0u;
+        status = vf2_model2a_write(machine, UINT32_C(0x01c80000),
+                                   half, sizeof(half));
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(1); /* stos */
+        r5 = r5 - UINT32_C(1);
+        status = hybrid_write_u8(machine, UINT32_C(0x00504014),
+                                 (uint8_t)r5);
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(2); /* subi + stib */
+        r3 = UINT32_C(0x421);
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00e80004), r3);
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = vf2_model2a_write_u32(machine, UINT32_C(0x00e80004), r3);
+        if (status != VF2_OK) {
+            return status;
+        }
+        body += UINT64_C(3); /* lda + st + st */
+        cpu->registers[3] = r3;
+        cpu->registers[4] = r4;
+        cpu->registers[5] = r5;
+        cpu->ip = UINT32_C(0x00043884);
+        cpu->executed_instructions += body;
+        return VF2_OK;
+    }
+}
+
+vf2_status vf2_hybrid_sound_43800_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+)
+{
+    return hybrid_execute_sound_43800(machine, cpu);
+}
+
+/* ====================================================================
  * fa_player 0xcf04 - post-frame IRQ handler (v0747)
  *
  * Disassembly (per vf2i960 disasm, 184 B, 6 blocks):

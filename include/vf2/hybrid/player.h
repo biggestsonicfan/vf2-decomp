@@ -82,6 +82,20 @@ vf2_status vf2_hybrid_player_cf04_execute(
     vf2_i960_cpu *cpu
 );
 
+/* Recover 0x43800: sound-queue UART drainer (v0825 8f).
+ * IP must be 0x43800. Applies all queue-state work, performs the
+ * UART store and ack pokes for real (both land in modeled
+ * IO-control RAM), and parks ip at the ret slot WITHOUT stepping
+ * it or popping any frame -- this differs from the
+ * return_procedure family convention so the differential can
+ * compare registers and frame liveness directly. Counts retired
+ * instructions only. r6 is never read. NOT wired into the
+ * per-step hook table. */
+vf2_status vf2_hybrid_sound_43800_execute(
+    vf2_model2a *machine,
+    vf2_i960_cpu *cpu
+);
+
 /* Recover 0x1fee4: trivial init (36 B, 5 blocks).
  * IP must be 0x1fee4 with a pushed frame. Writes the IEEE 754
  * float 1.0 (0x3f800000) to 26 consecutive 4-byte locations
