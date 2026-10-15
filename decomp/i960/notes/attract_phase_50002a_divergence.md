@@ -295,8 +295,34 @@ recovered `interrupt-initial-cluster` models the long path as four sub-bridges:
 (= 0x1290), `execute_texture_upload_dispatch` (= 0x4ba80), then
 `execute_interrupt_fighter_compare_prefix` (0xc0c..0xc78). Since the compare
 tail counts correctly, the **off-by-one is inside one of the three called
-functions** (0x1064 / 0x1290 / 0x4ba80): the corrected boot makes one of them run
-one more instruction than its sub-bridge's hardcoded `recovered_instruction_count`
-expects. Next step: trace the instruction count of each of the three at the
-diverging invocation with vs without the fix to find which sub-bridge is short,
-then correct its count + reproduced effect. Then re-measure fourth-dispatch.
+functions** (0x1064 / 0x1290 / 0x4ba80).
+
+### Exact sub-bridge: `execute_video_register_compose` (0x1064)
+
+`src/recovered/texture_bridge_video.c:4`. This is the recovered reproduction of
+the very ROM function that computes `0x500704`. It:
+
+- reads `0x01c0001c` into `control`: `control |= ((raw & 15) | 0xf0) << 24`
+  (line 79-83) -- **the io_control[0x1c] fix byte feeds directly here**;
+- computes `inverted = ~control`, `newly_enabled = inverted & ~old_flags`, and
+  **writes `newly_enabled` to `0x500704`** (line 97) -- i.e. this bridge is where
+  `0x500704` is produced, matching the ROM's `~(r6|r7)` at 0x11e4;
+- then picks an instruction-count delta -- `+1` / `+2` / `+6` / `+8` (lines
+  112-150) -- from `callback` (`*0x5001dc`), `inverted & 8`, and
+  `newly_enabled & 0x00f7f700`, on a hardcoded base `instructions = 63`.
+
+The fix sets `io_control[0x1c]=0xff`, so `control`'s top byte becomes 0xff (vs
+0xf0), flipping `newly_enabled`'s top nibble and `0x500704` from `0x0f000000` to
+`0`. Although the top-byte change is outside the `0x00f7f700` mask, the corrected
+boot's accumulated `old_flags` / `callback` state at the diverging frame selects
+a different count branch (or the ROM takes a different helper path), so the
+bridge's reported `recovered_instruction_count` is one short of the interpreter
+-- the observed 0xc74/0xc78 off-by-one.
+
+Fix (next slice, needs validation, no validation-weakening): capture `control`,
+`old_flags`, `newly_enabled`, `callback` and the interpreter's actual instruction
+count through 0x1064 at the diverging frame (with the fix), and correct the
+count-branch logic (lines 112-150) so the bridge reproduces the corrected-boot
+helper path exactly. Then re-measure fourth-dispatch (and recompute its
+`expected_blocks`/`expected_instructions`), then walk any further divergences
+toward the bit13/0xc94 3D handler.
