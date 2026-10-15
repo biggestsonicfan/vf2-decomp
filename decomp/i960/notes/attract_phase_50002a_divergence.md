@@ -348,12 +348,28 @@ corrected boot with `interpreted_task=0, status=VF2_OK` -- the
 in the **scheduler flow around the game-info task** (the second-pass scheduler
 scan / task sequencing), not its body: with the corrected boot the task
 ordering/registry differs from the old boot the recovered scheduler pass models,
-and a step returns UNSUPPORTED while IP sits at 0x1645c. Next: instrument the
-native-fourth-dispatch loop (or `vf2_native_differential_run_until_after`) to log
-per-step ip + step-kind + result around the 6th->7th block, to see which
-scheduler step fails and what task the corrected boot expects next. (This is the
+and a step returns UNSUPPORTED while IP sits at 0x1645c. (This is the
 3rd self-correction in this note; keep trusting instrumented evidence over the
 prior guess.)
+
+### Scope finding: the dispatch validation harness is hardcoded to the old boot
+
+Per-step logging in `vf2_native_differential_run_until_after` did NOT fire for
+the failing step -- because native-fourth/sixth-dispatch's "second-scheduler-pass"
+runs a **separate, bespoke loop** in `tools/vf2i960/commands.c:4869+` that
+hardcodes the old boot's exact bridge sequence: a long whitelist of expected
+bridge-entry IPs (0x4c868, 0x4c6e0, 0x4cb64, ... dozens) and exact
+`bridge_block_counts[...]` (e.g. TEXTURE_STATUS_DISPATCH_CALL==4,
+SECOND_SCHEDULER_ENTRY==1, first_geometry_address==0x00803008, ...). The corrected
+boot takes a different bridge/task sequence, so even once the runtime side is
+recovered, these hardcoded harness expectations are wrong and must be re-derived
+for the corrected boot. So "make native-fourth-dispatch green on the corrected
+boot" is a two-sided effort -- recover the new runtime bridges AND rewrite the
+harness's hardcoded whitelist + counts -- not a handful of localized bridge fixes.
+AGENTS.md rule 5 forbids simply loosening the harness; the counts must track the
+corrected oracle. This is the honest scope of Part 1's recovery beyond divergence
+#1. Part 2 (a rendered 3D scene) additionally needs G2's TGP pipeline, blocked on
+microcode absent from the romset.
 
 Process established by #1: each corrected-boot divergence is recovered as a branch
 that is inert for the old boot (old-boot native-*-dispatch still MATCH) and so
