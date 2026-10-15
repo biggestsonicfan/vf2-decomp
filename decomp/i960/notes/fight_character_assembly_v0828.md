@@ -38,7 +38,15 @@ Object-submission protocol (matches the recovered helper `0x7c60`,
 `packet_format_p1_v0377.md`): per piece the i960 writes the display-list address to
 geo `0x00801008` and the model word to geo `0x00800010`.
 
-## 2. Piece → polygon-ROM model record [MEASURED — verified, extends slice 1]
+## 2. Piece → polygon-ROM model record [CORRECTED by model_extractor_v0829]
+
+> **Correction:** the geo `0x00800010` value is the object-table **w0**, not the
+> polygon pointer. Reading `(value & 0x7fffff)*4` directly (below) lands near the
+> model region by coincidence but **not** on a record start. The real record is
+> reached via the object table (`0x020e0004`): match w0 → read **w2** → byte =
+> `(w2 & 0x7fffff)*4`. The P1 cluster is at poly `0x3c1fac..0x3ca730`. See
+> `model_extractor_v0829.md`.
+
 
 The model word written to geo `0x00800010` resolves to a model record at
 **`poly_byte = (word & 0x7fffff) * 4`** (the slice-1 word-index convention). Verified

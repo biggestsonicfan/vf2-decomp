@@ -16,6 +16,7 @@
 #include "vf2/hybrid.h"
 #include "vf2/hybrid/player.h"
 #include "vf2/model2a.h"
+#include "vf2/model_decode.h"
 #include "vf2/native_differential.h"
 #include "vf2/recovered.h"
 #include "vf2/status.h"
@@ -7102,6 +7103,236 @@ static int command_read_words(
     return EXIT_SUCCESS;
 }
 
+/* --- extract-models: decode a character's mesh from a MAME fight capture ------
+ *
+ * Reads the capture's geo-0x00800010 object words (= object-table w0), resolves
+ * each to a polygon-ROM model record via the object table (0x020e0004), decodes it
+ * with vf2_model_decode_record, clusters pieces into characters by object-id
+ * proximity, and writes one Wavefront OBJ per character (playerN.obj) plus
+ * scene.obj into <out-dir>. The OBJ geometry is untextured (slice 4). All inputs
+ * and outputs are local; nothing is committed. */
+
+typedef struct extract_piece {
+    uint32_t sub_order;
+    uint32_t object_id;
+    uint32_t byte_offset;
+    uint32_t bank;
+} extract_piece;
+
+typedef struct extract_cluster {
+    size_t start;
+    size_t end;
+    uint32_t min_sub;
+} extract_cluster;
+
+static int extract_write_obj(
+    const char *path, const uint8_t *poly, size_t poly_size,
+    const extract_piece *pieces, size_t piece_count, size_t *total_tris_out
+)
+{
+    FILE *f = fopen(path, "wb");
+    size_t vbase = 1u; /* OBJ is 1-indexed */
+    size_t total_tris = 0u;
+    size_t i = 0u;
+    const size_t max_tris = 200000u;
+    vf2_model_triangle *tris =
+        (vf2_model_triangle *)malloc(max_tris * sizeof(*tris));
+    if (f == NULL || tris == NULL) {
+        if (f != NULL) fclose(f);
+        free(tris);
+        return 0;
+    }
+    fprintf(f, "# VF2 extracted mesh (untextured, slice 4). Local only, never committed.\n");
+    for (i = 0u; i < piece_count; ++i) {
+        size_t n = 0u;
+        size_t t = 0u;
+        if (vf2_model_decode_record(
+                poly, poly_size, pieces[i].byte_offset, 1, tris, max_tris, &n
+            ) != VF2_OK) {
+            continue;
+        }
+        fprintf(f, "o piece_%03u_id_%03x\n",
+                (unsigned)pieces[i].sub_order, (unsigned)pieces[i].object_id);
+        for (t = 0u; t < n; ++t) {
+            fprintf(f, "v %.6f %.6f %.6f\n",
+                    (double)tris[t].v[0].x, (double)tris[t].v[0].y, (double)tris[t].v[0].z);
+            fprintf(f, "v %.6f %.6f %.6f\n",
+                    (double)tris[t].v[1].x, (double)tris[t].v[1].y, (double)tris[t].v[1].z);
+            fprintf(f, "v %.6f %.6f %.6f\n",
+                    (double)tris[t].v[2].x, (double)tris[t].v[2].y, (double)tris[t].v[2].z);
+        }
+        for (t = 0u; t < n; ++t) {
+            const size_t a = vbase + t * 3u;
+            fprintf(f, "f %zu %zu %zu\n", a, a + 1u, a + 2u);
+        }
+        vbase += n * 3u;
+        total_tris += n;
+    }
+    fclose(f);
+    free(tris);
+    if (total_tris_out != NULL) {
+        *total_tris_out = total_tris;
+    }
+    return 1;
+}
+
+static int command_extract_models(
+    const char *rom_directory, const char *capture_path, const char *out_dir
+)
+{
+    uint8_t *main_data = NULL;
+    uint8_t *poly = NULL;
+    size_t main_size = 0u;
+    size_t poly_size = 0u;
+    FILE *cap = NULL;
+    extract_piece *pieces = NULL;
+    size_t piece_count = 0u;
+    size_t piece_cap = 0u;
+    char line[256];
+    uint32_t sub = 0u;
+    vf2_status st = VF2_OK;
+
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data, &main_size);
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly, &poly_size);
+    }
+    if (st != VF2_OK) {
+        fprintf(stderr, "Could not build ROM regions: %s\n", vf2_status_string(st));
+        free(main_data);
+        return EXIT_FAILURE;
+    }
+    cap = fopen(capture_path, "rb");
+    if (cap == NULL) {
+        fprintf(stderr, "Could not open capture %s\n", capture_path);
+        free(main_data);
+        free(poly);
+        return EXIT_FAILURE;
+    }
+    /* Collect geo 0x00800010 object words from the first captured frame. */
+    while (fgets(line, (int)sizeof(line), cap) != NULL) {
+        char frame[16];
+        char region[16];
+        unsigned seq = 0u;
+        unsigned addr = 0u;
+        unsigned data = 0u;
+        uint32_t byte_off = 0u;
+        uint32_t bank = 0u;
+        uint32_t id = 0u;
+        if (line[0] == '#') {
+            continue;
+        }
+        if (sscanf(line, "%u %15s %15s %x %x", &seq, frame, region, &addr, &data) != 5) {
+            continue;
+        }
+        if (strcmp(frame, "f1") != 0 || strcmp(region, "geo") != 0 ||
+            addr != 0x00800010u) {
+            continue;
+        }
+        if (vf2_model_lookup_w0(main_data, main_size, (uint32_t)data, 0x2000u,
+                                &byte_off, &bank, &id) != VF2_OK) {
+            continue;
+        }
+        if (piece_count == piece_cap) {
+            size_t ncap = piece_cap == 0u ? 128u : piece_cap * 2u;
+            extract_piece *np =
+                (extract_piece *)realloc(pieces, ncap * sizeof(*pieces));
+            if (np == NULL) {
+                break;
+            }
+            pieces = np;
+            piece_cap = ncap;
+        }
+        pieces[piece_count].sub_order = sub++;
+        pieces[piece_count].object_id = id;
+        pieces[piece_count].byte_offset = byte_off;
+        pieces[piece_count].bank = bank;
+        ++piece_count;
+    }
+    fclose(cap);
+    printf("Resolved %zu object pieces from %s\n", piece_count, capture_path);
+
+    /* A character's model records are contiguous in the polygon ROM, so cluster by
+     * polygon-ROM byte offset (gap > 0x8000 = new character). A character = a
+     * cluster with >= 4 pieces; players are numbered by first submission order. */
+    {
+        size_t idx_sorted[4096];
+        size_t used = piece_count < 4096u ? piece_count : 4096u;
+        size_t i = 0u;
+        char path[1024];
+        size_t scene_tris = 0u;
+        /* qualifying clusters, recorded as [start,end) into idx_sorted + min order */
+        extract_cluster clusters[256];
+        size_t cluster_count = 0u;
+        for (i = 0u; i < used; ++i) {
+            idx_sorted[i] = i;
+        }
+        /* insertion sort by byte_offset (piece counts are small) */
+        for (i = 1u; i < used; ++i) {
+            size_t key = idx_sorted[i];
+            size_t j = i;
+            while (j > 0u &&
+                   pieces[idx_sorted[j - 1u]].byte_offset > pieces[key].byte_offset) {
+                idx_sorted[j] = idx_sorted[j - 1u];
+                --j;
+            }
+            idx_sorted[j] = key;
+        }
+        i = 0u;
+        while (i < used) {
+            size_t start = i;
+            uint32_t min_sub = pieces[idx_sorted[i]].sub_order;
+            ++i;
+            while (i < used &&
+                   pieces[idx_sorted[i]].byte_offset <=
+                       pieces[idx_sorted[i - 1u]].byte_offset + 0x8000u) {
+                if (pieces[idx_sorted[i]].sub_order < min_sub) {
+                    min_sub = pieces[idx_sorted[i]].sub_order;
+                }
+                ++i;
+            }
+            if (i - start >= 4u && cluster_count < 256u) {
+                clusters[cluster_count].start = start;
+                clusters[cluster_count].end = i;
+                clusters[cluster_count].min_sub = min_sub;
+                ++cluster_count;
+            }
+        }
+        /* order characters by first submission */
+        for (i = 1u; i < cluster_count; ++i) {
+            size_t a = 0u;
+            for (a = i; a > 0u && clusters[a - 1u].min_sub > clusters[a].min_sub; --a) {
+                extract_cluster tmp = clusters[a - 1u];
+                clusters[a - 1u] = clusters[a];
+                clusters[a] = tmp;
+            }
+        }
+        for (i = 0u; i < cluster_count; ++i) {
+            extract_piece cluster[512];
+            size_t ccount = 0u;
+            size_t k = 0u;
+            size_t tris = 0u;
+            for (k = clusters[i].start; k < clusters[i].end && ccount < 512u; ++k) {
+                cluster[ccount++] = pieces[idx_sorted[k]];
+            }
+            snprintf(path, sizeof(path), "%s/player%zu.obj", out_dir, i + 1u);
+            if (extract_write_obj(path, poly, poly_size, cluster, ccount, &tris)) {
+                printf("  player%zu: %zu pieces, poly 0x%x..0x%x -> %s (%zu tris)\n",
+                       i + 1u, ccount, (unsigned)cluster[0].byte_offset,
+                       (unsigned)cluster[ccount - 1u].byte_offset, path, tris);
+            }
+        }
+        snprintf(path, sizeof(path), "%s/scene.obj", out_dir);
+        if (extract_write_obj(path, poly, poly_size, pieces, piece_count, &scene_tris)) {
+            printf("  scene: %zu pieces -> %s (%zu tris)\n", piece_count, path, scene_tris);
+        }
+    }
+
+    free(pieces);
+    free(main_data);
+    free(poly);
+    return EXIT_SUCCESS;
+}
+
 static int command_boot_trace(
     const char *rom_directory, uint32_t frames, uint32_t read_cap, uint32_t apply_io_fix
 )
@@ -7499,6 +7730,10 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         return command_read_words(argv[2], address, count);
+    }
+
+    if (strcmp(argv[1], "extract-models") == 0 && argc == 5) {
+        return command_extract_models(argv[2], argv[3], argv[4]);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&

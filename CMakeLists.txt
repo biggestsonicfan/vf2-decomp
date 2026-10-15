@@ -14,6 +14,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(VF2_BUILD_TESTS "Build unit tests" ON)
 option(VF2_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(VF2_BUILD_HOST "Build vf2_host, the SDL3 window/input/audio shell" OFF)
+option(VF2_BUILD_VIEWER "Build vf2_model_viewer, the SDL3 extracted-model viewer" OFF)
 option(VF2_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(VF2_ENABLE_LIFTED "Generate and compile the build-time lifted i960->C bridge (docs/VF2LIFT.md); scaffolding, opt-in" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
@@ -78,6 +79,7 @@ add_library(vf2_core STATIC
     src/platform/platform_null.c
     src/platform/platform_software.c
     src/platform/tile.c
+    src/platform/model_decode.c
     src/recovered/boot_entry.c
     src/recovered/camera_viewport.c
     src/recovered/hybrid.c
@@ -266,9 +268,9 @@ if(VF2_ENABLE_LIFTED)
   endif()
 endif()
 
-if(VF2_BUILD_HOST)
-  # SDL3 is only ever linked by src/host/host_sdl.c.  Prefer a system or
-  # vcpkg package; otherwise fetch the pinned release and link it statically.
+if(VF2_BUILD_HOST OR VF2_BUILD_VIEWER)
+  # SDL3 is only ever linked by the host shell and the model viewer.  Prefer a
+  # system or vcpkg package; otherwise fetch the pinned release and link static.
   find_package(SDL3 3.2.0 CONFIG QUIET)
   if(NOT SDL3_FOUND)
     include(FetchContent)
@@ -283,6 +285,9 @@ if(VF2_BUILD_HOST)
       GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
   endif()
+endif()
+
+if(VF2_BUILD_HOST)
   add_executable(vf2_host src/host/host_sdl.c)
   target_link_libraries(vf2_host PRIVATE vf2_core SDL3::SDL3)
   vf2_set_project_warnings(vf2_host)
@@ -293,6 +298,22 @@ if(VF2_BUILD_HOST)
     set_tests_properties(vf2_host_selftest PROPERTIES
       ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy"
       TIMEOUT 60)
+  endif()
+endif()
+
+if(VF2_BUILD_VIEWER)
+  add_executable(vf2_model_viewer tools/vf2_model_viewer/main.c)
+  target_link_libraries(vf2_model_viewer PRIVATE SDL3::SDL3)
+  if(NOT WIN32)
+    target_link_libraries(vf2_model_viewer PRIVATE m)
+  endif()
+  vf2_set_project_warnings(vf2_model_viewer)
+  install(TARGETS vf2_model_viewer RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  if(VF2_BUILD_TESTS)
+    # ROM-free: loads nothing, renders a few frames on the dummy video driver.
+    add_test(NAME vf2_model_viewer_selftest COMMAND vf2_model_viewer --selftest)
+    set_tests_properties(vf2_model_viewer_selftest PROPERTIES
+      ENVIRONMENT "SDL_VIDEODRIVER=dummy" TIMEOUT 60)
   endif()
 endif()
 
@@ -352,6 +373,11 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_platform_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_platform_tests)
     add_test(NAME vf2_platform COMMAND vf2_platform_tests)
+
+    add_executable(vf2_model_decode_tests tests/platform/test_model_decode.c)
+    target_link_libraries(vf2_model_decode_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_model_decode_tests)
+    add_test(NAME vf2_model_decode COMMAND vf2_model_decode_tests)
 
     add_executable(vf2_tile_tests tests/platform/test_tile.c)
     target_link_libraries(vf2_tile_tests PRIVATE vf2_core)
