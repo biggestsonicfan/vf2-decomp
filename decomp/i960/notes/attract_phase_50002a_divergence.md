@@ -226,18 +226,30 @@ recovered-runtime differential at each checkpoint:
   on the **second** scheduler pass, `IP=0xc74/0xc78`.
 
 So the divergence is NOT a broad early-boot cascade; it is localised to the
-second-pass vblank handler. Recovering the `bbs 13, r15, 0xc94` branch in
-`execute_interrupt_fighter_compare_prefix` (bit13-set -> ip 0xc94, CC unchanged,
-which is the faithful bbs semantic) did **not** clear the mismatch: it still
-exits 0xc78, because the recovered machine's `0x508000` bit 13 is **clear** while
-the corrected interpreter's is **set**. The two machines diverge *upstream* of
-the bbs -- a recovered bridge sets `0x508000` (or an input to it) from a
-hardcoded old-boot assumption, so the corrected 3D-active bit never gets set on
-the recovered side. That confirms the cascade empirically: the recovery is a
-chain of hardcoded intermediate states (starting with whatever sets `0x508000`
-bit 13 on the corrected path) that each need re-recovering against the corrected
-interpreter, then the bit13/0xc94 handler and its downstream 3D code, then the
-differential constants. First concrete next step for the recovery: trace what
-writes `0x508000` bit 13 on the corrected boot and which recovered bridge pins it
-clear. (Per AGENTS.md rules 1/2/9 the bit13 bbs recovery was reverted -- it is
-correct but unvalidatable until the upstream divergence is fixed.)
+second-pass vblank handler.
+
+**Correction (an earlier draft of this note blamed `0x508000` bit 13 -- that was
+wrong).** `boot-trace … 1` shows `0x508000` bit 13 stays **0** through early boot
+(only the init write of 0), so the `bbs 13, r15, 0xc94` falls through to 0xc78 in
+both machines; bit 13 is not the cause. The real failure is an **off-by-one
+instruction count** in the recovered `interrupt-initial-cluster` bridge. The
+differential (tools/vf2i960/commands.c:5162-5176) runs the recovered bridge, reads
+its `recovered_instruction_count` N, steps the interpreter exactly N times, then
+compares IPs. `IP=0xc74/0xc78` (reference/native) means: after N steps the
+interpreter is still **at** 0xc74 (the bbs, not yet executed) while the recovered
+bridge already ran **to** 0xc78. So under the corrected (`io_control[0x1c]=0xff`)
+state the real handler executes **one more instruction** somewhere in the cluster
+(compose / input-latch / texture-dispatch / fighter-compare-prefix, 0xbc0..0xc74)
+than the recovered bridge's hardcoded accounting expects -- most likely a
+data-dependent branch (e.g. the `cmpobne 8, r3, 0xc6c` at 0xc64, whose operand
+byte at `r3+0x1b1` the fix changes) that is taken differently. The recovered
+bridge hardcodes instruction counts and post-states for the old boot; the
+corrected boot perturbs one of them.
+
+Next concrete step: single-step the interpreter through 0xbc0..0xc74 with and
+without the fix and diff the instruction streams to find the one extra/divergent
+instruction, then update the corresponding sub-bridge's count + effect. If that
+off-by-one is the *only* divergence to the fourth-dispatch checkpoint, fixing it
+(plus recomputing the fourth-dispatch constants) could make `native-fourth-dispatch`
+green -- the first real recovery milestone. (The speculative bit13 bbs edit was
+reverted; it was based on the wrong diagnosis.)

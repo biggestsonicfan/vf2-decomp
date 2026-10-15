@@ -6981,6 +6981,8 @@ typedef struct {
     uint32_t geo_prg_writes;
     uint32_t fifo_writes;
     uint32_t first_geo_frame;   /* frame of first prg write, or 0xffffffff */
+    int bit13_seen;             /* tracks 0x508000 bit13 transitions */
+    int bit13_last;
 } boot_trace_ctx;
 
 static uint32_t boot_trace_le32(const void *p)
@@ -7006,6 +7008,15 @@ static void boot_trace_observer(
         if (a->address == 0x0050002au) {
             printf("  f%-4u ip=%08x  W 0x50002a <- 0x%02x\n",
                    (unsigned)f, (unsigned)ip, (unsigned)((const uint8_t *)a->data)[0]);
+        } else if (a->address == 0x00508000u && a->size == 4u) {
+            const uint32_t v = boot_trace_le32(a->data);
+            const int b13 = (int)((v >> 13) & 1u);
+            if (!c->bit13_seen || b13 != c->bit13_last) {
+                printf("  f%-4u ip=%08x  W [508000] <- 0x%08x  (bit13=%d)\n",
+                       (unsigned)f, (unsigned)ip, (unsigned)v, b13);
+                c->bit13_seen = 1;
+                c->bit13_last = b13;
+            }
         } else if (a->address >= 0x00500704u && a->address < 0x00500708u) {
             printf("  f%-4u ip=%08x  W [%08x] <- (sz%u) 0x%08x  (0x500704 gate word)",
                    (unsigned)f, (unsigned)ip, (unsigned)a->address,
