@@ -2972,9 +2972,11 @@ static void test_engine_probe(
             (unsigned)creport.handler_address,
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     /* S runs start from the PRE-dispatch image (S4 pattern). */
-    for (stop = 0u; stop < 3u; ++stop) {
-        uint32_t stop_ip = stop == 0u ? UINT32_C(0xc82)
-            : stop == 1u ? UINT32_C(0xcb2) : UINT32_C(0xffffff);
+    for (stop = 0u; stop < 5u; ++stop) {
+        uint32_t stop_ip = stop == 0u ? UINT32_C(0x9ba)
+            : stop == 1u ? UINT32_C(0xa8c)
+            : stop == 2u ? UINT32_C(0xc82)
+            : stop == 3u ? UINT32_C(0xcb2) : UINT32_C(0xffffff);
         memcpy(step_ram, pristine_ram, VF2_SOUND_RAM_BYTES);
         memcpy(&step_scsp, &pristine_scsp, sizeof(step_scsp));
         bus.ram = step_ram;
@@ -3002,7 +3004,7 @@ static void test_engine_probe(
                 (unsigned)regs.a[0], (unsigned)regs.a[1],
                 (unsigned)regs.a[2], (unsigned)regs.a[3],
                 (unsigned)regs.a[4], (unsigned)regs.a[5]);
-        if (stop == 0u) {
+        if (stop == 2u) {
             size_t k = 0u;
             fprintf(stderr, "engine-probe: desc10=");
             for (k = 0u; k < 16u; ++k) {
@@ -3015,6 +3017,10 @@ static void test_engine_probe(
             fprintf(stderr, "\nengine-probe: tab7f80=");
             for (k = 0u; k < 8u; ++k) {
                 fprintf(stderr, "%02x", (unsigned)cram[0x7f80u + k]);
+            }
+            fprintf(stderr, "\nengine-probe: shared=");
+            for (k = 0u; k < 8u; ++k) {
+                fprintf(stderr, "%02x", (unsigned)cram[0x2510u + k]);
             }
             fprintf(stderr, "\n");
             /* Engine entry state (stepper-measured, S4 packet):
@@ -3030,7 +3036,7 @@ static void test_engine_probe(
             EXPECT_TRUE(regs.a[0] == UINT32_C(0xf00000));
             EXPECT_TRUE(regs.a[1] == UINT32_C(0x2800));
             EXPECT_TRUE(regs.a[2] == UINT32_C(0x5000));
-        } else if (stop == 1u) {
+        } else if (stop == 3u) {
             /* Post slot-program: d5 -= 0x200, d6 = KEYON word,
              * d2 += 0xeba (rate pair), a2/a3 re-based. 383 steps. */
             EXPECT_TRUE(status == VF2_OK);
@@ -3041,7 +3047,7 @@ static void test_engine_probe(
             EXPECT_TRUE(regs.d[6] == UINT32_C(0x10310000));
             EXPECT_TRUE(regs.a[2] == UINT32_C(0x10000));
             EXPECT_TRUE(regs.a[3] == UINT32_C(0x2000));
-        } else {
+        } else if (stop == 4u) {
             /* Stepper fault on the 0x48d2 store word (movem.l
              * d0-d7,(a2) is illegal on silicon; the 0x4fe handler
              * blinks forever): the copy loop is dead-on-silicon
@@ -3049,6 +3055,19 @@ static void test_engine_probe(
             EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
             EXPECT_TRUE(regs.pc == UINT32_C(0xcb6));
             EXPECT_TRUE(done == 384u);
+        } else {
+            /* Setup-region waypoints: 0x9ba never routes here
+             * (blow-through to the copy fault); 0xa8c arrives at
+             * 277 with the descriptor index in d3. */
+            if (stop_ip == UINT32_C(0xa8c)) {
+                EXPECT_TRUE(status == VF2_OK);
+                EXPECT_TRUE(regs.pc == UINT32_C(0xa8c));
+                EXPECT_TRUE(done == 277u);
+            } else {
+                EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+                EXPECT_TRUE(regs.pc == UINT32_C(0xcb6));
+                EXPECT_TRUE(done == 384u);
+            }
         }
     }
     free(sample_window);
