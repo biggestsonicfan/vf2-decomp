@@ -8,14 +8,18 @@
 
 /* Polygon-ROM model-record decoder (3D-model extraction, slice 4).
  *
- * A model record is a little-endian IEEE-754 float stream, recovered reference-
- * free in decomp/i960/notes/polygon_rom_model_format_v0826.md and
- * fight_character_assembly_v0828.md. The face-assembly (strip/quad/skip-3) follows
- * the in-tree boundary model in src/hardware/tgp.c (geometry_execute_object); the
- * vertex coordinates are MEASURED, the triangulation is the tgp.c HYPOTHESIS decode
- * and is flagged as such. The record is located from the object table at
- * 0x020e0004: entry w0 (the value the i960 writes to geo 0x00800010) selects an
- * entry whose w2 is the record pointer, byte_offset = (w2 & 0x7fffff) * 4. */
+ * A model record is a little-endian IEEE-754 float stream: an initial edge
+ * p0,p1 (two vertices) followed by 10-word face blocks
+ * [attribute][normal x,y,z][vertex A][vertex B], terminated by 0x00040401 (or an
+ * attribute with (attr & 3) == 0). Each block adds the quad (p0, p1, vB, vA) and
+ * the strip carries the edge to the new vertices per (attribute >> 8) & 3.
+ * Recovered reference-free by aligning the closed body panel at poly 0x1bb870 and
+ * the shadow quad of fight object 0x494, and validated on the pol_test quad 0x97d
+ * (decomp/i960/notes/model_extractor_v0829.md). Vertex coordinates are MEASURED;
+ * the per-block winding and strip advance are the current best decode. The record
+ * is located from the object table at 0x020e0004: the value the i960 writes to geo
+ * 0x00800010 is an entry's w0; that entry's w2 is the record pointer,
+ * byte_offset = (w2 & 0x7fffff) * 4. */
 
 typedef struct vf2_model_vertex {
     float x;

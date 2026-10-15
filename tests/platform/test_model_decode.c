@@ -40,49 +40,53 @@ static int close_to(float a, float b)
 
 static void test_quad_strip_skip3(void)
 {
-    /* A record: p0=(0,0,0), p1=(1,0,0); attr=0x201 (not end, quad, strip-link 2),
-     * skip-3 normal (0,1,0), p2=(1,1,0), p3=(0,1,0); then attr=0 end.
-     * Expect 2 triangles: (p0,p1,p2) and (p0,p2,p3). */
+    /* Record: edge p0=(0,0,0), p1=(1,0,0); block attr=0x201 (not end, link 2),
+     * skip-3 normal (0,1,0), vA=(1,1,0), vB=(0,1,0); then attr=0 end. The block
+     * adds the quad (p0,p1,vB,vA) -> 2 triangles: (p0,p1,vB) and (p0,vB,vA). */
     uint8_t rec[80];
     vf2_model_triangle tris[8];
     size_t n = 0u;
     size_t i = 0u;
     memset(rec, 0, sizeof(rec));
-    put_u32(rec, 0u, f2u(0.0f)); put_u32(rec, 1u, f2u(0.0f)); put_u32(rec, 2u, f2u(0.0f));
-    put_u32(rec, 3u, f2u(1.0f)); put_u32(rec, 4u, f2u(0.0f)); put_u32(rec, 5u, f2u(0.0f));
-    put_u32(rec, 6u, 0x00000201u);                       /* attribute: quad, link 2 */
-    put_u32(rec, 7u, f2u(0.0f)); put_u32(rec, 8u, f2u(1.0f)); put_u32(rec, 9u, f2u(0.0f)); /* normal skip-3 */
-    put_u32(rec, 10u, f2u(1.0f)); put_u32(rec, 11u, f2u(1.0f)); put_u32(rec, 12u, f2u(0.0f)); /* p2 */
-    put_u32(rec, 13u, f2u(0.0f)); put_u32(rec, 14u, f2u(1.0f)); put_u32(rec, 15u, f2u(0.0f)); /* p3 */
+    put_u32(rec, 0u, f2u(0.0f)); put_u32(rec, 1u, f2u(0.0f)); put_u32(rec, 2u, f2u(0.0f)); /* p0 */
+    put_u32(rec, 3u, f2u(1.0f)); put_u32(rec, 4u, f2u(0.0f)); put_u32(rec, 5u, f2u(0.0f)); /* p1 */
+    put_u32(rec, 6u, 0x00000201u);                       /* attribute: link 2 */
+    put_u32(rec, 7u, f2u(0.0f)); put_u32(rec, 8u, f2u(1.0f)); put_u32(rec, 9u, f2u(0.0f)); /* normal */
+    put_u32(rec, 10u, f2u(1.0f)); put_u32(rec, 11u, f2u(1.0f)); put_u32(rec, 12u, f2u(0.0f)); /* vA */
+    put_u32(rec, 13u, f2u(0.0f)); put_u32(rec, 14u, f2u(1.0f)); put_u32(rec, 15u, f2u(0.0f)); /* vB */
     put_u32(rec, 16u, 0x00000000u);                      /* end marker */
 
     CHECK(vf2_model_decode_record(rec, sizeof(rec), 0u, 1, tris, 8u, &n) == VF2_OK);
     CHECK(n == 2u);
-    /* tri0 = (0,0,0),(1,0,0),(1,1,0) */
+    /* tri0 = (p0,p1,vB) = (0,0,0),(1,0,0),(0,1,0) */
     CHECK(close_to(tris[0].v[0].x, 0.0f) && close_to(tris[0].v[1].x, 1.0f) &&
-          close_to(tris[0].v[2].x, 1.0f) && close_to(tris[0].v[2].y, 1.0f));
-    /* tri1 = (0,0,0),(1,1,0),(0,1,0) */
-    CHECK(close_to(tris[1].v[1].x, 1.0f) && close_to(tris[1].v[1].y, 1.0f) &&
-          close_to(tris[1].v[2].x, 0.0f) && close_to(tris[1].v[2].y, 1.0f));
+          close_to(tris[0].v[2].x, 0.0f) && close_to(tris[0].v[2].y, 1.0f));
+    /* tri1 = (p0,vB,vA) = (0,0,0),(0,1,0),(1,1,0) */
+    CHECK(close_to(tris[1].v[1].x, 0.0f) && close_to(tris[1].v[1].y, 1.0f) &&
+          close_to(tris[1].v[2].x, 1.0f) && close_to(tris[1].v[2].y, 1.0f));
     (void)i;
 }
 
-static void test_triangle_no_skip3(void)
+static void test_quad_no_skip3(void)
 {
-    /* p0,p1; attr=0x002 (not end, triangle), p2; end. skip3 off. Expect 1 tri. */
-    uint8_t rec[48];
+    /* skip3 off: p0,p1; attr=0x002 (not end, link 0), vA, vB; end. 2 tris. */
+    uint8_t rec[64];
     vf2_model_triangle tris[4];
     size_t n = 0u;
     memset(rec, 0, sizeof(rec));
-    put_u32(rec, 0u, f2u(2.0f)); put_u32(rec, 1u, f2u(0.0f)); put_u32(rec, 2u, f2u(0.0f));
-    put_u32(rec, 3u, f2u(0.0f)); put_u32(rec, 4u, f2u(2.0f)); put_u32(rec, 5u, f2u(0.0f));
-    put_u32(rec, 6u, 0x00000002u);                       /* triangle, link 0 */
-    put_u32(rec, 7u, f2u(0.0f)); put_u32(rec, 8u, f2u(0.0f)); put_u32(rec, 9u, f2u(2.0f)); /* p2 */
-    put_u32(rec, 10u, 0x00000000u);                      /* end */
+    put_u32(rec, 0u, f2u(2.0f)); put_u32(rec, 1u, f2u(0.0f)); put_u32(rec, 2u, f2u(0.0f)); /* p0 */
+    put_u32(rec, 3u, f2u(0.0f)); put_u32(rec, 4u, f2u(2.0f)); put_u32(rec, 5u, f2u(0.0f)); /* p1 */
+    put_u32(rec, 6u, 0x00000002u);                       /* attribute, link 0 */
+    put_u32(rec, 7u, f2u(0.0f)); put_u32(rec, 8u, f2u(0.0f)); put_u32(rec, 9u, f2u(2.0f)); /* vA */
+    put_u32(rec, 10u, f2u(2.0f)); put_u32(rec, 11u, f2u(2.0f)); put_u32(rec, 12u, f2u(2.0f)); /* vB */
+    put_u32(rec, 13u, 0x00000000u);                      /* end */
     CHECK(vf2_model_decode_record(rec, sizeof(rec), 0u, 0, tris, 4u, &n) == VF2_OK);
-    CHECK(n == 1u);
+    CHECK(n == 2u);
+    /* tri0 = (p0,p1,vB) = (2,0,0),(0,2,0),(2,2,2) */
     CHECK(close_to(tris[0].v[0].x, 2.0f) && close_to(tris[0].v[1].y, 2.0f) &&
-          close_to(tris[0].v[2].z, 2.0f));
+          close_to(tris[0].v[2].z, 2.0f) && close_to(tris[0].v[2].x, 2.0f));
+    /* tri1 = (p0,vB,vA) = (2,0,0),(2,2,2),(0,0,2) */
+    CHECK(close_to(tris[1].v[2].z, 2.0f) && close_to(tris[1].v[2].x, 0.0f));
 }
 
 static void test_guards(void)
@@ -124,7 +128,7 @@ static void test_lookup(void)
 int main(void)
 {
     test_quad_strip_skip3();
-    test_triangle_no_skip3();
+    test_quad_no_skip3();
     test_guards();
     test_lookup();
     if (failures != 0) {

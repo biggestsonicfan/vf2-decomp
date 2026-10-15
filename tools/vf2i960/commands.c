@@ -7176,6 +7176,69 @@ static int extract_write_obj(
     return 1;
 }
 
+/* Write one piece's mesh to its own OBJ, centered on the origin (for per-piece
+ * decode validation). Returns the triangle count, or 0 on failure/empty. */
+static size_t extract_write_piece(
+    const char *path, const uint8_t *poly, size_t poly_size, uint32_t byte_offset
+)
+{
+    const size_t max_tris = 65536u;
+    vf2_model_triangle *tris =
+        (vf2_model_triangle *)malloc(max_tris * sizeof(*tris));
+    size_t n = 0u;
+    size_t t = 0u;
+    float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+    float lo[3], hi[3];
+    FILE *f = NULL;
+    if (tris == NULL) {
+        return 0u;
+    }
+    if (vf2_model_decode_record(poly, poly_size, byte_offset, 1, tris, max_tris, &n)
+            != VF2_OK || n == 0u) {
+        free(tris);
+        return 0u;
+    }
+    lo[0] = hi[0] = tris[0].v[0].x;
+    lo[1] = hi[1] = tris[0].v[0].y;
+    lo[2] = hi[2] = tris[0].v[0].z;
+    for (t = 0u; t < n; ++t) {
+        size_t k = 0u;
+        for (k = 0u; k < 3u; ++k) {
+            const float c[3] = { tris[t].v[k].x, tris[t].v[k].y, tris[t].v[k].z };
+            size_t a = 0u;
+            for (a = 0u; a < 3u; ++a) {
+                if (c[a] < lo[a]) lo[a] = c[a];
+                if (c[a] > hi[a]) hi[a] = c[a];
+            }
+        }
+    }
+    cx = (lo[0] + hi[0]) * 0.5f;
+    cy = (lo[1] + hi[1]) * 0.5f;
+    cz = (lo[2] + hi[2]) * 0.5f;
+    f = fopen(path, "wb");
+    if (f == NULL) {
+        free(tris);
+        return 0u;
+    }
+    fprintf(f, "# VF2 piece mesh, centered. Local only, never committed.\n");
+    for (t = 0u; t < n; ++t) {
+        size_t k = 0u;
+        for (k = 0u; k < 3u; ++k) {
+            fprintf(f, "v %.6f %.6f %.6f\n",
+                    (double)(tris[t].v[k].x - cx),
+                    (double)(tris[t].v[k].y - cy),
+                    (double)(tris[t].v[k].z - cz));
+        }
+    }
+    for (t = 0u; t < n; ++t) {
+        const size_t a = 1u + t * 3u;
+        fprintf(f, "f %zu %zu %zu\n", a, a + 1u, a + 2u);
+    }
+    fclose(f);
+    free(tris);
+    return n;
+}
+
 static int command_extract_models(
     const char *rom_directory, const char *capture_path, const char *out_dir
 )
@@ -7250,6 +7313,23 @@ static int command_extract_models(
     }
     fclose(cap);
     printf("Resolved %zu object pieces from %s\n", piece_count, capture_path);
+
+    /* Per-piece OBJ (centered on origin) for decode validation. */
+    {
+        size_t pi = 0u;
+        char ppath[1024];
+        for (pi = 0u; pi < piece_count; ++pi) {
+            size_t tris = 0u;
+            snprintf(ppath, sizeof(ppath), "%s/piece_%03zu_id%03x.obj", out_dir,
+                     pi, (unsigned)pieces[pi].object_id);
+            tris = extract_write_piece(ppath, poly, poly_size,
+                                       pieces[pi].byte_offset);
+            if (tris != 0u && pi < 8u) {
+                printf("  piece %zu id 0x%x: %zu tris -> %s\n", pi,
+                       (unsigned)pieces[pi].object_id, tris, ppath);
+            }
+        }
+    }
 
     /* A character's model records are contiguous in the polygon ROM, so cluster by
      * polygon-ROM byte offset (gap > 0x8000 = new character). A character = a

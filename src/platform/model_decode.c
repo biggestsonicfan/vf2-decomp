@@ -98,64 +98,60 @@ vf2_status vf2_model_decode_record(
         return VF2_OK; /* offset is not a plausible record start; empty mesh */
     }
 
+    /* Each face is a 10-word block: [attribute][normal x,y,z][vertex A][vertex B].
+     * The block adds the quad (p0, p1, vB, vA) -- two triangles -- and the strip
+     * carries p0/p1 to the new edge per (attribute >> 8) & 3. Recovered by
+     * aligning the record at 0x1bb870 (a closed body panel) and the shadow quad of
+     * fight object 0x494, and validated on the pol_test quad 0x97d. (The earlier
+     * one-vertex-per-triangle read -- tgp.c's quad bit -- mis-framed real records,
+     * reading vertex B as the next attribute and producing spikes.) */
     for (link = 0u; link < link_limit && count < max_tris; ++link) {
         uint32_t attribute = 0u;
-        vf2_model_vertex p2;
-        vf2_model_vertex p3;
-        int quad = 0;
+        vf2_model_vertex vA;
+        vf2_model_vertex vB;
 
         if (!model_read_u32(poly, poly_size, base_word + cursor, &attribute)) {
             break;
         }
-        ++cursor;
-        /* Record terminators: a zero/low-bits-clear attribute (tgp.c's
-         * (attr & 3) == 0 break) and the measured 0x00040401 end marker that
-         * closes a polygon-ROM model record (polygon_rom_model_format_v0826.md).
-         * Without the latter the strip would run past the record into the next. */
+        /* Terminators: the measured 0x00040401 record end, or a zero/low-bits-
+         * clear attribute (every real descriptor seen has (attr & 3) in {1,2}). */
         if ((attribute & 3u) == 0u || attribute == UINT32_C(0x00040401)) {
             break;
         }
+        ++cursor;
         if (skip3) {
-            cursor += 3u; /* normal slot */
+            cursor += 3u; /* unit-normal slot */
         }
-        if (!model_read_vertex(poly, poly_size, base_word, &cursor, &p2)) {
+        if (!model_read_vertex(poly, poly_size, base_word, &cursor, &vA) ||
+            !model_read_vertex(poly, poly_size, base_word, &cursor, &vB)) {
             break;
         }
-        if (!model_vertex_sane(&p2)) {
+        if (!model_vertex_sane(&vA) || !model_vertex_sane(&vB)) {
             break; /* derailed strip */
-        }
-        if ((attribute & 1u) != 0u) {
-            quad = 1;
-            if (!model_read_vertex(poly, poly_size, base_word, &cursor, &p3)) {
-                break;
-            }
-            if (!model_vertex_sane(&p3)) {
-                break;
-            }
         }
 
         out[count].v[0] = p0;
         out[count].v[1] = p1;
-        out[count].v[2] = p2;
+        out[count].v[2] = vB;
         ++count;
-        if (quad && count < max_tris) {
+        if (count < max_tris) {
             out[count].v[0] = p0;
-            out[count].v[1] = p2;
-            out[count].v[2] = p3;
+            out[count].v[1] = vB;
+            out[count].v[2] = vA;
             ++count;
         }
 
         switch ((attribute >> 8u) & 3u) {
         case 0u:
         case 2u:
-            p0 = p2;
-            p1 = quad ? p3 : p2;
+            p0 = vA;
+            p1 = vB;
             break;
         case 1u:
-            p1 = p2;
+            p1 = vB;
             break;
         case 3u:
-            p0 = quad ? p3 : p2;
+            p0 = vA;
             break;
         default:
             break;
