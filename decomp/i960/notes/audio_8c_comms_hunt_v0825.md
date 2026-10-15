@@ -105,7 +105,9 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    (passive; NULL detaches, invalid session fails closed).
    ctest entry vf2_session_uart_probe (10 oracle frames from
    sixth-fresh, punch pattern; skips 77 without the gitignored
-   snap). Results: 30 frames across 3 contexts (sixth-fresh
+   snap). Later upgrades: frame-budget argv[5] (default 10,
+   pattern cycles, capped 2000, stop-on-first-UART-write) and
+   odd-frame alternate mask argv[4] for edge acceptors. Results: 30 frames across 3 contexts (sixth-fresh
    punch-pattern, indk-c TEST MENU punch-pattern, park-warm-coin
    COIN-held), every frame VF2_OK with changing digests, ZERO
    UART writes. The negative is load-bearing: the hook's
@@ -155,12 +157,21 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
    driver also records READS of the three static 0x009c0000
    entries (debug @0x111e2, MMIO @0x29bd8/@0x50db4 -- ROM data
    loads travel the observed public bus symbols, so any fetch of
-   the UART address from its tables prints as an R hit). Three
-   more 10-frame runs (sixth-fresh, sega-natural-frame,
-   park-warm-coin toggle): ~10M observed accesses, ZERO hits of
-   any kind -- no table read, no UART write, anywhere reachable.
-   The i960 sound path is never touched in attract / gameplay /
-   menu / coin contexts. Remaining triggers (landed hit needing
+   the UART address from its tables prints as an R hit). Four
+   more runs (sixth-fresh, sega-natural-frame, park-warm-coin
+   toggle x10 frames each, plus a 500-frame sixth-fresh
+   long-play with punch held AND a 1000-frame early-boot play
+   through attract entry AND walk-in/stand-still contact pairs
+   AND three transition states -- test-mode exit, coin-assign,
+   manual-setting rearm): ~400M observed accesses total, ZERO
+   hits of any kind -- no table read, no UART write, anywhere
+   reachable. Companion static proof: all 53 $150x-constant
+   sites disassembled -- the $1500 ring has EXACTLY ONE producer
+   (L3 UART ISR) and the drain/Loop-B are pure consumers, so BGM
+   provably never crosses the ring (streams + L2 tick carry it
+   autonomously); L1 fully mapped as the voice-maintenance tick
+   (no switch polling). The i960 sound path is never touched in
+   attract / gameplay / menu / coin / transition contexts. Remaining triggers (landed hit needing
    a setup snapshot, round-boundary needing hours of blind
    oracle play at ~3k insns/frame) are staged-fixture work. The
    bridge stays unmodeled per fail-closed. 8/10 continues on its

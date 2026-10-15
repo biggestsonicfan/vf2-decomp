@@ -127,9 +127,21 @@ int main(int argc, char **argv)
     uint32_t frame = 0u;
     uint32_t hit = 0u;
     uint64_t prev_observed = 0u;
+    /* Frame budget: default replays the 10-frame evidence pattern
+     * once (ctest stays fast); long-play hunts pass more and cycle
+     * the pattern. Capped fail-closed. */
+    uint32_t budget = (uint32_t)(sizeof(inputs) / sizeof(inputs[0]));
+    if (argc >= 6) {
+        unsigned long want = strtoul(argv[5], NULL, 0);
+        if (want == 0ul || want > 2000ul) {
+            fprintf(stderr, "uart-hunt: bad frame budget '%s'\n", argv[5]);
+            return 2;
+        }
+        budget = (uint32_t)want;
+    }
 
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <rom-dir> <snapshot> [held-input] [alt-input]\n",
+        fprintf(stderr, "usage: %s <rom-dir> <snapshot> [held-input] [alt-input] [frames]\n",
                 argv[0]);
         return 2;
     }
@@ -153,13 +165,12 @@ int main(int argc, char **argv)
     CHECK(vf2_session_audio_status(session) == VF2_OK);
     CHECK(vf2_session_set_memory_observer(
               session, uart_observe, &capture) == VF2_OK);
-    for (frame = 0u;
-         frame < sizeof(inputs) / sizeof(inputs[0]);
-         ++frame) {
+    for (frame = 0u; frame < budget; ++frame) {
         vf2_status status = VF2_OK;
         uint64_t executed = 0u;
         uint64_t interpreted = 0u;
-        uint32_t input = inputs[frame];
+        uint32_t input =
+            inputs[frame % (sizeof(inputs) / sizeof(inputs[0]))];
 
         /* Optional argv[3] overrides the pattern with one held mask
          * (decimal or 0x-hex): coin runs, start runs, single-move
@@ -190,6 +201,14 @@ int main(int argc, char **argv)
          * silent -- fail rather than report a void negative. */
         CHECK(capture.observed > prev_observed);
         prev_observed = capture.observed;
+        /* Long-play hunts stop at the first UART write: the byte +
+         * frame stamp below is the bridge fixture. */
+        if (capture.write_count > 0u) {
+            fprintf(stderr, "uart-hunt: STOP-ON-WRITE at frame %u\n",
+                    (unsigned)frame);
+            ++frame;
+            break;
+        }
         vf2_session_instruction_counts(session, &executed, &interpreted);
         fprintf(stderr, "uart-hunt: frame %u digest=0x%08x exec=%llu interp=%llu obs=%llu writes=%u input=0x%x\n",
                 (unsigned)frame, (unsigned)digest,
