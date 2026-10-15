@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7105,6 +7106,130 @@ static int command_read_words(
     return EXIT_SUCCESS;
 }
 
+/* --- minimal grayscale-PNG writer (dependency-free) --------------------------
+ * 8-bit grayscale (color type 0), zlib "stored" (uncompressed) deflate so no
+ * compressor is needed. CRC via vf2_crc32; Adler-32 inline. Local output only. */
+static void png_be32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
+
+static uint32_t png_adler32(const uint8_t *d, size_t n)
+{
+    uint32_t a = 1u;
+    uint32_t b = 0u;
+    size_t i;
+    for (i = 0u; i < n; ++i) {
+        a = (a + d[i]) % 65521u;
+        b = (b + a) % 65521u;
+    }
+    return (b << 16) | a;
+}
+
+static int png_chunk(FILE *f, const char *type, const uint8_t *data, size_t len)
+{
+    uint8_t hdr[8];
+    uint8_t crcbuf[4];
+    uint8_t *tmp = (uint8_t *)malloc(len + 4u);
+    uint32_t crc;
+    if (tmp == NULL) {
+        return 0;
+    }
+    png_be32(hdr, (uint32_t)len);
+    memcpy(hdr + 4u, type, 4u);
+    memcpy(tmp, type, 4u);
+    if (len != 0u) {
+        memcpy(tmp + 4u, data, len);
+    }
+    crc = vf2_crc32(tmp, len + 4u);
+    free(tmp);
+    png_be32(crcbuf, crc);
+    if (fwrite(hdr, 1u, 8u, f) != 8u) {
+        return 0;
+    }
+    if (len != 0u && fwrite(data, 1u, len, f) != len) {
+        return 0;
+    }
+    return fwrite(crcbuf, 1u, 4u, f) == 4u;
+}
+
+static int png_write_gray8(
+    const char *path, uint32_t w, uint32_t h, const uint8_t *px
+)
+{
+    static const uint8_t sig[8] = { 0x89u, 0x50u, 0x4eu, 0x47u,
+                                    0x0du, 0x0au, 0x1au, 0x0au };
+    uint8_t ihdr[13];
+    size_t raw_len = (size_t)h * (1u + (size_t)w);
+    uint8_t *raw = (uint8_t *)malloc(raw_len != 0u ? raw_len : 1u);
+    uint8_t *idat = NULL;
+    size_t cap;
+    size_t o = 0u;
+    size_t pos = 0u;
+    uint32_t row;
+    FILE *f = NULL;
+    int ok = 0;
+
+    if (raw == NULL) {
+        return 0;
+    }
+    for (row = 0u; row < h; ++row) {
+        raw[(size_t)row * (1u + (size_t)w)] = 0u; /* filter: none */
+        memcpy(raw + (size_t)row * (1u + (size_t)w) + 1u,
+               px + (size_t)row * (size_t)w, w);
+    }
+    cap = 2u + raw_len + ((raw_len / 65535u) + 1u) * 5u + 4u;
+    idat = (uint8_t *)malloc(cap);
+    if (idat == NULL) {
+        free(raw);
+        return 0;
+    }
+    idat[o++] = 0x78u; /* zlib CMF */
+    idat[o++] = 0x01u; /* zlib FLG */
+    while (pos < raw_len) {
+        size_t blk = raw_len - pos;
+        uint16_t nlen;
+        if (blk > 65535u) {
+            blk = 65535u;
+        }
+        idat[o++] = (uint8_t)((pos + blk >= raw_len) ? 1u : 0u); /* BFINAL */
+        idat[o++] = (uint8_t)(blk & 0xffu);
+        idat[o++] = (uint8_t)((blk >> 8) & 0xffu);
+        nlen = (uint16_t)(~(uint16_t)blk);
+        idat[o++] = (uint8_t)(nlen & 0xffu);
+        idat[o++] = (uint8_t)((nlen >> 8) & 0xffu);
+        memcpy(idat + o, raw + pos, blk);
+        o += blk;
+        pos += blk;
+    }
+    png_be32(idat + o, png_adler32(raw, raw_len));
+    o += 4u;
+
+    f = fopen(path, "wb");
+    if (f == NULL) {
+        free(raw);
+        free(idat);
+        return 0;
+    }
+    png_be32(ihdr, w);
+    png_be32(ihdr + 4u, h);
+    ihdr[8] = 8u;  /* bit depth */
+    ihdr[9] = 0u;  /* color type: grayscale */
+    ihdr[10] = 0u; /* compression */
+    ihdr[11] = 0u; /* filter */
+    ihdr[12] = 0u; /* interlace */
+    ok = (fwrite(sig, 1u, 8u, f) == 8u) &&
+         png_chunk(f, "IHDR", ihdr, sizeof(ihdr)) &&
+         png_chunk(f, "IDAT", idat, o) && png_chunk(f, "IEND", NULL, 0u);
+    fclose(f);
+    free(raw);
+    free(idat);
+    return ok;
+}
+
 /* --- texture-link: dump an object's decoded polygon->texture link ------------
  *
  * Reads the object-table entry {w0=tpa, w1=tha, w2=oba, w3=obc} at 0x020e0004,
@@ -7234,6 +7359,435 @@ static int command_texture_link(const char *rom_directory, const char *id_arg)
     free(poly);
     free(tex);
     return EXIT_SUCCESS;
+}
+
+/* --- export-textured: player-1 textured mesh (OBJ + MTL + PNG) ---------------
+ *
+ * Decodes the player-1 pieces from a fight capture into a Wavefront OBJ with
+ * per-vertex UVs, an MTL with two grayscale sheet PNGs (de-swizzled logical
+ * 2048x1024), using the recovered polygon->texture link (texture_link.h). The
+ * UV<->vertex pairing mirrors the geometrizer: per primitive the UV table
+ * yields NumVerts (pv,pu) pairs in the order [P1(n-1),P0(n-1),P0(n),P1(n)] =
+ * [p1,p0,vA,vB]; the strip advances p0/p1 by (attr>>8)&3 exactly as the
+ * hardware (case1: p1=P0(n); case3: p0=P1(n)). Output is local, never committed;
+ * the decode itself is covered synthetically in CI (test_texture_link.c). */
+
+typedef struct ext_tex_piece {
+    uint32_t rec_byte;
+    uint32_t uv_ptr;   /* w0 & 0x7fffff */
+    uint32_t th_ptr;   /* w1 & 0x7fffff */
+    uint32_t object_id;
+} ext_tex_piece;
+
+static int ext_tex_load_file(const char *path, uint8_t **buf, size_t *size)
+{
+    FILE *f = fopen(path, "rb");
+    long n;
+    if (f == NULL) {
+        return 0;
+    }
+    if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) < 0 ||
+        fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return 0;
+    }
+    *buf = (uint8_t *)malloc((size_t)n != 0u ? (size_t)n : 1u);
+    if (*buf == NULL) {
+        fclose(f);
+        return 0;
+    }
+    *size = fread(*buf, 1u, (size_t)n, f);
+    fclose(f);
+    return *size == (size_t)n;
+}
+
+static int ext_tex_write_sheet_png(
+    const char *path, const uint8_t *bank, size_t bank_size
+)
+{
+    const uint32_t w = 2048u;
+    const uint32_t h = 1024u;
+    uint8_t *px = (uint8_t *)malloc((size_t)w * h);
+    uint32_t y;
+    int ok;
+    if (px == NULL) {
+        return 0;
+    }
+    for (y = 0u; y < h; ++y) {
+        uint32_t x;
+        for (x = 0u; x < w; ++x) {
+            uint8_t idx = vf2_texture_sheet_texel(bank, bank_size, x, y);
+            px[(size_t)y * w + x] = vf2_texture_sheet_index_to_gray(idx);
+        }
+    }
+    ok = png_write_gray8(path, w, h, px);
+    free(px);
+    return ok;
+}
+
+static int ext_read_xyz(
+    const uint8_t *poly, size_t n, uint32_t byte, vf2_model_vertex *v
+)
+{
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    if ((size_t)byte + 12u > n) {
+        return 0;
+    }
+    a = tl_u32(poly, n, byte);
+    b = tl_u32(poly, n, byte + 4u);
+    c = tl_u32(poly, n, byte + 8u);
+    memcpy(&v->x, &a, 4u);
+    memcpy(&v->y, &b, 4u);
+    memcpy(&v->z, &c, 4u);
+    return 1;
+}
+
+/* Emit one triangle (3 vertices + 3 UVs in lockstep, so the v and vt index of a
+ * corner match). Returns the next running index. */
+static size_t ext_emit_tri(
+    FILE *obj, size_t n,
+    const vf2_model_vertex *a, const float ua[2],
+    const vf2_model_vertex *b, const float ub[2],
+    const vf2_model_vertex *c, const float uc[2]
+)
+{
+    fprintf(obj, "v %.6f %.6f %.6f\n", (double)a->x, (double)a->y, (double)a->z);
+    fprintf(obj, "v %.6f %.6f %.6f\n", (double)b->x, (double)b->y, (double)b->z);
+    fprintf(obj, "v %.6f %.6f %.6f\n", (double)c->x, (double)c->y, (double)c->z);
+    fprintf(obj, "vt %.6f %.6f\n", (double)ua[0], (double)ua[1]);
+    fprintf(obj, "vt %.6f %.6f\n", (double)ub[0], (double)ub[1]);
+    fprintf(obj, "vt %.6f %.6f\n", (double)uc[0], (double)uc[1]);
+    fprintf(obj, "f %zu/%zu %zu/%zu %zu/%zu\n", n, n, n + 1u, n + 1u, n + 2u,
+            n + 2u);
+    return n + 3u;
+}
+
+static int command_export_textured(
+    const char *rom_directory,
+    const char *capture_path,
+    const char *tex0_path,
+    const char *tex1_path,
+    const char *out_dir
+)
+{
+    uint8_t *main_data = NULL;
+    uint8_t *poly = NULL;
+    uint8_t *tex = NULL;
+    uint8_t *bank[2] = { NULL, NULL };
+    size_t main_size = 0u;
+    size_t poly_size = 0u;
+    size_t tex_size = 0u;
+    size_t bank_size[2] = { 0u, 0u };
+    ext_tex_piece *pieces = NULL;
+    size_t piece_count = 0u;
+    size_t piece_cap = 0u;
+    FILE *cap = NULL;
+    char line[256];
+    char path[1024];
+    FILE *obj = NULL;
+    FILE *mtl = NULL;
+    size_t i;
+    size_t vbase = 1u; /* OBJ indices are 1-based */
+    uint32_t p1_lo = 0u;
+    uint32_t p1_hi = 0u;
+    size_t p1_first = 0u;
+    size_t p1_last = 0u;
+    size_t tri_total = 0u;
+    vf2_status st;
+
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data,
+                                 &main_size);
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly,
+                                     &poly_size);
+    }
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_TEXTURES, &tex,
+                                     &tex_size);
+    }
+    if (st != VF2_OK) {
+        fprintf(stderr, "Could not build ROM regions: %s\n",
+                vf2_status_string(st));
+        free(main_data);
+        free(poly);
+        return EXIT_FAILURE;
+    }
+    if (!ext_tex_load_file(tex0_path, &bank[0], &bank_size[0]) ||
+        !ext_tex_load_file(tex1_path, &bank[1], &bank_size[1])) {
+        fprintf(stderr, "Could not read texture banks\n");
+        goto fail;
+    }
+    cap = fopen(capture_path, "rb");
+    if (cap == NULL) {
+        fprintf(stderr, "Could not open capture %s\n", capture_path);
+        goto fail;
+    }
+
+    /* Collect each on-screen object once (first frame): geo 0x00800010 value is
+     * the object's w0 (tpa); resolve id + record via the object table. */
+    while (fgets(line, (int)sizeof(line), cap) != NULL) {
+        unsigned seq;
+        char frame[8];
+        char stream[16];
+        unsigned addr;
+        unsigned value;
+        uint32_t off = 0u;
+        uint32_t bnk = 0u;
+        uint32_t id = 0u;
+        size_t k;
+        int dup = 0;
+        if (sscanf(line, "%u %7s %15s %x %x", &seq, frame, stream, &addr,
+                   &value) != 5) {
+            continue;
+        }
+        if (strcmp(frame, "f1") != 0 || strcmp(stream, "geo") != 0 ||
+            addr != 0x00800010u) {
+            continue;
+        }
+        if (vf2_model_lookup_w0(main_data, main_size, value, 0x4000u, &off, &bnk,
+                                &id) != VF2_OK) {
+            continue;
+        }
+        for (k = 0u; k < piece_count; ++k) {
+            if (pieces[k].object_id == id) {
+                dup = 1;
+                break;
+            }
+        }
+        if (dup) {
+            continue;
+        }
+        if (piece_count == piece_cap) {
+            size_t ncap = piece_cap == 0u ? 64u : piece_cap * 2u;
+            ext_tex_piece *np =
+                (ext_tex_piece *)realloc(pieces, ncap * sizeof(*np));
+            if (np == NULL) {
+                goto fail;
+            }
+            pieces = np;
+            piece_cap = ncap;
+        }
+        pieces[piece_count].rec_byte = off;
+        pieces[piece_count].uv_ptr =
+            tl_u32(main_data, main_size,
+                   0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
+        pieces[piece_count].th_ptr =
+            tl_u32(main_data, main_size,
+                   0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
+        pieces[piece_count].object_id = id;
+        ++piece_count;
+    }
+    fclose(cap);
+    cap = NULL;
+
+    if (piece_count == 0u) {
+        fprintf(stderr, "No resolvable objects in capture\n");
+        goto fail;
+    }
+
+    /* Player 1 = the first record-contiguous cluster (sorted by rec_byte, split
+     * on a gap > 0x8000), mirroring extract-models. */
+    for (i = 0u; i + 1u < piece_count; ++i) {
+        size_t j;
+        for (j = i + 1u; j < piece_count; ++j) {
+            if (pieces[j].rec_byte < pieces[i].rec_byte) {
+                ext_tex_piece t = pieces[i];
+                pieces[i] = pieces[j];
+                pieces[j] = t;
+            }
+        }
+    }
+    /* Player 1 = the LARGEST record-contiguous cluster (the fighter has far more
+     * pieces than stage/shadow objects); ties keep the lowest-address one, which
+     * is P1 (P2 sits higher in the polygon ROM). */
+    {
+        size_t cl_start = 0u;
+        size_t best_start = 0u;
+        size_t best_count = 0u;
+        for (i = 1u; i <= piece_count; ++i) {
+            int boundary = (i == piece_count) ||
+                           (pieces[i].rec_byte - pieces[i - 1u].rec_byte > 0x8000u);
+            if (boundary) {
+                size_t count = i - cl_start;
+                if (count > best_count) {
+                    best_count = count;
+                    best_start = cl_start;
+                }
+                cl_start = i;
+            }
+        }
+        p1_first = best_start;
+        p1_last = best_start + best_count - 1u;
+    }
+    p1_lo = pieces[p1_first].rec_byte;
+    p1_hi = pieces[p1_last].rec_byte;
+
+    snprintf(path, sizeof(path), "%s/player1.obj", out_dir);
+    obj = fopen(path, "wb");
+    snprintf(path, sizeof(path), "%s/player1.mtl", out_dir);
+    mtl = fopen(path, "wb");
+    if (obj == NULL || mtl == NULL) {
+        fprintf(stderr, "Could not open output OBJ/MTL in %s\n", out_dir);
+        goto fail;
+    }
+    fprintf(mtl, "# VF2 player1 textures (grayscale luma index). Local only.\n");
+    fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
+    fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
+
+    fprintf(obj, "# VF2 player1 textured mesh. Local only, never committed.\n");
+    fprintf(obj, "mtllib player1.mtl\n");
+
+    /* Two passes over pieces: emit v/vt interleaved and remember per-face the
+     * sheet, then write faces grouped by material. To keep one pass simple we
+     * emit faces immediately with a usemtl before each run change. */
+    {
+        int cur_sheet = -1;
+        for (i = p1_first; i <= p1_last; ++i) {
+            uint32_t uv_ptr = pieces[i].uv_ptr;
+            uint32_t th_ptr = pieces[i].th_ptr;
+            size_t off;
+            vf2_model_vertex p0;
+            vf2_model_vertex p1;
+            uint32_t prim;
+
+            /* initial edge: p0, p1 (two xyz) */
+            if (!ext_read_xyz(poly, poly_size, pieces[i].rec_byte, &p0) ||
+                !ext_read_xyz(poly, poly_size, pieces[i].rec_byte + 12u, &p1)) {
+                continue;
+            }
+            off = (size_t)pieces[i].rec_byte + 24u;
+
+            for (prim = 0u; prim < 65536u; ++prim) {
+                uint32_t attr = tl_u32(poly, poly_size, (uint32_t)off);
+                uint32_t numv;
+                vf2_model_vertex vA;
+                vf2_model_vertex vB;
+                uint16_t thw[4];
+                vf2_texture_header hd;
+                float uv[4][2];
+                uint32_t vtx;
+
+                off += 4u;
+                if (attr == 0x00040401u || (attr & 3u) == 0u) {
+                    break;
+                }
+                numv = (attr & 1u) ? 4u : 3u;
+                off += 12u; /* skip unit normal (3 floats) */
+                if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vA)) {
+                    break;
+                }
+                off += 12u;
+                if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vB)) {
+                    break;
+                }
+                off += 12u;
+
+                /* texture header for this primitive */
+                thw[0] = tl_u16(tex, tex_size, th_ptr + 0u);
+                thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
+                thw[2] = tl_u16(tex, tex_size, th_ptr + 2u);
+                thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
+                vf2_texture_header_decode(thw, &hd);
+
+                /* UVs for this primitive's vertices, table order
+                 * [0]=P1(n-1), [1]=P0(n-1), [2]=P0(n), [3]=P1(n). */
+                for (vtx = 0u; vtx < numv; ++vtx) {
+                    uint16_t pv = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 0u);
+                    uint16_t pu = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 1u);
+                    float tu = vf2_texture_uv_texels(pu);
+                    float tv = vf2_texture_uv_texels(pv);
+                    float wq = (float)hd.tex_width;
+                    float hq = (float)hd.tex_height;
+                    float lu = (wq > 0.0f) ? (float)fmod((double)tu, (double)wq) : 0.0f;
+                    float lv = (hq > 0.0f) ? (float)fmod((double)tv, (double)hq) : 0.0f;
+                    if (lu < 0.0f) {
+                        lu += wq;
+                    }
+                    if (lv < 0.0f) {
+                        lv += hq;
+                    }
+                    uv[vtx][0] = ((float)hd.tex_x + lu) / 2048.0f;
+                    uv[vtx][1] = 1.0f - ((float)hd.tex_y + lv) / 1024.0f;
+                }
+                if (numv == 3u) {
+                    uv[3][0] = uv[2][0];
+                    uv[3][1] = uv[2][1];
+                }
+
+                if (cur_sheet != (int)hd.sheet) {
+                    fprintf(obj, "usemtl sheet%u\n", (unsigned)hd.sheet);
+                    cur_sheet = (int)hd.sheet;
+                }
+
+                /* corner->UV: p0=uv[1], p1=uv[0], vA=uv[2], vB=uv[3].
+                 * tri0 = (p0,p1,vB); for a quad also tri1 = (p0,vB,vA). */
+                vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB,
+                                     uv[3]);
+                tri_total += 1u;
+                if (numv == 4u) {
+                    vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA,
+                                         uv[2]);
+                    tri_total += 1u;
+                }
+
+                uv_ptr += numv * 2u;
+                th_ptr = (uint32_t)((int32_t)th_ptr +
+                                    vf2_texture_header_advance_words(attr));
+                /* strip advance (hardware-exact) */
+                switch ((attr >> 8u) & 3u) {
+                case 0u:
+                case 2u:
+                    p0 = vA;
+                    p1 = vB;
+                    break;
+                case 1u:
+                    p1 = vA;
+                    break;
+                case 3u:
+                    p0 = vB;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+    fclose(obj);
+    obj = NULL;
+    fclose(mtl);
+    mtl = NULL;
+
+    snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
+    snprintf(path, sizeof(path), "%s/tex1.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[1], bank_size[1]);
+
+    printf("export-textured: player1 = pieces %zu..%zu (poly 0x%x..0x%x), "
+           "%zu triangles -> %s/player1.obj (+ .mtl, tex0/1.png)\n",
+           p1_first, p1_last, (unsigned)p1_lo, (unsigned)p1_hi, tri_total,
+           out_dir);
+
+    free(main_data);
+    free(poly);
+    free(tex);
+    free(bank[0]);
+    free(bank[1]);
+    free(pieces);
+    return EXIT_SUCCESS;
+
+fail:
+    if (cap != NULL) fclose(cap);
+    if (obj != NULL) fclose(obj);
+    if (mtl != NULL) fclose(mtl);
+    free(main_data);
+    free(poly);
+    free(tex);
+    free(bank[0]);
+    free(bank[1]);
+    free(pieces);
+    return EXIT_FAILURE;
 }
 
 /* --- decode-texture-sheet: a texture-RAM bank -> grayscale PGM ----------------
@@ -8056,6 +8610,11 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "texture-link") == 0 && argc == 4) {
         return command_texture_link(argv[2], argv[3]);
+    }
+
+    if (strcmp(argv[1], "export-textured") == 0 && argc == 7) {
+        return command_export_textured(argv[2], argv[3], argv[4], argv[5],
+                                       argv[6]);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
