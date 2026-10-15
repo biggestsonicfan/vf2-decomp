@@ -253,3 +253,34 @@ off-by-one is the *only* divergence to the fourth-dispatch checkpoint, fixing it
 (plus recomputing the fourth-dispatch constants) could make `native-fourth-dispatch`
 green -- the first real recovery milestone. (The speculative bit13 bbs edit was
 reverted; it was based on the wrong diagnosis.)
+
+### Precise localization of the off-by-one (0xbf?..0xc74)
+
+The handler runs two identical byte-compares before the bbs (disasm 0xc3c..0xc74):
+
+```
+c3c  ld    0x500808, r3
+c44  ldob  0x69c(r3), r13
+c48  ldob  0x69d(r3), r14
+c4c  cmpobe r13, r14, 0xc6c   ; bytes EQUAL -> branch to 0xc6c (skip c50..c68)
+c50  ldib  0x69c(r3), r15     ; UNEQUAL path (7 instrs): ldib/stib/ldob/ldob/
+c54  stib  r15, 0x69d(r3)     ;   ldob 0x1b1 / cmpobne 8 / (call 0x8e0)
+...
+c6c  ld    0x508000, r15
+c74  bbs   13, r15, 0xc94
+```
+
+An identical compare on `0x500804` precedes it. `execute_interrupt_fighter_compare_prefix`
+models only the **all-equal** path: `+=3`,`++` (first compare = 4), `+=4` (second
+= 4), `+=2` (ld 0x508000 + bbs) = **10**, and `return VF2_ERROR_UNSUPPORTED` if
+either compare is unequal. The differential shows the interpreter needs **11**
+instructions to reach 0xc78 under the corrected boot, so on the diverging frame
+one compare is **unequal** (bytes `*(*0x500804+0x69c)` vs `+0x69d`, or the
+`0x500808` pair, differ) and the real handler takes the 7-instruction unequal
+block the bridge does not model -- yet the bridge did not hit its UNSUPPORTED
+guard, which means the mismatch is an accounting/path subtlety in that block, not
+a clean unequal bail. Resolving it: trace the two byte pairs at the diverging
+frame (what the corrected boot writes to `0x69c`/`0x69d` off `*0x500804` /
+`*0x500808`) and model the unequal path in the bridge. This is one concrete
+sub-bridge; whether more divergences follow to fourth-dispatch is the next
+measurement.
