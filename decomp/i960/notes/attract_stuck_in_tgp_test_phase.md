@@ -90,6 +90,17 @@ and it is not uploaded as code by the i960 either. MAME's "the TGP receives its
 program at boot" is satisfied by a TGP program ROM MAME has that our manifest
 lacks (the Model 2A TGPx4 program), or by the chip's internal ROM.
 
+> **CORRECTION (2026-10-15):** this is **wrong**. The MB86234 microcode **is**
+> present and **is** uploaded as code by the i960 — via the copro FIFO at frame
+> ~11, right after the `0x980000 = 0x80000000` then `0` pulse. A MAME capture of
+> the TGP program RAM after boot (`..\snap\vf2_tgp_program_ram_4096w.bin`, 951
+> words, starting `0xbf600016 0xbf600013 0x40000000 0x3f000000 …`) matches the
+> first words the i960 pushes into the FIFO at frame 11. The reason this analysis
+> saw `program_count == 0` is that the **old boot never reached frame 11** — it
+> was stuck on the io_control[0x1c] bug (see `attract_phase_50002a_divergence.md`).
+> The microcode exists in the romset and is lift-able; G2 Option 2 is not blocked
+> for lack of microcode.
+
 Consequence: **both** Phase 6 options are blocked on the same missing input --
 Option 2 (lift the microcode) has no microcode, and Option 1 (native pipeline)
 has no geometry stream because the attract never leaves the TGP self-test. The

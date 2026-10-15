@@ -371,6 +371,14 @@ corrected oracle. This is the honest scope of Part 1's recovery beyond divergenc
 #1. Part 2 (a rendered 3D scene) additionally needs G2's TGP pipeline, blocked on
 microcode absent from the romset.
 
+> **CORRECTION (2026-10-15):** the microcode is **not** absent. The i960 uploads
+> the MB86234 TGP program via the copro FIFO at frame ~11 (just after the
+> `0x980000 = 0x80000000` then `0` pulse); captured as
+> `..\snap\vf2_tgp_program_ram_4096w.bin` (951 words). The old boot never reached
+> frame 11 because of the io_control[0x1c] bug this note roots out, which is why
+> earlier passes saw `program_count == 0`. With the corrected boot the microcode
+> uploads; G2 Option 2 is lift-able.
+
 Process established by #1: each corrected-boot divergence is recovered as a branch
 that is inert for the old boot (old-boot native-*-dispatch still MATCH) and so
 lands as a green non-regressive slice; the model fix (io_control[0x1c]=0xff) is

@@ -332,6 +332,14 @@ from.** Verified four independent ways:
 1. The `copro_data` ROM region is empty (no files map to it in the romset
    manifest; 0 nonzero bytes). Model 2A uploads the TGP program from host data
    at boot, so the microcode only exists in a running machine, never as a ROM.
+   **CORRECTION (2026-10-15): the microcode IS present in the romset** — the i960
+   uploads it into the MB86234 program RAM via the copro FIFO at frame ~11 (after
+   the `0x980000 = 0x80000000` then `0` pulse). It is in the i960-accessible data,
+   not the empty `copro_data` region. The old boot (stuck on the io_control[0x1c]
+   bug) never reached frame 11, which is why points 2–4 below saw
+   `program_count == 0`. Captured post-boot as `vf2_tgp_program_ram_4096w.bin`
+   (951 words). G2 Option 2 (lift the microcode) is therefore not blocked for lack
+   of microcode.
 2. Pure i960 interpreter from reset, 30M steps, halts spinning at `0x0004aff8`
    with `geometry_program_count == 0` — the reachable boot never uploads a TGP
    program.
