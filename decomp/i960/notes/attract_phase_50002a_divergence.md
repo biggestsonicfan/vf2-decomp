@@ -338,15 +338,22 @@ model fix lands.
 ### Divergence #2 (next): task entry 0x1645c
 
 With #1 fixed, native-fourth-dispatch (corrected boot) next fails "unsupported
-operation" with both IPs at **0x0001645c** = `VF2_NATIVE_GAME_INFO_TASK_ENTRY`,
-the game-info task, dispatched by `vf2_hybrid_first_dispatch_task_execute`
-(native_runtime.c:6918,6947). The task reads `0x500804`/`0x500808`, branches on
-bit 31 of `(g7)`/`(g8)` and calls 0x18144 / 0x18644 (disasm 0x1645c+). On the
-corrected boot that data differs, so the task body takes a branch the recovered
-game-info body does not cover -> UNSUPPORTED. Divergence #2 is therefore a
-game-info task-body recovery (deeper than #1's localized off-by-one): trace the
-corrected-boot `0x500804`/`0x500808` contents and the branch taken, and extend the
-recovered body (again inert for the old boot, so committable green on its own).
+operation" with both IPs reported at **0x0001645c** = the game-info task entry,
+`completed=6/7` during the "second scheduler pass".
+
+**Correction (instrumented):** the game-info task body itself is NOT the problem.
+Instrumenting the game-info dispatch (`hybrid.c:31715`) shows it runs on the
+corrected boot with `interpreted_task=0, status=VF2_OK` -- the
+`vf2_recovered_task_game_info_first_dispatch` path succeeds. So divergence #2 is
+in the **scheduler flow around the game-info task** (the second-pass scheduler
+scan / task sequencing), not its body: with the corrected boot the task
+ordering/registry differs from the old boot the recovered scheduler pass models,
+and a step returns UNSUPPORTED while IP sits at 0x1645c. Next: instrument the
+native-fourth-dispatch loop (or `vf2_native_differential_run_until_after`) to log
+per-step ip + step-kind + result around the 6th->7th block, to see which
+scheduler step fails and what task the corrected boot expects next. (This is the
+3rd self-correction in this note; keep trusting instrumented evidence over the
+prior guess.)
 
 Process established by #1: each corrected-boot divergence is recovered as a branch
 that is inert for the old boot (old-boot native-*-dispatch still MATCH) and so
