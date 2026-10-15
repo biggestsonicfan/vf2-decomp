@@ -389,6 +389,23 @@ int main(int argc, char **argv)
                     rc = EXIT_FAILURE;
                     break;
                 }
+                /* Live-sound bridge (T3): drain newly filed queue
+                 * bytes into the board and dispatch them. Idle
+                 * unless game code filed commands this frame. */
+                {
+                    vf2_session_audio_pump_report audio_pump;
+                    memset(&audio_pump, 0, sizeof(audio_pump));
+                    if (vf2_session_pump_audio(session, &audio_pump) ==
+                            VF2_OK &&
+                        audio_pump.bytes_moved != 0u) {
+                        fprintf(stderr, "frame %u: audio pump bytes=%u filed=%u dispatched=%u refused=%u\n",
+                                (unsigned)frame,
+                                (unsigned)audio_pump.bytes_moved,
+                                (unsigned)audio_pump.entries_filed,
+                                (unsigned)audio_pump.entries_dispatched,
+                                (unsigned)audio_pump.entries_refused);
+                    }
+                }
                 if (vf2_session_render_audio(session, left, right,
                         AUDIO_FRAMES_PER_VIDEO_FRAME) == VF2_OK) {
                     host_push_audio(&h, left, right, AUDIO_FRAMES_PER_VIDEO_FRAME);

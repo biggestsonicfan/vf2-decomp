@@ -5,6 +5,7 @@
 
 #include "vf2/game.h"
 #include "vf2/hybrid/frame_wait.h"
+#include "vf2/hybrid/player.h"
 #include "vf2/i960/snapshot.h"
 #include "vf2/rom.h"
 #include "vf2/tile.h"
@@ -272,6 +273,115 @@ vf2_status vf2_session_render_audio(
 vf2_status vf2_session_audio_status(const vf2_session *s)
 {
     return s != NULL ? s->audio_status : VF2_ERROR_INVALID_ARGUMENT;
+}
+
+/* i960 sound-queue cells (v0746/v0825-8f: 16-entry ring at
+ * 0x504020 stride 4, count/rcur/wcur, staged word, byte index)
+ * and the Model 2A UART slot the drainer sends through. */
+#define VF2_SESSION_SOUND_QUEUE_COUNT UINT32_C(0x00504001)
+#define VF2_SESSION_SOUND_QUEUE_BYTE_INDEX UINT32_C(0x00504014)
+#define VF2_SESSION_SOUND_UART_DATA UINT32_C(0x01c80000)
+#define VF2_SESSION_SOUND_DRAIN_ENTRY UINT32_C(0x00043800)
+#define VF2_SESSION_SOUND_PUMP_TICK_CAP 48u
+
+vf2_status vf2_session_pump_audio(
+    vf2_session *s,
+    vf2_session_audio_pump_report *report
+)
+{
+    vf2_sound_board *board = NULL;
+    vf2_i960_cpu shadow;
+    uint8_t board_count_before = 0u;
+    uint32_t pending = 0u;
+    uint32_t tick = 0u;
+
+    if (s == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *report = (vf2_session_audio_pump_report){0};
+    report->drain_status = VF2_OK;
+    if (!s->audio_ready || s->game.sound == NULL) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    board = s->game.sound;
+    board_count_before = board->sound_ram[VF2_SOUND_COMMAND_COUNT];
+    /* Drain ticks: while the queue holds entries -- or a partially
+     * sent staged word remains (byte index 0..2; 0xff parks) --
+     * run the drainer on a shadow CPU (session CPU untouched),
+     * read the UART byte it sent, and file it on the board. */
+    for (tick = 0u; tick < VF2_SESSION_SOUND_PUMP_TICK_CAP; ++tick) {
+        uint8_t count = 0u;
+        uint8_t byte_index = 0u;
+        uint8_t emitted = 0u;
+        vf2_status st = VF2_OK;
+        if (vf2_model2a_read(&s->machine, VF2_SESSION_SOUND_QUEUE_COUNT,
+                             &count, sizeof(count)) != VF2_OK ||
+            vf2_model2a_read(&s->machine,
+                             VF2_SESSION_SOUND_QUEUE_BYTE_INDEX,
+                             &byte_index, sizeof(byte_index)) != VF2_OK) {
+            report->drain_status = VF2_ERROR_OUT_OF_BOUNDS;
+            break;
+        }
+        if (count == 0u && byte_index > 2u) {
+            break;
+        }
+        memset(&shadow, 0, sizeof(shadow));
+        vf2_i960_cpu_reset(&shadow, 0u, 0u,
+                           VF2_SESSION_SOUND_DRAIN_ENTRY);
+        shadow.registers[6] = UINT32_C(0x00e80004);
+        st = vf2_hybrid_sound_43800_execute(&s->machine, &shadow);
+        ++report->drain_ticks;
+        if (st != VF2_OK) {
+            report->drain_status = st;
+            break;
+        }
+        if (vf2_model2a_read(&s->machine, VF2_SESSION_SOUND_UART_DATA,
+                             &emitted, sizeof(emitted)) != VF2_OK) {
+            report->drain_status = VF2_ERROR_OUT_OF_BOUNDS;
+            break;
+        }
+        st = vf2_sound_board_file_uart_byte(board, emitted);
+        if (st != VF2_OK) {
+            /* 0xff reboot door and friends: hold the rest queued. */
+            report->drain_status = st;
+            break;
+        }
+        ++report->bytes_moved;
+    }
+    report->entries_filed =
+        (uint32_t)((board->sound_ram[VF2_SOUND_COMMAND_COUNT] -
+                    board_count_before) &
+                   UINT32_C(0xff));
+    /* Dispatch each newly filed entry at the board's read cursor,
+     * advancing past every outcome the way the silicon drain
+     * epilogue does (cursor += 4 regardless of arm). The 0xc68
+     * engine door applies effects before refusing (S4 shape) and
+     * counts as dispatched; earlier doors count as refused. */
+    pending = report->entries_filed;
+    while (pending > 0u) {
+        vf2_sound_dispatch_report dispatch;
+        vf2_status st = VF2_OK;
+        uint16_t cursor = 0u;
+        memset(&dispatch, 0, sizeof(dispatch));
+        st = vf2_sound_board_dispatch_next(board, &dispatch);
+        if (st == VF2_OK ||
+            (st == VF2_ERROR_UNSUPPORTED &&
+             dispatch.handler_address == UINT32_C(0xc68))) {
+            ++report->entries_dispatched;
+        } else {
+            ++report->entries_refused;
+        }
+        cursor = (uint16_t)(((uint16_t)(board->sound_ram[VF2_SOUND_COMMAND_CURSOR] << 8u) |
+                            board->sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u]) +
+                           4u) &
+                 UINT16_C(0x0fff);
+        board->sound_ram[VF2_SOUND_COMMAND_CURSOR] =
+            (uint8_t)(cursor >> 8u);
+        board->sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] =
+            (uint8_t)cursor;
+        --pending;
+    }
+    return VF2_OK;
 }
 
 vf2_status vf2_session_set_memory_observer(

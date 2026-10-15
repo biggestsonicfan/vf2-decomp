@@ -85,6 +85,42 @@ vf2_status vf2_session_render_audio(
  * Without it vf2_session_render_audio returns silence. */
 vf2_status vf2_session_audio_status(const vf2_session *session);
 
+/* One pump report: bytes drained from the i960 sound queue through
+ * the UART slot and filed on the board, ring entries assembled,
+ * and their dispatch outcomes. `dispatched` reached the 0xc68
+ * engine door with effects applied (VF2_OK or UNSUPPORTED-at-door,
+ * the S4 shape); `refused` stopped earlier (a0 entry etc.,
+ * silicon would still consume the packet, so the pump advances
+ * past it the same way). `drain_status` is the first non-OK drain
+ * or file status (0xff reboot door, bus error), or VF2_OK when
+ * the queue drained cleanly; a non-OK status stops the pump but
+ * still returns VF2_OK -- the report carries the detail so one
+ * corrupt queue byte cannot fail the frame. */
+typedef struct vf2_session_audio_pump_report {
+    uint32_t bytes_moved;
+    uint32_t entries_filed;
+    uint32_t entries_dispatched;
+    uint32_t entries_refused;
+    uint32_t drain_ticks;
+    vf2_status drain_status;
+} vf2_session_audio_pump_report;
+
+/* Bridge one frame's worth of live sound: drain the i960 queue
+ * (0x504001 ring, drainer 0x43800 semantics on a shadow CPU --
+ * the session CPU is untouched) through the UART slot into the
+ * board's L3 ring file, then dispatch each newly filed entry,
+ * consuming refuse-doors the way the silicon drain epilogue does
+ * (cursor advance regardless of outcome). Only live-filed queue
+ * content flows; nothing is staged or seeded. Host-driven (call
+ * after step, before render_audio), never implicit in step --
+ * pumping mutates IO-control RAM and would otherwise perturb
+ * oracle digests. Returns VF2_OK unless the session/audio is
+ * unusable (bad argument, audio not attached). */
+vf2_status vf2_session_pump_audio(
+    vf2_session *session,
+    vf2_session_audio_pump_report *report
+);
+
 /* FNV-1a of the work RAM (0x00500000..0x005fffff); determinism checks. */
 vf2_status vf2_session_work_ram_digest(vf2_session *session, uint32_t *digest);
 

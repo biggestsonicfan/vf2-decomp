@@ -409,6 +409,17 @@ if(VF2_BUILD_TESTS)
         set_tests_properties(vf2_session_audio_plumbing PROPERTIES
             SKIP_RETURN_CODE 77
             TIMEOUT 900)
+        # T3 pump leg: same binary with the live-queue snapshot as
+        # argv[3] (park-sixth-a6c0 holds 3 filed entries). Skips
+        # where the snapshot is absent, same rule as above.
+        add_test(NAME vf2_session_audio_pump
+            COMMAND vf2_session_audio_tests
+                "${VF2_ROM_DIR}"
+                "${CMAKE_SOURCE_DIR}/out/sixth-fresh.vf2snap"
+                "${CMAKE_SOURCE_DIR}/out/park-sixth-a6c0.vf2snap")
+        set_tests_properties(vf2_session_audio_pump PROPERTIES
+            SKIP_RETURN_CODE 77
+            TIMEOUT 900)
     endif()
 
     add_executable(vf2_game_tests tests/game/test_game.c)

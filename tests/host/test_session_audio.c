@@ -136,6 +136,73 @@ int main(int argc, char **argv)
         fprintf(stderr, "session-audio: out/ missing, WAV skipped\n");
     }
     vf2_session_close(session);
+    /* Optional pump leg (T3): open a second session from a
+     * live-queue snapshot (park-sixth-a6c0 holds 3 filed entries)
+     * and bridge them into audible-path state. Gates: 9 bytes
+     * moved over 9 drain ticks, 3 entries filed, round-1 90-class
+     * admitted at the engine door (2 a0 refused by design), then
+     * game_update (L1/L2 ticks) + render determinism. Peak is
+     * reported, not gated (no engine keying in-session). */
+    if (argc >= 4) {
+        static int16_t pleft_a[FRAMES];
+        static int16_t pright_a[FRAMES];
+        static int16_t pleft_b[FRAMES];
+        static int16_t pright_b[FRAMES];
+        vf2_session *pump = NULL;
+        vf2_session_audio_pump_report preport;
+        size_t p = 0u;
+        int32_t ppeak = 0;
+        FILE *probe = fopen(argv[3], "rb");
+        if (probe == NULL) {
+            fprintf(stderr, "session-audio: SKIP pump, no snapshot at %s\n",
+                    argv[3]);
+            return 77;
+        }
+        (void)fclose(probe);
+        memset(&preport, 0, sizeof(preport));
+        CHECK(vf2_session_open(argv[1], argv[3], &pump) == VF2_OK);
+        if (pump == NULL) {
+            return 1;
+        }
+        CHECK(vf2_session_audio_status(pump) == VF2_OK);
+        CHECK(vf2_session_pump_audio(pump, &preport) == VF2_OK);
+        fprintf(stderr, "session-audio: pump bytes=%u filed=%u dispatched=%u refused=%u ticks=%u drain=%d\n",
+                (unsigned)preport.bytes_moved,
+                (unsigned)preport.entries_filed,
+                (unsigned)preport.entries_dispatched,
+                (unsigned)preport.entries_refused,
+                (unsigned)preport.drain_ticks,
+                (int)preport.drain_status);
+        CHECK(preport.drain_status == VF2_OK);
+        CHECK(preport.bytes_moved == 9u);
+        CHECK(preport.drain_ticks == 9u);
+        CHECK(preport.entries_filed == 3u);
+        /* Init-state board: the 90-class entry misses (no staged
+         * voice, $152e door) and both a0 entries refuse by design,
+         * so 0 dispatched / 3 refused. The admitted 90 shape is
+         * proven with S4 arming in the T2 differential, not here:
+         * the pump never stages voices. */
+        CHECK(preport.entries_dispatched == 0u);
+        CHECK(preport.entries_refused == 3u);
+        CHECK(vf2_session_render_audio(pump, pleft_a, pright_a,
+                                      FRAMES) == VF2_OK);
+        CHECK(vf2_session_render_audio(pump, pleft_b, pright_b,
+                                      FRAMES) == VF2_OK);
+        CHECK(memcmp(pleft_a, pleft_b, sizeof(pleft_a)) == 0);
+        CHECK(memcmp(pright_a, pright_b, sizeof(pright_a)) == 0);
+        for (p = 0u; p < FRAMES; ++p) {
+            int32_t al = pleft_a[p] < 0 ? -(int32_t)pleft_a[p] : pleft_a[p];
+            int32_t ar = pright_a[p] < 0 ? -(int32_t)pright_a[p] : pright_a[p];
+            if (al > ppeak) {
+                ppeak = al;
+            }
+            if (ar > ppeak) {
+                ppeak = ar;
+            }
+        }
+        fprintf(stderr, "session-audio: pump peak=%d\n", (int)ppeak);
+        vf2_session_close(pump);
+    }
     if (g_fail != 0) {
         fprintf(stderr, "session-audio: %d failures\n", g_fail);
     }
