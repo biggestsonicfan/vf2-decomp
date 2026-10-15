@@ -338,9 +338,19 @@ model fix lands.
 ### Divergence #2 (next): task entry 0x1645c
 
 With #1 fixed, native-fourth-dispatch (corrected boot) next fails "unsupported
-operation" with both IPs at **0x0001645c** (the sixth task entry): the recovered
-runtime has no body for what the corrected boot runs there. That is the next
-recovery target, then onward. Each divergence is one recovered body; none makes a
-green dispatch checkpoint until its whole span is done (then recompute
-`expected_blocks`/`expected_instructions`), and the bit13/0xc94 3D handler plus
-G2's TGP pipeline remain beyond that.
+operation" with both IPs at **0x0001645c** = `VF2_NATIVE_GAME_INFO_TASK_ENTRY`,
+the game-info task, dispatched by `vf2_hybrid_first_dispatch_task_execute`
+(native_runtime.c:6918,6947). The task reads `0x500804`/`0x500808`, branches on
+bit 31 of `(g7)`/`(g8)` and calls 0x18144 / 0x18644 (disasm 0x1645c+). On the
+corrected boot that data differs, so the task body takes a branch the recovered
+game-info body does not cover -> UNSUPPORTED. Divergence #2 is therefore a
+game-info task-body recovery (deeper than #1's localized off-by-one): trace the
+corrected-boot `0x500804`/`0x500808` contents and the branch taken, and extend the
+recovered body (again inert for the old boot, so committable green on its own).
+
+Process established by #1: each corrected-boot divergence is recovered as a branch
+that is inert for the old boot (old-boot native-*-dispatch still MATCH) and so
+lands as a green non-regressive slice; the model fix (io_control[0x1c]=0xff) is
+the single change held back until the whole corrected trajectory is recovered.
+Remaining after the task chain: the bit13/0xc94 3D handler and G2's TGP pipeline
+to render.
