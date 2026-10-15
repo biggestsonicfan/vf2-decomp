@@ -240,6 +240,88 @@ const uint32_t *vf2_session_pixels(vf2_session *s)
     return (s != NULL && s->have_frame) ? s->pixels : NULL;
 }
 
+vf2_status vf2_session_step_oracle_until(
+    vf2_session *s,
+    const uint32_t *inputs,
+    size_t input_count,
+    uint32_t stop_ip,
+    uint32_t max_frames,
+    vf2_session_until_report *report
+)
+{
+    /* step_oracle's frame loop with an IP break: check arrival
+     * before every interpreter step (covers call-landing), drive
+     * the frame interrupt identically otherwise. */
+    const uint64_t per_frame_budget = UINT64_C(50000000);
+    uint64_t steps = 0u;
+    uint32_t frames = 0u;
+    uint64_t frame_steps = 0u;
+    vf2_status st = VF2_OK;
+
+    if (s == NULL || inputs == NULL || input_count == 0u ||
+        max_frames == 0u || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *report = (vf2_session_until_report){0};
+    st = vf2_model2a_set_input(&s->machine, inputs[0]);
+    if (st != VF2_OK) {
+        return st;
+    }
+    s->last_input = inputs[0];
+    for (;;) {
+        vf2_hybrid_frame_wait_report wait_report;
+        if (s->cpu.ip == stop_ip) {
+            report->hit = 1;
+            report->frame = frames;
+            report->steps = steps;
+            report->g0 = s->cpu.registers[VF2_I960_G0_REGISTER + 0u];
+            report->g13 = s->cpu.registers[VF2_I960_G0_REGISTER + 13u];
+            /* i960 call saves the return IP in the caller's pushed
+             * frame (r2 slot); the callee working set is zeroed, so
+             * a fresh arrival names its caller with no stack walk.
+             * Guard depth for arrivals with no frame (reset edge). */
+            report->ret_addr = 0u;
+            if (s->cpu.local_frame_depth > 0u) {
+                report->ret_addr =
+                    s->cpu.local_frames[s->cpu.local_frame_depth - 1u]
+                        .registers[2];
+            }
+            report->frames_completed = frames;
+            return VF2_OK;
+        }
+        st = vf2_hybrid_frame_wait_observe(
+            &s->machine, &s->cpu, &s->oracle_frame_wait, &wait_report
+        );
+        if (st != VF2_OK) {
+            return st;
+        }
+        if (wait_report.interrupt_injected) {
+            ++frames;
+            if (frames >= max_frames) {
+                report->frames_completed = frames;
+                return VF2_OK;
+            }
+            st = vf2_model2a_set_input(
+                &s->machine, inputs[frames % input_count]
+            );
+            if (st != VF2_OK) {
+                return st;
+            }
+            s->last_input = inputs[frames % input_count];
+            frame_steps = 0u;
+            continue;
+        }
+        st = vf2_i960_step(&s->cpu, &s->machine, NULL);
+        if (st != VF2_OK) {
+            return st;
+        }
+        ++steps;
+        if (++frame_steps >= per_frame_budget) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+}
+
 vf2_status vf2_session_render_tile_layer(
     vf2_session *s, uint32_t *out, size_t width, size_t height,
     size_t palette_base
@@ -414,6 +496,23 @@ vf2_status vf2_session_work_ram_digest(vf2_session *s, uint32_t *digest)
     }
     *digest = hash;
     return VF2_OK;
+}
+
+vf2_status vf2_session_read_work_ram(
+    vf2_session *s,
+    uint32_t address,
+    uint8_t *destination,
+    size_t size
+)
+{
+    if (s == NULL || destination == NULL || size == 0u) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (address < UINT32_C(0x00500000) ||
+        size > UINT32_C(0x00600000) - address) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    return vf2_model2a_read(&s->machine, address, destination, size);
 }
 
 uint32_t vf2_session_last_input(const vf2_session *s)

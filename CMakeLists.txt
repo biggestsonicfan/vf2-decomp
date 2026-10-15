@@ -420,6 +420,19 @@ if(VF2_BUILD_TESTS)
         set_tests_properties(vf2_session_audio_pump PROPERTIES
             SKIP_RETURN_CODE 77
             TIMEOUT 900)
+        # T4 queue hunt: oracle-frame filer/flusher arrivals from
+        # gameplay (sixth-fresh). Hits reported, not gated; the
+        # 8d snapshot rule applies.
+        add_executable(vf2_session_queue_hunt_tests tests/host/test_session_queue_hunt.c)
+        target_link_libraries(vf2_session_queue_hunt_tests PRIVATE vf2_core)
+        vf2_set_project_warnings(vf2_session_queue_hunt_tests)
+        add_test(NAME vf2_session_queue_hunt
+            COMMAND vf2_session_queue_hunt_tests
+                "${VF2_ROM_DIR}"
+                "${CMAKE_SOURCE_DIR}/out/sixth-fresh.vf2snap")
+        set_tests_properties(vf2_session_queue_hunt PROPERTIES
+            SKIP_RETURN_CODE 77
+            TIMEOUT 900)
     endif()
 
     add_executable(vf2_game_tests tests/game/test_game.c)

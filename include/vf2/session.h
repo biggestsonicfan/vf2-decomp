@@ -124,6 +124,17 @@ vf2_status vf2_session_pump_audio(
 /* FNV-1a of the work RAM (0x00500000..0x005fffff); determinism checks. */
 vf2_status vf2_session_work_ram_digest(vf2_session *session, uint32_t *digest);
 
+/* Raw work-RAM read for hunts (oracle-frame drivers): copies size
+ * bytes from absolute address into destination (must lie fully in
+ * 0x00500000..0x005fffff). Read-only; fails closed outside the
+ * window. Used to read back queue cells / records a hunt located. */
+vf2_status vf2_session_read_work_ram(
+    vf2_session *session,
+    uint32_t address,
+    uint8_t *destination,
+    size_t size
+);
+
 /* Passive bus observer for hunts (oracle-frame drivers). Forwards to
  * vf2_model2a_set_memory_observer on the session machine: observes
  * successful accesses only and never affects their result. NULL
@@ -147,6 +158,33 @@ void vf2_session_instruction_counts(
     const vf2_session *session,
     uint64_t *executed,
     uint64_t *interpreted
+);
+
+/* Step oracle frames until cpu.ip lands on stop_ip (checked before
+ * every interpreter step) or max_frames complete. inputs[] cycles
+ * per frame. Reports the hitting frame, steps taken, and g0/g13
+ * at arrival (filer-input and record-pointer context). A clean
+ * miss returns VF2_OK with hit == 0 -- a measured negative, not
+ * a failure. Per-frame step cap mirrors step_oracle (fail closed).
+ * Hunt primitive (T4): finds live filer/flusher arrivals without
+ * staging queue state. */
+typedef struct vf2_session_until_report {
+    int hit;
+    uint32_t frame;
+    uint64_t steps;
+    uint32_t g0;
+    uint32_t g13;
+    uint32_t ret_addr;
+    uint32_t frames_completed;
+} vf2_session_until_report;
+
+vf2_status vf2_session_step_oracle_until(
+    vf2_session *session,
+    const uint32_t *inputs,
+    size_t input_count,
+    uint32_t stop_ip,
+    uint32_t max_frames,
+    vf2_session_until_report *report
 );
 
 void vf2_session_close(vf2_session *session);
