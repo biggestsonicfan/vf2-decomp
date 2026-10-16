@@ -2188,7 +2188,11 @@ static vf2_status sound_board_run_loopb(
  * (move.b/compare -- the cursor is RAM, not registers, so no
  * residue question exists at all). Found: cursor = found +
  * 0x10 (write-back), refuse at the 0xfac setup authoring (S3
- * territory: voice fill + volume math + engine). None-free
+ * territory: voice fill + volume math + engine). Allocator
+ * arrivals can never enter it (E1n): d4 still holds the
+ * walk's $1515 index (never reloaded), so the slot stores
+ * would address-error on odd indices (ROM vector 2 blinks)
+ * and mis-program slot-by-index on even ones. None-free
  * (dbf exhausts): fall to the 0xf50 reaper scan -- refused
  * at 0xf50 (separate slice; the reaper key-offs and continues
  * to 0xfac). Wired into the 90-LOW walk end only; Loop-B

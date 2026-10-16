@@ -1830,6 +1830,131 @@ static void test_dispatch_90_low(
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
 }
 
+/* E1n: 0xfac d4-as-slot verdict (9/10 arc). The allocator
+ * path (E1m) arrives at 0xfac with d4 = the walk's $1515
+ * index (low word exact, upper drain residue; all d4 uses
+ * are .w-indexed so the upper never matters) -- d4 is NEVER
+ * reloaded between the walk and the slot stores (0xafa-0x103e
+ * verified: no d4 writer). Core-fill arrivals (S3 future)
+ * carry d4 = voice slot (0xa92) and are sane; allocator
+ * arrivals carry the walk index: odd (here 0x7f) faults on
+ * the first SCSP word store, even would program slot-by-index
+ * garbage. Either way unenterable: the 0xfac refusal STANDS
+ * for allocator arrivals. No src change (verdict slice).
+ * Two-phase S: drain -> 0xfac arrival (67 steps, d4 printed
+ * and pinned -- the verdict fact), then continue: the stepper
+ * has NO address-error model, so it sails past the odd word
+ * store at 0x103e and parks at the 0xcb6 dead loop (114 steps,
+ * pinned). Real silicon takes vector 2 -> 0x6004d8 (moveq #7,
+ * bra 0x4fe blink): the odd-index path blinks, dead. Even
+ * indices would program slot-by-index garbage -- modeled by
+ * neither side, refused by design. C-side is the 90-low proof
+ * (its leg owns the equality); here C only establishes the
+ * pre-state. */
+static void test_fac_d4_crash(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint8_t *voice0 = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0x93u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0x05u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 2u] = 1u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x03u;
+    desc[2] = 0x05u;
+    desc[4] = 0x00u;
+    desc[6] = 0x07u;
+    desc[8] = 0x02u;
+    desc[9] = 0x01u;
+    desc[10] = 0x80u;
+    desc[12] = 0x01u;
+    desc[13] = 0x00u;
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    cram[0x4223u] = 0x07u;
+    voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice0[0] = 0x00u;
+    voice0[1] = 0x20u;
+    voice0[5] = 0x00u;
+    voice0[9] = 0xffu;
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
+    voice0[VF2_SOUND_VOICE_FLAGS] = 0x40u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xfac));
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xfac), 0, 20000u,
+                          &done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xfac));
+    EXPECT_TRUE(done == 67u);
+    /* Verdict fact: d4 = the walk's $1515 index (low word
+     * exact, upper drain residue -- here 0). Never reloaded
+     * before the slot stores. */
+    EXPECT_TRUE(regs.d[4] == UINT32_C(0x7f));
+    fprintf(stderr, "dispatch fac-crash: arrival d4=%08x d2=%08x d5=%08x d6=%08x a0=%08x a1=%08x a2=%08x\n",
+            (unsigned)regs.d[4], (unsigned)regs.d[2],
+            (unsigned)regs.d[5], (unsigned)regs.d[6],
+            (unsigned)regs.a[0], (unsigned)regs.a[1],
+            (unsigned)regs.a[2]);
+    /* Phase 2: continue past the door with arrival regs intact
+     * (d4 carries the walk index). */
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0,
+                          20000u, &done);
+    fprintf(stderr, "dispatch fac-crash: s-status=%d pc=0x%05x steps=%u events=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count);
+    EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xcb6));
+    EXPECT_TRUE(done == 114u);
+}
+
 /* E1j: a0 max-gate two-round differential (9/10 arc). Zeroed
  * board, desc0 channel-0 match, ring {0xa0, 0x20, byte2}:
  * idx 0x20 rows max 0x7f. Round A (byte2 0x80 > 0x7f): the
@@ -4744,6 +4869,7 @@ int main(int argc, char **argv)
     test_a8c_high(audio_rom, audio_rom_size);
     test_engine_d92(audio_rom, audio_rom_size);
     test_dispatch_90_low(audio_rom, audio_rom_size);
+    test_fac_d4_crash(audio_rom, audio_rom_size);
     test_dispatch_a0_maxgate(audio_rom, audio_rom_size);
     /* S3c synthetic entries (drain-unreachable bodies). */
     test_a8c_synth(audio_rom, audio_rom_size, 1, "low");
