@@ -9,7 +9,7 @@
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "Usage:\n  %s info <rom-directory>\n  %s disasm <rom-directory> <address> <count>\n",
+    fprintf(stderr, "Usage:\n  %s info <rom-directory>\n  %s disasm <rom-directory> <address> <count> [--raw]\n",
             program, program);
 }
 
@@ -71,7 +71,7 @@ static int command_info(const char *directory)
 }
 
 static int command_disasm(const char *directory, const char *address_text,
-                          const char *count_text)
+                          const char *count_text, int show_raw)
 {
     uint8_t *program = NULL;
     size_t size = 0u;
@@ -96,8 +96,37 @@ static int command_disasm(const char *directory, const char *address_text,
             free(program);
             return EXIT_FAILURE;
         }
-        printf("0x%08x: %-24s%s\n", (unsigned)address, instruction.text,
-               instruction.supported ? "" : "  [unsupported opcode]");
+        if (show_raw) {
+            size_t byte_index = 0u;
+            /* Raw bytes are read locally; an unsupported opcode is not
+             * necessarily a valid silicon instruction. */
+            if (instruction.length == 0u ||
+                instruction.length > VF2_M68K_MAX_INSTRUCTION_BYTES ||
+                (size_t)address > size ||
+                instruction.length > size - (size_t)address) {
+                fprintf(stderr, "Invalid decoded length at 0x%08x.\n",
+                        (unsigned)address);
+                free(program);
+                return EXIT_FAILURE;
+            }
+            printf("0x%08x: %04x  ", (unsigned)address,
+                   (unsigned)instruction.opcode);
+            for (byte_index = 0u;
+                 byte_index < VF2_M68K_MAX_INSTRUCTION_BYTES;
+                 ++byte_index) {
+                if (byte_index < instruction.length) {
+                    printf("%02x", (unsigned)program[(size_t)address + byte_index]);
+                } else {
+                    printf("  ");
+                }
+            }
+            printf("  %-24s%s\n", instruction.text,
+                   instruction.supported ? "" : "  [unsupported opcode]");
+        } else {
+            printf("0x%08x: %-24s%s\n", (unsigned)address,
+                   instruction.text,
+                   instruction.supported ? "" : "  [unsupported opcode]");
+        }
         address += (uint32_t)instruction.length;
     }
     free(program);
@@ -113,8 +142,9 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "info") == 0 && argc == 3) {
         return command_info(argv[2]);
     }
-    if (strcmp(argv[1], "disasm") == 0 && argc == 5) {
-        return command_disasm(argv[2], argv[3], argv[4]);
+    if (strcmp(argv[1], "disasm") == 0 &&
+        (argc == 5 || (argc == 6 && strcmp(argv[5], "--raw") == 0))) {
+        return command_disasm(argv[2], argv[3], argv[4], argc == 6);
     }
     usage(argv[0]);
     return EXIT_FAILURE;

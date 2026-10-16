@@ -178,6 +178,8 @@ Inspect the 68000 audio program:
 ```sh
 build/vf2m68k info /path/to/vf2
 build/vf2m68k disasm /path/to/vf2 0x100 64
+# Optional opcode-word + all instruction bytes:
+build/vf2m68k disasm /path/to/vf2 0xed8 24 --raw
 ```
 
 ## Differential validation
@@ -229,6 +231,8 @@ Start here:
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — project architecture.
 - [`docs/SOUND_SYSTEM.md`](docs/SOUND_SYSTEM.md) — technical sound-system guide (Model 2A / 68000 / SCSP), evidence map and audio reverse-engineering runbook.
+- [`docs/sound/OPCODE_ATLAS.md`](docs/sound/OPCODE_ATLAS.md) — 68000/i960 opcode-level audit and architectural effects.
+- [`docs/sound/OPCODE_TRACE.md`](docs/sound/OPCODE_TRACE.md) — local raw disassembly and differential trace workflow.
 - [`docs/DECOMP_GUIDE.md`](docs/DECOMP_GUIDE.md) — recovery workflow and conventions.
 - [`docs/I960_ANALYSIS.md`](docs/I960_ANALYSIS.md) — i960 analysis tooling.
 - [`docs/EXECUTION.md`](docs/EXECUTION.md) — execution model.

@@ -25,6 +25,11 @@ de recuperação; **não foram testados nesta publicação**.
 Em particular, conferir as opções disponíveis com `--help` antes
 de automatizar scripts novos.
 
+Inspeção de instruções: [OPCODE_ATLAS.md](OPCODE_ATLAS.md) e
+[OPCODE_TRACE.md](OPCODE_TRACE.md). Agora o `vf2m68k disasm` aceita
+`--raw` no final para mostrar a palavra de opcode e bytes de extensão,
+sem alterar o stepper.
+
 ## 2. Escolher um evento de gameplay, não um pacote inventado
 
 A [composição 8h](../../decomp/i960/notes/audio_8h_bridge_v0825.md)

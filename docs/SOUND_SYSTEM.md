@@ -73,6 +73,8 @@ posteriores e o código em `master`.
 ## Pontos de entrada para investigação
 
 - [Mapa de memória, filas, registros e interrupções](sound/MEMORY_MAP.md).
+- [Atlas de opcodes 68000/i960, PCs, flags e MMIO](sound/OPCODE_ATLAS.md).
+- [Comandos de desmontagem raw e traces por opcode](sound/OPCODE_TRACE.md).
 - [Procedimento de instrumentação e validação diferencial](sound/REVERSE_ENGINEERING.md).
 - [decomp/m68k/README.md](../decomp/m68k/README.md): recuperação detalhada
   dos comandos, loops e tabelas do programa 68000.

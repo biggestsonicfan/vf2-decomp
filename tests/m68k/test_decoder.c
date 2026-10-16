@@ -175,6 +175,7 @@ int main(void)
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 0u, &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(strcmp(instruction.text, "moveq #-2,d0") == 0);
+    EXPECT_TRUE(instruction.opcode == UINT16_C(0x70fe));
     EXPECT_TRUE(vf2_m68k_decode(program, sizeof(program), 2u, &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 2u);
     EXPECT_TRUE(strcmp(instruction.text, "bra $00000006") == 0);
@@ -211,6 +212,7 @@ int main(void)
     EXPECT_TRUE(instruction.length == 4u);
     EXPECT_TRUE(instruction.supported == 0);
     EXPECT_TRUE(strcmp(instruction.text, ".word $48d2") == 0);
+    EXPECT_TRUE(instruction.opcode == UINT16_C(0x48d2));
 
     EXPECT_TRUE(vf2_m68k_decode(movel_push, sizeof(movel_push),
                                 0u, &instruction) == VF2_OK);
@@ -272,6 +274,7 @@ int main(void)
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(instruction.length == 6u);
     EXPECT_TRUE(strcmp(instruction.text, "andi.l #$fff,d0") == 0);
+    EXPECT_TRUE(instruction.opcode == UINT16_C(0x0280));
     EXPECT_TRUE(vf2_m68k_decode(dispatcher, sizeof(dispatcher), 6u,
                                 &instruction) == VF2_OK);
     EXPECT_TRUE(strcmp(instruction.text, "move.b d0,$150e(a6)") == 0);
