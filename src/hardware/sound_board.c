@@ -84,6 +84,20 @@ static vf2_status read_audio_be32(
     return VF2_OK;
 }
 
+/* Forward: table readers defined below dispatch_80/90 (v0825
+ * S2c), used by the HIGH row picks above them. */
+static vf2_status sound_board_read_table_u8(
+    vf2_sound_board *board,
+    uint32_t address,
+    uint8_t *value
+);
+
+static vf2_status sound_board_read_table_word(
+    vf2_sound_board *board,
+    uint32_t address,
+    uint16_t *value
+);
+
 static vf2_status read_audio_byte_absolute(
     const vf2_sound_board *board,
     uint32_t address,
@@ -793,11 +807,51 @@ static vf2_status sound_board_dispatch_80(
     report->channel = channel;
     board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)base;
     /* Split at 0x10e2 (`move.b desc[2],d3` / cmpi #$f0 / bcs):
-       the low arm is a stale branch into mid-lea and the high arm
-       needs desc[2] >= 0xf0, which byte-match (S2a: desc[1] ==
-       channel <= 15) leaves free to differ -- but NEITHER arm is
-       recovered yet. Everything past (row/$1515/voice update) is
-       post-refusal. Refuse with the head filed. */
+     * the LOW arm walks a row table with a data-dependent trip
+     * count (0x1148 bls loop, no silicon cap) and stays refused
+     * at 0x1132; the HIGH arm (desc[2] >= 0xf0) files the row
+     * word/byte and falls into the 0x1174 voice scan (E1f-a).
+     * Residue audit: 0x10f2 andi.l is LONG (d3 exact despite the
+     * subi.b/drain upper); 0x1106 andi.l is LONG (d0 exact);
+     * 0x111c andi.l is LONG (d2 exact -- the move.b'd drain
+     * residue dies there, so the $1515 index is clean). */
+    if (descriptor[2u] < 0xf0u) {
+        report->handler_address = UINT32_C(0x00001132);
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    {
+        uint32_t select = (uint32_t)((descriptor[2u] - 0xf0u) & 0x7fu);
+        uint32_t table_base = 0u;
+        uint32_t entry = 0u;
+        uint16_t word = 0u;
+        uint8_t row_byte = 0u;
+
+        /* ROM 0x10ee-0x1112 HIGH row pick (90-path shape:
+         * table_base = be32(0x6032c6 + select*4), entry =
+         * table_base + (payload&0x7f)*6, $1516 = word(entry)).
+         * Odd entry fails closed like silicon (address error). */
+        if (read_audio_be32(board,
+                            UINT32_C(0x6032c6) + select * 4u,
+                            &table_base) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        entry = table_base + (uint32_t)(payload & 0x7fu) * 6u;
+        if (sound_board_read_table_word(board, entry, &word) !=
+            VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        write_be16(board->sound_ram + VF2_SOUND_LOOKUP_WORD, word);
+        /* ROM 0x1118-0x1128: $1515 = byte(0x60c3e6 + base&0x7f).
+         * $1515 has no named slot ($15xx -> 0x25xx pattern). */
+        if (sound_board_read_table_u8(
+                board,
+                UINT32_C(0x60c3e6) + (uint32_t)(base & 0x7fu),
+                &row_byte) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        board->sound_ram[UINT32_C(0x2515)] = row_byte;
+    }
+    report->handler_address = UINT32_C(0x00001174);
     return VF2_ERROR_UNSUPPORTED;
 }
 

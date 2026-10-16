@@ -717,8 +717,9 @@ static void test_drain_90_trap(
  * desc[1] = 1, desc[4] = 0x10: base = (0x06&0x7f)+0x10 = 0x16
  * (byte-add; desc[5] never participates). Old word-add C gave
  * (0x01)+be16(desc+4); old command-head gave 0x01+... -- both
- * dead. C refuses at the 0x10e2 split, packet held. Stepper stop:
- * 0x10e2 (the split load, pre-branch). */
+ * dead. desc[2] = 0x03 takes the LOW arm: C refuses at 0x1132,
+ * packet held (E1f-a: HIGH is recovered, LOW stays a door).
+ * Stepper stop: 0x10e2 (the split load, pre-branch). */
 static void test_drain_80_head(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -768,7 +769,7 @@ static void test_drain_80_head(
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
     EXPECT_TRUE(creport.channel == 1u);
-    EXPECT_TRUE(creport.handler_address == UINT32_C(0x10d0));
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0x1132));
     EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] == 0x16u);
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
 
@@ -3381,6 +3382,135 @@ static void test_engine_ed8_keyon(
     sample_window = NULL;
 }
 
+/* E1f-a scout (S-side first): the 0x80 HIGH row-filing path.
+ * Staged synthetic fixture (emit/desc-poke precedent): 0x80 packet
+ * (payload 0x05), descriptor 0 byte-match channel 0 with desc[2]
+ * 0xf3 (HIGH, select 3) and desc[4] 0x07. S drains 0x7a6 to the
+ * 0x1174 voice-scan setup. Print-first: arrival, steps, $150f/
+ * $1516/$1515, S regs. The C still refuses at the 0x10d0 head
+ * (baseline pinned); the row recovery + RAM compare come with
+ * the C implementation. */
+static void test_dispatch_80_high(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static uint8_t pristine_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_scsp pristine_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    (void)rom_dir;
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+    {
+        uint8_t packet[4];
+        packet[0] = 0x80u;
+        packet[1] = 0x05u;
+        packet[2] = 0u;
+        packet[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x00u;
+    desc[2] = 0xf3u;
+    desc[4] = 0x07u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memcpy(pristine_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&pristine_scsp, &board.scsp, sizeof(pristine_scsp));
+    memset(&creport, 0, sizeof(creport));
+    EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &creport) ==
+                VF2_ERROR_UNSUPPORTED);
+    fprintf(stderr, "dispatch 80-high: C handler=0x%05x count=%u 150f=%02x 1516=%02x%02x 1515=%02x\n",
+            (unsigned)creport.handler_address,
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)cram[VF2_SOUND_LOOKUP_CURRENT],
+            (unsigned)cram[VF2_SOUND_LOOKUP_WORD],
+            (unsigned)cram[VF2_SOUND_LOOKUP_WORD + 1u],
+            (unsigned)cram[0x2515u]);
+    /* E1f-a: the C files the HIGH row and refuses at the 0x1174
+     * voice-scan setup. Full-RAM equality under the drain
+     * exclusions (count/cursor/stack), SCSP untouched both. */
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0x1174));
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1174), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch 80-high: S s-status=%d pc=0x%05x steps=%u events=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count);
+    fprintf(stderr, "dispatch 80-high: S d0=%08x d2=%08x d3=%08x a1=%08x a2=%08x 150f=%02x 1516=%02x%02x 1515=%02x\n",
+            (unsigned)regs.d[0], (unsigned)regs.d[2],
+            (unsigned)regs.d[3], (unsigned)regs.a[1],
+            (unsigned)regs.a[2],
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_CURRENT],
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_WORD],
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_WORD + 1u],
+            /* $1515 has no named constant ($15xx -> 0x25xx pattern). */
+            (unsigned)step_ram[0x2515u]);
+    /* Stepper-pinned HIGH row (measured 2026-10-16): 49 steps to
+     * the 0x1174 setup; residue-clean d2/d3; $1516 = 0x00ff
+     * (empty row -- the 0x80 path files it with no gate check,
+     * unlike the 90 arm). */
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x1174));
+    EXPECT_TRUE(done == 49u);
+    EXPECT_TRUE(regs.d[0] == UINT32_C(0x1e));
+    EXPECT_TRUE(regs.d[2] == UINT32_C(0x0c));
+    EXPECT_TRUE(regs.d[3] == UINT32_C(0x0c));
+    EXPECT_TRUE(regs.a[1] == UINT32_C(0x60c3e6));
+    EXPECT_TRUE(regs.a[2] == UINT32_C(0x6038a6));
+    {
+        uint32_t addr = 0u;
+        for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+            if (addr == 0x2506u ||
+                (addr >= 0x2508u && addr < 0x250au) ||
+                addr >= 0x7e00u) {
+                continue;
+            }
+            if (cram[addr] != step_ram[addr]) {
+                fprintf(stderr, "dispatch 80-high: RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                        (unsigned)addr, (unsigned)cram[addr],
+                        (unsigned)step_ram[addr]);
+                EXPECT_TRUE(0);
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -3472,6 +3602,7 @@ int main(int argc, char **argv)
     test_chain_live_queue(argv[1], audio_rom, audio_rom_size);
     test_engine_probe(argv[1], audio_rom, audio_rom_size);
     test_engine_ed8_keyon(argv[1], audio_rom, audio_rom_size);
+    test_dispatch_80_high(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);

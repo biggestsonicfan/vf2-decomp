@@ -1047,7 +1047,8 @@ int main(void)
         /* 80 head (S2b primer truth: d2 = payload, base =
            (payload&0x7f) + desc[4]-byte -- 0x10da is add.b, desc[5]
            never participates). Packet {0x81, 0, ..} -> base 0x00.
-           Then refuse at the 0x10e2 split, packet held. */
+           desc[2] = 1 takes the LOW arm: refuse at 0x1132,
+           packet held (E1f-a: HIGH recovered, LOW is a door). */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -1064,7 +1065,7 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
+        EXPECT_TRUE(dispatch.handler_address == 0x1132u);
         EXPECT_TRUE(dispatch.channel == 1u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x00u);
@@ -1072,7 +1073,8 @@ int main(void)
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
         /* 80 head with desc[4] = 1 (S2b: base 0x01 -- the old
-           word-add pin 0x0f read desc[5] = 0 into the base). */
+           word-add pin 0x0f read desc[5] = 0 into the base).
+           desc[2] = 15 takes the LOW arm: refuse at 0x1132. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -1089,7 +1091,7 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
+        EXPECT_TRUE(dispatch.handler_address == 0x1132u);
         EXPECT_TRUE(dispatch.channel == 15u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x01u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
