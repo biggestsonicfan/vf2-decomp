@@ -616,13 +616,18 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
 
-        /* A0 refuses at entry (v0795b): the body splits on cmp.l
-           d2,d0 with d2 never loaded, so stale-vs-primary mis-splits by
-           history and the stale arm stores through residue-a2. */
+        /* A0 max-gate (E1j): idx = ring byte 1 & 0x7f, max =
+           row word, bgt (signed) over max exits via the 0x1eac
+           rts (consume); else the 0x1e98 join (residue-wild,
+           held). Packet {0xa0, 0x01, 0x01} rows max 0x0002:
+           0x01 > 0x02 false -> join, UNSUPPORTED @0x1e98. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
+        audio_rom[0x8e16u] = 0x00u; audio_rom[0x8e17u] = 0x60u;
+        audio_rom[0x8e18u] = 0x74u; audio_rom[0x8e19u] = 0x00u;
+        audio_rom[0x7400u] = 0x00u; audio_rom[0x7401u] = 0x02u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 0u;
@@ -633,16 +638,22 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x1e74u);
+        EXPECT_TRUE(dispatch.handler_address == 0x1e98u);
         EXPECT_TRUE(dispatch.channel == 0u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
+        /* Packet {0xa5, 0x02, 0x03} rows max 0x0002: 0x03 >
+           0x02 -> rts, OK + consume (handler stays the 0x1e74
+           head, OK-path precedent). */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
+        audio_rom[0x8e1au] = 0x00u; audio_rom[0x8e1bu] = 0x60u;
+        audio_rom[0x8e1cu] = 0x74u; audio_rom[0x8e1du] = 0x00u;
+        audio_rom[0x7400u] = 0x00u; audio_rom[0x7401u] = 0x02u;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 5u;
@@ -652,11 +663,11 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
-                    VF2_ERROR_UNSUPPORTED);
+                    VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x1e74u);
         EXPECT_TRUE(dispatch.channel == 5u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
-        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
         /* Stream maintenance is a documented no-op (v0796): the ROM
            sequence engine (driver/worker/appliers) has no static entry

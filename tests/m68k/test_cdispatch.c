@@ -1660,6 +1660,121 @@ static void test_engine_d92(
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
 }
 
+/* E1j: a0 max-gate two-round differential (9/10 arc). Zeroed
+ * board, desc0 channel-0 match, ring {0xa0, 0x20, byte2}:
+ * idx 0x20 rows max 0x7f. Round A (byte2 0x80 > 0x7f): the
+ * 0x1eac rts resumes the drain -- C OK + consume, S exits
+ * 0x265c (steps print-first) with full-RAM + SCSP equality
+ * (the head is register-only, so equality is exact). Round B
+ * (byte2 0x7f = max): bgt falls to the 0x1e98 join -- C
+ * refuses with the packet held; S runs the residue-wild body
+ * from the zeroed state (T2: clean 249-step drain exits;
+ * steps re-measured, not assumed) with NO post-state equality
+ * (the outcomes differ by design -- the pin is the pair of
+ * outcomes). */
+static void test_dispatch_a0_maxgate(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    int round = 0;
+    (void)audio_rom_size;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x00u;
+    for (round = 0; round < 2; ++round) {
+        vf2_status cstatus = VF2_OK;
+        cram[VF2_SOUND_COMMAND_RING_BASE] = 0xa0u;
+        cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0x20u;
+        cram[VF2_SOUND_COMMAND_RING_BASE + 2u] =
+            round == 0 ? 0x80u : 0x7fu;
+        cram[VF2_SOUND_COMMAND_RING_BASE + 3u] = 0u;
+        cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+        cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+        cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+        memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+        memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+        memset(&creport, 0, sizeof(creport));
+        cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+        bus.ram = step_ram;
+        bus.ram_size = sizeof(step_ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = NULL;
+        bus.sample_rom_size = 0u;
+        bus.scsp = &step_scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x7a6);
+        status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                              0, 20000u, &done);
+        fprintf(stderr, "dispatch a0-max: round %d C=%d handler=0x%05x handled=%d count=%u S=%d pc=0x%05x steps=%u events=%u\n",
+                round, (int)cstatus,
+                (unsigned)creport.handler_address,
+                creport.handled,
+                (unsigned)cram[VF2_SOUND_COMMAND_COUNT],
+                (int)status, (unsigned)regs.pc,
+                (unsigned)done, (unsigned)bus.event_count);
+        if (round == 0) {
+            uint32_t addr = 0u;
+            EXPECT_TRUE(cstatus == VF2_OK);
+            EXPECT_TRUE(creport.handled == 1);
+            EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 0u);
+            EXPECT_TRUE(status == VF2_OK);
+            EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+            EXPECT_TRUE(done == 130u);
+            for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+                if (addr == 0x2506u ||
+                    (addr >= 0x2508u && addr < 0x250au) ||
+                    addr >= 0x7e00u) {
+                    continue;
+                }
+                if (cram[addr] != step_ram[addr]) {
+                    fprintf(stderr, "dispatch a0-max: round 0 RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                            (unsigned)addr, (unsigned)cram[addr],
+                            (unsigned)step_ram[addr]);
+                    EXPECT_TRUE(0);
+                    break;
+                }
+            }
+            EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+        } else {
+            EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(creport.handler_address ==
+                        UINT32_C(0x1e98));
+            EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
+            EXPECT_TRUE(creport.cursor_after ==
+                        creport.cursor_before);
+            EXPECT_TRUE(status == VF2_OK);
+            EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+            EXPECT_TRUE(done == 210u);
+        }
+    }
+}
+
 /* S3c: synthetic-entry 0xa8c differentials (drain-unreachable
  * bodies). Entry: pc 0xa8c, a0 = descriptor, a1 = voice, a5/a6/a7
  * standard; every d-reg and a2/a3 seeded with garbage
@@ -2960,15 +3075,19 @@ static void test_chain_live_queue(
             }
             EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
         } else {
-            /* Designed a0 refusal: C stops at the 0x1e74 entry
-             * (sound_board_dispatch_a0); the S drain runs the
-             * body and returns to the main loop (jmp 0x265c).
-             * The 0xc68 arrival is main-loop funnel, NOT a per
-             * -entry contract (measured: same packet at cursor 8
-             * never funnels there), so stop at the drain exit.
-             * Pin the refusal + the clean drain exit. */
+            /* Designed a0 refusal: C runs the max-gate head and
+             * stops at the 0x1e98 join (sound_board_dispatch_a0;
+             * E1j: the live ae10-shape reads idx 0x10 / byte2
+             * 0x1f against max 0x1f -- equal, so bgt falls to
+             * the join; the old 0x1e74 entry pin moved with the
+             * recovered head). The S drain runs the body and
+             * returns to the main loop (jmp 0x265c). The 0xc68
+             * arrival is main-loop funnel, NOT a per-entry
+             * contract (measured: same packet at cursor 8 never
+             * funnels there), so stop at the drain exit. Pin
+             * the refusal + the clean drain exit. */
             EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
-            EXPECT_TRUE(creport.handler_address == UINT32_C(0x1e74));
+            EXPECT_TRUE(creport.handler_address == UINT32_C(0x1e98));
             EXPECT_TRUE(status == VF2_OK);
             EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
         }
@@ -4454,6 +4573,7 @@ int main(int argc, char **argv)
                   0x00u, 0xbau, 0x0eu, 7u, 203u, "skip");
     test_a8c_high(audio_rom, audio_rom_size);
     test_engine_d92(audio_rom, audio_rom_size);
+    test_dispatch_a0_maxgate(audio_rom, audio_rom_size);
     /* S3c synthetic entries (drain-unreachable bodies). */
     test_a8c_synth(audio_rom, audio_rom_size, 1, "low");
     test_a8c_synth(audio_rom, audio_rom_size, 0, "high-f");

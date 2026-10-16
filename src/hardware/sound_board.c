@@ -2266,19 +2266,50 @@ static vf2_status sound_board_dispatch_90(
 static vf2_status sound_board_dispatch_a0(
     vf2_sound_board *board,
     uint8_t command,
+    uint8_t payload,
+    uint8_t ring_byte2,
     vf2_sound_dispatch_report *report
 )
 {
-    (void)board;
-    /* ROM switch jmps to the 0x1e74 fetch primer, but the body splits
-       on cmp.l d2,d0 with d2 never loaded on the A0 path: d2.upper is
-       main-loop/driver residue (worker chain-loads reach nonzero high
-       words), so stale-vs-primary mis-splits by history and the stale
-       arm then stores through residue-a2. Unmodelable: refuse at
-       entry. Formulas (row = payload&0x7f, value = byte2, no-op
-       primary, slot0-stale, bit7 trap) kept in the master note. */
+    uint32_t index = (uint32_t)payload & 0x7fu;
+    uint32_t row_base = 0u;
+    uint16_t max = 0u;
+
     report->handler_address = UINT32_C(0x00001e74);
     report->channel = (uint8_t)(command & 0x0fu);
+    /* ROM 0x1e74-0x1e84 row-dir pick: idx = ring byte 1
+     * (payload) & 0x7f; row = be32(0x608e12 + idx*4). Both
+     * andi.l are LONG (d0 exact despite drain residue); the
+     * lsl.w #2 runs on a zeroed upper, so the .w index is
+     * whole. */
+    if (read_audio_be32(board,
+                        UINT32_C(0x608e12) + index * 4u,
+                        &row_base) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    /* ROM 0x1e88-0x1e92 max gate: d0 = ring byte 2 (andi.l
+     * #$ff, exact); d2 = max word (move.w loads the low word
+     * only and cmp.w compares low words only, so the stale
+     * upper never participates -- the old "d2 never loaded /
+     * cmp.l residue split" comment misread the print; the ROM
+     * bytes are move.w/cmp.w). Odd row fails closed like
+     * silicon (move.w address error). */
+    if (sound_board_read_table_word(board, row_base, &max) !=
+        VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* ROM 0x1e94 bgt (signed word): payload byte > max takes
+     * the 0x1eac rts, which resumes the drain -- the packet
+     * consumes. The head wrote no RAM (register-only d0/d2/a4
+     * traffic), so both exits are side-effect-free here. */
+    if ((int16_t)ring_byte2 > (int16_t)max) {
+        return VF2_OK;
+    }
+    /* ROM 0x1e98 join: entry-pointer table into code-as-pointer
+     * sled (v0804: rows 64+ read code; T2: the body spins on
+     * non-pristine history). Residue-wild by measurement:
+     * refuse at the join, packet held. */
+    report->handler_address = UINT32_C(0x00001e98);
     return VF2_ERROR_UNSUPPORTED;
 }
 
@@ -2604,8 +2635,15 @@ vf2_status vf2_sound_board_dispatch_next(
             local.handler_address = UINT32_C(0x00000856);
             local.channel = (uint8_t)(local.command & 0x0fu);
         } else if (local.command_class == 0xa0u) {
+            /* Primer-correct ring byte 2 (S2b 0x90-primer
+             * precedent: a3 sits at ring+2 when the class arm
+             * runs, so the max-gate reads the second payload
+             * byte, not the first). */
             vf2_status status = sound_board_dispatch_a0(
-                board, local.command, &local
+                board, local.command, local.payload,
+                ram[VF2_SOUND_COMMAND_RING_BASE +
+                    ((cursor + 2u) & UINT16_C(0x0fffu))],
+                &local
             );
             if (status != VF2_OK) {
                 *report = local;
