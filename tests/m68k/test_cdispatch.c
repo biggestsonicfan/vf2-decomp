@@ -3820,6 +3820,298 @@ static void test_dispatch_80_low(
     }
 }
 
+/* E1h: audible note on->off composition (9/10 arc).
+ *
+ * Two native dispatches share one board/slot: (b) the E1c 0x90
+ * ed8 shape keys slot 0 (KEYONB, slot_active 1) and renders
+ * peak P1 > 0; (c) a staged 0x80 LOW packet (desc 0x80/0x00/
+ * 0x03/0x07, sel-3 walk to $1516 = 0x008a / $1515 = 0xa7)
+ * matches a staged voice1 (slot 0, +2 = 0x40, +0xb = 0) and
+ * tears it down (key-off pair, +2 = 0, active 0), rendering
+ * release peaks P2/P3. No src change (both dispatches exist):
+ * the proof is the composition, E1f-d precedent. S proves (c)
+ * from the post-(b) snapshot (drain 0x7a6 -> 0x265c, steps
+ * print-first); (b) is E1c-owned, re-asserted lightly (OK +
+ * active). Descriptors 1..19 are zero-gated so desc0 matches
+ * alone (both images see it -- fixture, E1f precedent).
+ * slot_active/peak pins print-first, locked after measurement. */
+static void test_note_on_off(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    static int16_t left[2048];
+    static int16_t right[2048];
+    static int16_t left2[2048];
+    static int16_t right2[2048];
+    uint8_t *sample_window = NULL;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    vf2_sound_board snapshot;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint8_t *v1 = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+    int32_t p1 = 0;
+    int32_t p2 = 0;
+    int32_t last2 = 0;
+    int32_t p3 = 0;
+    size_t i = 0u;
+    size_t k = 0u;
+    {
+        static const char *names[4] = {
+            "mpr-17570.37", "mpr-17571.36",
+            "mpr-17572.32", "mpr-17573.31"
+        };
+        size_t bi = 0u;
+        sample_window = (uint8_t *)malloc(0x800000u);
+        if (sample_window == NULL) {
+            fprintf(stderr, "note-on-off: no bank\n");
+            EXPECT_TRUE(0);
+            return;
+        }
+        memset(sample_window, 0, 0x800000u);
+        for (bi = 0u; bi < 4u; ++bi) {
+            char path[512];
+            FILE *f = NULL;
+            size_t got = 0u;
+            snprintf(path, sizeof(path), "%s/%s", rom_dir, names[bi]);
+            f = fopen(path, "rb");
+            if (f == NULL) {
+                fprintf(stderr, "note-on-off: missing %s\n", path);
+                EXPECT_TRUE(0);
+                free(sample_window);
+                return;
+            }
+            got = fread(sample_window + bi * 0x200000u, 1u, 0x200000u,
+                        f);
+            fclose(f);
+            EXPECT_TRUE(got == 0x200000u);
+        }
+    }
+    if (vf2_sound_board_initialize(&board, audio_rom, audio_rom_size,
+                                   sample_window,
+                                   0x800000u) != VF2_OK) {
+        fprintf(stderr, "note-on-off: init failed\n");
+        EXPECT_TRUE(0);
+        free(sample_window);
+        return;
+    }
+    cram = board.sound_ram;
+    /* ON: E1c shape (0x9a packet, S4 voice/table fixture, gate
+     * bit staged pre-dispatch). */
+    {
+        uint8_t packet[4];
+        packet[0] = 0x9au;
+        packet[1] = 0u;
+        packet[2] = 1u;
+        packet[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    {
+        uint8_t *voice0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+        voice0[9] = 0xffu;
+        voice0[5] = 0x00u;
+    }
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    cram[0x7f80u] |= 0x80u;
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    EXPECT_TRUE(cstatus == VF2_OK);
+    EXPECT_TRUE(board.scsp.slot_active[0] == 1u);
+    memcpy(&snapshot, &board, sizeof(snapshot));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left, right,
+                                       2048u) == VF2_OK);
+    for (i = 0u; i < 2048u; ++i) {
+        int32_t al = left[i] < 0 ? -(int32_t)left[i]
+                                 : (int32_t)left[i];
+        int32_t ar = right[i] < 0 ? -(int32_t)right[i]
+                                  : (int32_t)right[i];
+        if (al > p1) {
+            p1 = al;
+        }
+        if (ar > p1) {
+            p1 = ar;
+        }
+    }
+    memcpy(&board, &snapshot, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left2, right2,
+                                       2048u) == VF2_OK);
+    EXPECT_TRUE(memcmp(left, left2, sizeof(left)) == 0);
+    EXPECT_TRUE(memcmp(right, right2, sizeof(right)) == 0);
+    fprintf(stderr, "note-on-off: ON ok active=%u peak=%d\n",
+            (unsigned)board.scsp.slot_active[0], (int)p1);
+    EXPECT_TRUE(p1 > 0);
+    /* OFF staging: fresh 0x80 packet, desc0 LOW, descs 1..19
+     * gate-shut, voice1 = the slot-0 teardown match. */
+    {
+        uint8_t packet[4];
+        packet[0] = 0x80u;
+        packet[1] = 0x05u;
+        packet[2] = 0u;
+        packet[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x00u;
+    desc[2] = 0x03u;
+    desc[3] = 0x00u;
+    desc[4] = 0x07u;
+    for (k = 1u; k < 20u; ++k) {
+        uint8_t *other = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
+            k * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
+        other[0] = 0x00u;
+    }
+    v1 = cram + VF2_SOUND_VOICE_TABLE_BASE + 0x10u;
+    /* Slot word 0: the ed8-keyed slot. Init authored index*0x20
+     * (voice1 -> 0x20); without this the teardown keys off an
+     * idle slot and slot 0 drones (measured: regs 0x18 stuck,
+     * active 1, release peaks climbing). */
+    v1[VF2_SOUND_VOICE_SLOT] = 0x00u;
+    v1[VF2_SOUND_VOICE_SLOT + 1u] = 0x00u;
+    v1[VF2_SOUND_VOICE_FLAGS] = 0x40u;
+    v1[VF2_SOUND_VOICE_BYTE] = 0xa7u;
+    v1[VF2_SOUND_VOICE_CHANNEL] = 0x00u;
+    v1[VF2_SOUND_VOICE_SELECT] = 0x00u;
+    v1[VF2_SOUND_VOICE_SELECT + 1u] = 0x8au;
+    v1[VF2_SOUND_VOICE_RATE] = 0x00u;
+    v1[VF2_SOUND_VOICE_AGE] = 0x00u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "note-on-off: OFF C=%d handled=%d count=%u cursor=%04x->%04x v1+2=%02x scsp0=%02x/%02x active=%u\n",
+            (int)cstatus, creport.handled,
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)creport.cursor_before,
+            (unsigned)creport.cursor_after,
+            (unsigned)v1[VF2_SOUND_VOICE_FLAGS],
+            (unsigned)board.scsp.registers[0x00u],
+            (unsigned)board.scsp.registers[0x0bu],
+            (unsigned)board.scsp.slot_active[0]);
+    EXPECT_TRUE(cstatus == VF2_OK);
+    EXPECT_TRUE(creport.handled == 1);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    EXPECT_TRUE(creport.cursor_before == 4u);
+    EXPECT_TRUE(creport.cursor_after == 8u);
+    EXPECT_TRUE(v1[VF2_SOUND_VOICE_FLAGS] == 0x00u);
+    EXPECT_TRUE(board.scsp.registers[0x00u] == 0x10u);
+    EXPECT_TRUE(board.scsp.registers[0x0bu] == 0x1fu);
+    /* Key-off moves the slot to RELEASE, it does not drone and
+     * does not edge active off: active stays 1 until the
+     * envelope bottoms out (synchronize_slot model; S agrees
+     * via SCSP equality). Silence is proven by the renders. */
+    EXPECT_TRUE(board.scsp.slot_active[0] == 1u);
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                          0, 20000u, &done);
+    fprintf(stderr, "note-on-off: OFF S=%d pc=0x%05x steps=%u events=%u active=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count,
+            (unsigned)step_scsp.slot_active[0]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+    EXPECT_TRUE(done == 518u);
+    EXPECT_TRUE(step_scsp.slot_active[0] == 1u);
+    {
+        uint32_t addr = 0u;
+        for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+            if (addr == 0x2506u ||
+                (addr >= 0x2508u && addr < 0x250au) ||
+                addr >= 0x7e00u) {
+                continue;
+            }
+            if (cram[addr] != step_ram[addr]) {
+                fprintf(stderr, "note-on-off: RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                        (unsigned)addr, (unsigned)cram[addr],
+                        (unsigned)step_ram[addr]);
+                EXPECT_TRUE(0);
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+    /* Release renders: first block starts loud and decays, the
+     * second must be silent (pins print-first). Determinism on
+     * the release block (E1c pattern). */
+    memcpy(&snapshot, &board, sizeof(snapshot));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left, right,
+                                       2048u) == VF2_OK);
+    for (i = 0u; i < 2048u; ++i) {
+        int32_t al = left[i] < 0 ? -(int32_t)left[i]
+                                 : (int32_t)left[i];
+        int32_t ar = right[i] < 0 ? -(int32_t)right[i]
+                                  : (int32_t)right[i];
+        if (al > p2) {
+            p2 = al;
+        }
+        if (ar > p2) {
+            p2 = ar;
+        }
+    }
+    {
+        int32_t tail = left[2047] < 0 ? -(int32_t)left[2047]
+                                      : (int32_t)left[2047];
+        int32_t tailr = right[2047] < 0 ? -(int32_t)right[2047]
+                                        : (int32_t)right[2047];
+        last2 = tail > tailr ? tail : tailr;
+    }
+    memcpy(&board, &snapshot, sizeof(board));
+    EXPECT_TRUE(vf2_sound_board_render(&board, left2, right2,
+                                       2048u) == VF2_OK);
+    EXPECT_TRUE(memcmp(left, left2, sizeof(left)) == 0);
+    EXPECT_TRUE(memcmp(right, right2, sizeof(right)) == 0);
+    EXPECT_TRUE(vf2_sound_board_render(&board, left, right,
+                                       2048u) == VF2_OK);
+    for (i = 0u; i < 2048u; ++i) {
+        int32_t al = left[i] < 0 ? -(int32_t)left[i]
+                                 : (int32_t)left[i];
+        int32_t ar = right[i] < 0 ? -(int32_t)right[i]
+                                  : (int32_t)right[i];
+        if (al > p3) {
+            p3 = al;
+        }
+        if (ar > p3) {
+            p3 = ar;
+        }
+    }
+    fprintf(stderr, "note-on-off: release p2=%d last=%d p3=%d\n",
+            (int)p2, (int)last2, (int)p3);
+    /* Release tail: the first post-off block starts loud and
+     * decays (p2 above 0 but below the keyed peak p1), ends at
+     * zero; the second block is fully silent. */
+    EXPECT_TRUE(p2 > 0);
+    EXPECT_TRUE(p2 < p1);
+    EXPECT_TRUE(last2 == 0);
+    EXPECT_TRUE(p3 == 0);
+    free(sample_window);
+}
+
 /* E1f-d: the L1 lifecycle on the E1f-c round-1 post-state.
  * Fixture replicates round 1 (0x80/0x05 packet, HIGH desc,
  * voice0 andi-witness, voice1 +2=0x40/+3=0x90/+4=0/+6=0x00ff/
@@ -4046,6 +4338,7 @@ int main(int argc, char **argv)
     test_engine_ed8_keyon(argv[1], audio_rom, audio_rom_size);
     test_dispatch_80_high(argv[1], audio_rom, audio_rom_size);
     test_dispatch_80_low(argv[1], audio_rom, audio_rom_size);
+    test_note_on_off(argv[1], audio_rom, audio_rom_size);
     test_voice_lifecycle_l1(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_vectors(audio_rom, audio_rom_size);
