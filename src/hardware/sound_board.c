@@ -850,9 +850,50 @@ static vf2_status sound_board_dispatch_80(
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
         board->sound_ram[UINT32_C(0x2515)] = row_byte;
+        /* ROM 0x1174-0x11ce voice scan (v0825 E1f-b). d1 =
+           $150e & 0xf (drain-filed channel). Per voice
+           (stride 0x10 x32): +3 == $1515, +4 == d1, +6 word ==
+           $1516, +2 bit4/1 clear; then andi.b #$7f,+2 IN MEMORY
+           (fires on every gate-passer, even when the beq below
+           skips the call); full pass falls into jsr 0x11d0
+           (E1f-c door: refuse). Miss-all exhausts the dbf to the
+           0x11ce rts, which resumes the drain -- the dispatch
+           completes (OK) and the packet consumes. */
+        {
+            uint8_t scan_channel =
+                (uint8_t)(board->sound_ram[VF2_SOUND_CURRENT_COMMAND] &
+                          0x0fu);
+            uint16_t row_word = read_be16(board->sound_ram +
+                                          VF2_SOUND_LOOKUP_WORD);
+            size_t vi = 0u;
+
+            for (vi = 0u; vi < VF2_SOUND_VOICE_COUNT; ++vi) {
+                uint8_t *scan_voice =
+                    board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
+                    vi * VF2_SOUND_VOICE_BYTES;
+                if (scan_voice[VF2_SOUND_VOICE_BYTE] != row_byte ||
+                    scan_voice[VF2_SOUND_VOICE_CHANNEL] !=
+                        scan_channel ||
+                    read_be16(scan_voice + VF2_SOUND_VOICE_SELECT) !=
+                        row_word ||
+                    (scan_voice[VF2_SOUND_VOICE_FLAGS] & 0x10u) != 0u ||
+                    (scan_voice[VF2_SOUND_VOICE_FLAGS] & 0x02u) != 0u) {
+                    continue;
+                }
+                scan_voice[VF2_SOUND_VOICE_FLAGS] &= 0x7fu;
+                if (scan_voice[VF2_SOUND_VOICE_FLAGS] == 0u) {
+                    continue;
+                }
+                report->handler_address = UINT32_C(0x000011c0);
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            /* Miss-all: dbf exhausted to the 0x11ce rts; fall out
+             * to the shared completion below. */
+        }
     }
-    report->handler_address = UINT32_C(0x00001174);
-    return VF2_ERROR_UNSUPPORTED;
+    /* Scan completed (0x11ce rts resumes the drain): the dispatch
+     * completes and the packet consumes. */
+    return VF2_OK;
 }
 
 static vf2_status sound_board_read_table_u8(
