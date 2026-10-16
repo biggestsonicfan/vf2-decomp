@@ -511,15 +511,16 @@ static void test_drain_e0_entry(
  * 0x15 and mode is ROM[0x60c6a6+2] (real ROM bytes -- both sides
  * share audio_rom, so no staging; the assert is C==S equality).
  * C: dispatch_next runs the arm to its door (HIGH: Loop-B
- * early 0xf12; LOW: the 0xa3e walk to 0xf12, E1k), packet
- * held. Stepper: drain 0x7a6 to the split target (0x884 HIGH
+ * early 0xf12; LOW: the 0xa3e walk into the E1m allocator,
+ * refuse at 0xfac), packet held. Stepper: drain 0x7a6 to the split target (0x884 HIGH
  * / 0xa3e LOW -- the step delta + target pin the split
  * direction on silicon).
  * * Compared: $150f/$1510 C==S, SCSP equal (head touches none),
  *   zero bus events. $1511 == 0 both sides on the LOW leg only
  *   (S pre-walk stop; C filed desc[6] = 0); the HIGH leg runs
  *   Loop-B (S2d) to the early 0xf12 door, so it compares $1515
- *   C==S instead. Both legs pin handler 0xf12 (different doors).
+ *   C==S instead. HIGH pins handler 0xf12 (Loop-B door);
+ *   LOW pins 0xfac (walk into the E1m allocator).
  *   Drain-only state (count subq'd at entry, $150e
  *   file, stack residue) is excluded by construction -- the head
  *   path is 8 linear instructions past the switch, all accounted
@@ -568,6 +569,15 @@ static void test_drain_90_head(
     desc[2] = desc2;
     desc[3] = 0x00u;
     desc[4] = 0x10u;
+    /* Allocator cursor for the C's production path (LOW only;
+     * HIGH never reads it; the S legs stop pre-walk). Staged
+     * pre-snapshot so both images match. */
+    if (desc2 < 0xf0u) {
+        cram[0x251au] = 0x00u;
+        cram[0x251au + 1u] = 0x00u;
+        cram[0x251au + 2u] = 0x28u;
+        cram[0x251au + 3u] = 0x00u;
+    }
     memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
 
     memset(&creport, 0, sizeof(creport));
@@ -581,9 +591,11 @@ static void test_drain_90_head(
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
     EXPECT_TRUE(creport.channel == 3u);
-    /* Both arms park at 0xf12 through different doors (HIGH:
-     * Loop-B early; LOW: the E1k walk). */
-    EXPECT_TRUE(creport.handler_address == UINT32_C(0xf12));
+    /* Handler by arm (HIGH: Loop-B early 0xf12, allocator not
+     * wired; LOW: the E1k walk into the E1m allocator, 0xfac). */
+    EXPECT_TRUE(creport.handler_address ==
+                (desc2 >= 0xf0u ? UINT32_C(0xf12) :
+                                  UINT32_C(0xfac)));
     EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
     EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
@@ -1663,14 +1675,17 @@ static void test_engine_d92(
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
 }
 
-/* E1k: 90 LOW row walk (S2d backlog). a8c-hi-shaped fixture
- * with a LOW desc (0x80/0x03/0x05, ring {0x93, 0x05, 0x01}):
- * base = 0x05, sel 5 walks to e0 (0x05 <= 0x7f) with the
- * wrapping addend (0x05 + 0xfa = 0xff -> index 0x7f). C files
- * $1516/$1518/$1515/$1511 and refuses at the 0x0f12 voice
- * allocator with the packet held; S arrives at 0x0f12 (steps
- * print-first, locked after measurement) with full-RAM (drain
- * exclusions) + SCSP equality. Filed cells print-first. */
+/* E1k: 90 LOW row walk (S2d backlog) + E1m allocator. a8c-hi-shaped
+ * fixture with a LOW desc (0x80/0x03/0x05, ring {0x93, 0x05,
+ * 0x01}) plus the allocator fixture ($151a = 0x2800, voice0
+ * busy): base = 0x05, sel 5 walks to e0 (0x05 <= 0x7f) with
+ * the wrapping addend (0x05 + 0xfa = 0xff -> index 0x7f),
+ * files $1516/$1518/$1515/$1511, then the allocator skips
+ * voice0 (+2 = 0x40) to voice1 (cursor 0x2820) and refuses
+ * at the 0xfac setup authoring with the packet held. S runs
+ * drain -> walk -> allocator to 0xfac (steps print-first,
+ * locked after measurement) with full-RAM (drain exclusions)
+ * + SCSP equality. Filed cells print-first. */
 static void test_dispatch_90_low(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -1722,6 +1737,14 @@ static void test_dispatch_90_low(
     voice0[1] = 0x20u;
     voice0[5] = 0x00u;
     voice0[9] = 0xffu;
+    /* Allocator fixture (E1m): cursor at the table base, voice0
+     * busy so the scan skips to voice1 (found -> cursor
+     * 0x2820, refuse at 0xfac). */
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
+    voice0[VF2_SOUND_VOICE_FLAGS] = 0x40u;
     memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
 
     memset(&creport, 0, sizeof(creport));
@@ -1736,7 +1759,7 @@ static void test_dispatch_90_low(
             (unsigned)cram[VF2_SOUND_LOOKUP_CONTROL],
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(creport.handler_address == UINT32_C(0xf12));
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xfac));
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
     EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
     /* Walk effects (sel-5 e0 stop, wrapping addend): $1516 =
@@ -1747,6 +1770,12 @@ static void test_dispatch_90_low(
     EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_META] == 0x00u);
     EXPECT_TRUE(cram[UINT32_C(0x2515)] == 0x27u);
     EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CONTROL] == 0x07u);
+    /* Allocator effects (E1m): voice0 busy, voice1 free ->
+     * cursor 0x2820. */
+    EXPECT_TRUE(cram[0x251au] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 1u] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 2u] == 0x28u);
+    EXPECT_TRUE(cram[0x251au + 3u] == 0x20u);
 
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -1763,19 +1792,23 @@ static void test_dispatch_90_low(
     regs.a[7] = UINT32_C(0x7f00);
     regs.pc = UINT32_C(0x7a6);
     step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xf12), 0, 20000u,
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xfac), 0, 20000u,
                           &done);
-    fprintf(stderr, "dispatch 90-low: s-status=%d pc=0x%05x steps=%u events=%u word=%02x%02x meta=%02x byte=%02x ctl=%02x\n",
+    fprintf(stderr, "dispatch 90-low: s-status=%d pc=0x%05x steps=%u events=%u word=%02x%02x meta=%02x byte=%02x ctl=%02x cursor=%02x%02x%02x%02x\n",
             (int)status, (unsigned)regs.pc, (unsigned)done,
             (unsigned)bus.event_count,
             (unsigned)step_ram[VF2_SOUND_LOOKUP_WORD],
             (unsigned)step_ram[VF2_SOUND_LOOKUP_WORD + 1u],
             (unsigned)step_ram[VF2_SOUND_LOOKUP_META],
             (unsigned)step_ram[UINT32_C(0x2515)],
-            (unsigned)step_ram[VF2_SOUND_LOOKUP_CONTROL]);
+            (unsigned)step_ram[VF2_SOUND_LOOKUP_CONTROL],
+            (unsigned)step_ram[0x251au],
+            (unsigned)step_ram[0x251au + 1u],
+            (unsigned)step_ram[0x251au + 2u],
+            (unsigned)step_ram[0x251au + 3u]);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0xf12));
-    EXPECT_TRUE(done == 51u);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xfac));
+    EXPECT_TRUE(done == 67u);
     EXPECT_TRUE(bus.event_count == 0u);
     {
         uint32_t addr = 0u;

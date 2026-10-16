@@ -376,8 +376,9 @@ int main(void)
            second = ring byte 2 = 0x02). Base 0x15 (0x05 + 0x10),
            mode = ROM[0x60c6a6+2]. desc[2] = 3 is LOW (E1k):
            sel-3 synthetic row (th 0x7f, word 0x00ff), walk
-           stops at e0, files $1516/$1518/$1515/$1511, refuses
-           at the 0xf12 allocator, packet held. */
+           stops at e0, files $1516/$1518/$1515/$1511, runs the
+           E1m allocator (voice0 free), refuses at 0xfac,
+           packet held. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -399,7 +400,7 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0xf12u);
+        EXPECT_TRUE(dispatch.handler_address == 0xfacu);
         EXPECT_TRUE(dispatch.channel == 3u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
@@ -410,6 +411,12 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_META] == 0x00u);
         EXPECT_TRUE(board.sound_ram[0x2515u] == 0x00u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CONTROL] == 0x00u);
+        /* Allocator (E1m): init-staged cursor 0x2800, all voices
+           free -> voice0, cursor 0x2810, refuse at 0xfac. */
+        EXPECT_TRUE(board.sound_ram[0x251au] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 1u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 2u] == 0x28u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 3u] == 0x10u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
@@ -418,8 +425,8 @@ int main(void)
            0x60c6a6+2 -- the old +0x10000 file read a mode the new
            head never addresses). desc[2] = 15 is LOW (E1k):
            sel-15 synthetic row needs th >= 0x85 (0x7f would be
-           skipped), so th 0xff; walk stops at e0, files, refuses
-           at 0xf12, held. */
+           skipped), so th 0xff; walk stops at e0, files, runs
+           the allocator, refuses at 0xfac, held. */
         {
             static uint8_t big_rom[0x20000u];
             memset(big_rom, 0, sizeof(big_rom));
@@ -443,13 +450,17 @@ int main(void)
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                         VF2_ERROR_UNSUPPORTED);
-            EXPECT_TRUE(dispatch.handler_address == 0xf12u);
+            EXPECT_TRUE(dispatch.handler_address == 0xfacu);
             EXPECT_TRUE(dispatch.channel == 15u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x85u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x2au);
             EXPECT_TRUE(dispatch.selected_value == 0x2au);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD] == 0x00u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD + 1u] == 0xffu);
+            EXPECT_TRUE(board.sound_ram[0x251au] == 0x00u);
+            EXPECT_TRUE(board.sound_ram[0x251au + 1u] == 0x00u);
+            EXPECT_TRUE(board.sound_ram[0x251au + 2u] == 0x28u);
+            EXPECT_TRUE(board.sound_ram[0x251au + 3u] == 0x10u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         }
 

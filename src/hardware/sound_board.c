@@ -2181,6 +2181,62 @@ static vf2_status sound_board_run_loopb(
     return VF2_ERROR_UNSUPPORTED;
 }
 
+/* ROM 0xf12-0xf4c voice allocator (v0825 E1m). $151a holds
+ * the absolute cursor (init 0x2800; voices 0x2800..0x29f0
+ * stride 0x10, sentinel 0x2a00): 0x2a00 wraps to 0x2800
+ * (write-back), then up to 32 records scanned for +2 == 0
+ * (move.b/compare -- the cursor is RAM, not registers, so no
+ * residue question exists at all). Found: cursor = found +
+ * 0x10 (write-back), refuse at the 0xfac setup authoring (S3
+ * territory: voice fill + volume math + engine). None-free
+ * (dbf exhausts): fall to the 0xf50 reaper scan -- refused
+ * at 0xf50 (separate slice; the reaper key-offs and continues
+ * to 0xfac). Wired into the 90-LOW walk end only; Loop-B
+ * arrivals still park at 0xf12 (their S2d legs own them --
+ * wiring them is one call plus leg extensions, not this
+ * slice). */
+static vf2_status sound_board_run_allocator_0f12(
+    vf2_sound_board *board,
+    vf2_sound_dispatch_report *report
+)
+{
+    uint8_t *ram = board->sound_ram;
+    uint32_t cursor = 0u;
+    size_t i = 0u;
+
+    cursor = (((uint32_t)ram[UINT32_C(0x251a)] << 24u) |
+              ((uint32_t)ram[UINT32_C(0x251a) + 1u] << 16u) |
+              ((uint32_t)ram[UINT32_C(0x251a) + 2u] << 8u) |
+              ram[UINT32_C(0x251a) + 3u]);
+    if (cursor == UINT32_C(0x2a00)) {
+        cursor = UINT32_C(0x2800);
+        ram[UINT32_C(0x251a)] = 0u;
+        ram[UINT32_C(0x251a) + 1u] = 0u;
+        ram[UINT32_C(0x251a) + 2u] = 0x28u;
+        ram[UINT32_C(0x251a) + 3u] = 0x00u;
+    }
+    for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
+        uint32_t record = cursor + (uint32_t)i * 0x10u;
+        if (record + 2u >= VF2_SOUND_RAM_BYTES) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        if (ram[record + 2u] == 0u) {
+            uint32_t next = record + 0x10u;
+            if (next + 3u >= VF2_SOUND_RAM_BYTES) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            ram[UINT32_C(0x251a)] = (uint8_t)(next >> 24u);
+            ram[UINT32_C(0x251a) + 1u] = (uint8_t)(next >> 16u);
+            ram[UINT32_C(0x251a) + 2u] = (uint8_t)(next >> 8u);
+            ram[UINT32_C(0x251a) + 3u] = (uint8_t)next;
+            report->handler_address = UINT32_C(0x00000fac);
+            return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    report->handler_address = UINT32_C(0x00000f50);
+    return VF2_ERROR_UNSUPPORTED;
+}
+
 static vf2_status sound_board_dispatch_90(
     vf2_sound_board *board,
     uint8_t *descriptor,
@@ -2314,8 +2370,9 @@ static vf2_status sound_board_dispatch_90(
         board->sound_ram[UINT32_C(0x2515)] = row_byte;
         board->sound_ram[VF2_SOUND_LOOKUP_CONTROL] =
             descriptor[6u];
-        report->handler_address = UINT32_C(0x00000f12);
-        return VF2_ERROR_UNSUPPORTED;
+        /* Into the 0xf12 allocator (E1m; Loop-B arrivals still
+         * park -- see the allocator comment). */
+        return sound_board_run_allocator_0f12(board, report);
     }
     {
         vf2_status high_status =
