@@ -305,7 +305,7 @@ int main(int argc, char **argv)
     int i = 0;
     const int W = 960, H = 720;
     float yaw = 0.6f, pitch = 0.3f, zoom = 1.0f;
-    vec3 lo, hi, center;
+    vec3 lo = { 0.0f, 0.0f, 0.0f }, hi = { 0.0f, 0.0f, 0.0f }, center;
     float radius = 1.0f;
     int dragging = 0, running = 1, frames = 0;
 
@@ -363,10 +363,23 @@ int main(int argc, char **argv)
         center.x = (lo.x + hi.x) * 0.5f;
         center.y = (lo.y + hi.y) * 0.5f;
         center.z = (lo.z + hi.z) * 0.5f;
-        radius = 0.5f * (hi.x - lo.x);
-        if (0.5f * (hi.y - lo.y) > radius) radius = 0.5f * (hi.y - lo.y);
-        if (0.5f * (hi.z - lo.z) > radius) radius = 0.5f * (hi.z - lo.z);
-        if (radius < 1e-4f) radius = 1.0f;
+        /* bounding-sphere radius = half the box diagonal, so the whole box
+         * fits the view regardless of the model's absolute coordinate range
+         * (pieces span ~0.1 to ~96 units). */
+        {
+            float dx = hi.x - lo.x, dy = hi.y - lo.y, dz = hi.z - lo.z;
+            radius = 0.5f * sqrtf(dx * dx + dy * dy + dz * dz);
+        }
+        if (radius < 1e-6f) radius = 1.0f;
+    }
+    if (!selftest) {
+        printf("model: %zu+%zu verts, bbox [%.3f %.3f %.3f]..[%.3f %.3f %.3f], "
+               "center (%.3f %.3f %.3f), radius %.3f\n",
+               mesh[0].count, mesh[1].count,
+               (double)lo.x, (double)lo.y, (double)lo.z,
+               (double)hi.x, (double)hi.y, (double)hi.z,
+               (double)center.x, (double)center.y, (double)center.z,
+               (double)radius);
     }
 
     if (selftest) {
@@ -594,27 +607,40 @@ int main(int argc, char **argv)
         }
 
         {
+            const float fovy = 0.78539816f; /* 45 deg */
             float proj[16], view[16], model[16], tmp[16], mvp[16];
-            float ry[16], rx[16], tz[16], scal[16], tr[16];
+            float ry[16], rx[16], tz[16], tr[16];
             float cy = cosf(yaw), sy = sinf(yaw);
             float cp = cosf(pitch), sp = sinf(pitch);
-            float s = zoom / radius;
             float aspect = (sh > 0u) ? (float)sw / (float)sh : 1.3333f;
+            /* Fit-to-bounds: pull the camera back far enough that the bounding
+             * sphere (center, radius) fills the frustum in both the vertical and
+             * the horizontal field of view, with a margin; `zoom` scales it. */
+            float fit_v = radius / sinf(fovy * 0.5f);
+            float fit_h = radius / sinf(atanf(tanf(fovy * 0.5f) * aspect));
+            float dist = ((fit_v > fit_h) ? fit_v : fit_h) * 1.25f / zoom;
+            float znear, zfar;
             SDL_GPUColorTargetInfo cti;
             SDL_GPUDepthStencilTargetInfo dti;
             SDL_GPURenderPass *pass;
             SDL_GPUBufferBinding vbb;
             SDL_GPUTextureSamplerBinding tsb;
 
-            mat_identity(scal); scal[0] = s; scal[5] = s; scal[10] = s;
+            if (dist < radius * 1.05f) dist = radius * 1.05f;
+            znear = dist - radius;
+            if (znear < dist * 0.01f) znear = dist * 0.01f;
+            zfar = dist + radius * 2.0f;
+
+            /* model: translate the bbox center to the origin (no scaling, so
+             * tiny- and large-coordinate models frame identically). */
             mat_identity(tr); tr[3] = -center.x; tr[7] = -center.y; tr[11] = -center.z;
-            mat_mul(model, scal, tr);
+            memcpy(model, tr, sizeof(model));
             mat_identity(ry); ry[0] = cy; ry[2] = sy; ry[8] = -sy; ry[10] = cy;
             mat_identity(rx); rx[5] = cp; rx[6] = -sp; rx[9] = sp; rx[10] = cp;
-            mat_identity(tz); tz[11] = -3.0f;
+            mat_identity(tz); tz[11] = -dist;
             mat_mul(tmp, rx, ry);
             mat_mul(view, tz, tmp);
-            mat_perspective(proj, 0.78539816f /*45deg*/, aspect, 0.05f, 100.0f);
+            mat_perspective(proj, fovy, aspect, znear, zfar);
             mat_mul(tmp, view, model);
             mat_mul(mvp, proj, tmp);
 

@@ -7,15 +7,31 @@ a player-1 textured model exported (slice 3a) and displayed.
 
 ## Usage
 
-`vf2_model_viewer <model.obj> [--tex <bank.bin>] [--selftest]`
+`vf2_model_viewer <model.obj> [--tex0 <bank.bin>] [--tex1 <bank.bin>] [--selftest]`
 
-- `<model.obj>`: the mesh from `vf2i960 export-textured` (positions + UVs).
-- `--tex <bank.bin>`: a raw texture-RAM bank (e.g. `vf2_fight_tex1_f1808.bin`);
-  the viewer de-swizzles it to a 2048×1024 grayscale sheet (`vf2_texture_sheet_
-  texel`) and samples it. Without `--tex` the mesh renders white.
+- `<model.obj>`: the mesh from `vf2i960 export-textured` / `export-pieces`
+  (positions + UVs, faces grouped `usemtl sheet0`/`sheet1`).
+- `--tex0`/`--tex1`: the two raw texture-RAM banks; the viewer de-swizzles each
+  to a 2048×1024 grayscale sheet (`vf2_texture_sheet_texel`) and binds it to the
+  matching material, so a mesh that spans both banks is fully textured. `--tex`
+  is an alias for `--tex0`. A material with no bank renders white.
 - Controls: drag / arrows rotate, wheel or +/- zoom, R reset, Esc quit.
 - `--selftest`: loads the OBJ, inits SDL, probes for a GPU device, exits 0
   (headless CI has no GPU backend — not a failure).
+
+## Camera [fit-to-bounds] (fixed 2026-10-16)
+
+The camera **centers on the model's bounding box and derives its distance from
+the bounding-sphere radius and the field of view** (`dist =
+radius/sin(fovy/2) × 1.25 / zoom`, clamped, with near/far bracketing the
+sphere), instead of the earlier scale-geometry-and-fix-camera-at-z=−3 scheme
+that left small/offset pieces (e.g. `piece_063`, a ~0.1-unit box) outside the
+frustum — an empty window. Any-sized model (pieces span ~0.1 to ~96 units) now
+frames identically. Back-face culling is **disabled** (`CULLMODE_NONE`) so
+winding never hides a face. A one-line bbox/center/radius diagnostic prints at
+startup. The MVP is row-major and uploaded as-is: the SPIR-V declares the UBO
+matrix `RowMajor` (verified with `spirv-dis`), so `mul(mvp, v)` applies it
+correctly with no transpose.
 
 ## Rendering [SDL_GPU]
 
