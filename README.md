@@ -228,6 +228,7 @@ documented in [`docs/PROBE_AUTOMATION_PLAN.md`](docs/PROBE_AUTOMATION_PLAN.md).
 Start here:
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — project architecture.
+- [`docs/SOUND_SYSTEM.md`](docs/SOUND_SYSTEM.md) — technical sound-system guide (Model 2A / 68000 / SCSP), evidence map and audio reverse-engineering runbook.
 - [`docs/DECOMP_GUIDE.md`](docs/DECOMP_GUIDE.md) — recovery workflow and conventions.
 - [`docs/I960_ANALYSIS.md`](docs/I960_ANALYSIS.md) — i960 analysis tooling.
 - [`docs/EXECUTION.md`](docs/EXECUTION.md) — execution model.
