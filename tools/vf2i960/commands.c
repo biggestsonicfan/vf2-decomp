@@ -13,6 +13,7 @@
 #include "vf2/i960/executor.h"
 #include "vf2/i960/snapshot.h"
 #include "vf2/rom.h"
+#include "vf2/geo_display.h"
 #include "vf2/hash.h"
 #include "vf2/hybrid.h"
 #include "vf2/hybrid/player.h"
@@ -76,6 +77,7 @@ static void usage(const char *program)
         "  %s observe-third-sweep <rom-directory>\n"
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n"
+        "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s export-pieces <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s export-textured <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s texture-link <rom-dir> <object-id>\n"
@@ -126,6 +128,7 @@ static void usage(const char *program)
         program,
         program,
         program, /* compare-snapshots */
+        program, /* geo-walk */
         program, /* export-pieces */
         program, /* export-textured */
         program, /* texture-link */
@@ -8199,6 +8202,106 @@ fail:
     return EXIT_FAILURE;
 }
 
+/* --- geo-walk: validate the Step-1 display-list walker on a RAM9 dump ---------
+ *
+ * Loads one frame's RAM9 display list (131072 bytes = 0x8000 u32 LE words) from
+ * a local end-of-frame dump, walks it from the given read-start with
+ * vf2_geo_walk, and reports the stop reason, object count, and -- as the Step-1
+ * success check -- whether Akira's record cluster (0x130a44..0x1434a0, which
+ * holds obj 0x19c, his face) is among the submitted objects. The dump is local
+ * only, never committed; the walker itself is covered synthetically in CI. */
+static int command_geo_walk(
+    const char *bin_path, const char *frame_str, const char *readstart_str
+)
+{
+    const size_t frame_bytes = 131072u;
+    const size_t frame_words = frame_bytes / 4u;
+    FILE *f = NULL;
+    uint8_t *raw = NULL;
+    uint32_t *words = NULL;
+    vf2_geo_object *objs = NULL;
+    size_t max_objs = 8192u;
+    size_t frame;
+    uint32_t readstart;
+    size_t got;
+    size_t n = 0u;
+    size_t opc = 0u;
+    vf2_geo_stop stop = VF2_GEO_STOP_BOUNDS;
+    size_t i;
+    size_t akira = 0u;
+    int rc = EXIT_FAILURE;
+
+    frame = (size_t)strtoul(frame_str, NULL, 0);
+    readstart = (uint32_t)strtoul(readstart_str, NULL, 16);
+
+    f = fopen(bin_path, "rb");
+    if (f == NULL) {
+        fprintf(stderr, "geo-walk: cannot open %s\n", bin_path);
+        return EXIT_FAILURE;
+    }
+    raw = (uint8_t *)malloc(frame_bytes);
+    words = (uint32_t *)malloc(frame_words * sizeof(*words));
+    objs = (vf2_geo_object *)malloc(max_objs * sizeof(*objs));
+    if (raw == NULL || words == NULL || objs == NULL) {
+        goto done;
+    }
+    if (fseek(f, (long)(frame * frame_bytes), SEEK_SET) != 0) {
+        fprintf(stderr, "geo-walk: cannot seek to frame %zu\n", frame);
+        goto done;
+    }
+    got = fread(raw, 1u, frame_bytes, f);
+    if (got != frame_bytes) {
+        fprintf(stderr, "geo-walk: short read (%zu/%zu) -- frame %zu present?\n",
+                got, frame_bytes, frame);
+        goto done;
+    }
+    for (i = 0u; i < frame_words; ++i) {
+        words[i] = (uint32_t)raw[i * 4u + 0u] |
+                   ((uint32_t)raw[i * 4u + 1u] << 8) |
+                   ((uint32_t)raw[i * 4u + 2u] << 16) |
+                   ((uint32_t)raw[i * 4u + 3u] << 24);
+    }
+
+    if (vf2_geo_walk(words, frame_words, readstart, objs, max_objs, &n, &stop,
+                     &opc) != VF2_OK) {
+        fprintf(stderr, "geo-walk: invalid arguments\n");
+        goto done;
+    }
+
+    for (i = 0u; i < n; ++i) {
+        uint32_t rec = (objs[i].oba & 0x7fffffu) * 4u;
+        if (rec >= 0x130a44u && rec <= 0x1434a0u) {
+            ++akira;
+        }
+    }
+
+    {
+        const char *why = stop == VF2_GEO_STOP_END ? "END"
+                        : stop == VF2_GEO_STOP_FULL ? "FULL (out[] limit)"
+                        : stop == VF2_GEO_STOP_BOUNDS ? "BOUNDS"
+                        : "OPCODE_LIMIT";
+        size_t base = (size_t)((readstart & 0x1ffffu) >> 2);
+        printf("geo-walk: frame %zu readstart 0x%x -> stop %s, %zu objects, "
+               "%zu opcodes\n", frame, (unsigned)readstart, why, n, opc);
+        if (base + 3u < frame_words) {
+            printf("  list header: %08x %08x %08x %08x\n", words[base],
+                   words[base + 1u], words[base + 2u], words[base + 3u]);
+        }
+        printf("  Akira cluster 0x130a44..0x1434a0: %zu object(s)%s\n", akira,
+               akira > 0u ? " present" : " ABSENT");
+    }
+    rc = (stop == VF2_GEO_STOP_END) ? EXIT_SUCCESS : EXIT_FAILURE;
+
+done:
+    if (f != NULL) {
+        fclose(f);
+    }
+    free(raw);
+    free(words);
+    free(objs);
+    return rc;
+}
+
 /* --- decode-texture-sheet: a texture-RAM bank -> grayscale PGM ----------------
  *
  * Reads a raw texture bank (local-only, e.g. a MAME capture of texture RAM
@@ -9029,6 +9132,10 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "export-pieces") == 0 && argc == 7) {
         return command_export_pieces(argv[2], argv[3], argv[4], argv[5],
                                      argv[6]);
+    }
+
+    if (strcmp(argv[1], "geo-walk") == 0 && argc == 5) {
+        return command_geo_walk(argv[2], argv[3], argv[4]);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
