@@ -439,10 +439,12 @@ vf2_status vf2_session_pump_audio(
      * epilogue does (cursor += 4 regardless of arm). The 0xcb2
      * copy-loop door applies the full slot program before refusing
      * (E1b fall-through shape, T2 round-1: handler + effects proven
-     * C==S) and counts as dispatched; a completed key-on arm
-     * (E1c 0xed8, VF2_OK) counts the same way; earlier doors count
-     * as refused. The pre-E1b 0xc68 pin is retired -- no path
-     * refuses there anymore. */
+     * C==S) and counts as dispatched, as does the 0xdf8 door
+     * (E1i d92 arm: bclr + slot program + stream RMW before the
+     * same dead loop); a completed key-on arm (E1c 0xed8, VF2_OK)
+     * counts the same way; earlier doors count as refused. The
+     * pre-E1b 0xc68 pin is retired -- no path refuses there
+     * anymore. */
     pending = report->entries_filed;
     while (pending > 0u) {
         vf2_sound_dispatch_report dispatch;
@@ -452,7 +454,8 @@ vf2_status vf2_session_pump_audio(
         st = vf2_sound_board_dispatch_next(board, &dispatch);
         if (st == VF2_OK ||
             (st == VF2_ERROR_UNSUPPORTED &&
-             dispatch.handler_address == UINT32_C(0xcb2))) {
+             (dispatch.handler_address == UINT32_C(0xcb2) ||
+              dispatch.handler_address == UINT32_C(0xdf8)))) {
             ++report->entries_dispatched;
         } else {
             ++report->entries_refused;

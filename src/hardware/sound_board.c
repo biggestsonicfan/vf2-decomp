@@ -1566,14 +1566,14 @@ static vf2_status sound_board_run_setup_author_low(
    SCSP stores on both branches. */
 static vf2_status sound_board_run_sample_tail(
     vf2_sound_board *board,
-    const uint8_t *voice,
+    uint8_t *voice,
     uint16_t slot,
     vf2_sound_dispatch_report *report
 );
 
 static vf2_status sound_board_run_engine_key(
     vf2_sound_board *board,
-    const uint8_t *voice,
+    uint8_t *voice,
     uint16_t slot,
     uint32_t d3,
     vf2_sound_dispatch_report *report
@@ -1633,7 +1633,7 @@ static vf2_status sound_board_setup_author_at(
    0x13), so no OOB arm exists. */
 static vf2_status sound_board_run_sample_tail(
     vf2_sound_board *board,
-    const uint8_t *voice,
+    uint8_t *voice,
     uint16_t slot,
     vf2_sound_dispatch_report *report
 )
@@ -1677,8 +1677,10 @@ static vf2_status sound_board_run_sample_tail(
  * slot, d3 (sample-tail index), d2 rate (report->lookup_word from
  * the HIGH/LOW picker -- both branches store it before the tail).
  * Gate words from the $5000 table at d3: +0x00 bit 31 set takes
- * the 0xed8 arm (refused); +0x0c word nonzero takes the 0xd92 arm
- * (refused). Effects on the fall-through (S4 shape pinned):
+ * the 0xed8 arm (v0825 E1c: key-on, completes); +0x0c long
+ * nonzero takes the 0xd92 arm (v0825 E1i: bclr voice, stream
+ * RMW pair, same slot program, refuses at the 0xdf8 dead
+ * loop). Effects on the fall-through (S4 shape pinned):
  * d5 = long(table+0x04); SCSP[slot+0] long = 0x10300000 long +
  * word(voice+0x0c) (KEYON program); stream[slot+0x0a] long =
  * d5 - 0x200; stream[slot+0x01] = 0x10; stream[slot+0x1a] =
@@ -1770,9 +1772,94 @@ static vf2_status sound_board_run_engine_keyon_ed8(
     return VF2_OK;
 }
 
+/* ROM 0xd92 second engine arm (v0825 E1i). Taken when the
+ * table+0x0c long (d0) is nonzero -- head-loaded, so every
+ * input derives: d1 = long(table+8), d5/a0 the table pair,
+ * d2 the setup rate, d4 the slot word, a1 the voice.
+ * Effects: bclr #4 voice+2; the E1b slot program (d6 =
+ * long(voice+0x0c) | 0x10300000 to SCSP[slot+0] as the u16
+ * pair; stream[slot+0x0a] long = d5 - 0x200); the stream RMW
+ * pair (+0x16 keeps its top byte, low 24 = d0 low 24; +0x12
+ * keeps its top byte, low 24 = d1 low 24); the rate pair
+ * +0x1a/+0x1c (d2 + 0xeba 16-bit wrap exact);
+ * stream[slot+0x01] = 0x10. Refuses at the 0xdf8 copy loop
+ * (the same illegal-ea movem shape as 0xcb2, same silicon
+ * fate -- vector 4 to the 0x4fe blink): handler 0xdf8. */
+static vf2_status sound_board_run_engine_key_d92(
+    vf2_sound_board *board,
+    uint8_t *voice,
+    uint16_t slot,
+    uint32_t d3,
+    uint32_t d0,
+    vf2_sound_dispatch_report *report
+)
+{
+    uint8_t *ram = board->sound_ram;
+    uint32_t table = UINT32_C(0x5000) + d3;
+    uint32_t stream = UINT32_C(0x2000) + (uint32_t)slot;
+    uint32_t d1 = 0u;
+    uint32_t d5 = 0u;
+    uint32_t d6 = 0u;
+    uint32_t e12 = 0u;
+    uint32_t e16 = 0u;
+    uint16_t rate = 0u;
+
+    /* ROM 0xd92: bclr #4, voice+2. */
+    voice[VF2_SOUND_VOICE_FLAGS] &= 0xefu;
+    /* ROM 0xd98-0xda8: table longs + the E1b d6 form (32-bit
+     * fetch OR'd with the KEYON base -- E1b's word-trap
+     * applies unchanged). */
+    d1 = (((uint32_t)ram[table + 8u] << 24u) |
+          ((uint32_t)ram[table + 9u] << 16u) |
+          ((uint32_t)ram[table + 10u] << 8u) | ram[table + 11u]);
+    d5 = (((uint32_t)ram[table + 4u] << 24u) |
+          ((uint32_t)ram[table + 5u] << 16u) |
+          ((uint32_t)ram[table + 6u] << 8u) | ram[table + 7u]);
+    d6 = UINT32_C(0x10300000) |
+         (((uint32_t)voice[0x0cu] << 24u) |
+          ((uint32_t)voice[0x0du] << 16u) |
+          ((uint32_t)voice[0x0eu] << 8u) | voice[0x0fu]);
+    rate = (uint16_t)(report->lookup_word & UINT32_C(0xffff));
+    if (stream + UINT32_C(0x1e) > VF2_SOUND_RAM_BYTES) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    if (vf2_scsp_write_u16(&board->scsp, (uint32_t)slot,
+                           (uint16_t)(d6 >> 16u)) != VF2_OK ||
+        vf2_scsp_write_u16(&board->scsp, (uint32_t)slot + 2u,
+                           (uint16_t)d6) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    /* ROM 0xdb0-0xdb6: stream sample long. */
+    d5 -= UINT32_C(0x200);
+    write_be32(ram + stream + 0x0au, d5);
+    /* ROM 0xdba-0xde2: the RMW pair (top byte preserved, low
+     * 24 replaced -- andi.l/or.l exact). */
+    e16 = (((uint32_t)ram[stream + 0x16u] << 24u) |
+           ((uint32_t)ram[stream + 0x17u] << 16u) |
+           ((uint32_t)ram[stream + 0x18u] << 8u) |
+           ram[stream + 0x19u]);
+    write_be32(ram + stream + 0x16u,
+               (e16 & UINT32_C(0xff000000)) |
+               (d0 & UINT32_C(0x00ffffff)));
+    e12 = (((uint32_t)ram[stream + 0x12u] << 24u) |
+           ((uint32_t)ram[stream + 0x13u] << 16u) |
+           ((uint32_t)ram[stream + 0x14u] << 8u) |
+           ram[stream + 0x15u]);
+    write_be32(ram + stream + 0x12u,
+               (e12 & UINT32_C(0xff000000)) |
+               (d1 & UINT32_C(0x00ffffff)));
+    /* ROM 0xde6-0xdf2: rate pair + key byte (E1b shape). */
+    write_be16(ram + stream + 0x1au, rate);
+    write_be16(ram + stream + 0x1cu,
+               (uint16_t)(rate + UINT16_C(0x0eba)));
+    ram[stream + 0x01u] = 0x10u;
+    report->handler_address = UINT32_C(0x00000df8);
+    return VF2_ERROR_UNSUPPORTED;
+}
+
 static vf2_status sound_board_run_engine_key(
     vf2_sound_board *board,
-    const uint8_t *voice,
+    uint8_t *voice,
     uint16_t slot,
     uint32_t d3,
     vf2_sound_dispatch_report *report
@@ -1782,20 +1869,24 @@ static vf2_status sound_board_run_engine_key(
     uint32_t table = UINT32_C(0x5000) + d3;
     uint32_t d5 = 0u;
     uint32_t d6 = 0u;
+    uint32_t d0 = 0u;
     uint16_t rate = 0u;
     uint32_t stream = 0u;
 
-    /* ROM 0xc68-0xc80 head gates (table longs, BE). */
+    /* ROM 0xc68-0xc80 head gates (table longs, BE). d0 is
+     * head-loaded (move.l), so the d92 arm derives -- E1b-dig
+     * listed it as residue only because no S4 shape set it. */
     if ((ram[table] & 0x80u) != 0u) {
         return sound_board_run_engine_keyon_ed8(board, slot, d3,
                                                report);
     }
-    if ((((uint32_t)ram[table + 0x0cu] << 24u) |
-         ((uint32_t)ram[table + 0x0du] << 16u) |
-         ((uint32_t)ram[table + 0x0eu] << 8u) |
-         ram[table + 0x0fu]) != 0u) {
-        report->handler_address = UINT32_C(0x00000d92);
-        return VF2_ERROR_UNSUPPORTED;
+    d0 = (((uint32_t)ram[table + 0x0cu] << 24u) |
+          ((uint32_t)ram[table + 0x0du] << 16u) |
+          ((uint32_t)ram[table + 0x0eu] << 8u) |
+          ram[table + 0x0fu]);
+    if (d0 != 0u) {
+        return sound_board_run_engine_key_d92(board, voice, slot,
+                                              d3, d0, report);
     }
     d5 = ((uint32_t)ram[table + 4u] << 24u) |
          ((uint32_t)ram[table + 5u] << 16u) |
