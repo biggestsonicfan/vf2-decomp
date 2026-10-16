@@ -1581,8 +1581,18 @@ static vf2_status sound_board_run_engine_key(
 
 /* ROM 0xf12 allocator: defined below (used by the Loop-B
  * gates and the setup scan before its definition site). */
+/* ROM 0xf50 reaper: defined below (the allocator's exhausted
+ * tail bras to it). Both take the drain descriptor -- the
+ * reaper-found path bras to the 0xa8c setup author, which
+ * reads desc[2] for its HIGH/LOW split. */
 static vf2_status sound_board_run_allocator_0f12(
     vf2_sound_board *board,
+    const uint8_t *descriptor,
+    vf2_sound_dispatch_report *report
+);
+static vf2_status sound_board_run_reaper_0f50(
+    vf2_sound_board *board,
+    const uint8_t *descriptor,
     vf2_sound_dispatch_report *report
 );
 
@@ -2059,6 +2069,7 @@ vf2_status vf2_sound_board_file_uart_byte(
 
 static vf2_status sound_board_run_setup_scan(
     vf2_sound_board *board,
+    const uint8_t *descriptor,
     vf2_sound_dispatch_report *report
 )
 {
@@ -2100,7 +2111,7 @@ static vf2_status sound_board_run_setup_scan(
         }
     }
     /* ROM 0x9ba-end: bra 0xf12 (into the allocator, E1o). */
-    return sound_board_run_allocator_0f12(board, report);
+    return sound_board_run_allocator_0f12(board, descriptor, report);
 }
 
 static vf2_status sound_board_run_loopb(
@@ -2128,15 +2139,15 @@ static vf2_status sound_board_run_loopb(
     if ((ram[VF2_SOUND_CURRENT_COMMAND] & 0x0fu) == 0x0fu) {
         if (filed == 0xb6u || filed == 0xb8u) {
             /* Fall-through to the 0x9ba setup scan (S3a). */
-            return sound_board_run_setup_scan(board, report);
+            return sound_board_run_setup_scan(board, descriptor, report);
         }
         /* ROM 0x91c: bra 0xf12 (into the allocator, E1o). */
-        return sound_board_run_allocator_0f12(board, report);
+        return sound_board_run_allocator_0f12(board, descriptor, report);
     }
     /* ROM 0x91e-0x926: $152e < 5 doors to 0xf12 (scan skipped,
        $152e untouched; into the allocator, E1o). */
     if (ram[VF2_SOUND_SHARED_COUNTER_152E] < 5u) {
-        return sound_board_run_allocator_0f12(board, report);
+        return sound_board_run_allocator_0f12(board, descriptor, report);
     }
     /* ROM 0x92a-0x94c: 32-voice scan for +9 == 0xff with +5 == 0
        (byte compares, stride 0x10 from the 0x2800 table). */
@@ -2184,7 +2195,7 @@ static vf2_status sound_board_run_loopb(
     /* ROM 0x950: scan miss zeroes $152e, bra 0xf12 (into the
        allocator, E1o). */
     ram[VF2_SOUND_SHARED_COUNTER_152E] = 0u;
-    return sound_board_run_allocator_0f12(board, report);
+    return sound_board_run_allocator_0f12(board, descriptor, report);
 }
 
 /* ROM 0xf12-0xf4c voice allocator (v0825 E1m). $151a holds
@@ -2199,13 +2210,12 @@ static vf2_status sound_board_run_loopb(
  * walk's $1515 index (never reloaded), so the slot stores
  * would address-error on odd indices (ROM vector 2 blinks)
  * and mis-program slot-by-index on even ones. None-free
- * (dbf exhausts): fall to the 0xf50 reaper scan -- refused
- * at 0xf50 (separate slice; the reaper key-offs and continues
- * to 0xfac). Wired into the 90-LOW walk end (E1m) and all
+ * (dbf exhausts): bra 0xf50 into the reaper (E1p). Wired into the 90-LOW walk end (E1m) and all
  * three Loop-B exits plus the setup-scan tail (E1o) -- every
  * ROM bra to 0xf12 now enters it. */
 static vf2_status sound_board_run_allocator_0f12(
     vf2_sound_board *board,
+    const uint8_t *descriptor,
     vf2_sound_dispatch_report *report
 )
 {
@@ -2240,6 +2250,71 @@ static vf2_status sound_board_run_allocator_0f12(
             ram[UINT32_C(0x251a) + 3u] = (uint8_t)next;
             report->handler_address = UINT32_C(0x00000fac);
             return VF2_ERROR_UNSUPPORTED;
+        }
+    }
+    /* ROM 0xf3c: dbf exhausts (no +2-free voice), bra 0xf50
+       into the reaper (E1p). */
+    return sound_board_run_reaper_0f50(board, descriptor, report);
+}
+
+/* ROM 0xf50-0xfac reaper (v0825 E1p). 32-voice scan from the
+ * 0x2800 table base for +9 == 0 (move.b/compare, stride
+ * 0x10 -- base reset, NOT the $151a cursor). Exhausted (dbf,
+ * none age-zero): rts with the packet held -- refuse at
+ * 0xf50 (the E1o alloc-x leg pins it). Found (0xf6a): d4 =
+ * voice slot word; SCSP[slot+0x0b] = 0x1f, SCSP[slot] =
+ * 0x10, voice+2 = 0, ram[0x2000+slot] = 0; rebalance loop
+ * decrements every non-0xff age INCLUDING the just-found
+ * voice (0 -> 0xff, stepper-pinned); $151e--; bra 0xa8c
+ * into the setup author (the 0xa92 head reloads d4 from the
+ * voice slot, so the author sees the same entry state as a
+ * core-fill arrival with this voice). The 0xfb0 +9==0x80
+ * variant has no inbound edge anywhere in the 512KB audio
+ * program image (no absolute/word-absolute/PC-relative
+ * branch targets it) and stays unrecovered. */
+static vf2_status sound_board_run_reaper_0f50(
+    vf2_sound_board *board,
+    const uint8_t *descriptor,
+    vf2_sound_dispatch_report *report
+)
+{
+    uint8_t *ram = board->sound_ram;
+    size_t i = 0u;
+
+    for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
+        uint8_t *voice = ram + VF2_SOUND_VOICE_TABLE_BASE +
+            i * VF2_SOUND_VOICE_BYTES;
+        if (voice[VF2_SOUND_VOICE_AGE] != 0u) {
+            continue;
+        }
+        {
+            uint16_t slot = read_be16(voice + VF2_SOUND_VOICE_SLOT);
+            size_t j = 0u;
+
+            if (vf2_scsp_write_u8(&board->scsp,
+                                  (uint32_t)slot + 0x0bu,
+                                  UINT8_C(0x1f)) != VF2_OK ||
+                vf2_scsp_write_u8(&board->scsp, (uint32_t)slot,
+                                  UINT8_C(0x10)) != VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            voice[VF2_SOUND_VOICE_FLAGS] = 0u;
+            if ((uint32_t)0x2000 + (uint32_t)slot >=
+                VF2_SOUND_RAM_BYTES) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            ram[0x2000u + slot] = 0u;
+            for (j = 0u; j < VF2_SOUND_VOICE_COUNT; ++j) {
+                uint8_t *target = ram + VF2_SOUND_VOICE_TABLE_BASE +
+                    j * VF2_SOUND_VOICE_BYTES;
+                if (target[VF2_SOUND_VOICE_AGE] == 0xffu) {
+                    continue;
+                }
+                --target[VF2_SOUND_VOICE_AGE];
+            }
+            --ram[VF2_SOUND_SHARED_COUNTER_151E];
+            return sound_board_setup_author_at(
+                board, descriptor, voice, report);
         }
     }
     report->handler_address = UINT32_C(0x00000f50);
@@ -2379,9 +2454,9 @@ static vf2_status sound_board_dispatch_90(
         board->sound_ram[UINT32_C(0x2515)] = row_byte;
         board->sound_ram[VF2_SOUND_LOOKUP_CONTROL] =
             descriptor[6u];
-        /* Into the 0xf12 allocator (E1m; Loop-B arrivals still
-         * park -- see the allocator comment). */
-        return sound_board_run_allocator_0f12(board, report);
+        /* Into the 0xf12 allocator (E1m; E1o wires every ROM
+         * bra to it, E1p its exhausted tail to the reaper). */
+        return sound_board_run_allocator_0f12(board, descriptor, report);
     }
     {
         vf2_status high_status =

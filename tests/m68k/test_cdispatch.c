@@ -1961,6 +1961,11 @@ static void test_allocator_exhausted(
         cram[VF2_SOUND_VOICE_TABLE_BASE +
              vi * VF2_SOUND_VOICE_BYTES +
              VF2_SOUND_VOICE_FLAGS] = 0x40u;
+        /* Reaper-exhausted needs no age-zero voice either
+         * (E1p: +9 == 0 would be found and authored). */
+        cram[VF2_SOUND_VOICE_TABLE_BASE +
+             vi * VF2_SOUND_VOICE_BYTES +
+             VF2_SOUND_VOICE_AGE] = 0x40u;
     }
     memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
     memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
@@ -2016,6 +2021,149 @@ static void test_allocator_exhausted(
             }
             if (cram[addr] != step_ram[addr]) {
                 fprintf(stderr, "dispatch alloc-x: RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                        (unsigned)addr, (unsigned)cram[addr],
+                        (unsigned)step_ram[addr]);
+                EXPECT_TRUE(0);
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
+/* E1p: reaper-found differential (9/10 arc). 90-HIGH drain
+ * fixture (a8c-hi shape: ring {0x93, 0x00, 1}, desc[2] 0xf5)
+ * but Loop-B CANNOT arm: no voice carries +9 == 0xff with
+ * +5 == 0 (voice0 +9 = 0, the rest +9 = 0x40), so the scan
+ * misses ($152e 5->0), the allocator exhausts (all +2 =
+ * 0x40, cursor 0x2800 untouched), and the reaper finds
+ * voice0 on its first iteration (slot 0x0020 even: the
+ * setup-author odd guard passes). Reaper effects: SCSP
+ * key bytes, voice0+2 = 0, ram[0x2020] = 0, rebalance
+ * (every non-0xff age--, voice0 0->0xff), $151e--, then
+ * the existing HIGH author to the 0xcb2 door (678 steps).
+ * Compared: full-RAM (drain exclusions) + full-SCSP C==S, zero events,
+ * packet held. */
+static void test_reaper_found(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint8_t *voice = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+    size_t vi = 0u;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0x93u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0x00u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 2u] = 1u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x03u;
+    desc[2] = 0xf5u;
+    desc[4] = 0x00u;
+    desc[8] = 0x02u;
+    desc[9] = 0x01u;
+    desc[10] = 0x80u;
+    desc[12] = 0x01u;
+    desc[13] = 0x00u;
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
+    for (vi = 0u; vi < VF2_SOUND_VOICE_COUNT; ++vi) {
+        voice = cram + VF2_SOUND_VOICE_TABLE_BASE +
+            vi * VF2_SOUND_VOICE_BYTES;
+        voice[VF2_SOUND_VOICE_SLOT] = 0x00u;
+        voice[VF2_SOUND_VOICE_SLOT + 1u] =
+            (uint8_t)(vi * 0x20u);
+        voice[VF2_SOUND_VOICE_FLAGS] = 0x40u;
+        voice[VF2_SOUND_VOICE_AGE] = 0x40u;
+    }
+    voice = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice[VF2_SOUND_VOICE_SLOT] = 0x00u;
+    voice[VF2_SOUND_VOICE_SLOT + 1u] = 0x20u;
+    voice[VF2_SOUND_VOICE_AGE] = 0x00u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "dispatch reaper: c-status=%d handler=0x%05x v0=%02x/%02x/%02x/%02x 1e=%02x 2e=%02x cursor=%02x%02x%02x%02x count=%u\n",
+            (int)cstatus, (unsigned)creport.handler_address,
+            (unsigned)cram[0x2802u], (unsigned)cram[0x2805u],
+            (unsigned)cram[0x2809u], (unsigned)cram[0x2803u],
+            (unsigned)cram[VF2_SOUND_SHARED_COUNTER_151E],
+            (unsigned)cram[VF2_SOUND_SHARED_COUNTER_152E],
+            (unsigned)cram[0x251au], (unsigned)cram[0x251au + 1u],
+            (unsigned)cram[0x251au + 2u],
+            (unsigned)cram[0x251au + 3u],
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xcb2));
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
+    EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xcb2), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch reaper: s-status=%d pc=0x%05x steps=%u events=%u v0=%02x/%02x/%02x/%02x 1e=%02x 2e=%02x\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count,
+            (unsigned)step_ram[0x2802u], (unsigned)step_ram[0x2805u],
+            (unsigned)step_ram[0x2809u], (unsigned)step_ram[0x2803u],
+            (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_151E],
+            (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_152E]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xcb2));
+    EXPECT_TRUE(done == 678u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    {
+        uint32_t addr = 0u;
+        for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+            if (addr == 0x2506u ||
+                (addr >= 0x2508u && addr < 0x250au) ||
+                addr >= 0x7e00u) {
+                continue;
+            }
+            if (cram[addr] != step_ram[addr]) {
+                fprintf(stderr, "dispatch reaper: RAM mismatch @0x%05x: C=%02x S=%02x\n",
                         (unsigned)addr, (unsigned)cram[addr],
                         (unsigned)step_ram[addr]);
                 EXPECT_TRUE(0);
@@ -5071,6 +5219,7 @@ int main(int argc, char **argv)
     test_engine_d92(audio_rom, audio_rom_size);
     test_dispatch_90_low(audio_rom, audio_rom_size);
     test_allocator_exhausted(audio_rom, audio_rom_size);
+    test_reaper_found(audio_rom, audio_rom_size);
     test_fac_d4_crash(audio_rom, audio_rom_size);
     test_dispatch_a0_maxgate(audio_rom, audio_rom_size);
     /* S3c synthetic entries (drain-unreachable bodies). */
