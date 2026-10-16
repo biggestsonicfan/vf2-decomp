@@ -498,9 +498,10 @@ int main(void)
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
         /* S2d: the HIGH door falls through to Loop-B, which doors
-           0xf12 here ($150e ch 3, $152e 0). $1515 reads 0x00 from
-           this synthetic image. */
-        EXPECT_TRUE(dispatch.handler_address == 0xf12u);
+           0xf12 here ($150e ch 3, $152e 0) into the E1o
+           allocator (voice0 free: cursor 0x2810, refuse at
+           0xfac). $1515 reads 0x00 from this synthetic image. */
+        EXPECT_TRUE(dispatch.handler_address == 0xfacu);
         EXPECT_TRUE(dispatch.channel == 3u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x12u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x44u);
@@ -511,6 +512,10 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[0x2517u] == 0x34u);
         EXPECT_TRUE(board.sound_ram[0x250du] == 0x9au);
         EXPECT_TRUE(board.sound_ram[0x2515u] == 0u);
+        EXPECT_TRUE(board.sound_ram[0x251au] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 1u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 2u] == 0x28u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 3u] == 0x10u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
@@ -542,12 +547,17 @@ int main(void)
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
         /* S2d: the HIGH door falls through to Loop-B, which doors
-           0xf12 here ($150e ch 3, $152e 0). $1515 reads 0x00 from
-           this synthetic image. */
-        EXPECT_TRUE(dispatch.handler_address == 0xf12u);
+           0xf12 here ($150e ch 3, $152e 0) into the allocator
+           (cursor 0x2810, refuse at 0xfac). $1515 reads 0x00
+           from this synthetic image. */
+        EXPECT_TRUE(dispatch.handler_address == 0xfacu);
         EXPECT_TRUE(board.sound_ram[0x2511u] == 0x55u);
         EXPECT_TRUE(board.sound_ram[0x250du] == 0x07u);
         EXPECT_TRUE(descriptor[13] == 0u);
+        EXPECT_TRUE(board.sound_ram[0x251au] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 1u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 2u] == 0x28u);
+        EXPECT_TRUE(board.sound_ram[0x251au + 3u] == 0x10u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
 
         /* 90 HIGH gate-hit (S2c): entry word 0x00ff -> 0x8b0 rts,

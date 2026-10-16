@@ -519,8 +519,8 @@ static void test_drain_e0_entry(
  *   zero bus events. $1511 == 0 both sides on the LOW leg only
  *   (S pre-walk stop; C filed desc[6] = 0); the HIGH leg runs
  *   Loop-B (S2d) to the early 0xf12 door, so it compares $1515
- *   C==S instead. HIGH pins handler 0xf12 (Loop-B door);
- *   LOW pins 0xfac (walk into the E1m allocator).
+ *   C==S instead. HIGH pins handler 0xfac (Loop-B into the
+ *   allocator); LOW pins 0xfac (walk into the allocator).
  *   Drain-only state (count subq'd at entry, $150e
  *   file, stack residue) is excluded by construction -- the head
  *   path is 8 linear instructions past the switch, all accounted
@@ -569,15 +569,13 @@ static void test_drain_90_head(
     desc[2] = desc2;
     desc[3] = 0x00u;
     desc[4] = 0x10u;
-    /* Allocator cursor for the C's production path (LOW only;
-     * HIGH never reads it; the S legs stop pre-walk). Staged
-     * pre-snapshot so both images match. */
-    if (desc2 < 0xf0u) {
-        cram[0x251au] = 0x00u;
-        cram[0x251au + 1u] = 0x00u;
-        cram[0x251au + 2u] = 0x28u;
-        cram[0x251au + 3u] = 0x00u;
-    }
+    /* Allocator cursor (E1o): both arms flow into it now
+     * (HIGH via Loop-B, LOW via the walk); staged pre-snapshot
+     * (found voice0 on the zeroed voices). */
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
     memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
 
     memset(&creport, 0, sizeof(creport));
@@ -591,11 +589,14 @@ static void test_drain_90_head(
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
     EXPECT_TRUE(creport.channel == 3u);
-    /* Handler by arm (HIGH: Loop-B early 0xf12, allocator not
-     * wired; LOW: the E1k walk into the E1m allocator, 0xfac). */
-    EXPECT_TRUE(creport.handler_address ==
-                (desc2 >= 0xf0u ? UINT32_C(0xf12) :
-                                  UINT32_C(0xfac)));
+    /* Handler by arm: both reach the E1o allocator now (HIGH
+     * via Loop-B's 0x926 early door, LOW via the walk), so both
+     * refuse at 0xfac with voice0 allocated (cursor 0x2810). */
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xfac));
+    EXPECT_TRUE(cram[0x251au] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 1u] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 2u] == 0x28u);
+    EXPECT_TRUE(cram[0x251au + 3u] == 0x10u);
     EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
     EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
@@ -859,7 +860,7 @@ static void test_drain_80_head(
  * to Loop-B's own first block (F11: still 0 at the door).
  * C: HIGH body then Loop-B (S2d) to its door; the 0x902 fall-through
  * is no longer a refusal point. This fixture ($150e ch 3, $152e 0)
- * takes the 0x926 early door to 0xf12 ($152e < 5): $1515 filed,
+ * takes the 0x926 early door into the E1o allocator ($152e < 5): $1515 filed,
  * scan skipped, $152e untouched. Packet held. Stepper: drain 0x7a6
  * -> 0xf12.
  * Compared: $150f/$1510/$1511/$1512/$1516/$150d/$1515 + desc[12..13]
@@ -910,24 +911,38 @@ static void test_drain_90_high(
     desc[6] = 0x00u;
     desc[12] = desc12;
     desc[13] = desc13;
+    /* Allocator cursor (E1o): the 0x926 early door flows into
+     * it; stage pre-snapshot (found voice0 on the zeroed
+     * voices). */
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
     memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
 
     memset(&creport, 0, sizeof(creport));
     cstatus = vf2_sound_board_dispatch_next(&board, &creport);
-    fprintf(stderr, "dispatch drain-90h-%s: c-status=%d handler=0x%05x 11=%02x 12=%02x%02x 16=%02x%02x 0d=%02x 15=%02x d13=%02x count=%u\n",
+    fprintf(stderr, "dispatch drain-90h-%s: c-status=%d handler=0x%05x 11=%02x 12=%02x%02x 16=%02x%02x 0d=%02x 15=%02x d13=%02x cursor=%02x%02x%02x%02x count=%u\n",
             tag, (int)cstatus, (unsigned)creport.handler_address,
             (unsigned)cram[0x2511u],
             (unsigned)cram[0x2512u], (unsigned)cram[0x2513u],
             (unsigned)cram[0x2516u], (unsigned)cram[0x2517u],
             (unsigned)cram[0x250du], (unsigned)cram[0x2515u],
             (unsigned)cram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 13u],
+            (unsigned)cram[0x251au], (unsigned)cram[0x251au + 1u],
+            (unsigned)cram[0x251au + 2u],
+            (unsigned)cram[0x251au + 3u],
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(creport.handler_address == UINT32_C(0xf12));
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xfac));
     EXPECT_TRUE(creport.channel == 3u);
     EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] == 0x00u);
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
     EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
+    EXPECT_TRUE(cram[0x251au] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 1u] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 2u] == 0x28u);
+    EXPECT_TRUE(cram[0x251au + 3u] == 0x10u);
 
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -944,24 +959,31 @@ static void test_drain_90_high(
     regs.a[7] = UINT32_C(0x7f00);
     regs.pc = UINT32_C(0x7a6);
     step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xf12), 0, 20000u,
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xfac), 0, 20000u,
                           &done);
-    fprintf(stderr, "dispatch drain-90h-%s: s-status=%d pc=0x%05x steps=%u events=%u 11=%02x 12=%02x%02x 16=%02x%02x 0d=%02x 15=%02x d13=%02x\n",
+    fprintf(stderr, "dispatch drain-90h-%s: s-status=%d pc=0x%05x steps=%u events=%u 11=%02x 12=%02x%02x 16=%02x%02x 0d=%02x 15=%02x d13=%02x cursor=%02x%02x%02x%02x\n",
             tag, (int)status, (unsigned)regs.pc, (unsigned)done,
             (unsigned)bus.event_count,
             (unsigned)step_ram[0x2511u],
             (unsigned)step_ram[0x2512u], (unsigned)step_ram[0x2513u],
             (unsigned)step_ram[0x2516u], (unsigned)step_ram[0x2517u],
             (unsigned)step_ram[0x250du], (unsigned)step_ram[0x2515u],
-            (unsigned)step_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 13u]);
+            (unsigned)step_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 13u],
+            (unsigned)step_ram[0x251au],
+            (unsigned)step_ram[0x251au + 1u],
+            (unsigned)step_ram[0x251au + 2u],
+            (unsigned)step_ram[0x251au + 3u]);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0xf12));
+    EXPECT_TRUE(regs.pc == UINT32_C(0xfac));
     /* Step-pinned $150d sub-branches through the Loop-B early door
        (measured): desc[13]-clear 69, keep 71, table+5 72. Uses the
        params: the C's clear path zeroes desc[13] in RAM before this
        assert runs. */
-    EXPECT_TRUE(done == (desc13 != 0u ? 69u :
-                         ((desc12 & 0x07u) != 0u ? 71u : 72u)));
+    /* Steps: pre-allocator pins were 69 / 71 / 72 to the
+     * 0xf12 door; the allocator tail (found voice0 first
+     * iteration) adds a constant 10. */
+    EXPECT_TRUE(done == (desc13 != 0u ? 79u :
+                         ((desc12 & 0x07u) != 0u ? 81u : 82u)));
     EXPECT_TRUE(bus.event_count == 0u);
     EXPECT_TRUE(cram[VF2_SOUND_LOOKUP_CURRENT] ==
                 step_ram[VF2_SOUND_LOOKUP_CURRENT]);
@@ -974,6 +996,10 @@ static void test_drain_90_high(
     EXPECT_TRUE(cram[0x2517u] == step_ram[0x2517u]);
     EXPECT_TRUE(cram[0x250du] == step_ram[0x250du]);
     EXPECT_TRUE(cram[0x2515u] == step_ram[0x2515u]);
+    EXPECT_TRUE(cram[0x251au] == step_ram[0x251au]);
+    EXPECT_TRUE(cram[0x251au + 1u] == step_ram[0x251au + 1u]);
+    EXPECT_TRUE(cram[0x251au + 2u] == step_ram[0x251au + 2u]);
+    EXPECT_TRUE(cram[0x251au + 3u] == step_ram[0x251au + 3u]);
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 12u] ==
                 step_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 12u]);
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 13u] ==
@@ -1093,11 +1119,11 @@ static void test_drain_90_gate(
  * desc[2] = 0xf5 (HIGH), desc[4] = 0, $152e + voice0 staged per
  * leg. The 90 HIGH body runs identically every leg (11=00
  * 12=e000 16=0140); Loop-B then diverges:
- * - "early": $150e ch 3, $152e 0 -> 0x926 door to 0xf12 ($1515
- *   filed, scan skipped, $152e untouched). Covered by the S2c
+ * - "early": $150e ch 3, $152e 0 -> 0x926 door into the
+ *   allocator ($1515 filed, scan skipped, $152e untouched). Covered by the S2c
  *   legs; re-pinned here through the Loop-B C for the record.
  * - "miss": $150e ch 3, $152e 7, all voices +9 = 0 -> full
- *   32-scan, $152e zeroed, door 0xf12.
+ *   32-scan, $152e zeroed, allocator door 0xfac.
  * - "arm": $150e ch 3, $152e 5, voice0 {slot 0x0020, +9 0xff,
  *   +5 0} -> scan hits voice0 at once; SCSP[0x2b] = 0x1f,
  *   SCSP[0x20] = 0x10, ram[0x2020] = 0, voice0+5 5->4
@@ -1167,21 +1193,39 @@ static void test_drain_loopb(
     cvoice0[1] = 0x20u;
     cvoice0[5] = voice0_5;
     cvoice0[9] = voice0_9;
+    /* Allocator cursor (E1o): all three 0xf12 exits flow into
+     * it; staged pre-snapshot (found voice0 on these
+     * fixtures). */
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
     memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
 
     memset(&creport, 0, sizeof(creport));
     cstatus = vf2_sound_board_dispatch_next(&board, &creport);
-    fprintf(stderr, "dispatch loopb-%s: c-status=%d handler=0x%05x 15=%02x 2e=%02x v0=%02x%02x/%02x/%02x count=%u\n",
+    fprintf(stderr, "dispatch loopb-%s: c-status=%d handler=0x%05x 15=%02x 2e=%02x v0=%02x%02x/%02x/%02x cursor=%02x%02x%02x%02x count=%u\n",
             tag, (int)cstatus, (unsigned)creport.handler_address,
             (unsigned)cram[0x2515u],
             (unsigned)cram[VF2_SOUND_SHARED_COUNTER_152E],
             (unsigned)cram[0x2800u], (unsigned)cram[0x2801u],
             (unsigned)cram[0x2805u], (unsigned)cram[0x2809u],
+            (unsigned)cram[0x251au], (unsigned)cram[0x251au + 1u],
+            (unsigned)cram[0x251au + 2u],
+            (unsigned)cram[0x251au + 3u],
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
     EXPECT_TRUE(creport.handler_address == door);
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
     EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
+    /* Allocator-found cursor (E1o): the three 0xfac legs land
+     * on free voice0. The arm leg (0xcb2 door) never runs it. */
+    if (door == UINT32_C(0xfac)) {
+        EXPECT_TRUE(cram[0x251au] == 0x00u);
+        EXPECT_TRUE(cram[0x251au + 1u] == 0x00u);
+        EXPECT_TRUE(cram[0x251au + 2u] == 0x28u);
+        EXPECT_TRUE(cram[0x251au + 3u] == 0x10u);
+    }
 
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -1214,6 +1258,10 @@ static void test_drain_loopb(
     EXPECT_TRUE(done == steps);
     EXPECT_TRUE(bus.event_count == 0u);
     EXPECT_TRUE(cram[0x2515u] == step_ram[0x2515u]);
+    EXPECT_TRUE(cram[0x251au] == step_ram[0x251au]);
+    EXPECT_TRUE(cram[0x251au + 1u] == step_ram[0x251au + 1u]);
+    EXPECT_TRUE(cram[0x251au + 2u] == step_ram[0x251au + 2u]);
+    EXPECT_TRUE(cram[0x251au + 3u] == step_ram[0x251au + 3u]);
     EXPECT_TRUE(cram[VF2_SOUND_SHARED_COUNTER_152E] ==
                 step_ram[VF2_SOUND_SHARED_COUNTER_152E]);
     EXPECT_TRUE(cram[0x2805u] == step_ram[0x2805u]);
@@ -1233,7 +1281,7 @@ static void test_drain_loopb(
  * ram[0x2000+slot] = 0, $151e--, then the V1-shaped +9 rebalance
  * (skip 0xff slots; unsigned d2 >= mem skips; else mem--) with
  * the CURRENT d2. No key-off (no 0x1f write -- teardown is not
- * expiry). End: bra 0xf12, packet held.
+ * expiry). End: bra 0xf12 into the E1o allocator, packet held.
  * - "two": voice0 {slot 0x20, +2 0x40, +9 3} then voice1 {slot
  *   0x40, +2 1, +9 7}: v0 teardown (d2 = 3) rebalances v1 7->6;
  *   v1 teardown (d2 = 6) finds all +9 zero. Final: both +2/+9
@@ -1256,6 +1304,7 @@ static void test_9ba_scan(
     uint8_t v1_4,
     uint8_t v1_9,
     uint32_t steps,
+    uint32_t expect_cursor,
     const char *tag
 )
 {
@@ -1309,20 +1358,33 @@ static void test_9ba_scan(
     voice[19] = v1_3;
     voice[20] = v1_4;
     voice[25] = v1_9;
+    /* Allocator cursor (E1o): the 9ba tail bras to 0xf12;
+     * staged pre-snapshot (found = first +2 == 0 voice). */
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
     memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
 
     memset(&creport, 0, sizeof(creport));
     cstatus = vf2_sound_board_dispatch_next(&board, &creport);
-    fprintf(stderr, "dispatch 9ba-%s: c-status=%d handler=0x%05x 1e=%02x v0=%02x/%02x v1=%02x/%02x count=%u\n",
+    fprintf(stderr, "dispatch 9ba-%s: c-status=%d handler=0x%05x 1e=%02x v0=%02x/%02x v1=%02x/%02x cursor=%02x%02x%02x%02x count=%u\n",
             tag, (int)cstatus, (unsigned)creport.handler_address,
             (unsigned)cram[VF2_SOUND_SHARED_COUNTER_151E],
             (unsigned)cram[0x2802u], (unsigned)cram[0x2809u],
             (unsigned)cram[0x2812u], (unsigned)cram[0x2819u],
+            (unsigned)cram[0x251au], (unsigned)cram[0x251au + 1u],
+            (unsigned)cram[0x251au + 2u],
+            (unsigned)cram[0x251au + 3u],
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
     EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
-    EXPECT_TRUE(creport.handler_address == UINT32_C(0xf12));
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xfac));
     EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
     EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
+    EXPECT_TRUE(((uint32_t)cram[0x251au] << 24u |
+                 ((uint32_t)cram[0x251au + 1u] << 16u) |
+                 ((uint32_t)cram[0x251au + 2u] << 8u) |
+                 cram[0x251au + 3u]) == expect_cursor);
 
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -1339,16 +1401,20 @@ static void test_9ba_scan(
     regs.a[7] = UINT32_C(0x7f00);
     regs.pc = UINT32_C(0x7a6);
     step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xf12), 0, 20000u,
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xfac), 0, 20000u,
                           &done);
-    fprintf(stderr, "dispatch 9ba-%s: s-status=%d pc=0x%05x steps=%u events=%u 1e=%02x v0=%02x/%02x v1=%02x/%02x\n",
+    fprintf(stderr, "dispatch 9ba-%s: s-status=%d pc=0x%05x steps=%u events=%u 1e=%02x v0=%02x/%02x v1=%02x/%02x cursor=%02x%02x%02x%02x\n",
             tag, (int)status, (unsigned)regs.pc, (unsigned)done,
             (unsigned)bus.event_count,
             (unsigned)step_ram[VF2_SOUND_SHARED_COUNTER_151E],
             (unsigned)step_ram[0x2802u], (unsigned)step_ram[0x2809u],
-            (unsigned)step_ram[0x2812u], (unsigned)step_ram[0x2819u]);
+            (unsigned)step_ram[0x2812u], (unsigned)step_ram[0x2819u],
+            (unsigned)step_ram[0x251au],
+            (unsigned)step_ram[0x251au + 1u],
+            (unsigned)step_ram[0x251au + 2u],
+            (unsigned)step_ram[0x251au + 3u]);
     EXPECT_TRUE(status == VF2_OK);
-    EXPECT_TRUE(regs.pc == UINT32_C(0xf12));
+    EXPECT_TRUE(regs.pc == UINT32_C(0xfac));
     EXPECT_TRUE(done == steps);
     EXPECT_TRUE(bus.event_count == 0u);
     for (i = 0u; i < VF2_SOUND_VOICE_COUNT; ++i) {
@@ -1365,6 +1431,10 @@ static void test_9ba_scan(
     }
     EXPECT_TRUE(cram[VF2_SOUND_SHARED_COUNTER_151E] ==
                 step_ram[VF2_SOUND_SHARED_COUNTER_151E]);
+    EXPECT_TRUE(cram[0x251au] == step_ram[0x251au]);
+    EXPECT_TRUE(cram[0x251au + 1u] == step_ram[0x251au + 1u]);
+    EXPECT_TRUE(cram[0x251au + 2u] == step_ram[0x251au + 2u]);
+    EXPECT_TRUE(cram[0x251au + 3u] == step_ram[0x251au + 3u]);
     EXPECT_TRUE(cram[0x2020u] == step_ram[0x2020u]);
     EXPECT_TRUE(cram[0x2040u] == step_ram[0x2040u]);
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
@@ -1820,6 +1890,132 @@ static void test_dispatch_90_low(
             }
             if (cram[addr] != step_ram[addr]) {
                 fprintf(stderr, "dispatch 90-low: RAM mismatch @0x%05x: C=%02x S=%02x\n",
+                        (unsigned)addr, (unsigned)cram[addr],
+                        (unsigned)step_ram[addr]);
+                EXPECT_TRUE(0);
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+}
+
+/* E1o-exhausted: allocator dbf-exhaustion to the 0xf50 door.
+ * Same 90-low fixture ($151a = 0x2800) but all 32 voices busy
+ * (+2 = 0x40): the scan finds nothing, cursor untouched,
+ * refuse at the 0xf50 reaper scan with the packet held. S
+ * arrives at 0xf50 (steps print-first, locked after
+ * measurement) with full-RAM (drain exclusions) + SCSP
+ * equality (neither side wrote anything past the walk). */
+static void test_allocator_exhausted(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    vf2_status cstatus = VF2_OK;
+    size_t vi = 0u;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    memset(step_ram, 0, sizeof(step_ram));
+    vf2_scsp_initialize(&step_scsp);
+
+    cram[VF2_SOUND_COMMAND_RING_BASE] = 0x93u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0x05u;
+    cram[VF2_SOUND_COMMAND_RING_BASE + 2u] = 1u;
+    cram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x03u;
+    desc[2] = 0x05u;
+    desc[4] = 0x00u;
+    desc[6] = 0x07u;
+    desc[8] = 0x02u;
+    desc[9] = 0x01u;
+    desc[10] = 0x80u;
+    desc[12] = 0x01u;
+    desc[13] = 0x00u;
+    cram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    cram[0x4223u] = 0x07u;
+    cram[0x251au] = 0x00u;
+    cram[0x251au + 1u] = 0x00u;
+    cram[0x251au + 2u] = 0x28u;
+    cram[0x251au + 3u] = 0x00u;
+    for (vi = 0u; vi < VF2_SOUND_VOICE_COUNT; ++vi) {
+        cram[VF2_SOUND_VOICE_TABLE_BASE +
+             vi * VF2_SOUND_VOICE_BYTES +
+             VF2_SOUND_VOICE_FLAGS] = 0x40u;
+    }
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+
+    memset(&creport, 0, sizeof(creport));
+    cstatus = vf2_sound_board_dispatch_next(&board, &creport);
+    fprintf(stderr, "dispatch alloc-x: c-status=%d handler=0x%05x cursor=%02x%02x%02x%02x count=%u\n",
+            (int)cstatus, (unsigned)creport.handler_address,
+            (unsigned)cram[0x251au], (unsigned)cram[0x251au + 1u],
+            (unsigned)cram[0x251au + 2u],
+            (unsigned)cram[0x251au + 3u],
+            (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
+    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(creport.handler_address == UINT32_C(0xf50));
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
+    EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
+    EXPECT_TRUE(cram[0x251au] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 1u] == 0x00u);
+    EXPECT_TRUE(cram[0x251au + 2u] == 0x28u);
+    EXPECT_TRUE(cram[0x251au + 3u] == 0x00u);
+
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+    step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xf50), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch alloc-x: s-status=%d pc=0x%05x steps=%u events=%u\n",
+            (int)status, (unsigned)regs.pc, (unsigned)done,
+            (unsigned)bus.event_count);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0xf50));
+    EXPECT_TRUE(done == 246u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    {
+        uint32_t addr = 0u;
+        for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
+            if (addr == 0x2506u ||
+                (addr >= 0x2508u && addr < 0x250au) ||
+                addr >= 0x7e00u) {
+                continue;
+            }
+            if (cram[addr] != step_ram[addr]) {
+                fprintf(stderr, "dispatch alloc-x: RAM mismatch @0x%05x: C=%02x S=%02x\n",
                         (unsigned)addr, (unsigned)cram[addr],
                         (unsigned)step_ram[addr]);
                 EXPECT_TRUE(0);
@@ -4845,7 +5041,7 @@ int main(int argc, char **argv)
        0x9ba with payload 0x2a -> base 0x2a -> $1515 0xb6, found by
        the one-off 9ba sweep, hard-pinned). */
     test_drain_loopb(audio_rom, audio_rom_size, 0x93u, 0u, 7u, 0x00u,
-                     0x00u, UINT32_C(0xf12), UINT32_C(0xf12), 203u,
+                     0x00u, UINT32_C(0xfac), UINT32_C(0xfac), 213u,
                      "miss");
     /* S2d Loop-B arm door rolled forward (S3b): the armed voice is
        now authored through the HIGH arm to the 0xcb2 loop. Same
@@ -4854,21 +5050,27 @@ int main(int argc, char **argv)
                      0x00u, UINT32_C(0xcb2), UINT32_C(0xcb2), 322u,
                      "arm");
     test_drain_loopb(audio_rom, audio_rom_size, 0x9fu, 0u, 0u, 0x00u,
-                     0x00u, UINT32_C(0xf12), UINT32_C(0xf12), 73u,
+                     0x00u, UINT32_C(0xfac), UINT32_C(0xfac), 83u,
                      "setup");
     test_drain_loopb(audio_rom, audio_rom_size, 0x9fu, 0x2au, 0u,
-                     0x00u, 0x00u, UINT32_C(0xf12), UINT32_C(0xf12),
-                     201u, "setup9ba");
-    /* S3a 0x9ba scan: two teardowns + skip-shape. */
+                     0x00u, 0x00u, UINT32_C(0xfac), UINT32_C(0xfac),
+                     211u, "setup9ba");
+    /* S3a 0x9ba scan: two teardowns + skip-shape. Allocator
+     * tails: "two" finds voice0 (0x2810), "skip" finds voice1
+     * (0x2820, voice0 stays 0x40). Steps re-measured through
+     * the allocator. */
     test_9ba_scan(audio_rom, audio_rom_size,
                   0x40u, 0xbau, 0x0fu, 3u,
-                  0x01u, 0xbau, 0x0fu, 7u, 616u, "two");
+                  0x01u, 0xbau, 0x0fu, 7u, 626u, UINT32_C(0x2810),
+                  "two");
     test_9ba_scan(audio_rom, audio_rom_size,
                   0x40u, 0xbbu, 0x0fu, 3u,
-                  0x00u, 0xbau, 0x0eu, 7u, 203u, "skip");
+                  0x00u, 0xbau, 0x0eu, 7u, 219u, UINT32_C(0x2820),
+                  "skip");
     test_a8c_high(audio_rom, audio_rom_size);
     test_engine_d92(audio_rom, audio_rom_size);
     test_dispatch_90_low(audio_rom, audio_rom_size);
+    test_allocator_exhausted(audio_rom, audio_rom_size);
     test_fac_d4_crash(audio_rom, audio_rom_size);
     test_dispatch_a0_maxgate(audio_rom, audio_rom_size);
     /* S3c synthetic entries (drain-unreachable bodies). */

@@ -1579,6 +1579,13 @@ static vf2_status sound_board_run_engine_key(
     vf2_sound_dispatch_report *report
 );
 
+/* ROM 0xf12 allocator: defined below (used by the Loop-B
+ * gates and the setup scan before its definition site). */
+static vf2_status sound_board_run_allocator_0f12(
+    vf2_sound_board *board,
+    vf2_sound_dispatch_report *report
+);
+
 static vf2_status sound_board_setup_author_at(
     vf2_sound_board *board,
     const uint8_t *descriptor,
@@ -2092,8 +2099,8 @@ static vf2_status sound_board_run_setup_scan(
             }
         }
     }
-    report->handler_address = UINT32_C(0x00000f12);
-    return VF2_ERROR_UNSUPPORTED;
+    /* ROM 0x9ba-end: bra 0xf12 (into the allocator, E1o). */
+    return sound_board_run_allocator_0f12(board, report);
 }
 
 static vf2_status sound_board_run_loopb(
@@ -2123,14 +2130,13 @@ static vf2_status sound_board_run_loopb(
             /* Fall-through to the 0x9ba setup scan (S3a). */
             return sound_board_run_setup_scan(board, report);
         }
-        report->handler_address = UINT32_C(0x00000f12);
-        return VF2_ERROR_UNSUPPORTED;
+        /* ROM 0x91c: bra 0xf12 (into the allocator, E1o). */
+        return sound_board_run_allocator_0f12(board, report);
     }
     /* ROM 0x91e-0x926: $152e < 5 doors to 0xf12 (scan skipped,
-       $152e untouched). */
+       $152e untouched; into the allocator, E1o). */
     if (ram[VF2_SOUND_SHARED_COUNTER_152E] < 5u) {
-        report->handler_address = UINT32_C(0x00000f12);
-        return VF2_ERROR_UNSUPPORTED;
+        return sound_board_run_allocator_0f12(board, report);
     }
     /* ROM 0x92a-0x94c: 32-voice scan for +9 == 0xff with +5 == 0
        (byte compares, stride 0x10 from the 0x2800 table). */
@@ -2175,10 +2181,10 @@ static vf2_status sound_board_run_loopb(
                 board, descriptor, voice, report);
         }
     }
-    /* ROM 0x950: scan miss zeroes $152e, bra 0xf12. */
+    /* ROM 0x950: scan miss zeroes $152e, bra 0xf12 (into the
+       allocator, E1o). */
     ram[VF2_SOUND_SHARED_COUNTER_152E] = 0u;
-    report->handler_address = UINT32_C(0x00000f12);
-    return VF2_ERROR_UNSUPPORTED;
+    return sound_board_run_allocator_0f12(board, report);
 }
 
 /* ROM 0xf12-0xf4c voice allocator (v0825 E1m). $151a holds
@@ -2195,10 +2201,9 @@ static vf2_status sound_board_run_loopb(
  * and mis-program slot-by-index on even ones. None-free
  * (dbf exhausts): fall to the 0xf50 reaper scan -- refused
  * at 0xf50 (separate slice; the reaper key-offs and continues
- * to 0xfac). Wired into the 90-LOW walk end only; Loop-B
- * arrivals still park at 0xf12 (their S2d legs own them --
- * wiring them is one call plus leg extensions, not this
- * slice). */
+ * to 0xfac). Wired into the 90-LOW walk end (E1m) and all
+ * three Loop-B exits plus the setup-scan tail (E1o) -- every
+ * ROM bra to 0xf12 now enters it. */
 static vf2_status sound_board_run_allocator_0f12(
     vf2_sound_board *board,
     vf2_sound_dispatch_report *report
