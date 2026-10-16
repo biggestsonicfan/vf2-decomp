@@ -82,6 +82,7 @@ add_library(vf2_core STATIC
     src/platform/model_decode.c
     src/platform/texture_sheet.c
     src/platform/texture_link.c
+    src/platform/geo_display.c
     src/recovered/boot_entry.c
     src/recovered/camera_viewport.c
     src/recovered/hybrid.c
@@ -434,6 +435,11 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_texture_link_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_texture_link_tests)
     add_test(NAME vf2_texture_link COMMAND vf2_texture_link_tests)
+
+    add_executable(vf2_geo_display_tests tests/platform/test_geo_display.c)
+    target_link_libraries(vf2_geo_display_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_geo_display_tests)
+    add_test(NAME vf2_geo_display COMMAND vf2_geo_display_tests)
 
     add_executable(vf2_tile_tests tests/platform/test_tile.c)
     target_link_libraries(vf2_tile_tests PRIVATE vf2_core)
