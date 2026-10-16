@@ -1047,12 +1047,19 @@ int main(void)
         /* 80 head (S2b primer truth: d2 = payload, base =
            (payload&0x7f) + desc[4]-byte -- 0x10da is add.b, desc[5]
            never participates). Packet {0x81, 0, ..} -> base 0x00.
-           desc[2] = 1 takes the LOW arm: refuse at 0x1132,
-           packet held (E1f-a: HIGH recovered, LOW is a door). */
+           desc[2] = 1 takes the LOW arm (E1g): sel 1 staged to a
+           synthetic row (th 0x7f, add 0, word 0x00ff), so the
+           walk stops at e0, $1516 = 0x00ff, $1515 = 0x00; zeroed
+           voices miss-all on the channel (1 vs 0), the dispatch
+           completes and consumes. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
+        audio_rom[0x53aeu] = 0x00u; audio_rom[0x53afu] = 0x60u;
+        audio_rom[0x53b0u] = 0x74u; audio_rom[0x53b1u] = 0x00u;
+        audio_rom[0x7400u] = 0x7fu; audio_rom[0x7403u] = 0x00u;
+        audio_rom[0x7404u] = 0x00u; audio_rom[0x7405u] = 0xffu;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 1u;
@@ -1064,21 +1071,31 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
-                    VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x1132u);
+                    VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
         EXPECT_TRUE(dispatch.channel == 1u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x00u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
-        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD + 1u] == 0xffu);
+        EXPECT_TRUE(board.sound_ram[0x2515u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
         /* 80 head with desc[4] = 1 (S2b: base 0x01 -- the old
            word-add pin 0x0f read desc[5] = 0 into the base).
-           desc[2] = 15 takes the LOW arm: refuse at 0x1132. */
+           desc[2] = 15 takes the LOW arm (E1g): sel 15 staged
+           to the same synthetic row, walk stops at e0,
+           $1516 = 0x00ff, $1515 = 0x00; miss-all on the channel
+           (15 vs 0), completes and consumes. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
+        audio_rom[0x53e6u] = 0x00u; audio_rom[0x53e7u] = 0x60u;
+        audio_rom[0x53e8u] = 0x74u; audio_rom[0x53e9u] = 0x00u;
+        audio_rom[0x7400u] = 0x7fu; audio_rom[0x7403u] = 0x00u;
+        audio_rom[0x7404u] = 0x00u; audio_rom[0x7405u] = 0xffu;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 15u;
@@ -1090,12 +1107,15 @@ int main(void)
             EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
-                    VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x1132u);
+                    VF2_OK);
+        EXPECT_TRUE(dispatch.handler_address == 0x10d0u);
         EXPECT_TRUE(dispatch.channel == 15u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x01u);
-        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
-        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD + 1u] == 0xffu);
+        EXPECT_TRUE(board.sound_ram[0x2515u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        EXPECT_TRUE(dispatch.cursor_after == 4u);
 
         /* B0 entries 0x7d/0x7e are table-default (dead 0x1c0a): consume
            with no voice effects. */

@@ -909,24 +909,87 @@ static vf2_status sound_board_dispatch_80(
     report->channel = channel;
     board->sound_ram[VF2_SOUND_LOOKUP_CURRENT] = (uint8_t)base;
     /* Split at 0x10e2 (`move.b desc[2],d3` / cmpi #$f0 / bcs):
-     * the LOW arm walks a row table with a data-dependent trip
-     * count (0x1148 bls loop, no silicon cap) and stays refused
-     * at 0x1132; the HIGH arm (desc[2] >= 0xf0) files the row
-     * word/byte and falls into the 0x1174 voice scan (E1f-a).
-     * Residue audit: 0x10f2 andi.l is LONG (d3 exact despite the
-     * subi.b/drain upper); 0x1106 andi.l is LONG (d0 exact);
-     * 0x111c andi.l is LONG (d2 exact -- the move.b'd drain
-     * residue dies there, so the $1515 index is clean). */
-    if (descriptor[2u] < 0xf0u) {
-        report->handler_address = UINT32_C(0x00001132);
-        return VF2_ERROR_UNSUPPORTED;
-    }
+     * the LOW arm (desc[2] < 0xf0) walks a 6-byte-entry row
+     * table (0x1148 cmp.b/bls loop, stride 6, no silicon cap)
+     * selected by desc[2]&0x7f at 0x6053aa, then files the
+     * same row word/byte and falls into the 0x1174 voice scan
+     * (E1g: measured sel-3 walk below); the HIGH arm
+     * (desc[2] >= 0xf0) files the row word/byte and falls into
+     * the same scan (E1f-a). Residue audit: 0x10f2 andi.l is
+     * LONG (d3 exact despite the subi.b/drain upper); 0x1138
+     * andi.l is LONG (LOW d3 exact); 0x1106 andi.l is LONG
+     * (HIGH d0 exact); 0x1162 andi.l is LONG (LOW d2 exact --
+     * the move.b/add.b'd drain residue dies there, so the
+     * $1515 index is clean); the walk cmp.b/add.b are
+     * byte-only (upper never participates). */
     {
-        uint32_t select = (uint32_t)((descriptor[2u] - 0xf0u) & 0x7fu);
-        uint32_t table_base = 0u;
-        uint32_t entry = 0u;
-        uint16_t word = 0u;
-        uint8_t row_byte = 0u;
+        if (descriptor[2u] < 0xf0u) {
+            uint16_t row_word = 0u;
+            uint8_t row_byte = 0u;
+            uint32_t select =
+                (uint32_t)((uint32_t)descriptor[2u] & 0x7fu);
+            uint32_t table_base = 0u;
+            uint32_t cursor = 0u;
+            uint8_t threshold = 0u;
+            uint8_t addend = 0u;
+            uint8_t index = 0u;
+            /* ROM 0x1132-0x1140 LOW table pick: table_base =
+             * be32(0x6053aa + select*4), cursor = table_base. */
+            if (read_audio_be32(board,
+                                UINT32_C(0x6053aa) + select * 4u,
+                                &table_base) != VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            cursor = table_base;
+            /* ROM 0x1144-0x1156 threshold walk: d2 = $150f
+             * (the head-filed base); stop at the first entry
+             * with d2 <= threshold (unsigned bls); stride 6.
+             * No silicon cap: the C advances the same way and
+             * fails closed only where silicon would leave the
+             * audio ROM (unmeasurable). */
+            for (;;) {
+                if (read_audio_byte_absolute(board, cursor,
+                                            &threshold) !=
+                    VF2_OK) {
+                    return VF2_ERROR_OUT_OF_BOUNDS;
+                }
+                if ((uint32_t)base <= (uint32_t)threshold) {
+                    break;
+                }
+                cursor += 6u;
+            }
+            /* ROM 0x1158-0x1162: $1516 = word(cursor+4);
+             * d2 = (base + byte(cursor+3)) & 0x7f (add.b wraps
+             * mod 256, andi.l keeps the low 7). */
+            if (sound_board_read_table_word(board, cursor + 4u,
+                                           &row_word) !=
+                VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            write_be16(board->sound_ram + VF2_SOUND_LOOKUP_WORD,
+                       row_word);
+            if (read_audio_byte_absolute(board, cursor + 3u,
+                                        &addend) != VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            index = (uint8_t)(((uint32_t)base + (uint32_t)addend) &
+                              0x7fu);
+            /* ROM 0x1168-0x116e: $1515 = byte(0x60c3e6+index).
+             * $1515 has no named slot ($15xx -> 0x25xx pattern). */
+            if (sound_board_read_table_u8(
+                    board,
+                    UINT32_C(0x60c3e6) + (uint32_t)index,
+                    &row_byte) != VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            board->sound_ram[UINT32_C(0x2515)] = row_byte;
+        } else {
+            uint32_t select =
+                (uint32_t)((descriptor[2u] - 0xf0u) & 0x7fu);
+            uint32_t table_base = 0u;
+            uint32_t entry = 0u;
+            uint16_t word = 0u;
+            uint8_t row_byte = 0u;
 
         /* ROM 0x10ee-0x1112 HIGH row pick (90-path shape:
          * table_base = be32(0x6032c6 + select*4), entry =
@@ -952,19 +1015,23 @@ static vf2_status sound_board_dispatch_80(
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
         board->sound_ram[UINT32_C(0x2515)] = row_byte;
-        /* ROM 0x1174-0x11ce voice scan (v0825 E1f-b). d1 =
-           $150e & 0xf (drain-filed channel). Per voice
-           (stride 0x10 x32): +3 == $1515, +4 == d1, +6 word ==
-           $1516, +2 bit4/1 clear; then andi.b #$7f,+2 IN MEMORY
-           (fires on every gate-passer, even when the beq below
-           skips the call); full pass falls into jsr 0x11d0
-           (E1f-c door: refuse). Miss-all exhausts the dbf to the
+        }
+        /* ROM 0x1174-0x11ce voice scan (v0825 E1f-b/E1g: shared by
+           the HIGH row and the LOW walk). d1 = $150e & 0xf
+           (drain-filed channel). Per voice (stride 0x10 x32):
+           +3 == $1515, +4 == d1, +6 word == $1516, +2 bit4/1
+           clear; then andi.b #$7f,+2 IN MEMORY (fires on every
+           gate-passer, even when the beq below skips the call);
+           full pass inlines jsr 0x11d0 (E1f-c: always rts's, so
+           the scan continues). Miss-all exhausts the dbf to the
            0x11ce rts, which resumes the drain -- the dispatch
            completes (OK) and the packet consumes. */
         {
             uint8_t scan_channel =
                 (uint8_t)(board->sound_ram[VF2_SOUND_CURRENT_COMMAND] &
                           0x0fu);
+            uint8_t scan_byte =
+                board->sound_ram[UINT32_C(0x2515)];
             uint16_t row_word = read_be16(board->sound_ram +
                                           VF2_SOUND_LOOKUP_WORD);
             size_t vi = 0u;
@@ -973,7 +1040,7 @@ static vf2_status sound_board_dispatch_80(
                 uint8_t *scan_voice =
                     board->sound_ram + VF2_SOUND_VOICE_TABLE_BASE +
                     vi * VF2_SOUND_VOICE_BYTES;
-                if (scan_voice[VF2_SOUND_VOICE_BYTE] != row_byte ||
+                if (scan_voice[VF2_SOUND_VOICE_BYTE] != scan_byte ||
                     scan_voice[VF2_SOUND_VOICE_CHANNEL] !=
                         scan_channel ||
                     read_be16(scan_voice + VF2_SOUND_VOICE_SELECT) !=
