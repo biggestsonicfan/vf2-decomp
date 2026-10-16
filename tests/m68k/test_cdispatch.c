@@ -3608,6 +3608,139 @@ static void test_dispatch_80_high(
     }
 }
 
+/* E1f-d: the L1 lifecycle on the E1f-c round-1 post-state.
+ * Fixture replicates round 1 (0x80/0x05 packet, HIGH desc,
+ * voice0 andi-witness, voice1 +2=0x40/+3=0x90/+4=0/+6=0x00ff/
+ * +0xb=5, voice2 early-miss, chantable clear): dispatch keys
+ * the slot and arms L1 (+2=0x41). Then five maintain_voices
+ * ticks: countdown 5->1 with no expiry, fifth tick expires
+ * (normal arm: key-off pair, +2=0, $151e--). Each tick is a
+ * C-vs-stepper differential on the evolving state (triangle
+ * L1 convention: pc=0x5fe entry, rte stop, a7 balanced, RAM
+ * compare below the stack zone + above it, SCSP equal). S
+ * step counts print-first, locked after measurement. */
+static void test_voice_lifecycle_l1(
+    const char *rom_dir,
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report creport;
+    vf2_sound_voice_maintenance_report mreport;
+    uint8_t *cram = NULL;
+    uint8_t *desc = NULL;
+    uint8_t *v0 = NULL;
+    uint8_t *v1 = NULL;
+    uint8_t *v2 = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+    int tick = 0;
+    (void)rom_dir;
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    {
+        uint8_t packet[4];
+        packet[0] = 0x80u;
+        packet[1] = 0x05u;
+        packet[2] = 0u;
+        packet[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) ==
+                    VF2_OK);
+    }
+    desc = cram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x00u;
+    desc[2] = 0xf3u;
+    desc[4] = 0x07u;
+    cram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+    cram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+    v0 = cram + VF2_SOUND_VOICE_TABLE_BASE;
+    v1 = cram + VF2_SOUND_VOICE_TABLE_BASE + 0x10u;
+    v2 = cram + VF2_SOUND_VOICE_TABLE_BASE + 0x20u;
+    v0[VF2_SOUND_VOICE_FLAGS] = 0x80u;
+    v0[VF2_SOUND_VOICE_BYTE] = 0x90u;
+    v0[VF2_SOUND_VOICE_CHANNEL] = 0x00u;
+    v0[VF2_SOUND_VOICE_SELECT] = 0x00u;
+    v0[VF2_SOUND_VOICE_SELECT + 1u] = 0xffu;
+    v1[VF2_SOUND_VOICE_FLAGS] = 0x40u;
+    v1[VF2_SOUND_VOICE_BYTE] = 0x90u;
+    v1[VF2_SOUND_VOICE_CHANNEL] = 0x00u;
+    v1[VF2_SOUND_VOICE_SELECT] = 0x00u;
+    v1[VF2_SOUND_VOICE_SELECT + 1u] = 0xffu;
+    v1[VF2_SOUND_VOICE_RATE] = 0x05u;
+    v2[VF2_SOUND_VOICE_FLAGS] = 0xc0u;
+    v2[VF2_SOUND_VOICE_BYTE] = 0x00u;
+    memset(&creport, 0, sizeof(creport));
+    EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &creport) ==
+                VF2_OK);
+    EXPECT_TRUE(v1[VF2_SOUND_VOICE_FLAGS] == 0x41u);
+    for (tick = 1; tick <= 5; ++tick) {
+        /* Snapshot the pre-tick state for the S run first; the C
+         * tick advances cram, then S replays from the snapshot. */
+        memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+        memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+        memset(&mreport, 0, sizeof(mreport));
+        EXPECT_TRUE(vf2_sound_board_maintain_voices(&board,
+                                                   &mreport) ==
+                    VF2_OK);
+        EXPECT_TRUE(mreport.voices_scanned == 32u);
+        bus.ram = step_ram;
+        bus.ram_size = sizeof(step_ram);
+        bus.rom = audio_rom;
+        bus.rom_size = audio_rom_size;
+        bus.sample_rom = NULL;
+        bus.sample_rom_size = 0u;
+        bus.scsp = &step_scsp;
+        bus.event_count = 0u;
+        vf2_m68k_regs_reset(&regs);
+        regs.a[5] = UINT32_C(0x100000);
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x5fe);
+        status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 1,
+                              20000u, &done);
+        fprintf(stderr, "lifecycle: tick %d C timer=%02x expired=%u/%u scsp0=%02x/%02x S steps=%u events=%u a7=%05x\n",
+                tick, (unsigned)v1[VF2_SOUND_VOICE_RATE],
+                (unsigned)mreport.voices_expired,
+                (unsigned)mreport.normal_expirations,
+                (unsigned)board.scsp.registers[0x00u],
+                (unsigned)board.scsp.registers[0x0bu],
+                (unsigned)done, (unsigned)bus.event_count,
+                (unsigned)regs.a[7]);
+        EXPECT_TRUE(status == VF2_OK);
+        EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
+        EXPECT_TRUE(bus.event_count == 0u);
+        EXPECT_TRUE(done == (tick < 5 ? 138u : 343u));
+        if (tick < 5) {
+            EXPECT_TRUE(v1[VF2_SOUND_VOICE_RATE] ==
+                        (uint8_t)(5 - tick));
+            EXPECT_TRUE(v1[VF2_SOUND_VOICE_FLAGS] == 0x41u);
+            EXPECT_TRUE(mreport.voices_expired == 0u);
+        } else {
+            EXPECT_TRUE(v1[VF2_SOUND_VOICE_RATE] == 0x00u);
+            EXPECT_TRUE(v1[VF2_SOUND_VOICE_FLAGS] == 0x00u);
+            EXPECT_TRUE(mreport.voices_expired == 1u);
+            EXPECT_TRUE(mreport.normal_expirations == 1u);
+            EXPECT_TRUE(board.scsp.registers[0x0bu] == 0x1fu);
+        }
+        /* Triangle compare convention: below the ISR stack zone
+         * + above it (C has no register file); then SCSP. */
+        EXPECT_TRUE(memcmp(cram, step_ram, 0x7eccu) == 0);
+        EXPECT_TRUE(memcmp(cram + 0x7f00u, step_ram + 0x7f00u,
+                           VF2_SOUND_RAM_BYTES - 0x7f00u) == 0);
+        EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+    }
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -3700,6 +3833,7 @@ int main(int argc, char **argv)
     test_engine_probe(argv[1], audio_rom, audio_rom_size);
     test_engine_ed8_keyon(argv[1], audio_rom, audio_rom_size);
     test_dispatch_80_high(argv[1], audio_rom, audio_rom_size);
+    test_voice_lifecycle_l1(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);
