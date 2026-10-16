@@ -79,6 +79,7 @@ static void usage(const char *program)
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n"
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
+        "  %s geo-project <ram9.bin> <readstarts.txt> <rom-dir> <pose-frame> <out.png> [W H xoff yoff]\n"
         "  %s export-pieces <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s export-textured <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s texture-link <rom-dir> <object-id>\n"
@@ -131,6 +132,7 @@ static void usage(const char *program)
         program, /* compare-snapshots */
         program, /* geo-walk */
         program, /* geo-scene */
+        program, /* geo-project */
         program, /* export-pieces */
         program, /* export-textured */
         program, /* texture-link */
@@ -7243,6 +7245,82 @@ static int png_write_gray8(
     return ok;
 }
 
+/* Same minimal PNG, 8-bit RGB (color type 2). `px` is w*h*3 bytes, row-major. */
+static int png_write_rgb8(
+    const char *path, uint32_t w, uint32_t h, const uint8_t *px
+)
+{
+    static const uint8_t sig[8] = { 0x89u, 0x50u, 0x4eu, 0x47u,
+                                    0x0du, 0x0au, 0x1au, 0x0au };
+    uint8_t ihdr[13];
+    size_t stride = (size_t)w * 3u;
+    size_t raw_len = (size_t)h * (1u + stride);
+    uint8_t *raw = (uint8_t *)malloc(raw_len != 0u ? raw_len : 1u);
+    uint8_t *idat = NULL;
+    size_t cap;
+    size_t o = 0u;
+    size_t pos = 0u;
+    uint32_t row;
+    FILE *f = NULL;
+    int ok = 0;
+
+    if (raw == NULL) {
+        return 0;
+    }
+    for (row = 0u; row < h; ++row) {
+        raw[(size_t)row * (1u + stride)] = 0u; /* filter: none */
+        memcpy(raw + (size_t)row * (1u + stride) + 1u,
+               px + (size_t)row * stride, stride);
+    }
+    cap = 2u + raw_len + ((raw_len / 65535u) + 1u) * 5u + 4u;
+    idat = (uint8_t *)malloc(cap);
+    if (idat == NULL) {
+        free(raw);
+        return 0;
+    }
+    idat[o++] = 0x78u;
+    idat[o++] = 0x01u;
+    while (pos < raw_len) {
+        size_t blk = raw_len - pos;
+        uint16_t nlen;
+        if (blk > 65535u) {
+            blk = 65535u;
+        }
+        idat[o++] = (uint8_t)((pos + blk >= raw_len) ? 1u : 0u);
+        idat[o++] = (uint8_t)(blk & 0xffu);
+        idat[o++] = (uint8_t)((blk >> 8) & 0xffu);
+        nlen = (uint16_t)(~(uint16_t)blk);
+        idat[o++] = (uint8_t)(nlen & 0xffu);
+        idat[o++] = (uint8_t)((nlen >> 8) & 0xffu);
+        memcpy(idat + o, raw + pos, blk);
+        o += blk;
+        pos += blk;
+    }
+    png_be32(idat + o, png_adler32(raw, raw_len));
+    o += 4u;
+
+    f = fopen(path, "wb");
+    if (f == NULL) {
+        free(raw);
+        free(idat);
+        return 0;
+    }
+    png_be32(ihdr, w);
+    png_be32(ihdr + 4u, h);
+    ihdr[8] = 8u;  /* bit depth */
+    ihdr[9] = 2u;  /* color type: truecolor RGB */
+    ihdr[10] = 0u;
+    ihdr[11] = 0u;
+    ihdr[12] = 0u;
+    ok = (fwrite(sig, 1u, 8u, f) == 8u) &&
+         png_chunk(f, "IHDR", ihdr, sizeof(ihdr)) &&
+         png_chunk(f, "IDAT", idat, o) && png_chunk(f, "IEND", NULL, 0u);
+    fclose(f);
+    free(raw);
+    free(idat);
+    return ok;
+}
+
 /* --- texture-link: dump an object's decoded polygon->texture link ------------
  *
  * Reads the object-table entry {w0=tpa, w1=tha, w2=oba, w3=obc} at 0x020e0004,
@@ -7490,14 +7568,19 @@ static size_t ext_emit_tri(
     ext_xform(mtx, a, &ta);
     ext_xform(mtx, b, &tb);
     ext_xform(mtx, c, &tc);
-    fprintf(obj, "v %.6f %.6f %.6f\n", (double)ta.x, (double)ta.y, (double)ta.z);
-    fprintf(obj, "v %.6f %.6f %.6f\n", (double)tb.x, (double)tb.y, (double)tb.z);
-    fprintf(obj, "v %.6f %.6f %.6f\n", (double)tc.x, (double)tc.y, (double)tc.z);
-    fprintf(obj, "vt %.6f %.6f\n", (double)ua[0], (double)ua[1]);
-    fprintf(obj, "vt %.6f %.6f\n", (double)ub[0], (double)ub[1]);
-    fprintf(obj, "vt %.6f %.6f\n", (double)uc[0], (double)uc[1]);
-    fprintf(obj, "f %zu/%zu %zu/%zu %zu/%zu\n", n, n, n + 1u, n + 1u, n + 2u,
-            n + 2u);
+    if (obj != NULL) {
+        fprintf(obj, "v %.6f %.6f %.6f\n",
+                (double)ta.x, (double)ta.y, (double)ta.z);
+        fprintf(obj, "v %.6f %.6f %.6f\n",
+                (double)tb.x, (double)tb.y, (double)tb.z);
+        fprintf(obj, "v %.6f %.6f %.6f\n",
+                (double)tc.x, (double)tc.y, (double)tc.z);
+        fprintf(obj, "vt %.6f %.6f\n", (double)ua[0], (double)ua[1]);
+        fprintf(obj, "vt %.6f %.6f\n", (double)ub[0], (double)ub[1]);
+        fprintf(obj, "vt %.6f %.6f\n", (double)uc[0], (double)uc[1]);
+        fprintf(obj, "f %zu/%zu %zu/%zu %zu/%zu\n", n, n, n + 1u, n + 1u,
+                n + 2u, n + 2u);
+    }
     if (vacc != NULL && vacc_n != NULL && *vacc_n + 3u <= vacc_cap) {
         vacc[(*vacc_n)++] = ta;
         vacc[(*vacc_n)++] = tb;
@@ -8485,6 +8568,7 @@ static int command_geo_scene(
     size_t gcount[2] = { 0u, 0u };
     size_t resolved = 0u;
     size_t stub = 0u;
+    size_t lookup_disagree = 0u;
     size_t vbase = 1u;
     int cur_sheet = -1;
     vf2_status st;
@@ -8723,7 +8807,11 @@ static int command_geo_scene(
         const char *gname = shadow[s] ? "shadow"
                           : (grp[s] == 1) ? "selfmoving" : "cameracommon";
         const char *atag = anchor[s] ? "_akira" : "";
-        uint32_t w0 = tpaf[pose * nslots + s];
+        uint32_t w0 = tpaf[pose * nslots + s];     /* texture-point address */
+        uint32_t oba = obaf[pose * nslots + s];
+        uint32_t rec = (oba & 0x7fffffu) * 4u;     /* MAME geo_object_data:
+                                                    * geometry = polygon_rom
+                                                    * [oba & mask], byte = *4 */
         uint32_t off = 0u;
         uint32_t bnk = 0u;
         uint32_t id = 0u;
@@ -8733,15 +8821,23 @@ static int command_geo_scene(
         float *m = &mat[(pose * nslots + s) * 12u];
 
         fprintf(obj, "o slot%03zu_%s%s_oba%06x\n", s, gname, atag,
-                (unsigned)(obaf[pose * nslots + s] & 0x7fffffu));
+                (unsigned)(oba & 0x7fffffu));
 
+        /* Textures come from the tpa lookup (UV/texheader table); GEOMETRY is
+         * read straight from oba, as MAME does -- the earlier tpa->record
+         * lookup was a FIFO-era indirection and is only used here for UVs. */
         if (vf2_model_lookup_w0(main_data, main_size, w0, 0x4000u, &off, &bnk,
                                 &id) == VF2_OK) {
+            if (off != rec) {
+                ++lookup_disagree;
+            }
             uv_ptr = tl_u32(main_data, main_size,
                             0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
             th_ptr = tl_u32(main_data, main_size,
                             0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
-            vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, off,
+        }
+        if ((size_t)rec + 24u <= poly_size) {
+            vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, rec,
                                    uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m,
                                    NULL, NULL, 0u);
             ++resolved;
@@ -8826,6 +8922,10 @@ static int command_geo_scene(
                 }
             }
         }
+        printf("  geometry: decoded from oba directly (MAME geo_object_data); "
+               "the tpa->record lookup\n");
+        printf("            disagreed with oba on %zu/%zu slots (why the earlier "
+               "pieces scattered)\n", lookup_disagree, nslots);
         printf("  matrices: %zu/%zu slots byte-identical across all frames -> "
                "the camera is in EVERY matrix,\n", nfixed, nslots);
         printf("            so a raw static/moving test cannot split decor from "
@@ -8895,11 +8995,13 @@ static int command_geo_scene(
                 for (i = 0u; i < nak; ++i) {
                     size_t slot = akslot[i];
                     uint32_t w0 = tpaf[pose * nslots + slot];
+                    uint32_t oba = obaf[pose * nslots + slot];
+                    uint32_t rec = (oba & 0x7fffffu) * 4u;
                     uint32_t off = 0u;
                     uint32_t bnk = 0u;
                     uint32_t id = 0u;
-                    uint32_t uvp;
-                    uint32_t thp;
+                    uint32_t uvp = 0u;
+                    uint32_t thp = 0u;
                     size_t tr = 0u;
                     float mt[12];
                     const float *m = &mat[(pose * nslots + slot) * 12u];
@@ -8912,13 +9014,15 @@ static int command_geo_scene(
                         thp = tl_u32(main_data, main_size,
                                      0x000e0004u + (size_t)id*16u + 4u)
                               & 0x7fffffu;
+                    }
+                    if ((size_t)rec + 24u <= poly_size) {
                         if (variant == 1) {
                             gs_transpose(m, mt);
                         }
                         fprintf(vo, "o akira_slot%03zu_oba%06x\n", slot,
-                                (unsigned)(obaf[pose*nslots+slot] & 0x7fffffu));
+                                (unsigned)(oba & 0x7fffffu));
                         vb = ext_emit_piece(vo, poly, poly_size, tex, tex_size,
-                                            off, uvp, thp, vb, &vsheet, &tr,
+                                            rec, uvp, thp, vb, &vsheet, &tr,
                                             variant == 0 ? m : mt,
                                             vbuf, &vn, vcap);
                     }
@@ -8998,6 +9102,318 @@ done:
     free(mtx);
     free(motion_t);
     free(sorted);
+    return rc;
+}
+
+/* --- geo-project: Step 2c -- MAME-exact 2D projection of one frame to PNG -----
+ *
+ * Walks one RAM9 frame, tracks the current transform matrix (0x0b/0x0c), focal
+ * distance (0x09) and window/vanishing-point (0x03) exactly as MAME's geo_parse
+ * does, decodes each object's geometry from oba (geo_object_data), and projects
+ * every triangle to screen with MAME's model2_3d_project:
+ *     sx = xoff + cx + (x*focus.x)/z
+ *     sy = (384 - cy) + yoff - (y*focus.y)/z
+ * then fills it z-buffered into an RGB image. Objects are coloured by their
+ * oba record: Akira's anchor cluster 0x130a44..0x1434a0 red, shadows (flattened
+ * matrix) dark, everything else grey -- so the projection can be overlaid on a
+ * MAME screenshot of the same frame (the validation criterion). Local only.
+ *
+ * The opcode sizing mirrors src/platform/geo_display.c (the validated walker);
+ * this command needs the focal/window state the walker does not expose, so it
+ * walks inline. */
+
+static void gs_fill_tri(uint8_t *fb, double *zb, int W, int H,
+                        double x0, double y0, double z0,
+                        double x1, double y1, double z1,
+                        double x2, double y2, double z2,
+                        uint8_t r, uint8_t g, uint8_t b)
+{
+    double minx = x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2);
+    double maxx = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
+    double miny = y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2);
+    double maxy = y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2);
+    double area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    int xlo;
+    int xhi;
+    int ylo;
+    int yhi;
+    int px;
+    int py;
+    if (area == 0.0) {
+        return;
+    }
+    xlo = (int)floor(minx); xhi = (int)ceil(maxx);
+    ylo = (int)floor(miny); yhi = (int)ceil(maxy);
+    if (xlo < 0) xlo = 0;
+    if (ylo < 0) ylo = 0;
+    if (xhi > W - 1) xhi = W - 1;
+    if (yhi > H - 1) yhi = H - 1;
+    for (py = ylo; py <= yhi; ++py) {
+        for (px = xlo; px <= xhi; ++px) {
+            double cxp = (double)px + 0.5;
+            double cyp = (double)py + 0.5;
+            double w0 = ((x1 - cxp) * (y2 - cyp) - (x2 - cxp) * (y1 - cyp));
+            double w1 = ((x2 - cxp) * (y0 - cyp) - (x0 - cxp) * (y2 - cyp));
+            double w2 = ((x0 - cxp) * (y1 - cyp) - (x1 - cxp) * (y0 - cyp));
+            double z;
+            size_t idx;
+            if (area > 0.0) {
+                if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0) continue;
+            } else {
+                if (w0 > 0.0 || w1 > 0.0 || w2 > 0.0) continue;
+            }
+            z = (w0 * z0 + w1 * z1 + w2 * z2) / area;
+            idx = (size_t)py * (size_t)W + (size_t)px;
+            if (z < zb[idx]) {
+                zb[idx] = z;
+                fb[idx * 3u + 0u] = r;
+                fb[idx * 3u + 1u] = g;
+                fb[idx * 3u + 2u] = b;
+            }
+        }
+    }
+}
+
+static int command_geo_project(
+    const char *bin_path, const char *txt_path, const char *rom_directory,
+    const char *pose_str, const char *out_path,
+    int W, int H, double xoff, double yoff
+)
+{
+    const size_t frame_bytes = 131072u;
+    const size_t frame_words = frame_bytes / 4u;
+    FILE *bin = NULL;
+    FILE *txt = NULL;
+    char line[256];
+    uint32_t *w = NULL;
+    uint8_t *main_data = NULL;
+    uint8_t *poly = NULL;
+    size_t main_size = 0u;
+    size_t poly_size = 0u;
+    uint8_t *fb = NULL;
+    double *zb = NULL;
+    vf2_model_vertex *vb = NULL;
+    size_t vcap = 200000u;
+    uint32_t readstart[GS_MAX_FRAMES];
+    size_t nframes = 0u;
+    size_t pose;
+    size_t ptr;
+    size_t opc = 0u;
+    float mat[12];
+    double fx = 1.0;
+    double fy = 1.0;
+    double cx = 0.0;
+    double cy = 0.0;
+    int have_focus = 0;
+    int have_win = 0;
+    size_t nobj = 0u;
+    size_t ntri = 0u;
+    int rc = EXIT_FAILURE;
+    vf2_status st;
+    size_t i;
+
+    pose = (size_t)strtoul(pose_str, NULL, 0);
+    memset(mat, 0, sizeof(mat));
+
+    txt = fopen(txt_path, "rb");
+    if (txt == NULL) {
+        fprintf(stderr, "geo-project: cannot open %s\n", txt_path);
+        return EXIT_FAILURE;
+    }
+    while (fgets(line, (int)sizeof(line), txt) != NULL) {
+        unsigned idx;
+        unsigned fn;
+        unsigned rs;
+        if (sscanf(line, "F %u %u %x", &idx, &fn, &rs) == 3 &&
+            idx < GS_MAX_FRAMES) {
+            readstart[idx] = rs;
+            if ((size_t)idx + 1u > nframes) nframes = (size_t)idx + 1u;
+        }
+    }
+    fclose(txt);
+    txt = NULL;
+    if (pose >= nframes) {
+        fprintf(stderr, "geo-project: pose frame %zu >= %zu\n", pose, nframes);
+        return EXIT_FAILURE;
+    }
+
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data,
+                                 &main_size);
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly,
+                                     &poly_size);
+    }
+    if (st != VF2_OK) {
+        fprintf(stderr, "geo-project: ROM regions: %s\n",
+                vf2_status_string(st));
+        goto done;
+    }
+
+    bin = fopen(bin_path, "rb");
+    w = (uint32_t *)malloc(frame_words * sizeof(*w));
+    fb = (uint8_t *)malloc((size_t)W * (size_t)H * 3u);
+    zb = (double *)malloc((size_t)W * (size_t)H * sizeof(*zb));
+    vb = (vf2_model_vertex *)malloc(vcap * sizeof(*vb));
+    if (bin == NULL || w == NULL || fb == NULL || zb == NULL || vb == NULL) {
+        fprintf(stderr, "geo-project: open/alloc failed\n");
+        goto done;
+    }
+    if (!gs_read_frame(bin, pose, frame_bytes, w, frame_words)) {
+        fprintf(stderr, "geo-project: cannot read frame %zu\n", pose);
+        goto done;
+    }
+    for (i = 0u; i < (size_t)W * (size_t)H; ++i) {
+        fb[i * 3u + 0u] = 18u;   /* dark background */
+        fb[i * 3u + 1u] = 18u;
+        fb[i * 3u + 2u] = 24u;
+        zb[i] = 1e30;
+    }
+
+    ptr = (size_t)((readstart[pose] & 0x1ffffu) >> 2);
+    for (;;) {
+        uint32_t op;
+        uint32_t cmd;
+        size_t need = 0u;
+        if (opc++ >= 0x40000u || ptr >= frame_words) break;
+        op = w[ptr++];
+        if (op & 0x80000000u) { ptr = (size_t)((op & 0x1ffffu) >> 2); continue; }
+        cmd = (op >> 23) & 0x1fu;
+        switch (cmd) {
+        case 0x00u: need = 0u; break;
+        case 0x07u: case 0x17u: case 0x08u: case 0x18u:
+        case 0x10u: case 0x16u: case 0x1eu: need = 1u; break;
+        case 0x09u: case 0x19u: case 0x0du: need = 2u; break;
+        case 0x0au: case 0x1au: case 0x0cu: case 0x1cu: need = 3u; break;
+        case 0x03u: case 0x13u: need = 6u; break;
+        case 0x0bu: case 0x1bu: need = 12u; break;
+        case 0x01u: case 0x11u: need = 4u; break;
+        case 0x04u: case 0x14u: case 0x05u: case 0x15u:
+            if (ptr + 2u > frame_words) goto walk_end;
+            need = 2u + (size_t)w[ptr + 1u]; break;
+        case 0x06u:
+            if (ptr + 2u > frame_words) goto walk_end;
+            need = 2u + (size_t)w[ptr + 1u] * 2u; break;
+        case 0x1du:
+            if (ptr + 2u > frame_words) goto walk_end;
+            need = 2u + (size_t)w[ptr + 1u] * 3u; break;
+        case 0x02u: case 0x12u: {
+            size_t p = ptr + 8u;
+            for (;;) {
+                uint32_t attr;
+                if (p >= frame_words) goto walk_end;
+                attr = w[p++];
+                if ((attr & 3u) == 0u) break;
+                p += 5u;
+                if (attr & 1u) p += 3u;
+            }
+            need = p - ptr; break;
+        }
+        case 0x0eu:
+            if (ptr + 33u > frame_words) goto walk_end;
+            need = 32u + 1u + (size_t)w[ptr + 32u] * 3u; break;
+        case 0x0fu: case 0x1fu: goto walk_end;
+        default: goto walk_end;
+        }
+        if (ptr + need > frame_words) goto walk_end;
+
+        if (cmd == 0x0bu || cmd == 0x1bu) {
+            size_t k;
+            for (k = 0u; k < 12u; ++k) {
+                uint32_t u = w[ptr + k];
+                memcpy(&mat[k], &u, 4u);
+            }
+        } else if (cmd == 0x0cu || cmd == 0x1cu) {
+            uint32_t u;
+            u = w[ptr + 0u]; memcpy(&mat[9], &u, 4u);
+            u = w[ptr + 1u]; memcpy(&mat[10], &u, 4u);
+            u = w[ptr + 2u]; memcpy(&mat[11], &u, 4u);
+        } else if (cmd == 0x09u || cmd == 0x19u) {
+            uint32_t u;
+            float f;
+            u = w[ptr + 0u]; memcpy(&f, &u, 4u); fx = (double)f;
+            u = w[ptr + 1u]; memcpy(&f, &u, 4u); fy = (double)f;
+            have_focus = 1;
+        } else if (cmd == 0x03u || cmd == 0x13u) {
+            if (!have_win) {               /* use the first window's center0 */
+                uint32_t c = w[ptr + 2u];
+                int icx = (int)((c >> 16) & 0xfffu);
+                int icy = (int)(c & 0xfffu);
+                if (icx & 0x800) icx = -(0x800 - (icx & 0x7ff));
+                if (icy & 0x800) icy = -(0x800 - (icy & 0x7ff));
+                cx = (double)icx;
+                cy = (double)icy;
+                have_win = 1;
+            }
+        } else if (cmd == 0x01u || cmd == 0x11u) {
+            uint32_t oba = w[ptr + 2u];
+            uint32_t rec = (oba & 0x7fffffu) * 4u;
+            size_t vn = 0u;
+            int sheet = -1;
+            size_t tr = 0u;
+            uint8_t cr = 170u;
+            uint8_t cg = 170u;
+            uint8_t cb = 170u;
+            double flat = (double)gs_flatness(mat);
+            if (flat < GS_SHADOW_EPS) {
+                cr = 40u; cg = 40u; cb = 52u;      /* shadow: dark */
+            } else if (rec >= 0x130a44u && rec <= 0x1434a0u) {
+                cr = 220u; cg = 48u; cb = 48u;     /* Akira anchor: red */
+            }
+            if ((size_t)rec + 24u <= poly_size) {
+                size_t t;
+                vn = 0u;
+                (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
+                                     0u, 0u, 1u, &sheet, &tr, mat, vb, &vn,
+                                     vcap);
+                ++nobj;
+                for (t = 0u; t + 3u <= vn; t += 3u) {
+                    double px[3];
+                    double py[3];
+                    double pz[3];
+                    int ok = 1;
+                    size_t e;
+                    for (e = 0u; e < 3u; ++e) {
+                        double X = (double)vb[t + e].x * fx;
+                        double Y = (double)vb[t + e].y * fy;
+                        double Z = (double)vb[t + e].z;
+                        if (Z < 0.0001) { ok = 0; break; }
+                        px[e] = xoff + cx + X / Z;
+                        py[e] = ((double)384.0 - cy) + yoff - Y / Z;
+                        pz[e] = Z;
+                    }
+                    if (!ok) continue;
+                    gs_fill_tri(fb, zb, W, H,
+                                px[0], py[0], pz[0], px[1], py[1], pz[1],
+                                px[2], py[2], pz[2], cr, cg, cb);
+                    ++ntri;
+                }
+            }
+        }
+        ptr += need;
+    }
+walk_end:
+
+    if (!png_write_rgb8(out_path, (uint32_t)W, (uint32_t)H, fb)) {
+        fprintf(stderr, "geo-project: cannot write %s\n", out_path);
+        goto done;
+    }
+    printf("geo-project: frame %zu -> %s (%dx%d)\n", pose, out_path, W, H);
+    printf("  focus=%s(%.3f,%.3f) window-center0=%s(%.0f,%.0f) xoff=%.0f "
+           "yoff=%.0f\n", have_focus ? "" : "default ", fx, fy,
+           have_win ? "" : "none ", cx, cy, xoff, yoff);
+    printf("  %zu objects projected, %zu triangles filled "
+           "(Akira anchor red, shadows dark, rest grey)\n", nobj, ntri);
+    rc = EXIT_SUCCESS;
+
+done:
+    if (bin != NULL) fclose(bin);
+    if (txt != NULL) fclose(txt);
+    free(w);
+    free(main_data);
+    free(poly);
+    free(fb);
+    free(zb);
+    free(vb);
     return rc;
 }
 
@@ -9840,6 +10256,25 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "geo-scene") == 0 && argc == 9) {
         return command_geo_scene(argv[2], argv[3], argv[4], argv[5], argv[6],
                                  argv[7], argv[8]);
+    }
+
+    if (strcmp(argv[1], "geo-project") == 0 && (argc == 7 || argc == 11)) {
+        int W = 512;
+        int H = 448;
+        double xo = 84.0;
+        double yo = 130.0;
+        if (argc == 11) {
+            W = atoi(argv[7]);
+            H = atoi(argv[8]);
+            xo = atof(argv[9]);
+            yo = atof(argv[10]);
+        }
+        if (W < 1 || H < 1 || W > 8192 || H > 8192) {
+            fprintf(stderr, "geo-project: bad canvas size\n");
+            return EXIT_FAILURE;
+        }
+        return command_geo_project(argv[2], argv[3], argv[4], argv[5], argv[6],
+                                   W, H, xo, yo);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
