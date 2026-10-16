@@ -780,6 +780,108 @@ static vf2_status sound_board_clear_c0_voices(
     return VF2_OK;
 }
 
+/* ROM 0x11d0 voice subroutine (v0825 E1f-c), called once per
+   scan match with a1 = voice, d1.w = channel. Three exits, all
+   rts (the caller continues its dbf): defer, key+L1-arm,
+   teardown. d1 upper is scan-entry residue but every use reads
+   .w/.b only (0x11d4 index, implicit), so the byte channel the
+   C passes is exact. d4 = voice word 0 (slot stride, no mask).
+   d2/d0 byte snapshots (move.b) feed cmp.b only -- upper
+   residue never participates (v0821 byte-domain rule). */
+static vf2_status sound_board_voice_sub_11d0(
+    vf2_sound_board *board,
+    uint8_t *voice,
+    uint8_t channel,
+    vf2_sound_dispatch_report *report
+)
+{
+    uint8_t *ram = board->sound_ram;
+    uint16_t slot = 0u;
+    uint32_t stream = 0u;
+    uint8_t countdown = 0u;
+    int release_path = 0;
+    size_t other = 0u;
+
+    /* ROM 0x11d0-0x11e4: channel-table ($3220(a6) = 0x4220) bit7
+       defers the voice (bset #1, no SCSP traffic). */
+    if ((ram[VF2_SOUND_CHANNEL_CONTROL_BASE + channel] & 0x80u) !=
+        0u) {
+        voice[VF2_SOUND_VOICE_FLAGS] |= 0x02u;
+        return VF2_OK;
+    }
+    slot = read_be16(voice + VF2_SOUND_VOICE_SLOT);
+    countdown = voice[VF2_SOUND_VOICE_RATE];
+    if (countdown != 0u) {
+        /* ROM 0x11f2-0x11fe: slot key ($10 control, V1 form) +
+           L1 service arm (bset #0). No key-on: 0x10 lacks
+           KEYONB, same as every setup key. */
+        if (vf2_scsp_write_u8(&board->scsp, (uint32_t)slot,
+                              UINT8_C(0x10)) != VF2_OK) {
+            report->handler_address = UINT32_C(0x000011f2);
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        voice[VF2_SOUND_VOICE_FLAGS] |= 0x01u;
+        return VF2_OK;
+    }
+    /* ROM 0x1200-0x120c: key-off pair (SCSP[slot+0x0b] = 0x1f,
+       SCSP[slot] = 0x10), then bit3 dispatches on the
+       scan-andi'd +2 (bit7 already clear, bit4/1 clear,
+       low7 nonzero by the scan gates). */
+    if (vf2_scsp_write_u8(&board->scsp, (uint32_t)slot + 0x0bu,
+                          UINT8_C(0x1f)) != VF2_OK ||
+        vf2_scsp_write_u8(&board->scsp, (uint32_t)slot,
+                          UINT8_C(0x10)) != VF2_OK) {
+        report->handler_address = UINT32_C(0x00001200);
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    release_path =
+        (voice[VF2_SOUND_VOICE_FLAGS] & 0x08u) != 0u;
+    stream = UINT32_C(0x2000) + (uint32_t)slot;
+    if (stream >= VF2_SOUND_RAM_BYTES) {
+        report->handler_address = UINT32_C(0x0000121e);
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    ram[stream] = 0u;
+    voice[VF2_SOUND_VOICE_FLAGS] = 0u;
+    if (!release_path) {
+        /* Normal teardown 0x1216-0x1260 (L1-normal shape): +9
+           snapshot, +9 = 0, $151e--, rebalance +9 (skip 0xff,
+           bcc skips d2 >= mem, else decrement). */
+        uint8_t age = voice[VF2_SOUND_VOICE_AGE];
+        uint8_t *voices = ram + VF2_SOUND_VOICE_TABLE_BASE;
+        voice[VF2_SOUND_VOICE_AGE] = 0u;
+        --ram[VF2_SOUND_SHARED_COUNTER_151E];
+        for (other = 0u; other < VF2_SOUND_VOICE_COUNT; ++other) {
+            uint8_t *target = voices +
+                other * VF2_SOUND_VOICE_BYTES + VF2_SOUND_VOICE_AGE;
+            if (*target == UINT8_MAX || age >= *target) {
+                continue;
+            }
+            --(*target);
+        }
+    } else {
+        /* Release teardown 0x1262-0x12b2 (L1-release shape): +5
+           snapshot, +9 = 0, +5 = 0, $152e--, rebalance +5 over
+           0xff-aged voices. */
+        uint8_t age = voice[VF2_SOUND_VOICE_AGE_RELEASE];
+        uint8_t *voices = ram + VF2_SOUND_VOICE_TABLE_BASE;
+        voice[VF2_SOUND_VOICE_AGE] = 0u;
+        voice[VF2_SOUND_VOICE_AGE_RELEASE] = 0u;
+        --ram[VF2_SOUND_SHARED_COUNTER_152E];
+        for (other = 0u; other < VF2_SOUND_VOICE_COUNT; ++other) {
+            uint8_t *slot9 = voices + other * VF2_SOUND_VOICE_BYTES +
+                VF2_SOUND_VOICE_AGE;
+            uint8_t *slot5 = voices + other * VF2_SOUND_VOICE_BYTES +
+                VF2_SOUND_VOICE_AGE_RELEASE;
+            if (*slot9 != UINT8_MAX || age >= *slot5) {
+                continue;
+            }
+            --(*slot5);
+        }
+    }
+    return VF2_OK;
+}
+
 static vf2_status sound_board_dispatch_80(
     vf2_sound_board *board,
     const uint8_t *descriptor,
@@ -884,8 +986,13 @@ static vf2_status sound_board_dispatch_80(
                 if (scan_voice[VF2_SOUND_VOICE_FLAGS] == 0u) {
                     continue;
                 }
-                report->handler_address = UINT32_C(0x000011c0);
-                return VF2_ERROR_UNSUPPORTED;
+                /* Full pass: inline jsr 0x11d0 (E1f-c subroutine;
+                 * always rts's, so the scan continues). */
+                if (sound_board_voice_sub_11d0(board, scan_voice,
+                                               scan_channel,
+                                               report) != VF2_OK) {
+                    return VF2_ERROR_OUT_OF_BOUNDS;
+                }
             }
             /* Miss-all: dbf exhausted to the 0x11ce rts; fall out
              * to the shared completion below. */
