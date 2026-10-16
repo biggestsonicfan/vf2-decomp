@@ -9184,7 +9184,9 @@ static int command_geo_project(
     const size_t frame_words = frame_bytes / 4u;
     FILE *bin = NULL;
     FILE *txt = NULL;
+    FILE *csv = NULL;
     char line[256];
+    char csvpath[1100];
     uint32_t *w = NULL;
     uint8_t *main_data = NULL;
     uint8_t *poly = NULL;
@@ -9200,6 +9202,7 @@ static int command_geo_project(
     size_t ptr;
     size_t opc = 0u;
     float mat[12];
+    uint32_t mode = 0u;
     double fx = 1.0;
     double fy = 1.0;
     double cx = 0.0;
@@ -9269,6 +9272,13 @@ static int command_geo_project(
         zb[i] = 1e30;
     }
 
+    snprintf(csvpath, sizeof(csvpath), "%s.csv", out_path);
+    csv = fopen(csvpath, "wb");
+    if (csv != NULL) {
+        fprintf(csv, "obj,rec_byte,group,side,mode3,cx,cy,minx,miny,maxx,"
+                     "maxy,screen_h,ntri\n");
+    }
+
     ptr = (size_t)((readstart[pose] & 0x1ffffu) >> 2);
     for (;;) {
         uint32_t op;
@@ -9316,7 +9326,9 @@ static int command_geo_project(
         }
         if (ptr + need > frame_words) goto walk_end;
 
-        if (cmd == 0x0bu || cmd == 0x1bu) {
+        if (cmd == 0x07u || cmd == 0x17u) {
+            mode = w[ptr];
+        } else if (cmd == 0x0bu || cmd == 0x1bu) {
             size_t k;
             for (k = 0u; k < 12u; ++k) {
                 uint32_t u = w[ptr + k];
@@ -9334,44 +9346,83 @@ static int command_geo_project(
             u = w[ptr + 1u]; memcpy(&f, &u, 4u); fy = (double)f;
             have_focus = 1;
         } else if (cmd == 0x03u || cmd == 0x13u) {
-            if (!have_win) {               /* use the first window's center0 */
-                uint32_t c = w[ptr + 2u];
-                int icx = (int)((c >> 16) & 0xfffu);
-                int icy = (int)(c & 0xfffu);
-                if (icx & 0x800) icx = -(0x800 - (icx & 0x7ff));
-                if (icy & 0x800) icy = -(0x800 - (icy & 0x7ff));
-                cx = (double)icx;
-                cy = (double)icy;
-                have_win = 1;
-            }
+            uint32_t c = w[ptr + 2u];      /* track the CURRENT window center0 */
+            int icx = (int)((c >> 16) & 0xfffu);
+            int icy = (int)(c & 0xfffu);
+            if (icx & 0x800) icx = -(0x800 - (icx & 0x7ff));
+            if (icy & 0x800) icy = -(0x800 - (icy & 0x7ff));
+            cx = (double)icx;
+            cy = (double)icy;
+            have_win = 1;
         } else if (cmd == 0x01u || cmd == 0x11u) {
             uint32_t oba = w[ptr + 2u];
             uint32_t rec = (oba & 0x7fffffu) * 4u;
+            unsigned m3 = (unsigned)(mode & 3u);
             size_t vn = 0u;
             int sheet = -1;
             size_t tr = 0u;
-            uint8_t cr = 170u;
-            uint8_t cg = 170u;
-            uint8_t cb = 170u;
-            double flat = (double)gs_flatness(mat);
-            if (flat < GS_SHADOW_EPS) {
-                cr = 40u; cg = 40u; cb = 52u;      /* shadow: dark */
-            } else if (rec >= 0x130a44u && rec <= 0x1434a0u) {
-                cr = 220u; cg = 48u; cb = 48u;     /* Akira anchor: red */
-            }
+            uint8_t cr = 150u;
+            uint8_t cg = 150u;
+            uint8_t cb = 150u;
+            const char *og = "decor";
+            const char *side = "-";
+            int is_decor = (rec >= 0x3c1facu && rec <= 0x3ca730u);
+            int is_shadow = (gs_flatness(mat) < GS_SHADOW_EPS);
             if ((size_t)rec + 24u <= poly_size) {
                 size_t t;
+                size_t e;
+                double ox0 = 1e30;
+                double oy0 = 1e30;
+                double ox1 = -1e30;
+                double oy1 = -1e30;
+                double sumx = 0.0;
+                size_t non = 0u;
+                size_t otri = 0u;
+                double objcx;
                 vn = 0u;
                 (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
                                      0u, 0u, 1u, &sheet, &tr, mat, vb, &vn,
                                      vcap);
-                ++nobj;
+                /* pass 1: robust screen centroid from on-screen vertices */
+                for (e = 0u; e < vn; ++e) {
+                    double X = (double)vb[e].x * fx;
+                    double Y = (double)vb[e].y * fy;
+                    double Z = (double)vb[e].z;
+                    double sx;
+                    double sy;
+                    if (Z < 0.0001) continue;
+                    sx = xoff + cx + X / Z;
+                    sy = ((double)384.0 - cy) + yoff - Y / Z;
+                    if (sx >= 0.0 && sx < (double)W && sy >= 0.0 &&
+                        sy < (double)H) {
+                        sumx += sx;
+                        ++non;
+                    }
+                }
+                objcx = (non > 0u) ? sumx / (double)non : -1.0;
+                /* classify: decor grey, shadow dark, else by screen side */
+                if (is_decor) {
+                    cr = 150u; cg = 150u; cb = 150u; og = "decor";
+                } else if (is_shadow) {
+                    cr = 40u; cg = 40u; cb = 52u; og = "shadow";
+                    side = (objcx >= 0.0 && objcx < (double)(W / 2))
+                         ? "L" : "R";
+                } else if (non > 0u) {
+                    og = "fighter";
+                    if (objcx < (double)(W / 2)) {
+                        cr = 70u; cg = 130u; cb = 235u; side = "L"; /* Akira */
+                    } else {
+                        cr = 235u; cg = 110u; cb = 40u; side = "R"; /* Lau */
+                    }
+                } else {
+                    og = "offscreen";
+                }
+                /* pass 2: fill */
                 for (t = 0u; t + 3u <= vn; t += 3u) {
                     double px[3];
                     double py[3];
                     double pz[3];
                     int ok = 1;
-                    size_t e;
                     for (e = 0u; e < 3u; ++e) {
                         double X = (double)vb[t + e].x * fx;
                         double Y = (double)vb[t + e].y * fy;
@@ -9382,11 +9433,25 @@ static int command_geo_project(
                         pz[e] = Z;
                     }
                     if (!ok) continue;
+                    for (e = 0u; e < 3u; ++e) {
+                        if (px[e] < ox0) ox0 = px[e];
+                        if (px[e] > ox1) ox1 = px[e];
+                        if (py[e] < oy0) oy0 = py[e];
+                        if (py[e] > oy1) oy1 = py[e];
+                    }
                     gs_fill_tri(fb, zb, W, H,
                                 px[0], py[0], pz[0], px[1], py[1], pz[1],
                                 px[2], py[2], pz[2], cr, cg, cb);
                     ++ntri;
+                    ++otri;
                 }
+                if (csv != NULL && otri > 0u) {
+                    fprintf(csv, "%zu,0x%x,%s,%s,%u,%.1f,%.1f,%.1f,%.1f,%.1f,"
+                                 "%.1f,%.1f,%zu\n", nobj, (unsigned)rec, og,
+                            side, m3, objcx, 0.5 * (oy0 + oy1),
+                            ox0, oy0, ox1, oy1, oy1 - oy0, otri);
+                }
+                ++nobj;
             }
         }
         ptr += need;
@@ -9402,12 +9467,14 @@ walk_end:
            "yoff=%.0f\n", have_focus ? "" : "default ", fx, fy,
            have_win ? "" : "none ", cx, cy, xoff, yoff);
     printf("  %zu objects projected, %zu triangles filled "
-           "(Akira anchor red, shadows dark, rest grey)\n", nobj, ntri);
+           "(left/Akira blue, right/Lau orange, decor grey, shadow dark)\n",
+           nobj, ntri);
     rc = EXIT_SUCCESS;
 
 done:
     if (bin != NULL) fclose(bin);
     if (txt != NULL) fclose(txt);
+    if (csv != NULL) fclose(csv);
     free(w);
     free(main_data);
     free(poly);
@@ -10259,10 +10326,10 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "geo-project") == 0 && (argc == 7 || argc == 11)) {
-        int W = 512;
-        int H = 448;
-        double xo = 84.0;
-        double yo = 130.0;
+        int W = 496;        /* MAME visible screen, to overlay 1:1 */
+        int H = 384;
+        double xo = 76.0;   /* crtc_xoffset 84 - visible left 8 (hsync 0) */
+        double yo = 40.0;   /* crtc_yoffset 130 - visible top 90 (vsync 0) */
         if (argc == 11) {
             W = atoi(argv[7]);
             H = atoi(argv[8]);
