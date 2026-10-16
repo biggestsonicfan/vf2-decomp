@@ -91,8 +91,17 @@ Salese, Matthew Daniels. **Só referência**, fora do build (o
   (mesmo fluxo do `model2.cpp`: MAME sugere → oráculo mede → diferencial
   prova). **Não copiar handlers MAME para `src/recovered/`.**
 
-## Tools de análise (repo)
+## Surveyed and declined
 
+- `toniisound/model2-nx` (Switch Model 2 homebrew, MAME
+  0.289 driver subset): repo-level **GPL-3.0**, fails the
+  BSD-only gate; sound path is MAME's SCSP core (no new
+  evidence; upstream flags imperfect SCSP sound). Declined,
+  full record in
+  `decomp/i960/notes/third_party_model2nx_survey_v0825.md`.
+  Re-survey only on original published research.
+
+## Tools de análise (repo)
 - `tools/python/tgp_disasm_mame.py` — disassembler TGP **análise-only**
   inspirado no encoding do `mb86233d.cpp`, sobre `copro_data`/program
   extraído. Não substitui o oráculo.
