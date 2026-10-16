@@ -78,6 +78,7 @@ static void usage(const char *program)
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n"
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
+        "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
         "  %s export-pieces <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s export-textured <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s texture-link <rom-dir> <object-id>\n"
@@ -129,6 +130,7 @@ static void usage(const char *program)
         program,
         program, /* compare-snapshots */
         program, /* geo-walk */
+        program, /* geo-scene */
         program, /* export-pieces */
         program, /* export-textured */
         program, /* texture-link */
@@ -7455,18 +7457,41 @@ static int ext_read_xyz(
     return 1;
 }
 
+/* Apply a geometriser transform matrix (MAME model2_v.cpp transform_point:
+ * 3x3 rotation in m[0..8], translation in m[9..11]) to a model vertex. A NULL
+ * matrix is the identity, so untransformed callers emit object-local space. */
+static void ext_xform(const float *m, const vf2_model_vertex *in,
+                      vf2_model_vertex *out)
+{
+    if (m == NULL) {
+        *out = *in;
+        return;
+    }
+    out->x = in->x * m[0] + in->y * m[3] + in->z * m[6] + m[9];
+    out->y = in->x * m[1] + in->y * m[4] + in->z * m[7] + m[10];
+    out->z = in->x * m[2] + in->y * m[5] + in->z * m[8] + m[11];
+}
+
 /* Emit one triangle (3 vertices + 3 UVs in lockstep, so the v and vt index of a
- * corner match). Returns the next running index. */
+ * corner match). `mtx` (NULL = identity) poses each vertex into world/view
+ * space. Returns the next running index. */
 static size_t ext_emit_tri(
     FILE *obj, size_t n,
     const vf2_model_vertex *a, const float ua[2],
     const vf2_model_vertex *b, const float ub[2],
-    const vf2_model_vertex *c, const float uc[2]
+    const vf2_model_vertex *c, const float uc[2],
+    const float *mtx
 )
 {
-    fprintf(obj, "v %.6f %.6f %.6f\n", (double)a->x, (double)a->y, (double)a->z);
-    fprintf(obj, "v %.6f %.6f %.6f\n", (double)b->x, (double)b->y, (double)b->z);
-    fprintf(obj, "v %.6f %.6f %.6f\n", (double)c->x, (double)c->y, (double)c->z);
+    vf2_model_vertex ta;
+    vf2_model_vertex tb;
+    vf2_model_vertex tc;
+    ext_xform(mtx, a, &ta);
+    ext_xform(mtx, b, &tb);
+    ext_xform(mtx, c, &tc);
+    fprintf(obj, "v %.6f %.6f %.6f\n", (double)ta.x, (double)ta.y, (double)ta.z);
+    fprintf(obj, "v %.6f %.6f %.6f\n", (double)tb.x, (double)tb.y, (double)tb.z);
+    fprintf(obj, "v %.6f %.6f %.6f\n", (double)tc.x, (double)tc.y, (double)tc.z);
     fprintf(obj, "vt %.6f %.6f\n", (double)ua[0], (double)ua[1]);
     fprintf(obj, "vt %.6f %.6f\n", (double)ub[0], (double)ub[1]);
     fprintf(obj, "vt %.6f %.6f\n", (double)uc[0], (double)uc[1]);
@@ -7488,7 +7513,8 @@ static size_t ext_emit_piece(
     const uint8_t *poly, size_t poly_size,
     const uint8_t *tex, size_t tex_size,
     uint32_t rec_byte, uint32_t uv_ptr, uint32_t th_ptr,
-    size_t vbase, int *cur_sheet, size_t *tri_count
+    size_t vbase, int *cur_sheet, size_t *tri_count,
+    const float *mtx
 )
 {
     vf2_model_vertex p0;
@@ -7561,10 +7587,12 @@ static size_t ext_emit_piece(
             *cur_sheet = (int)hd.sheet;
         }
 
-        vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB, uv[3]);
+        vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB, uv[3],
+                             mtx);
         *tri_count += 1u;
         if (numv == 4u) {
-            vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA, uv[2]);
+            vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA, uv[2],
+                                 mtx);
             *tri_count += 1u;
         }
 
@@ -7774,7 +7802,7 @@ static int command_export_textured(
             vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size,
                                    pieces[i].rec_byte, pieces[i].uv_ptr,
                                    pieces[i].th_ptr, vbase, &cur_sheet,
-                                   &tri_total);
+                                   &tri_total, NULL);
         }
     }
     fclose(obj);
@@ -8138,7 +8166,7 @@ static int command_export_pieces(
                 (unsigned)off);
         fprintf(obj, "mtllib pieces.mtl\n");
         (void)ext_emit_piece(obj, poly, poly_size, tex, tex_size, off, uv_ptr,
-                             th_ptr, 1u, &cur_sheet, &tris);
+                             th_ptr, 1u, &cur_sheet, &tris, NULL);
         fclose(obj);
         ++written;
 
@@ -8299,6 +8327,497 @@ done:
     free(raw);
     free(words);
     free(objs);
+    return rc;
+}
+
+/* --- geo-scene: Step 2 -- per-object matrices, grouping, posed full scene ----
+ *
+ * Walks every frame of a RAM9 end-of-frame dump (the Step-1 walker), tracks
+ * each object slot's transform matrix across all frames, and:
+ *   1. classifies each slot FIXED (matrix byte-identical in every frame =
+ *      scenery) or MOVING, and clusters the moving slots spatially (2-means on
+ *      mean translation) into the two fighters, with an OTHER bucket for moving
+ *      outliers (shadows/effects that sit near neither fighter);
+ *   2. labels the fighter cluster holding Akira's anchor records
+ *      (oba rec in 0x130a44..0x1434a0, obj 0x19c = his face) as fighter A;
+ *   3. writes scene.obj -- all slots of one chosen frame, posed by their
+ *      matrix, geometry+UV from ROM via the validated export-pieces lookup --
+ *      so the object count and layout can be eyeballed against the game.
+ * Local-only; the walker is covered synthetically in CI. */
+
+#define GS_MAX_FRAMES 64u
+
+static int gs_read_frame(FILE *f, size_t frame, size_t frame_bytes,
+                         uint32_t *words, size_t frame_words)
+{
+    uint8_t *raw;
+    size_t got;
+    size_t i;
+    raw = (uint8_t *)malloc(frame_bytes);
+    if (raw == NULL) {
+        return 0;
+    }
+    if (fseek(f, (long)(frame * frame_bytes), SEEK_SET) != 0 ||
+        (got = fread(raw, 1u, frame_bytes, f)) != frame_bytes) {
+        free(raw);
+        return 0;
+    }
+    for (i = 0u; i < frame_words; ++i) {
+        words[i] = (uint32_t)raw[i * 4u + 0u] |
+                   ((uint32_t)raw[i * 4u + 1u] << 8) |
+                   ((uint32_t)raw[i * 4u + 2u] << 16) |
+                   ((uint32_t)raw[i * 4u + 3u] << 24);
+    }
+    free(raw);
+    return 1;
+}
+
+/* A small axis-aligned box marker at (cx,cy,cz), used as a position stub for a
+ * slot whose geometry does not resolve, so the on-screen count stays visible in
+ * scene.obj. Returns the next 1-based vertex index. */
+static size_t gs_emit_box(FILE *obj, size_t vbase, double cx, double cy,
+                          double cz, double s)
+{
+    static const int face[12][3] = {
+        {0,1,2},{0,2,3},{4,6,5},{4,7,6},{0,4,5},{0,5,1},
+        {1,5,6},{1,6,2},{2,6,7},{2,7,3},{3,7,4},{3,4,0}
+    };
+    int i;
+    for (i = 0; i < 8; ++i) {
+        double x = cx + ((i & 1) ? s : -s);
+        double y = cy + ((i & 2) ? s : -s);
+        double z = cz + ((i & 4) ? s : -s);
+        fprintf(obj, "v %.6f %.6f %.6f\n", x, y, z);
+    }
+    for (i = 0; i < 12; ++i) {
+        fprintf(obj, "f %zu %zu %zu\n", vbase + (size_t)face[i][0],
+                vbase + (size_t)face[i][1], vbase + (size_t)face[i][2]);
+    }
+    return vbase + 8u;
+}
+
+static int command_geo_scene(
+    const char *bin_path, const char *txt_path, const char *rom_directory,
+    const char *tex0_path, const char *tex1_path, const char *pose_str,
+    const char *out_dir
+)
+{
+    const size_t frame_bytes = 131072u;
+    const size_t frame_words = frame_bytes / 4u;
+    FILE *bin = NULL;
+    FILE *txt = NULL;
+    FILE *obj = NULL;
+    FILE *mtl = NULL;
+    FILE *csv = NULL;
+    char line[256];
+    char path[1024];
+    uint32_t *words = NULL;
+    vf2_geo_object *objs = NULL;
+    size_t max_objs = 4096u;
+    uint8_t *main_data = NULL;
+    uint8_t *poly = NULL;
+    uint8_t *tex = NULL;
+    uint8_t *bank[2] = { NULL, NULL };
+    size_t main_size = 0u;
+    size_t poly_size = 0u;
+    size_t tex_size = 0u;
+    size_t bank_size[2] = { 0u, 0u };
+    uint32_t readstart[GS_MAX_FRAMES];
+    size_t count[GS_MAX_FRAMES];
+    size_t nframes = 0u;
+    size_t nslots = 0u;
+    size_t pose;
+    size_t f;
+    size_t s;
+    float *mat = NULL;      /* [frame*nslots + slot][12] */
+    uint32_t *obaf = NULL;  /* [frame*nslots + slot] */
+    uint32_t *tpaf = NULL;
+    int *fixed = NULL;      /* matrix byte-identical in every frame? */
+    int *grp = NULL;        /* 0 = camera-common, 1 = self-moving */
+    int *anchor = NULL;     /* oba rec in Akira's ground-truth cluster */
+    double *mtx = NULL;     /* mean translation, 3 per slot */
+    double *motion_t = NULL;
+    double *sorted = NULL;  /* motion_t sorted, for the band threshold */
+    double floor_m = 0.0;
+    double threshold = 0.0;
+    size_t gcount[2] = { 0u, 0u };
+    size_t resolved = 0u;
+    size_t stub = 0u;
+    size_t vbase = 1u;
+    int cur_sheet = -1;
+    vf2_status st;
+    int rc = EXIT_FAILURE;
+
+    pose = (size_t)strtoul(pose_str, NULL, 0);
+
+    /* readstarts from the .txt (one "F idx frame readstart ..." line/frame) */
+    txt = fopen(txt_path, "rb");
+    if (txt == NULL) {
+        fprintf(stderr, "geo-scene: cannot open %s\n", txt_path);
+        return EXIT_FAILURE;
+    }
+    while (fgets(line, (int)sizeof(line), txt) != NULL) {
+        unsigned idx;
+        unsigned frameno;
+        unsigned rs;
+        if (sscanf(line, "F %u %u %x", &idx, &frameno, &rs) == 3 &&
+            idx < GS_MAX_FRAMES) {
+            readstart[idx] = rs;
+            if ((size_t)idx + 1u > nframes) {
+                nframes = (size_t)idx + 1u;
+            }
+        }
+    }
+    fclose(txt);
+    txt = NULL;
+    if (nframes == 0u) {
+        fprintf(stderr, "geo-scene: no 'F' frame lines in %s\n", txt_path);
+        return EXIT_FAILURE;
+    }
+    if (pose >= nframes) {
+        fprintf(stderr, "geo-scene: pose frame %zu >= %zu frames\n", pose,
+                nframes);
+        return EXIT_FAILURE;
+    }
+
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data,
+                                 &main_size);
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly,
+                                     &poly_size);
+    }
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_TEXTURES, &tex,
+                                     &tex_size);
+    }
+    if (st != VF2_OK) {
+        fprintf(stderr, "geo-scene: ROM regions: %s\n", vf2_status_string(st));
+        goto done;
+    }
+    if (!ext_tex_load_file(tex0_path, &bank[0], &bank_size[0]) ||
+        !ext_tex_load_file(tex1_path, &bank[1], &bank_size[1])) {
+        fprintf(stderr, "geo-scene: cannot read texture banks\n");
+        goto done;
+    }
+
+    bin = fopen(bin_path, "rb");
+    words = (uint32_t *)malloc(frame_words * sizeof(*words));
+    objs = (vf2_geo_object *)malloc(max_objs * sizeof(*objs));
+    if (bin == NULL || words == NULL || objs == NULL) {
+        fprintf(stderr, "geo-scene: cannot open %s / allocate\n", bin_path);
+        goto done;
+    }
+
+    /* Frame 0 fixes the slot count. */
+    {
+        size_t n0 = 0u;
+        vf2_geo_stop stop0;
+        if (!gs_read_frame(bin, 0u, frame_bytes, words, frame_words) ||
+            vf2_geo_walk(words, frame_words, readstart[0], objs, max_objs, &n0,
+                         &stop0, NULL) != VF2_OK) {
+            fprintf(stderr, "geo-scene: frame 0 walk failed\n");
+            goto done;
+        }
+        nslots = n0;
+    }
+    if (nslots == 0u) {
+        fprintf(stderr, "geo-scene: frame 0 has no objects\n");
+        goto done;
+    }
+
+    mat = (float *)malloc(nframes * nslots * 12u * sizeof(*mat));
+    obaf = (uint32_t *)malloc(nframes * nslots * sizeof(*obaf));
+    tpaf = (uint32_t *)malloc(nframes * nslots * sizeof(*tpaf));
+    fixed = (int *)malloc(nslots * sizeof(*fixed));
+    grp = (int *)malloc(nslots * sizeof(*grp));
+    anchor = (int *)malloc(nslots * sizeof(*anchor));
+    mtx = (double *)malloc(nslots * 3u * sizeof(*mtx));
+    motion_t = (double *)malloc(nslots * sizeof(*motion_t));
+    sorted = (double *)malloc(nslots * sizeof(*sorted));
+    if (mat == NULL || obaf == NULL || tpaf == NULL || fixed == NULL ||
+        grp == NULL || anchor == NULL || mtx == NULL ||
+        motion_t == NULL || sorted == NULL) {
+        goto done;
+    }
+
+    for (f = 0u; f < nframes; ++f) {
+        size_t n = 0u;
+        vf2_geo_stop stop;
+        if (!gs_read_frame(bin, f, frame_bytes, words, frame_words) ||
+            vf2_geo_walk(words, frame_words, readstart[f], objs, max_objs, &n,
+                         &stop, NULL) != VF2_OK) {
+            fprintf(stderr, "geo-scene: frame %zu walk failed\n", f);
+            goto done;
+        }
+        count[f] = n;
+        for (s = 0u; s < nslots; ++s) {
+            size_t base = (f * nslots + s) * 12u;
+            size_t k;
+            if (s < n) {
+                for (k = 0u; k < 12u; ++k) {
+                    mat[base + k] = objs[s].matrix[k];
+                }
+                obaf[f * nslots + s] = objs[s].oba;
+                tpaf[f * nslots + s] = objs[s].tpa;
+            } else {
+                /* Frame shorter than slot count (not seen in practice): hold
+                 * the frame-0 pose so metrics stay defined. */
+                for (k = 0u; k < 12u; ++k) {
+                    mat[base + k] = mat[s * 12u + k];
+                }
+                obaf[f * nslots + s] = obaf[s];
+                tpaf[f * nslots + s] = tpaf[s];
+            }
+        }
+    }
+
+    /* Per-slot: FIXED iff the 12-float matrix is byte-identical in every frame;
+     * mean translation; motion_t = max over frames of |T_f - Tmean|. */
+    for (s = 0u; s < nslots; ++s) {
+        double mx = 0.0;
+        double my = 0.0;
+        double mz = 0.0;
+        double mt = 0.0;
+        int is_fixed = 1;
+        uint32_t rec;
+        const float *m0 = &mat[(0u * nslots + s) * 12u];
+        for (f = 0u; f < nframes; ++f) {
+            const float *mf = &mat[(f * nslots + s) * 12u];
+            if (memcmp(mf, m0, 12u * sizeof(float)) != 0) {
+                is_fixed = 0;
+            }
+            mx += (double)mf[9];
+            my += (double)mf[10];
+            mz += (double)mf[11];
+        }
+        mx /= (double)nframes;
+        my /= (double)nframes;
+        mz /= (double)nframes;
+        for (f = 0u; f < nframes; ++f) {
+            const float *mf = &mat[(f * nslots + s) * 12u];
+            double dx = (double)mf[9] - mx;
+            double dy = (double)mf[10] - my;
+            double dz = (double)mf[11] - mz;
+            double d = sqrt(dx * dx + dy * dy + dz * dz);
+            if (d > mt) {
+                mt = d;
+            }
+        }
+        fixed[s] = is_fixed;
+        mtx[s * 3u + 0u] = mx;
+        mtx[s * 3u + 1u] = my;
+        mtx[s * 3u + 2u] = mz;
+        motion_t[s] = mt;
+        rec = (obaf[pose * nslots + s] & 0x7fffffu) * 4u;
+        anchor[s] = (rec >= 0x130a44u && rec <= 0x1434a0u) ? 1 : 0;
+    }
+
+    /* Every object's matrix varies across frames (the camera pan is composed
+     * into all of them), so a static-vs-moving test does not by itself split
+     * decor from fighters -- that needs the camera removed (Step 3). What the
+     * raw matrices DO give, measured here, is two bands: a common "camera"
+     * band shared by objects that only ride the camera, and a self-moving tail
+     * of objects that also move on their own (fighter limbs this frame). The
+     * threshold is the midpoint of the widest gap in the sorted motion values,
+     * so it is read from the data, not assumed. */
+    for (s = 0u; s < nslots; ++s) {
+        sorted[s] = motion_t[s];
+    }
+    for (s = 0u; s + 1u < nslots; ++s) {    /* insertion sort, nslots ~ 113 */
+        size_t j = s + 1u;
+        for (; j > 0u && sorted[j - 1u] > sorted[j]; --j) {
+            double t = sorted[j - 1u];
+            sorted[j - 1u] = sorted[j];
+            sorted[j] = t;
+        }
+    }
+    floor_m = sorted[nslots / 2u];          /* median = typical camera motion */
+    {
+        double best_gap = -1.0;
+        size_t lo = nslots / 5u;            /* ignore gaps at the extreme ends */
+        size_t hi = (nslots * 4u) / 5u;
+        size_t gi;
+        threshold = sorted[nslots - 1u] + 1.0; /* default: nothing self-moving */
+        for (gi = lo; gi + 1u <= hi && gi + 1u < nslots; ++gi) {
+            double gap = sorted[gi + 1u] - sorted[gi];
+            if (gap > best_gap) {
+                best_gap = gap;
+                threshold = 0.5 * (sorted[gi] + sorted[gi + 1u]);
+            }
+        }
+    }
+    for (s = 0u; s < nslots; ++s) {
+        grp[s] = (motion_t[s] >= threshold) ? 1 : 0;
+        ++gcount[grp[s]];
+    }
+
+    /* scene.obj: every slot of the pose frame, posed by its matrix. */
+    snprintf(path, sizeof(path), "%s/scene.mtl", out_dir);
+    mtl = fopen(path, "wb");
+    snprintf(path, sizeof(path), "%s/scene_groups.csv", out_dir);
+    csv = fopen(path, "wb");
+    snprintf(path, sizeof(path), "%s/scene.obj", out_dir);
+    obj = fopen(path, "wb");
+    if (mtl == NULL || csv == NULL || obj == NULL) {
+        fprintf(stderr, "geo-scene: cannot open outputs in %s\n", out_dir);
+        goto done;
+    }
+    fprintf(mtl, "# VF2 posed scene textures (grayscale luma index). Local.\n");
+    fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
+    fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
+    fprintf(mtl, "newmtl marker\nKd 1.0 0.0 0.0\n");
+    fprintf(csv, "slot,band,fixed,anchor,motion_t,Tx,Ty,Tz,"
+                 "tpa,oba,rec_byte,obj_id,tris\n");
+    fprintf(obj, "# VF2 posed scene: pose frame %zu, %zu object slots, RAM9 "
+                 "Step-2 matrices. Local only, never committed.\n", pose,
+            nslots);
+    fprintf(obj, "mtllib scene.mtl\n");
+
+    for (s = 0u; s < nslots; ++s) {
+        const char *gname = (grp[s] == 1) ? "selfmoving" : "cameracommon";
+        const char *atag = anchor[s] ? "_akira" : "";
+        uint32_t w0 = tpaf[pose * nslots + s];
+        uint32_t off = 0u;
+        uint32_t bnk = 0u;
+        uint32_t id = 0u;
+        uint32_t uv_ptr = 0u;
+        uint32_t th_ptr = 0u;
+        size_t tris = 0u;
+        float *m = &mat[(pose * nslots + s) * 12u];
+
+        fprintf(obj, "o slot%03zu_%s%s_oba%06x\n", s, gname, atag,
+                (unsigned)(obaf[pose * nslots + s] & 0x7fffffu));
+
+        if (vf2_model_lookup_w0(main_data, main_size, w0, 0x4000u, &off, &bnk,
+                                &id) == VF2_OK) {
+            uv_ptr = tl_u32(main_data, main_size,
+                            0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
+            th_ptr = tl_u32(main_data, main_size,
+                            0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
+            vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, off,
+                                   uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m);
+            ++resolved;
+        } else {
+            fprintf(obj, "usemtl marker\n");
+            vbase = gs_emit_box(obj, vbase, (double)m[9], (double)m[10],
+                                (double)m[11], 30.0);
+            cur_sheet = -1; /* force the next piece to re-emit its sheet */
+            ++stub;
+        }
+
+        fprintf(csv, "%zu,%s,%d,%d,%.4f,%.3f,%.3f,%.3f,0x%x,0x%x,0x%x,"
+                     "0x%x,%zu\n",
+                s, gname, fixed[s], anchor[s], motion_t[s],
+                mtx[s*3u], mtx[s*3u+1u], mtx[s*3u+2u], (unsigned)w0,
+                (unsigned)(obaf[pose*nslots+s]),
+                (unsigned)((obaf[pose*nslots+s] & 0x7fffffu) * 4u),
+                (unsigned)id, tris);
+    }
+
+    snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
+    snprintf(path, sizeof(path), "%s/tex1.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[1], bank_size[1]);
+
+    /* Report: per-frame recount, group counts, and the measured motion split. */
+    printf("geo-scene: %zu frames, slot count per frame:", nframes);
+    {
+        int stable = 1;
+        for (f = 0u; f < nframes; ++f) {
+            if (count[f] != nslots) {
+                stable = 0;
+            }
+        }
+        printf(" %zu%s\n", nslots, stable ? " (stable across all frames)"
+                                           : " (NOT stable -- see below)");
+        if (!stable) {
+            for (f = 0u; f < nframes; ++f) {
+                printf("    frame %zu: %zu objects\n", f, count[f]);
+            }
+        }
+    }
+    {
+        size_t nfixed = 0u;
+        size_t nanchor = 0u;
+        size_t anchor_self = 0u;
+        double cam_max = 0.0;
+        double self_min = -1.0;
+        double self_max = 0.0;
+        double anchor_max = 0.0;
+        for (s = 0u; s < nslots; ++s) {
+            if (fixed[s]) {
+                ++nfixed;
+            }
+            if (anchor[s]) {
+                ++nanchor;
+                if (grp[s] == 1) {
+                    ++anchor_self;
+                }
+                if (motion_t[s] > anchor_max) {
+                    anchor_max = motion_t[s];
+                }
+            }
+            if (grp[s] == 0 && motion_t[s] > cam_max) {
+                cam_max = motion_t[s];
+            }
+            if (grp[s] == 1) {
+                if (self_min < 0.0 || motion_t[s] < self_min) {
+                    self_min = motion_t[s];
+                }
+                if (motion_t[s] > self_max) {
+                    self_max = motion_t[s];
+                }
+            }
+        }
+        printf("  matrices: %zu/%zu slots have a byte-identical matrix across "
+               "all frames\n", nfixed, nslots);
+        printf("            -> the camera pan is composed into EVERY matrix; a "
+               "raw static/moving\n");
+        printf("            test cannot split decor from fighters (that is "
+               "Step 3, camera removal).\n");
+        printf("  motion_t bands (max frame-to-frame translation deviation):\n");
+        printf("    median (camera floor) = %.4f, band threshold = %.4f "
+               "(widest gap in the data)\n", floor_m, threshold);
+        printf("    camera-common = %zu slots (motion_t <= %.4f, max %.4f): "
+               "ride the camera only\n", gcount[0], threshold, cam_max);
+        if (self_min >= 0.0) {
+            printf("    self-moving   = %zu slots (motion_t >= %.4f, "
+                   "%.4f..%.4f): move on their own\n", gcount[1], threshold,
+                   self_min, self_max);
+        } else {
+            printf("    self-moving   = 0 slots\n");
+        }
+        printf("  Akira anchor cluster 0x130a44..0x1434a0: %zu slots, up to "
+               "motion_t %.4f; %zu are self-moving (his limbs this frame)\n",
+               nanchor, anchor_max, anchor_self);
+    }
+    printf("  scene.obj: %zu slots posed (%zu from ROM geometry, %zu position "
+           "stubs) -> %s/scene.obj (+ scene.mtl, scene_groups.csv, tex0/1.png)"
+           "\n", nslots, resolved, stub, out_dir);
+    rc = EXIT_SUCCESS;
+
+done:
+    if (bin != NULL) fclose(bin);
+    if (txt != NULL) fclose(txt);
+    if (obj != NULL) fclose(obj);
+    if (mtl != NULL) fclose(mtl);
+    if (csv != NULL) fclose(csv);
+    free(words);
+    free(objs);
+    free(main_data);
+    free(poly);
+    free(tex);
+    free(bank[0]);
+    free(bank[1]);
+    free(mat);
+    free(obaf);
+    free(tpaf);
+    free(fixed);
+    free(grp);
+    free(anchor);
+    free(mtx);
+    free(motion_t);
+    free(sorted);
     return rc;
 }
 
@@ -9136,6 +9655,11 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "geo-walk") == 0 && argc == 5) {
         return command_geo_walk(argv[2], argv[3], argv[4]);
+    }
+
+    if (strcmp(argv[1], "geo-scene") == 0 && argc == 9) {
+        return command_geo_scene(argv[2], argv[3], argv[4], argv[5], argv[6],
+                                 argv[7], argv[8]);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
