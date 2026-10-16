@@ -100,6 +100,13 @@ Salese, Matthew Daniels. **Só referência**, fora do build (o
   full record in
   `decomp/i960/notes/third_party_model2nx_survey_v0825.md`.
   Re-survey only on original published research.
+- `dmanlfc/sm2-emu` (independent Model 2 emulator, all four
+  boards, own i960/copro/SCSP implementation): license is
+  **BSD-3-Clause** (gate passes) but declined on evidence --
+  neither sound board sample-diffed (author's own gaps
+  section), so no oracle value; kept as a named cross-check
+  for future behavior disputes. Full record in
+  `decomp/i960/notes/third_party_sm2emu_survey_v0825.md`.
 
 ## Tools de análise (repo)
 - `tools/python/tgp_disasm_mame.py` — disassembler TGP **análise-only**
