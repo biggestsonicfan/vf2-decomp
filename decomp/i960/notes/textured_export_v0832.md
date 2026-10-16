@@ -1,9 +1,20 @@
-# textured_export_v0832 — player-1 textured OBJ + MTL + PNG
+# textured_export_v0832 — textured OBJ + MTL + PNG export
 
 **celsowm Option 1, slice 3a** ("resolve the blocker until the very end"):
-export the player-1 textured mesh. Builds on the recovered link
+export a textured mesh from the fight capture. Builds on the recovered link
 (`texture_polygon_link_v0831.md`). Output is **local only, never committed**;
 the decode is covered synthetically in CI (`test_texture_link.c`).
+
+> **CORRECTION (2026-10-16, celsowm visual review).** The mesh this command
+> labels `player1.obj` is **NOT Akira — it is stage scenery** (stone/brick walls
+> with windows, correctly texture-mapped). The texturing (UVs + sheet rectangle)
+> is validated; the **fighter/scenery attribution below is wrong**. The
+> "largest record-contiguous cluster = player 1" heuristic and the
+> `0x3c1fac..0x3ca730` = Akira claim have **no evidence base** and must not be
+> relied on. The follow-up slice (`fighter_scenery_separation_v0834.md`) replaces
+> this guess with a per-piece export (`export-pieces`) for visual identification
+> plus measured per-piece metrics. Everything in this note about the *decode*
+> (UV↔vertex pairing, PNG) stays correct; only the *object selection* was wrong.
 
 ## Command
 
@@ -13,12 +24,11 @@ the decode is covered synthetically in CI (`test_texture_link.c`).
 - `<tex0.bin>/<tex1.bin>`: the two texture-RAM bank captures (2 MiB each).
 - Writes `player1.obj`, `player1.mtl`, `tex0.png`, `tex1.png` to `<out-dir>`.
 
-Player 1 = the **largest record-contiguous cluster** of on-screen objects
-(a fighter has far more pieces than stage/shadow objects; ties keep the
-lowest-address one, which is P1). On the committed ROM + capture this resolves
-to poly **`0x3c1fac..0x3ca730`** — the Akira range pinned in
-`fight_character_assembly_v0828.md`/`model_extractor_v0829.md` — 29 pieces,
-524 triangles.
+~~Player 1 = the largest record-contiguous cluster of on-screen objects.~~
+**Wrong — see the correction above.** The selected cluster
+(poly `0x3c1fac..0x3ca730`) is stage scenery, not Akira. Use `export-pieces`
+(`fighter_scenery_separation_v0834.md`) instead; this command is kept only for
+the validated decode path it shares.
 
 ## UV ↔ vertex pairing [MEASURED — geometrizer-exact]
 

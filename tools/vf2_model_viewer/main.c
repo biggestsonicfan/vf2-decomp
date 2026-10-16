@@ -1,13 +1,15 @@
 /* vf2_model_viewer -- an SDL3 / SDL_GPU viewer for the extracted VF2 model OBJ
  * files (3D-model extraction). Loads a Wavefront OBJ (positions + UVs, as
- * written by `vf2i960 export-textured`), uploads a de-swizzled texture sheet
- * (from a raw texture-RAM bank via vf2_core), and renders the textured mesh with
- * SDL_GPU (SDL3's GPU API) using SPIR-V shaders -- not raw Vulkan, no software
- * rasterizer. The OBJ meshes are model-space per-part; a fully posed character
- * needs the TGP joint transforms (not applied here).
+ * written by `vf2i960 export-textured` / `export-pieces`), uploads the
+ * de-swizzled texture sheets (from raw texture-RAM banks via vf2_core), and
+ * renders the textured mesh with SDL_GPU (SDL3's GPU API) using SPIR-V shaders
+ * -- not raw Vulkan, no software rasterizer. The OBJ meshes are model-space
+ * per-part; a fully posed character needs the TGP joint transforms (not applied
+ * here). Faces grouped `usemtl sheet0`/`sheet1` are drawn with their matching
+ * bank, so a mesh that spans both banks (--tex0 and --tex1) is fully textured.
  *
- * Usage: vf2_model_viewer <model.obj> [--tex <bank.bin>] [--sheet-size WxH]
- *                         [--selftest]
+ * Usage: vf2_model_viewer <model.obj> [--tex0 <bank.bin>] [--tex1 <bank.bin>]
+ *                         [--selftest]   (--tex is an alias for --tex0)
  * Controls: drag / arrow keys rotate, wheel or +/- zoom, R resets, Esc quits.
  * --selftest loads the OBJ, inits SDL and probes for a GPU device, then exits 0
  * (headless CI has no GPU, which is not a failure).
@@ -73,7 +75,10 @@ static void parse_face_token(const char *tok, long *vi, long *ti)
     }
 }
 
-static int load_obj(const char *path, vbuf *out)
+/* Load an OBJ, splitting triangles by the `usemtl sheet0`/`sheet1` the exporter
+ * writes: out[0] collects sheet-0 faces, out[1] sheet-1 faces, so each can be
+ * drawn with its own texture bank. Faces before any usemtl default to sheet 0. */
+static int load_obj(const char *path, vbuf out[2])
 {
     FILE *f = fopen(path, "rb");
     char line[512];
@@ -81,15 +86,19 @@ static int load_obj(const char *path, vbuf *out)
     float *uv = NULL; /* 2 floats per entry */
     size_t pcount = 0u, pcap = 0u;
     size_t tcount = 0u, tcap = 0u;
+    int cur_mat = 0;
     int ok = 1;
 
-    memset(out, 0, sizeof(*out));
+    memset(&out[0], 0, sizeof(out[0]));
+    memset(&out[1], 0, sizeof(out[1]));
     if (!f) {
         fprintf(stderr, "cannot open %s\n", path);
         return 0;
     }
     while (fgets(line, (int)sizeof(line), f)) {
-        if (line[0] == 'v' && line[1] == ' ') {
+        if (strncmp(line, "usemtl", 6u) == 0) {
+            cur_mat = (strstr(line, "sheet1") != NULL) ? 1 : 0;
+        } else if (line[0] == 'v' && line[1] == ' ') {
             vec3 v;
             if (sscanf(line + 2, "%f %f %f", &v.x, &v.y, &v.z) == 3) {
                 if (pcount == pcap) {
@@ -149,7 +158,7 @@ static int load_obj(const char *path, vbuf *out)
                         g.u = uv[(size_t)vt * 2u + 0u];
                         g.v = uv[(size_t)vt * 2u + 1u];
                     }
-                    if (!vbuf_push(out, g)) { ok = 0; break; }
+                    if (!vbuf_push(&out[cur_mat], g)) { ok = 0; break; }
                 }
             }
         }
@@ -157,7 +166,7 @@ static int load_obj(const char *path, vbuf *out)
     fclose(f);
     free(pos);
     free(uv);
-    return ok && out->count > 0u;
+    return ok && (out[0].count > 0u || out[1].count > 0u);
 }
 
 /* ---- row-major 4x4 matrix helpers -------------------------------------- */
@@ -197,11 +206,101 @@ static void mat_perspective(float m[16], float fovy, float aspect, float znear,
     m[15] = 0.0f;
 }
 
+/* Load a raw texture-RAM bank, de-swizzle it to a 2048x1024 R8 grayscale sheet
+ * and upload it as a GPU texture. A NULL/failed path yields a 1x1 white texture
+ * (that mesh then renders untextured-white). */
+static SDL_GPUTexture *make_sheet_texture(SDL_GPUDevice *dev, const char *path,
+                                          uint32_t *ow, uint32_t *oh)
+{
+    uint8_t *pixels = NULL;
+    uint32_t tex_w = 1u, tex_h = 1u;
+    SDL_GPUTexture *tex;
+    SDL_GPUTextureCreateInfo tci;
+
+    if (path != NULL) {
+        FILE *bf = fopen(path, "rb");
+        long n = 0;
+        uint8_t *bank = NULL;
+        if (bf != NULL && fseek(bf, 0, SEEK_END) == 0 &&
+            (n = ftell(bf)) > 0 && fseek(bf, 0, SEEK_SET) == 0) {
+            bank = (uint8_t *)malloc((size_t)n);
+            if (bank != NULL && fread(bank, 1u, (size_t)n, bf) == (size_t)n) {
+                uint32_t x, y;
+                tex_w = 2048u;
+                tex_h = 1024u;
+                pixels = (uint8_t *)malloc((size_t)tex_w * tex_h);
+                for (y = 0u; y < tex_h && pixels != NULL; ++y) {
+                    for (x = 0u; x < tex_w; ++x) {
+                        uint8_t idx = vf2_texture_sheet_texel(bank, (size_t)n,
+                                                              x, y);
+                        pixels[(size_t)y * tex_w + x] =
+                            vf2_texture_sheet_index_to_gray(idx);
+                    }
+                }
+            }
+        }
+        if (bf != NULL) fclose(bf);
+        free(bank);
+    }
+    if (pixels == NULL) {
+        tex_w = 1u;
+        tex_h = 1u;
+        pixels = (uint8_t *)malloc(1u);
+        if (pixels != NULL) pixels[0] = 0xffu;
+    }
+    memset(&tci, 0, sizeof(tci));
+    tci.type = SDL_GPU_TEXTURETYPE_2D;
+    tci.format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
+    tci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    tci.width = tex_w;
+    tci.height = tex_h;
+    tci.layer_count_or_depth = 1u;
+    tci.num_levels = 1u;
+    tex = SDL_CreateGPUTexture(dev, &tci);
+    if (tex != NULL && pixels != NULL) {
+        Uint32 bytes = tex_w * tex_h;
+        SDL_GPUTransferBufferCreateInfo ti;
+        SDL_GPUTransferBuffer *tb;
+        void *map;
+        SDL_GPUCommandBuffer *cmd;
+        SDL_GPUCopyPass *cp;
+        SDL_GPUTextureTransferInfo src;
+        SDL_GPUTextureRegion reg;
+        memset(&ti, 0, sizeof(ti));
+        memset(&src, 0, sizeof(src));
+        memset(&reg, 0, sizeof(reg));
+        ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        ti.size = bytes;
+        tb = SDL_CreateGPUTransferBuffer(dev, &ti);
+        map = SDL_MapGPUTransferBuffer(dev, tb, false);
+        memcpy(map, pixels, bytes);
+        SDL_UnmapGPUTransferBuffer(dev, tb);
+        cmd = SDL_AcquireGPUCommandBuffer(dev);
+        cp = SDL_BeginGPUCopyPass(cmd);
+        src.transfer_buffer = tb;
+        src.pixels_per_row = tex_w;
+        src.rows_per_layer = tex_h;
+        reg.texture = tex;
+        reg.w = tex_w;
+        reg.h = tex_h;
+        reg.d = 1u;
+        SDL_UploadToGPUTexture(cp, &src, &reg, false);
+        SDL_EndGPUCopyPass(cp);
+        SDL_SubmitGPUCommandBuffer(cmd);
+        SDL_ReleaseGPUTransferBuffer(dev, tb);
+    }
+    free(pixels);
+    *ow = tex_w;
+    *oh = tex_h;
+    return tex;
+}
+
 int main(int argc, char **argv)
 {
-    vbuf mesh;
+    vbuf mesh[2];
+    size_t total_verts;
     const char *obj_path = NULL;
-    const char *tex_path = NULL;
+    const char *tex_path[2] = { NULL, NULL };
     int selftest = 0;
     int i = 0;
     const int W = 960, H = 720;
@@ -214,42 +313,52 @@ int main(int argc, char **argv)
     SDL_GPUDevice *dev = NULL;
     SDL_GPUShader *vs = NULL, *fs = NULL;
     SDL_GPUGraphicsPipeline *pipeline = NULL;
-    SDL_GPUBuffer *gpu_vb = NULL;
-    SDL_GPUTexture *tex = NULL, *depth = NULL;
+    SDL_GPUBuffer *gpu_vb[2] = { NULL, NULL };
+    SDL_GPUTexture *tex[2] = { NULL, NULL }, *depth = NULL;
     SDL_GPUSampler *sampler = NULL;
     uint32_t tex_w = 1u, tex_h = 1u, depth_w = 0u, depth_h = 0u;
 
     for (i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--selftest") == 0) selftest = 1;
-        else if (strcmp(argv[i], "--tex") == 0 && i + 1 < argc) tex_path = argv[++i];
+        else if (strcmp(argv[i], "--tex") == 0 && i + 1 < argc) tex_path[0] = argv[++i];
+        else if (strcmp(argv[i], "--tex0") == 0 && i + 1 < argc) tex_path[0] = argv[++i];
+        else if (strcmp(argv[i], "--tex1") == 0 && i + 1 < argc) tex_path[1] = argv[++i];
         else obj_path = argv[i];
     }
     if (obj_path == NULL && !selftest) {
-        fprintf(stderr, "usage: %s <model.obj> [--tex <bank.bin>] [--selftest]\n",
-                argv[0]);
+        fprintf(stderr, "usage: %s <model.obj> [--tex0 <bank.bin>] "
+                "[--tex1 <bank.bin>] [--selftest]\n", argv[0]);
         return 1;
     }
 
-    memset(&mesh, 0, sizeof(mesh));
-    if (obj_path != NULL && !load_obj(obj_path, &mesh) && !selftest) {
+    memset(mesh, 0, sizeof(mesh));
+    if (obj_path != NULL && !load_obj(obj_path, mesh) && !selftest) {
         fprintf(stderr, "failed to load %s\n", obj_path);
         return 1;
     }
+    total_verts = mesh[0].count + mesh[1].count;
 
     center.x = center.y = center.z = 0.0f;
-    if (mesh.count > 0u) {
-        size_t v;
-        lo.x = hi.x = mesh.v[0].px;
-        lo.y = hi.y = mesh.v[0].py;
-        lo.z = hi.z = mesh.v[0].pz;
-        for (v = 1u; v < mesh.count; ++v) {
-            float x = mesh.v[v].px, y = mesh.v[v].py, z = mesh.v[v].pz;
-            if (x < lo.x) { lo.x = x; }
-            if (x > hi.x) { hi.x = x; }
-            if (y < lo.y) { lo.y = y; }
-            if (y > hi.y) { hi.y = y; }
-            if (z < lo.z) { lo.z = z; }
-            if (z > hi.z) { hi.z = z; }
+    if (total_verts > 0u) {
+        int seeded = 0;
+        int mi;
+        for (mi = 0; mi < 2; ++mi) {
+            size_t v;
+            for (v = 0u; v < mesh[mi].count; ++v) {
+                float x = mesh[mi].v[v].px, y = mesh[mi].v[v].py,
+                      z = mesh[mi].v[v].pz;
+                if (!seeded) {
+                    lo.x = hi.x = x; lo.y = hi.y = y; lo.z = hi.z = z;
+                    seeded = 1;
+                    continue;
+                }
+                if (x < lo.x) { lo.x = x; }
+                if (x > hi.x) { hi.x = x; }
+                if (y < lo.y) { lo.y = y; }
+                if (y > hi.y) { hi.y = y; }
+                if (z < lo.z) { lo.z = z; }
+                if (z > hi.z) { hi.z = z; }
+            }
         }
         center.x = (lo.x + hi.x) * 0.5f;
         center.y = (lo.y + hi.y) * 0.5f;
@@ -273,13 +382,13 @@ int main(int argc, char **argv)
         /* No GPU / SPIR-V backend (typical in headless CI) -- not a failure. */
         fprintf(stderr, "no GPU device: %s\n", SDL_GetError());
         SDL_Quit();
+        free(mesh[0].v);
+        free(mesh[1].v);
         if (selftest) {
             printf("vf2_model_viewer selftest ok (no GPU; %zu verts)\n",
-                   mesh.count);
-            free(mesh.v);
+                   total_verts);
             return 0;
         }
-        free(mesh.v);
         return 1;
     }
 
@@ -311,7 +420,7 @@ int main(int argc, char **argv)
     if (selftest) {
         /* Shaders loaded from SPIR-V; that is the headless smoke check. */
         printf("vf2_model_viewer selftest ok (GPU + shaders; %zu verts)\n",
-               mesh.count);
+               total_verts);
         goto cleanup;
     }
 
@@ -368,124 +477,57 @@ int main(int argc, char **argv)
         goto cleanup;
     }
 
-    /* vertex buffer */
+    /* vertex buffers: one per sheet material */
     {
-        Uint32 bytes = (Uint32)(mesh.count * sizeof(gpu_vertex));
-        SDL_GPUBufferCreateInfo bi;
-        SDL_GPUTransferBufferCreateInfo ti;
-        SDL_GPUTransferBuffer *tb;
-        void *map;
-        SDL_GPUCommandBuffer *cmd;
-        SDL_GPUCopyPass *cp;
-        SDL_GPUTransferBufferLocation src;
-        SDL_GPUBufferRegion dst;
-        memset(&bi, 0, sizeof(bi));
-        memset(&ti, 0, sizeof(ti));
-        memset(&src, 0, sizeof(src));
-        memset(&dst, 0, sizeof(dst));
-        bi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
-        bi.size = bytes;
-        gpu_vb = SDL_CreateGPUBuffer(dev, &bi);
-        ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-        ti.size = bytes;
-        tb = SDL_CreateGPUTransferBuffer(dev, &ti);
-        if (gpu_vb == NULL || tb == NULL) {
-            fprintf(stderr, "vertex buffer failed: %s\n", SDL_GetError());
-            goto cleanup;
-        }
-        map = SDL_MapGPUTransferBuffer(dev, tb, false);
-        memcpy(map, mesh.v, bytes);
-        SDL_UnmapGPUTransferBuffer(dev, tb);
-        cmd = SDL_AcquireGPUCommandBuffer(dev);
-        cp = SDL_BeginGPUCopyPass(cmd);
-        src.transfer_buffer = tb;
-        dst.buffer = gpu_vb;
-        dst.size = bytes;
-        SDL_UploadToGPUBuffer(cp, &src, &dst, false);
-        SDL_EndGPUCopyPass(cp);
-        SDL_SubmitGPUCommandBuffer(cmd);
-        SDL_ReleaseGPUTransferBuffer(dev, tb);
-    }
-
-    /* texture: de-swizzled sheet (R8), or 1x1 white if none */
-    {
-        uint8_t *pixels = NULL;
-        SDL_GPUTextureCreateInfo tci;
-        SDL_GPUSamplerCreateInfo sci;
-        memset(&tci, 0, sizeof(tci));
-        memset(&sci, 0, sizeof(sci));
-        if (tex_path != NULL) {
-            FILE *bf = fopen(tex_path, "rb");
-            long n = 0;
-            uint8_t *bank = NULL;
-            if (bf != NULL && fseek(bf, 0, SEEK_END) == 0 &&
-                (n = ftell(bf)) > 0 && fseek(bf, 0, SEEK_SET) == 0) {
-                bank = (uint8_t *)malloc((size_t)n);
-                if (bank != NULL && fread(bank, 1u, (size_t)n, bf) == (size_t)n) {
-                    uint32_t x, y;
-                    tex_w = 2048u;
-                    tex_h = 1024u;
-                    pixels = (uint8_t *)malloc((size_t)tex_w * tex_h);
-                    for (y = 0u; y < tex_h && pixels != NULL; ++y) {
-                        for (x = 0u; x < tex_w; ++x) {
-                            uint8_t idx = vf2_texture_sheet_texel(
-                                bank, (size_t)n, x, y);
-                            pixels[(size_t)y * tex_w + x] =
-                                vf2_texture_sheet_index_to_gray(idx);
-                        }
-                    }
-                }
-            }
-            if (bf != NULL) fclose(bf);
-            free(bank);
-        }
-        if (pixels == NULL) {
-            tex_w = 1u;
-            tex_h = 1u;
-            pixels = (uint8_t *)malloc(1u);
-            if (pixels != NULL) pixels[0] = 0xffu;
-        }
-        tci.type = SDL_GPU_TEXTURETYPE_2D;
-        tci.format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
-        tci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        tci.width = tex_w;
-        tci.height = tex_h;
-        tci.layer_count_or_depth = 1u;
-        tci.num_levels = 1u;
-        tex = SDL_CreateGPUTexture(dev, &tci);
-        if (tex != NULL && pixels != NULL) {
-            Uint32 bytes = tex_w * tex_h;
+        int mi;
+        for (mi = 0; mi < 2; ++mi) {
+            Uint32 bytes = (Uint32)(mesh[mi].count * sizeof(gpu_vertex));
+            SDL_GPUBufferCreateInfo bi;
             SDL_GPUTransferBufferCreateInfo ti;
             SDL_GPUTransferBuffer *tb;
             void *map;
             SDL_GPUCommandBuffer *cmd;
             SDL_GPUCopyPass *cp;
-            SDL_GPUTextureTransferInfo src;
-            SDL_GPUTextureRegion reg;
+            SDL_GPUTransferBufferLocation src;
+            SDL_GPUBufferRegion dst;
+            if (mesh[mi].count == 0u) {
+                continue;
+            }
+            memset(&bi, 0, sizeof(bi));
             memset(&ti, 0, sizeof(ti));
             memset(&src, 0, sizeof(src));
-            memset(&reg, 0, sizeof(reg));
+            memset(&dst, 0, sizeof(dst));
+            bi.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+            bi.size = bytes;
+            gpu_vb[mi] = SDL_CreateGPUBuffer(dev, &bi);
             ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
             ti.size = bytes;
             tb = SDL_CreateGPUTransferBuffer(dev, &ti);
+            if (gpu_vb[mi] == NULL || tb == NULL) {
+                fprintf(stderr, "vertex buffer failed: %s\n", SDL_GetError());
+                goto cleanup;
+            }
             map = SDL_MapGPUTransferBuffer(dev, tb, false);
-            memcpy(map, pixels, bytes);
+            memcpy(map, mesh[mi].v, bytes);
             SDL_UnmapGPUTransferBuffer(dev, tb);
             cmd = SDL_AcquireGPUCommandBuffer(dev);
             cp = SDL_BeginGPUCopyPass(cmd);
             src.transfer_buffer = tb;
-            src.pixels_per_row = tex_w;
-            src.rows_per_layer = tex_h;
-            reg.texture = tex;
-            reg.w = tex_w;
-            reg.h = tex_h;
-            reg.d = 1u;
-            SDL_UploadToGPUTexture(cp, &src, &reg, false);
+            dst.buffer = gpu_vb[mi];
+            dst.size = bytes;
+            SDL_UploadToGPUBuffer(cp, &src, &dst, false);
             SDL_EndGPUCopyPass(cp);
             SDL_SubmitGPUCommandBuffer(cmd);
             SDL_ReleaseGPUTransferBuffer(dev, tb);
         }
-        free(pixels);
+    }
+
+    /* textures: one de-swizzled sheet per bank (R8), 1x1 white where absent */
+    {
+        SDL_GPUSamplerCreateInfo sci;
+        tex[0] = make_sheet_texture(dev, tex_path[0], &tex_w, &tex_h);
+        tex[1] = make_sheet_texture(dev, tex_path[1], &tex_w, &tex_h);
+        memset(&sci, 0, sizeof(sci));
         sci.min_filter = SDL_GPU_FILTER_LINEAR;
         sci.mag_filter = SDL_GPU_FILTER_LINEAR;
         sci.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
@@ -494,7 +536,7 @@ int main(int argc, char **argv)
         sci.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         sampler = SDL_CreateGPUSampler(dev, &sci);
     }
-    if (tex == NULL || sampler == NULL) {
+    if (tex[0] == NULL || tex[1] == NULL || sampler == NULL) {
         fprintf(stderr, "texture/sampler failed: %s\n", SDL_GetError());
         goto cleanup;
     }
@@ -589,17 +631,23 @@ int main(int argc, char **argv)
             dti.clear_depth = 1.0f;
             dti.load_op = SDL_GPU_LOADOP_CLEAR;
             dti.store_op = SDL_GPU_STOREOP_DONT_CARE;
+            int mi;
             pass = SDL_BeginGPURenderPass(cmd, &cti, 1u, &dti);
             SDL_BindGPUGraphicsPipeline(pass, pipeline);
             SDL_PushGPUVertexUniformData(cmd, 0u, mvp, (Uint32)sizeof(mvp));
-            memset(&vbb, 0, sizeof(vbb));
-            vbb.buffer = gpu_vb;
-            SDL_BindGPUVertexBuffers(pass, 0u, &vbb, 1u);
-            memset(&tsb, 0, sizeof(tsb));
-            tsb.texture = tex;
-            tsb.sampler = sampler;
-            SDL_BindGPUFragmentSamplers(pass, 0u, &tsb, 1u);
-            SDL_DrawGPUPrimitives(pass, (Uint32)mesh.count, 1u, 0u, 0u);
+            for (mi = 0; mi < 2; ++mi) {
+                if (mesh[mi].count == 0u || gpu_vb[mi] == NULL) {
+                    continue;
+                }
+                memset(&vbb, 0, sizeof(vbb));
+                vbb.buffer = gpu_vb[mi];
+                SDL_BindGPUVertexBuffers(pass, 0u, &vbb, 1u);
+                memset(&tsb, 0, sizeof(tsb));
+                tsb.texture = tex[mi];
+                tsb.sampler = sampler;
+                SDL_BindGPUFragmentSamplers(pass, 0u, &tsb, 1u);
+                SDL_DrawGPUPrimitives(pass, (Uint32)mesh[mi].count, 1u, 0u, 0u);
+            }
             SDL_EndGPURenderPass(pass);
         }
         SDL_SubmitGPUCommandBuffer(cmd);
@@ -610,9 +658,11 @@ int main(int argc, char **argv)
 cleanup:
     if (dev != NULL) {
         if (sampler != NULL) SDL_ReleaseGPUSampler(dev, sampler);
-        if (tex != NULL) SDL_ReleaseGPUTexture(dev, tex);
+        if (tex[0] != NULL) SDL_ReleaseGPUTexture(dev, tex[0]);
+        if (tex[1] != NULL) SDL_ReleaseGPUTexture(dev, tex[1]);
         if (depth != NULL) SDL_ReleaseGPUTexture(dev, depth);
-        if (gpu_vb != NULL) SDL_ReleaseGPUBuffer(dev, gpu_vb);
+        if (gpu_vb[0] != NULL) SDL_ReleaseGPUBuffer(dev, gpu_vb[0]);
+        if (gpu_vb[1] != NULL) SDL_ReleaseGPUBuffer(dev, gpu_vb[1]);
         if (pipeline != NULL) SDL_ReleaseGPUGraphicsPipeline(dev, pipeline);
         if (vs != NULL) SDL_ReleaseGPUShader(dev, vs);
         if (fs != NULL) SDL_ReleaseGPUShader(dev, fs);
@@ -621,6 +671,7 @@ cleanup:
     }
     if (window != NULL) SDL_DestroyWindow(window);
     SDL_Quit();
-    free(mesh.v);
+    free(mesh[0].v);
+    free(mesh[1].v);
     return 0;
 }

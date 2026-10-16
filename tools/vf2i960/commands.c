@@ -75,7 +75,11 @@ static void usage(const char *program)
         "  %s compare-game-geometry-helpers <rom-directory>\n"
         "  %s observe-third-sweep <rom-directory>\n"
         "  %s trace-orchestrator <rom-directory> [output.csv]\n"
-        "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n",
+        "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n"
+        "  %s export-pieces <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
+        "  %s export-textured <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
+        "  %s texture-link <rom-dir> <object-id>\n"
+        "  %s decode-texture-sheet <bank.bin> <w> <h> <out.pgm>\n",
         VF2_VERSION_STRING,
         program, /* attract-irq-probe */
         program, /* boot-trace */
@@ -121,7 +125,11 @@ static void usage(const char *program)
         program,
         program,
         program,
-        program
+        program, /* compare-snapshots */
+        program, /* export-pieces */
+        program, /* export-textured */
+        program, /* texture-link */
+        program  /* decode-texture-sheet */
     );
 }
 
@@ -7464,6 +7472,121 @@ static size_t ext_emit_tri(
     return n + 3u;
 }
 
+/* Decode one model record (a quad strip) into textured triangles and write
+ * them to `obj`. Shared by export-textured (one combined mesh) and
+ * export-pieces (one file per piece). The decode is the geometrizer-exact
+ * polygon->texture link validated in texture_polygon_link_v0831.md: initial
+ * edge p0/p1, then 10-word blocks [attr][normal][vA][vB], UVs in table order
+ * [P1(n-1),P0(n-1),P0(n),P1(n)], texheader advance (attr>>12)&0x1f*4, strip
+ * advance (attr>>8)&3. `cur_sheet` carries the last-emitted material across
+ * calls (-1 forces a fresh `usemtl`). Returns the next 1-based vertex index. */
+static size_t ext_emit_piece(
+    FILE *obj,
+    const uint8_t *poly, size_t poly_size,
+    const uint8_t *tex, size_t tex_size,
+    uint32_t rec_byte, uint32_t uv_ptr, uint32_t th_ptr,
+    size_t vbase, int *cur_sheet, size_t *tri_count
+)
+{
+    vf2_model_vertex p0;
+    vf2_model_vertex p1;
+    size_t off;
+    uint32_t prim;
+
+    if (!ext_read_xyz(poly, poly_size, rec_byte, &p0) ||
+        !ext_read_xyz(poly, poly_size, rec_byte + 12u, &p1)) {
+        return vbase;
+    }
+    off = (size_t)rec_byte + 24u;
+
+    for (prim = 0u; prim < 65536u; ++prim) {
+        uint32_t attr = tl_u32(poly, poly_size, (uint32_t)off);
+        uint32_t numv;
+        vf2_model_vertex vA;
+        vf2_model_vertex vB;
+        uint16_t thw[4];
+        vf2_texture_header hd;
+        float uv[4][2];
+        uint32_t vtx;
+
+        off += 4u;
+        if (attr == 0x00040401u || (attr & 3u) == 0u) {
+            break;
+        }
+        numv = (attr & 1u) ? 4u : 3u;
+        off += 12u; /* skip unit normal (3 floats) */
+        if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vA)) {
+            break;
+        }
+        off += 12u;
+        if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vB)) {
+            break;
+        }
+        off += 12u;
+
+        thw[0] = tl_u16(tex, tex_size, th_ptr + 0u);
+        thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
+        thw[2] = tl_u16(tex, tex_size, th_ptr + 2u);
+        thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
+        vf2_texture_header_decode(thw, &hd);
+
+        for (vtx = 0u; vtx < numv; ++vtx) {
+            uint16_t pv = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 0u);
+            uint16_t pu = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 1u);
+            float tu = vf2_texture_uv_texels(pu);
+            float tv = vf2_texture_uv_texels(pv);
+            float wq = (float)hd.tex_width;
+            float hq = (float)hd.tex_height;
+            float lu = (wq > 0.0f) ? (float)fmod((double)tu, (double)wq) : 0.0f;
+            float lv = (hq > 0.0f) ? (float)fmod((double)tv, (double)hq) : 0.0f;
+            if (lu < 0.0f) {
+                lu += wq;
+            }
+            if (lv < 0.0f) {
+                lv += hq;
+            }
+            uv[vtx][0] = ((float)hd.tex_x + lu) / 2048.0f;
+            uv[vtx][1] = 1.0f - ((float)hd.tex_y + lv) / 1024.0f;
+        }
+        if (numv == 3u) {
+            uv[3][0] = uv[2][0];
+            uv[3][1] = uv[2][1];
+        }
+
+        if (*cur_sheet != (int)hd.sheet) {
+            fprintf(obj, "usemtl sheet%u\n", (unsigned)hd.sheet);
+            *cur_sheet = (int)hd.sheet;
+        }
+
+        vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB, uv[3]);
+        *tri_count += 1u;
+        if (numv == 4u) {
+            vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA, uv[2]);
+            *tri_count += 1u;
+        }
+
+        uv_ptr += numv * 2u;
+        th_ptr = (uint32_t)((int32_t)th_ptr +
+                            vf2_texture_header_advance_words(attr));
+        switch ((attr >> 8u) & 3u) {
+        case 0u:
+        case 2u:
+            p0 = vA;
+            p1 = vB;
+            break;
+        case 1u:
+            p1 = vA;
+            break;
+        case 3u:
+            p0 = vB;
+            break;
+        default:
+            break;
+        }
+    }
+    return vbase;
+}
+
 static int command_export_textured(
     const char *rom_directory,
     const char *capture_path,
@@ -7645,113 +7768,10 @@ static int command_export_textured(
     {
         int cur_sheet = -1;
         for (i = p1_first; i <= p1_last; ++i) {
-            uint32_t uv_ptr = pieces[i].uv_ptr;
-            uint32_t th_ptr = pieces[i].th_ptr;
-            size_t off;
-            vf2_model_vertex p0;
-            vf2_model_vertex p1;
-            uint32_t prim;
-
-            /* initial edge: p0, p1 (two xyz) */
-            if (!ext_read_xyz(poly, poly_size, pieces[i].rec_byte, &p0) ||
-                !ext_read_xyz(poly, poly_size, pieces[i].rec_byte + 12u, &p1)) {
-                continue;
-            }
-            off = (size_t)pieces[i].rec_byte + 24u;
-
-            for (prim = 0u; prim < 65536u; ++prim) {
-                uint32_t attr = tl_u32(poly, poly_size, (uint32_t)off);
-                uint32_t numv;
-                vf2_model_vertex vA;
-                vf2_model_vertex vB;
-                uint16_t thw[4];
-                vf2_texture_header hd;
-                float uv[4][2];
-                uint32_t vtx;
-
-                off += 4u;
-                if (attr == 0x00040401u || (attr & 3u) == 0u) {
-                    break;
-                }
-                numv = (attr & 1u) ? 4u : 3u;
-                off += 12u; /* skip unit normal (3 floats) */
-                if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vA)) {
-                    break;
-                }
-                off += 12u;
-                if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vB)) {
-                    break;
-                }
-                off += 12u;
-
-                /* texture header for this primitive */
-                thw[0] = tl_u16(tex, tex_size, th_ptr + 0u);
-                thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
-                thw[2] = tl_u16(tex, tex_size, th_ptr + 2u);
-                thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
-                vf2_texture_header_decode(thw, &hd);
-
-                /* UVs for this primitive's vertices, table order
-                 * [0]=P1(n-1), [1]=P0(n-1), [2]=P0(n), [3]=P1(n). */
-                for (vtx = 0u; vtx < numv; ++vtx) {
-                    uint16_t pv = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 0u);
-                    uint16_t pu = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 1u);
-                    float tu = vf2_texture_uv_texels(pu);
-                    float tv = vf2_texture_uv_texels(pv);
-                    float wq = (float)hd.tex_width;
-                    float hq = (float)hd.tex_height;
-                    float lu = (wq > 0.0f) ? (float)fmod((double)tu, (double)wq) : 0.0f;
-                    float lv = (hq > 0.0f) ? (float)fmod((double)tv, (double)hq) : 0.0f;
-                    if (lu < 0.0f) {
-                        lu += wq;
-                    }
-                    if (lv < 0.0f) {
-                        lv += hq;
-                    }
-                    uv[vtx][0] = ((float)hd.tex_x + lu) / 2048.0f;
-                    uv[vtx][1] = 1.0f - ((float)hd.tex_y + lv) / 1024.0f;
-                }
-                if (numv == 3u) {
-                    uv[3][0] = uv[2][0];
-                    uv[3][1] = uv[2][1];
-                }
-
-                if (cur_sheet != (int)hd.sheet) {
-                    fprintf(obj, "usemtl sheet%u\n", (unsigned)hd.sheet);
-                    cur_sheet = (int)hd.sheet;
-                }
-
-                /* corner->UV: p0=uv[1], p1=uv[0], vA=uv[2], vB=uv[3].
-                 * tri0 = (p0,p1,vB); for a quad also tri1 = (p0,vB,vA). */
-                vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB,
-                                     uv[3]);
-                tri_total += 1u;
-                if (numv == 4u) {
-                    vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA,
-                                         uv[2]);
-                    tri_total += 1u;
-                }
-
-                uv_ptr += numv * 2u;
-                th_ptr = (uint32_t)((int32_t)th_ptr +
-                                    vf2_texture_header_advance_words(attr));
-                /* strip advance (hardware-exact) */
-                switch ((attr >> 8u) & 3u) {
-                case 0u:
-                case 2u:
-                    p0 = vA;
-                    p1 = vB;
-                    break;
-                case 1u:
-                    p1 = vA;
-                    break;
-                case 3u:
-                    p0 = vB;
-                    break;
-                default:
-                    break;
-                }
-            }
+            vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size,
+                                   pieces[i].rec_byte, pieces[i].uv_ptr,
+                                   pieces[i].th_ptr, vbase, &cur_sheet,
+                                   &tri_total);
         }
     }
     fclose(obj);
@@ -7787,6 +7807,395 @@ fail:
     free(bank[0]);
     free(bank[1]);
     free(pieces);
+    return EXIT_FAILURE;
+}
+
+/* --- export-pieces: one textured OBJ per on-screen object, + measured metrics -
+ *
+ * celsowm slice (2026-10-16): separate fighters from scenery. The earlier
+ * export-textured picked one record-contiguous cluster and *labelled it P1 by
+ * address range* -- that was wrong (the cluster was stage geometry). This
+ * command makes no such claim. It exports EVERY on-screen object as its own
+ * textured OBJ (piece_<NNN>.obj) so the fighters can be identified by eye, and
+ * writes pieces.csv with per-object metrics MEASURED across the 3 capture
+ * frames so a classification can be made from data, not an address guess:
+ *   - geo_changed : the object's geo command {tpa,tha,oba,obc} differs across
+ *                   f1/f2/f3 (an animating object re-selects its mesh; scenery
+ *                   never does).  PROVES motion when set.
+ *   - reads_f*    : count of TGP copro (0x884000) read-backs in the object's
+ *                   per-frame window -- how much per-object transform data the
+ *                   capture actually carries for it.
+ *   - out_delta   : max |float| change of those read-backs across frames.
+ *   - region      : oba source (ROM / fast-RAM / slow-RAM).
+ * See fighter_scenery_separation_v0834.md for why these alone do NOT cleanly
+ * separate fighters from scenery on this particular round-start capture. */
+
+typedef struct ep_obj {
+    uint32_t tpa;
+    uint32_t tha;
+    uint32_t oba;
+    uint32_t obc;
+    float   *reads;
+    size_t   nreads;
+    size_t   rcap;
+} ep_obj;
+
+typedef struct ep_frame {
+    ep_obj *objs;
+    size_t  n;
+    size_t  cap;
+} ep_frame;
+
+static int ep_frame_index(const char *frame)
+{
+    if (strcmp(frame, "f1") == 0) return 0;
+    if (strcmp(frame, "f2") == 0) return 1;
+    if (strcmp(frame, "f3") == 0) return 2;
+    return -1;
+}
+
+static void ep_push_read(ep_obj *o, uint32_t raw)
+{
+    float f;
+    memcpy(&f, &raw, 4u);
+    if (o->nreads == o->rcap) {
+        size_t nc = o->rcap == 0u ? 8u : o->rcap * 2u;
+        float *nr = (float *)realloc(o->reads, nc * sizeof(*nr));
+        if (nr == NULL) {
+            return;
+        }
+        o->reads = nr;
+        o->rcap = nc;
+    }
+    o->reads[o->nreads++] = f;
+}
+
+static ep_obj *ep_frame_new(ep_frame *fr)
+{
+    if (fr->n == fr->cap) {
+        size_t nc = fr->cap == 0u ? 128u : fr->cap * 2u;
+        ep_obj *no = (ep_obj *)realloc(fr->objs, nc * sizeof(*no));
+        if (no == NULL) {
+            return NULL;
+        }
+        fr->objs = no;
+        fr->cap = nc;
+    }
+    memset(&fr->objs[fr->n], 0, sizeof(fr->objs[fr->n]));
+    return &fr->objs[fr->n++];
+}
+
+/* Parse the capture into per-frame ordered object lists. An object is bounded
+ * by its geo-0x800010 submission; the 4 prg words that follow are its geo
+ * command; the TGP read-backs since the previous object form its window. */
+static int ep_parse(const char *capture_path, ep_frame fr[3])
+{
+    FILE *cap = fopen(capture_path, "rb");
+    char line[256];
+    /* one in-progress geo command per frame: -1 = none, else words filled */
+    int gc_fill[3] = { -1, -1, -1 };
+    uint32_t gc[3][4];
+    static float pend[3][8192];
+    size_t pend_n[3] = { 0u, 0u, 0u };
+    if (cap == NULL) {
+        return 0;
+    }
+    while (fgets(line, (int)sizeof(line), cap) != NULL) {
+        unsigned seq;
+        char frame[8];
+        char stream[16];
+        unsigned addr;
+        unsigned value;
+        int fi;
+        if (sscanf(line, "%u %7s %15s %x %x", &seq, frame, stream, &addr,
+                   &value) != 5) {
+            continue;
+        }
+        fi = ep_frame_index(frame);
+        if (fi < 0) {
+            continue;
+        }
+        if (strcmp(stream, "geo") == 0 && (addr & 0x3fffu) == 0x0010u) {
+            gc_fill[fi] = 0;
+            gc[fi][0] = value; /* tpa echoed here too; real words via prg */
+            continue;
+        }
+        if (gc_fill[fi] >= 0 && strcmp(stream, "prg") == 0) {
+            gc[fi][gc_fill[fi]] = value;
+            gc_fill[fi] += 1;
+            if (gc_fill[fi] >= 4) {
+                ep_obj *o = ep_frame_new(&fr[fi]);
+                size_t k;
+                gc_fill[fi] = -1;
+                if (o == NULL) {
+                    fclose(cap);
+                    return 0;
+                }
+                o->tpa = gc[fi][0];
+                o->tha = gc[fi][1];
+                o->oba = gc[fi][2];
+                o->obc = gc[fi][3];
+                for (k = 0u; k < pend_n[fi]; ++k) {
+                    uint32_t raw;
+                    memcpy(&raw, &pend[fi][k], 4u);
+                    ep_push_read(o, raw);
+                }
+                pend_n[fi] = 0u;
+            }
+            continue;
+        }
+        if (strcmp(stream, "fifoR") == 0 && (addr & 0xffffffu) == 0x884000u) {
+            if (pend_n[fi] < (sizeof(pend[fi]) / sizeof(pend[fi][0]))) {
+                float f;
+                memcpy(&f, &value, 4u);
+                pend[fi][pend_n[fi]++] = f;
+            }
+        }
+    }
+    fclose(cap);
+    return 1;
+}
+
+static int ep_geo_changed(ep_frame fr[3], size_t k)
+{
+    if (k >= fr[0].n || k >= fr[1].n || k >= fr[2].n) {
+        return 0;
+    }
+    {
+        const ep_obj *a = &fr[0].objs[k];
+        const ep_obj *b = &fr[1].objs[k];
+        const ep_obj *c = &fr[2].objs[k];
+        int same = a->tpa == b->tpa && a->tpa == c->tpa &&
+                   a->tha == b->tha && a->tha == c->tha &&
+                   a->oba == b->oba && a->oba == c->oba &&
+                   a->obc == b->obc && a->obc == c->obc;
+        return same ? 0 : 1;
+    }
+}
+
+static float ep_out_delta(ep_frame fr[3], size_t k)
+{
+    float md = 0.0f;
+    size_t m;
+    size_t i;
+    if (k >= fr[0].n || k >= fr[1].n || k >= fr[2].n) {
+        return 0.0f;
+    }
+    m = fr[0].objs[k].nreads;
+    if (fr[1].objs[k].nreads < m) m = fr[1].objs[k].nreads;
+    if (fr[2].objs[k].nreads < m) m = fr[2].objs[k].nreads;
+    for (i = 0u; i < m; ++i) {
+        float a = fr[0].objs[k].reads[i];
+        float b = fr[1].objs[k].reads[i];
+        float c = fr[2].objs[k].reads[i];
+        float d;
+        if (a != a || b != b || c != c) {
+            continue; /* skip NaN */
+        }
+        d = (float)fabs((double)a - (double)b);
+        if (d > md) md = d;
+        d = (float)fabs((double)b - (double)c);
+        if (d > md) md = d;
+        d = (float)fabs((double)a - (double)c);
+        if (d > md) md = d;
+    }
+    return md;
+}
+
+static const char *ep_region(uint32_t oba)
+{
+    if (oba & 0x01000000u) {
+        return "fastRAM";
+    }
+    if (oba & 0x00800000u) {
+        return "ROM";
+    }
+    return "slowRAM";
+}
+
+static int command_export_pieces(
+    const char *rom_directory,
+    const char *capture_path,
+    const char *tex0_path,
+    const char *tex1_path,
+    const char *out_dir
+)
+{
+    uint8_t *main_data = NULL;
+    uint8_t *poly = NULL;
+    uint8_t *tex = NULL;
+    uint8_t *bank[2] = { NULL, NULL };
+    size_t main_size = 0u;
+    size_t poly_size = 0u;
+    size_t tex_size = 0u;
+    size_t bank_size[2] = { 0u, 0u };
+    ep_frame fr[3];
+    FILE *mtl = NULL;
+    FILE *csv = NULL;
+    char path[1024];
+    size_t k;
+    size_t written = 0u;
+    uint32_t *seen = NULL;
+    size_t seen_n = 0u;
+    vf2_status st;
+
+    memset(fr, 0, sizeof(fr));
+
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data,
+                                 &main_size);
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly,
+                                     &poly_size);
+    }
+    if (st == VF2_OK) {
+        st = vf2_romset_build_region(rom_directory, VF2_REGION_TEXTURES, &tex,
+                                     &tex_size);
+    }
+    if (st != VF2_OK) {
+        fprintf(stderr, "Could not build ROM regions: %s\n",
+                vf2_status_string(st));
+        free(main_data);
+        free(poly);
+        return EXIT_FAILURE;
+    }
+    if (!ext_tex_load_file(tex0_path, &bank[0], &bank_size[0]) ||
+        !ext_tex_load_file(tex1_path, &bank[1], &bank_size[1])) {
+        fprintf(stderr, "Could not read texture banks\n");
+        goto fail;
+    }
+    if (!ep_parse(capture_path, fr)) {
+        fprintf(stderr, "Could not parse capture %s\n", capture_path);
+        goto fail;
+    }
+    if (fr[0].n == 0u) {
+        fprintf(stderr, "No object submissions in capture frame f1\n");
+        goto fail;
+    }
+
+    snprintf(path, sizeof(path), "%s/pieces.mtl", out_dir);
+    mtl = fopen(path, "wb");
+    snprintf(path, sizeof(path), "%s/pieces.csv", out_dir);
+    csv = fopen(path, "wb");
+    if (mtl == NULL || csv == NULL) {
+        fprintf(stderr, "Could not open outputs in %s\n", out_dir);
+        goto fail;
+    }
+    fprintf(mtl, "# VF2 pieces textures (grayscale luma index). Local only.\n");
+    fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
+    fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
+    fprintf(csv, "index,object_id,rec_byte,tpa,tha,oba,obc,region,tris,"
+                 "geo_changed,reads_f1,reads_f2,reads_f3,out_delta\n");
+
+    seen = (uint32_t *)malloc(fr[0].n * sizeof(*seen));
+    if (seen == NULL) {
+        goto fail;
+    }
+
+    for (k = 0u; k < fr[0].n; ++k) {
+        uint32_t w0 = fr[0].objs[k].tpa;
+        uint32_t off = 0u;
+        uint32_t bnk = 0u;
+        uint32_t id = 0u;
+        uint32_t uv_ptr;
+        uint32_t th_ptr;
+        size_t j;
+        int dup = 0;
+        FILE *obj;
+        int cur_sheet = -1;
+        size_t tris = 0u;
+
+        if (vf2_model_lookup_w0(main_data, main_size, w0, 0x4000u, &off, &bnk,
+                                &id) != VF2_OK) {
+            continue;
+        }
+        for (j = 0u; j < seen_n; ++j) {
+            if (seen[j] == id) {
+                dup = 1;
+                break;
+            }
+        }
+        if (dup) {
+            continue;
+        }
+        seen[seen_n++] = id;
+
+        uv_ptr = tl_u32(main_data, main_size,
+                        0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
+        th_ptr = tl_u32(main_data, main_size,
+                        0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
+
+        snprintf(path, sizeof(path), "%s/piece_%03zu_obj%04x.obj", out_dir, k,
+                 (unsigned)id);
+        obj = fopen(path, "wb");
+        if (obj == NULL) {
+            continue;
+        }
+        fprintf(obj, "# VF2 piece: capture index %zu, object id 0x%x, rec_byte "
+                     "0x%x. Local only, never committed.\n", k, (unsigned)id,
+                (unsigned)off);
+        fprintf(obj, "mtllib pieces.mtl\n");
+        (void)ext_emit_piece(obj, poly, poly_size, tex, tex_size, off, uv_ptr,
+                             th_ptr, 1u, &cur_sheet, &tris);
+        fclose(obj);
+        ++written;
+
+        fprintf(csv, "%zu,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,%s,%zu,%d,%zu,%zu,%zu,"
+                     "%.4f\n",
+                k, (unsigned)id, (unsigned)off,
+                (unsigned)fr[0].objs[k].tpa, (unsigned)fr[0].objs[k].tha,
+                (unsigned)fr[0].objs[k].oba, (unsigned)fr[0].objs[k].obc,
+                ep_region(fr[0].objs[k].oba), tris, ep_geo_changed(fr, k),
+                fr[0].objs[k].nreads,
+                (k < fr[1].n) ? fr[1].objs[k].nreads : 0u,
+                (k < fr[2].n) ? fr[2].objs[k].nreads : 0u,
+                (double)ep_out_delta(fr, k));
+    }
+
+    fclose(mtl);
+    mtl = NULL;
+    fclose(csv);
+    csv = NULL;
+
+    snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
+    snprintf(path, sizeof(path), "%s/tex1.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[1], bank_size[1]);
+
+    printf("export-pieces: %zu objects in capture, %zu unique pieces written "
+           "-> %s/piece_*.obj (+ pieces.mtl, pieces.csv, tex0/1.png)\n",
+           fr[0].n, written, out_dir);
+
+    for (k = 0u; k < 3u; ++k) {
+        size_t i;
+        for (i = 0u; i < fr[k].n; ++i) {
+            free(fr[k].objs[i].reads);
+        }
+        free(fr[k].objs);
+    }
+    free(seen);
+    free(main_data);
+    free(poly);
+    free(tex);
+    free(bank[0]);
+    free(bank[1]);
+    return EXIT_SUCCESS;
+
+fail:
+    if (mtl != NULL) fclose(mtl);
+    if (csv != NULL) fclose(csv);
+    for (k = 0u; k < 3u; ++k) {
+        size_t i;
+        for (i = 0u; i < fr[k].n; ++i) {
+            free(fr[k].objs[i].reads);
+        }
+        free(fr[k].objs);
+    }
+    free(seen);
+    free(main_data);
+    free(poly);
+    free(tex);
+    free(bank[0]);
+    free(bank[1]);
     return EXIT_FAILURE;
 }
 
@@ -8615,6 +9024,11 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "export-textured") == 0 && argc == 7) {
         return command_export_textured(argv[2], argv[3], argv[4], argv[5],
                                        argv[6]);
+    }
+
+    if (strcmp(argv[1], "export-pieces") == 0 && argc == 7) {
+        return command_export_pieces(argv[2], argv[3], argv[4], argv[5],
+                                     argv[6]);
     }
 
     if (strcmp(argv[1], "resume-trace") == 0 &&
