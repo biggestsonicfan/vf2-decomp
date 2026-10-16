@@ -304,15 +304,59 @@ if(VF2_BUILD_HOST)
 endif()
 
 if(VF2_BUILD_VIEWER)
-  add_executable(vf2_model_viewer tools/vf2_model_viewer/main.c)
-  target_link_libraries(vf2_model_viewer PRIVATE SDL3::SDL3)
+  # The viewer renders textured meshes with SDL_GPU (SDL3's GPU API) and SPIR-V
+  # shaders. SPIR-V is produced at build time from the HLSL sources and embedded
+  # via bin2c so the viewer has no runtime shader-file dependency. The HLSL->
+  # SPIR-V compiler is glslangValidator (the Windows SDK's dxc here is DXIL-only;
+  # glslang produces the exact SDL_GPU descriptor sets: vertex UBO=set 1,
+  # fragment texture/sampler=set 2). glslc (shaderc) also works if preferred.
+  find_program(VF2_HLSL2SPV NAMES glslangValidator glslc)
+  if(NOT VF2_HLSL2SPV)
+    message(FATAL_ERROR
+      "VF2_BUILD_VIEWER=ON needs a HLSL->SPIR-V compiler. Install glslang "
+      "(pacman -S mingw-w64-ucrt-x86_64-glslang) or shaderc, or set VF2_HLSL2SPV.")
+  endif()
+  set(VF2_VIEWER_GEN "${CMAKE_BINARY_DIR}/generated/vf2_model_viewer")
+  file(MAKE_DIRECTORY "${VF2_VIEWER_GEN}")
+  set(VF2_VIEWER_SHADER_HEADERS "")
+  foreach(stage vert frag)
+    if(stage STREQUAL "vert")
+      set(sym "model_vert_spv")
+    else()
+      set(sym "model_frag_spv")
+    endif()
+    set(src "${CMAKE_SOURCE_DIR}/tools/vf2_model_viewer/shaders/model.${stage}.hlsl")
+    set(spv "${VF2_VIEWER_GEN}/model.${stage}.spv")
+    set(hdr "${VF2_VIEWER_GEN}/model_${stage}_spv.h")
+    add_custom_command(
+      OUTPUT "${spv}"
+      COMMAND "${VF2_HLSL2SPV}" -e main -S ${stage} -D
+              --target-env vulkan1.0 -o "${spv}" "${src}"
+      DEPENDS "${src}"
+      COMMENT "glslang: ${stage} HLSL -> SPIR-V"
+      VERBATIM)
+    add_custom_command(
+      OUTPUT "${hdr}"
+      COMMAND "${CMAKE_COMMAND}" -DIN=${spv} -DOUT=${hdr} -DNAME=${sym}
+              -P "${CMAKE_SOURCE_DIR}/tools/vf2_model_viewer/bin2c.cmake"
+      DEPENDS "${spv}"
+      COMMENT "embed ${stage} SPIR-V -> ${sym}"
+      VERBATIM)
+    list(APPEND VF2_VIEWER_SHADER_HEADERS "${hdr}")
+  endforeach()
+
+  add_executable(vf2_model_viewer tools/vf2_model_viewer/main.c
+    ${VF2_VIEWER_SHADER_HEADERS})
+  target_include_directories(vf2_model_viewer PRIVATE "${VF2_VIEWER_GEN}")
+  target_link_libraries(vf2_model_viewer PRIVATE vf2_core SDL3::SDL3)
   if(NOT WIN32)
     target_link_libraries(vf2_model_viewer PRIVATE m)
   endif()
   vf2_set_project_warnings(vf2_model_viewer)
   install(TARGETS vf2_model_viewer RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
   if(VF2_BUILD_TESTS)
-    # ROM-free: loads nothing, renders a few frames on the dummy video driver.
+    # ROM-free: loads the OBJ, inits SDL, probes for a GPU device, exits 0
+    # (headless CI has no GPU, which is not a failure).
     add_test(NAME vf2_model_viewer_selftest COMMAND vf2_model_viewer --selftest)
     set_tests_properties(vf2_model_viewer_selftest PROPERTIES
       ENVIRONMENT "SDL_VIDEODRIVER=dummy" TIMEOUT 60)
