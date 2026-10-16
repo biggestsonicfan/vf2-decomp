@@ -436,9 +436,13 @@ vf2_status vf2_session_pump_audio(
                    UINT32_C(0xff));
     /* Dispatch each newly filed entry at the board's read cursor,
      * advancing past every outcome the way the silicon drain
-     * epilogue does (cursor += 4 regardless of arm). The 0xc68
-     * engine door applies effects before refusing (S4 shape) and
-     * counts as dispatched; earlier doors count as refused. */
+     * epilogue does (cursor += 4 regardless of arm). The 0xcb2
+     * copy-loop door applies the full slot program before refusing
+     * (E1b fall-through shape, T2 round-1: handler + effects proven
+     * C==S) and counts as dispatched; a completed key-on arm
+     * (E1c 0xed8, VF2_OK) counts the same way; earlier doors count
+     * as refused. The pre-E1b 0xc68 pin is retired -- no path
+     * refuses there anymore. */
     pending = report->entries_filed;
     while (pending > 0u) {
         vf2_sound_dispatch_report dispatch;
@@ -448,7 +452,7 @@ vf2_status vf2_session_pump_audio(
         st = vf2_sound_board_dispatch_next(board, &dispatch);
         if (st == VF2_OK ||
             (st == VF2_ERROR_UNSUPPORTED &&
-             dispatch.handler_address == UINT32_C(0xc68))) {
+             dispatch.handler_address == UINT32_C(0xcb2))) {
             ++report->entries_dispatched;
         } else {
             ++report->entries_refused;

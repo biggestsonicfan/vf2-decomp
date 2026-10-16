@@ -87,14 +87,16 @@ vf2_status vf2_session_audio_status(const vf2_session *session);
 
 /* One pump report: bytes drained from the i960 sound queue through
  * the UART slot and filed on the board, ring entries assembled,
- * and their dispatch outcomes. `dispatched` reached the 0xc68
- * engine door with effects applied (VF2_OK or UNSUPPORTED-at-door,
- * the S4 shape); `refused` stopped earlier (a0 entry etc.,
- * silicon would still consume the packet, so the pump advances
- * past it the same way). `drain_status` is the first non-OK drain
- * or file status (0xff reboot door, bus error), or VF2_OK when
- * the queue drained cleanly; a non-OK status stops the pump but
- * still returns VF2_OK -- the report carries the detail so one
+ * and their dispatch outcomes. `dispatched` reached the 0xcb2
+ * copy-loop door with the slot program applied (E1b fall-through:
+ * VF2_OK or UNSUPPORTED-at-door, the T2 round-1 shape) or
+ * completed the key-on arm (E1c 0xed8: VF2_OK); `refused`
+ * stopped earlier (a0 entry etc., silicon would still consume
+ * the packet, so the pump advances past it the same way).
+ * `drain_status` is the first non-OK drain or file status
+ * (0xff reboot door, bus error), or VF2_OK when the queue
+ * drained cleanly; a non-OK status stops the pump but still
+ * returns VF2_OK -- the report carries the detail so one
  * corrupt queue byte cannot fail the frame. */
 typedef struct vf2_session_audio_pump_report {
     uint32_t bytes_moved;

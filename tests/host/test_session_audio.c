@@ -139,9 +139,12 @@ int main(int argc, char **argv)
     /* Optional pump leg (T3): open a second session from a
      * live-queue snapshot (park-sixth-a6c0 holds 3 filed entries)
      * and bridge them into audible-path state. Gates: 9 bytes
-     * moved over 9 drain ticks, 3 entries filed, round-1 90-class
-     * admitted at the engine door (2 a0 refused by design), then
-     * game_update (L1/L2 ticks) + render determinism. Peak is
+     * moved over 9 drain ticks, 3 entries filed, then game_update
+     * (L1/L2 ticks) + render determinism. The 90-class entry
+     * misses on the init-state board (no staged voice, $152e
+     * door -- the admitted 90 shape is proven with S4 arming in
+     * the T2 differential, never staged here), both a0 entries
+     * refuse by design, so 0 dispatched / 3 refused. Peak is
      * reported, not gated (no engine keying in-session). */
     if (argc >= 4) {
         static int16_t pleft_a[FRAMES];

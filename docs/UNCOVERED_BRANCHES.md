@@ -4297,8 +4297,9 @@ recoveries were static-match, not differential-proven, until
 v0825: the m68k stepper (`src/m68k/stepper.c`, `vf2_m68k_run`)
 is now the sound-CPU oracle, and every 8g/T2/8h leg is a
 C-vs-stepper differential (full-RAM + regs + SCSP + step pins).
-What stays C-vs-C is only the never-stepped remainder (the
-engine past 0xc68, the a0 body effects). On the i960 side the
+What stays C-vs-C is only the never-stepped remainder (the dead
+copy loop past the E1b slot program, the unmeasured 0xd92 arm,
+the a0 body effects). On the i960 side the
 queue filer (0x43888, v0746) and drainer (0x43800, 8f) are
 recovered; the live boot chain runs scheduler task dispatch
 `callx` -> flag-flusher 0x43abc (frame 17) -> `0x58eac`
