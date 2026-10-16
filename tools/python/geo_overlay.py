@@ -188,6 +188,87 @@ def cmd_score(shot_p, proj_p):
     print(f"best edge-align score={sc:.1f} at dx={dx} dy={dy}")
 
 
+def shot_shadow_centroids(shot, w, h):
+    """Left/right dark-floor (shadow) centroids in the screenshot: very dark
+    pixels in the lower floor band, split at screen centre."""
+    L = [0, 0, 0]; R = [0, 0, 0]
+    for y in range(int(h * 0.80), h):           # lower ~20%: floor + shadows
+        for x in range(w):
+            i = y * w + x
+            lum = (shot[i*3]*77 + shot[i*3+1]*150 + shot[i*3+2]*29) >> 8
+            if lum < 70:
+                t = L if x < w // 2 else R
+                t[0] += x; t[1] += y; t[2] += 1
+    cl = (L[0]/L[2], L[1]/L[2]) if L[2] else None
+    cr = (R[0]/R[2], R[1]/R[2]) if R[2] else None
+    return cl, cr
+
+
+def proj_shadow_centroids(proj, w, h):
+    """Left/right projection shadow (colour 40,40,52) centroids."""
+    L = [0, 0, 0]; R = [0, 0, 0]
+    for y in range(h):
+        for x in range(w):
+            i = y * w + x
+            if (proj[i*3], proj[i*3+1], proj[i*3+2]) == (40, 40, 52):
+                t = L if x < w // 2 else R
+                t[0] += x; t[1] += y; t[2] += 1
+    cl = (L[0]/L[2], L[1]/L[2]) if L[2] else None
+    cr = (R[0]/R[2], R[1]/R[2]) if R[2] else None
+    return cl, cr
+
+
+def cmd_fit(projdir, shotdir):
+    import math
+    projs = {}; shots = {}
+    for f in os.listdir(projdir):
+        i = _index(f)
+        if f.endswith(".png") and i is not None and "overlay" not in f:
+            projs[i] = os.path.join(projdir, f)
+    for f in os.listdir(shotdir):
+        i = _index(f)
+        if f.endswith(".png") and i is not None:
+            shots[i] = os.path.join(shotdir, f)
+    frames = [0, 10, 20, 29]
+    print("per-frame shadow-landmark correspondences (proj -> screen):")
+    pts = []  # (proj_x, proj_y, shot_x, shot_y)
+    for i in frames:
+        if i not in projs or i not in shots:
+            continue
+        pw, ph, proj = read_png(projs[i])
+        w, h, shot = read_png(shots[i])
+        pl, pr = proj_shadow_centroids(proj, pw, ph)
+        sl, sr = shot_shadow_centroids(shot, w, h)
+        for (p, s, nm) in ((pl, sl, "L"), (pr, sr, "R")):
+            if p and s:
+                pts.append((p[0], p[1], s[0], s[1]))
+                print(f"  f{i:02d} {nm}: proj({p[0]:.0f},{p[1]:.0f}) -> "
+                      f"screen({s[0]:.0f},{s[1]:.0f})  d=({s[0]-p[0]:+.0f},"
+                      f"{s[1]-p[1]:+.0f})")
+    if len(pts) < 2:
+        print("not enough landmarks"); return
+    n = len(pts)
+    # translation-only LS: dx,dy = mean(screen - proj)
+    dx = sum(s[2] - s[0] for s in pts) / n
+    dy = sum(s[3] - s[1] for s in pts) / n
+    res_t = (sum((s[2]-s[0]-dx)**2 + (s[3]-s[1]-dy)**2 for s in pts) / n) ** .5
+    print(f"\ntranslation-only LS: dx={dx:+.1f} dy={dy:+.1f}  "
+          f"residual RMS={res_t:.1f}px")
+    # translation + uniform scale about projection centroid:
+    mpx = sum(s[0] for s in pts)/n; mpy = sum(s[1] for s in pts)/n
+    msx = sum(s[2] for s in pts)/n; msy = sum(s[3] for s in pts)/n
+    num = sum((s[0]-mpx)*(s[2]-msx)+(s[1]-mpy)*(s[3]-msy) for s in pts)
+    den = sum((s[0]-mpx)**2+(s[1]-mpy)**2 for s in pts)
+    sc = num/den if den else 1.0
+    tx = msx - sc*mpx; ty = msy - sc*mpy
+    res_s = (sum((sc*s[0]+tx-s[2])**2 + (sc*s[1]+ty-s[3])**2
+                 for s in pts)/n) ** .5
+    print(f"translation+scale LS: scale={sc:.3f} tx={tx:+.1f} ty={ty:+.1f}  "
+          f"residual RMS={res_s:.1f}px")
+    print(f"  (current geo-project xoff/yoff -> add dx,dy to xoff,yoff for a "
+          f"translation fix)")
+
+
 def _index(name):
     m = re.match(r"(?:proj_)?f(\d+)", os.path.basename(name))
     return int(m.group(1)) if m else None
@@ -239,6 +320,8 @@ def main():
         cmd_score(sys.argv[2], sys.argv[3])
     elif c == "offsets":
         cmd_offsets(sys.argv[2], sys.argv[3])
+    elif c == "fit":
+        cmd_fit(sys.argv[2], sys.argv[3])
     else:
         print(__doc__); sys.exit(1)
 

@@ -10328,8 +10328,8 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "geo-project") == 0 && (argc == 7 || argc == 11)) {
         int W = 496;        /* MAME visible screen, to overlay 1:1 */
         int H = 384;
-        double xo = 76.0;   /* crtc_xoffset 84 - visible left 8 (hsync 0) */
-        double yo = 40.0;   /* crtc_yoffset 130 - visible top 90 (vsync 0) */
+        double xo = 84.0;   /* MAME m_crtc_xoffset (84 + hsync); no crop */
+        double yo = 130.0;  /* MAME m_crtc_yoffset (130 + vsync); no crop */
         if (argc == 11) {
             W = atoi(argv[7]);
             H = atoi(argv[8]);
