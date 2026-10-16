@@ -7480,7 +7480,8 @@ static size_t ext_emit_tri(
     const vf2_model_vertex *a, const float ua[2],
     const vf2_model_vertex *b, const float ub[2],
     const vf2_model_vertex *c, const float uc[2],
-    const float *mtx
+    const float *mtx,
+    vf2_model_vertex *vacc, size_t *vacc_n, size_t vacc_cap
 )
 {
     vf2_model_vertex ta;
@@ -7497,6 +7498,11 @@ static size_t ext_emit_tri(
     fprintf(obj, "vt %.6f %.6f\n", (double)uc[0], (double)uc[1]);
     fprintf(obj, "f %zu/%zu %zu/%zu %zu/%zu\n", n, n, n + 1u, n + 1u, n + 2u,
             n + 2u);
+    if (vacc != NULL && vacc_n != NULL && *vacc_n + 3u <= vacc_cap) {
+        vacc[(*vacc_n)++] = ta;
+        vacc[(*vacc_n)++] = tb;
+        vacc[(*vacc_n)++] = tc;
+    }
     return n + 3u;
 }
 
@@ -7514,7 +7520,8 @@ static size_t ext_emit_piece(
     const uint8_t *tex, size_t tex_size,
     uint32_t rec_byte, uint32_t uv_ptr, uint32_t th_ptr,
     size_t vbase, int *cur_sheet, size_t *tri_count,
-    const float *mtx
+    const float *mtx,
+    vf2_model_vertex *vacc, size_t *vacc_n, size_t vacc_cap
 )
 {
     vf2_model_vertex p0;
@@ -7588,11 +7595,11 @@ static size_t ext_emit_piece(
         }
 
         vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB, uv[3],
-                             mtx);
+                             mtx, vacc, vacc_n, vacc_cap);
         *tri_count += 1u;
         if (numv == 4u) {
             vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA, uv[2],
-                                 mtx);
+                                 mtx, vacc, vacc_n, vacc_cap);
             *tri_count += 1u;
         }
 
@@ -7802,7 +7809,7 @@ static int command_export_textured(
             vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size,
                                    pieces[i].rec_byte, pieces[i].uv_ptr,
                                    pieces[i].th_ptr, vbase, &cur_sheet,
-                                   &tri_total, NULL);
+                                   &tri_total, NULL, NULL, NULL, 0u);
         }
     }
     fclose(obj);
@@ -8166,7 +8173,8 @@ static int command_export_pieces(
                 (unsigned)off);
         fprintf(obj, "mtllib pieces.mtl\n");
         (void)ext_emit_piece(obj, poly, poly_size, tex, tex_size, off, uv_ptr,
-                             th_ptr, 1u, &cur_sheet, &tris, NULL);
+                             th_ptr, 1u, &cur_sheet, &tris, NULL, NULL, NULL,
+                             0u);
         fclose(obj);
         ++written;
 
@@ -8396,6 +8404,38 @@ static size_t gs_emit_box(FILE *obj, size_t vbase, double cx, double cy,
     return vbase + 8u;
 }
 
+/* |det| of the matrix's 3x3 part, normalised by its column norms: ~1 for a
+ * rotation (with any uniform scale), ~0 when the three axes become coplanar --
+ * which is how VF2 draws a shadow, flattening a fighter's limbs onto the
+ * ground plane. Columns are (m0,m1,m2),(m3,m4,m5),(m6,m7,m8) per MAME's
+ * transform_point. */
+static double gs_flatness(const float *m)
+{
+    double a0 = (double)m[0], a1 = (double)m[1], a2 = (double)m[2];
+    double b0 = (double)m[3], b1 = (double)m[4], b2 = (double)m[5];
+    double c0 = (double)m[6], c1 = (double)m[7], c2 = (double)m[8];
+    double cx = b1 * c2 - b2 * c1;
+    double cy = b2 * c0 - b0 * c2;
+    double cz = b0 * c1 - b1 * c0;
+    double det = a0 * cx + a1 * cy + a2 * cz;
+    double na = sqrt(a0 * a0 + a1 * a1 + a2 * a2);
+    double nb = sqrt(b0 * b0 + b1 * b1 + b2 * b2);
+    double nc = sqrt(c0 * c0 + c1 * c1 + c2 * c2);
+    double d = na * nb * nc;
+    return d > 0.0 ? fabs(det) / d : 0.0;
+}
+
+/* Transpose the as-applied 3x3, keeping the translation, into out[12]. */
+static void gs_transpose(const float *m, float *out)
+{
+    out[0] = m[0]; out[1] = m[3]; out[2] = m[6];
+    out[3] = m[1]; out[4] = m[4]; out[5] = m[7];
+    out[6] = m[2]; out[7] = m[5]; out[8] = m[8];
+    out[9] = m[9]; out[10] = m[10]; out[11] = m[11];
+}
+
+#define GS_SHADOW_EPS 0.10 /* flatness below this = a flattened (shadow) matrix */
+
 static int command_geo_scene(
     const char *bin_path, const char *txt_path, const char *rom_directory,
     const char *tex0_path, const char *tex1_path, const char *pose_str,
@@ -8435,6 +8475,8 @@ static int command_geo_scene(
     int *fixed = NULL;      /* matrix byte-identical in every frame? */
     int *grp = NULL;        /* 0 = camera-common, 1 = self-moving */
     int *anchor = NULL;     /* oba rec in Akira's ground-truth cluster */
+    int *shadow = NULL;     /* pose-frame matrix is flattened (det3 ~ 0) */
+    double *flat = NULL;    /* pose-frame flatness per slot */
     double *mtx = NULL;     /* mean translation, 3 per slot */
     double *motion_t = NULL;
     double *sorted = NULL;  /* motion_t sorted, for the band threshold */
@@ -8531,12 +8573,14 @@ static int command_geo_scene(
     fixed = (int *)malloc(nslots * sizeof(*fixed));
     grp = (int *)malloc(nslots * sizeof(*grp));
     anchor = (int *)malloc(nslots * sizeof(*anchor));
+    shadow = (int *)malloc(nslots * sizeof(*shadow));
+    flat = (double *)malloc(nslots * sizeof(*flat));
     mtx = (double *)malloc(nslots * 3u * sizeof(*mtx));
     motion_t = (double *)malloc(nslots * sizeof(*motion_t));
     sorted = (double *)malloc(nslots * sizeof(*sorted));
     if (mat == NULL || obaf == NULL || tpaf == NULL || fixed == NULL ||
-        grp == NULL || anchor == NULL || mtx == NULL ||
-        motion_t == NULL || sorted == NULL) {
+        grp == NULL || anchor == NULL || shadow == NULL || flat == NULL ||
+        mtx == NULL || motion_t == NULL || sorted == NULL) {
         goto done;
     }
 
@@ -8608,6 +8652,8 @@ static int command_geo_scene(
         mtx[s * 3u + 1u] = my;
         mtx[s * 3u + 2u] = mz;
         motion_t[s] = mt;
+        flat[s] = gs_flatness(&mat[(pose * nslots + s) * 12u]);
+        shadow[s] = (flat[s] < GS_SHADOW_EPS) ? 1 : 0;
         rec = (obaf[pose * nslots + s] & 0x7fffffu) * 4u;
         anchor[s] = (rec >= 0x130a44u && rec <= 0x1434a0u) ? 1 : 0;
     }
@@ -8666,7 +8712,7 @@ static int command_geo_scene(
     fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
     fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
     fprintf(mtl, "newmtl marker\nKd 1.0 0.0 0.0\n");
-    fprintf(csv, "slot,band,fixed,anchor,motion_t,Tx,Ty,Tz,"
+    fprintf(csv, "slot,band,shadow,flatness,fixed,anchor,motion_t,Tx,Ty,Tz,"
                  "tpa,oba,rec_byte,obj_id,tris\n");
     fprintf(obj, "# VF2 posed scene: pose frame %zu, %zu object slots, RAM9 "
                  "Step-2 matrices. Local only, never committed.\n", pose,
@@ -8674,7 +8720,8 @@ static int command_geo_scene(
     fprintf(obj, "mtllib scene.mtl\n");
 
     for (s = 0u; s < nslots; ++s) {
-        const char *gname = (grp[s] == 1) ? "selfmoving" : "cameracommon";
+        const char *gname = shadow[s] ? "shadow"
+                          : (grp[s] == 1) ? "selfmoving" : "cameracommon";
         const char *atag = anchor[s] ? "_akira" : "";
         uint32_t w0 = tpaf[pose * nslots + s];
         uint32_t off = 0u;
@@ -8695,7 +8742,8 @@ static int command_geo_scene(
             th_ptr = tl_u32(main_data, main_size,
                             0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
             vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, off,
-                                   uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m);
+                                   uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m,
+                                   NULL, NULL, 0u);
             ++resolved;
         } else {
             fprintf(obj, "usemtl marker\n");
@@ -8705,9 +8753,9 @@ static int command_geo_scene(
             ++stub;
         }
 
-        fprintf(csv, "%zu,%s,%d,%d,%.4f,%.3f,%.3f,%.3f,0x%x,0x%x,0x%x,"
+        fprintf(csv, "%zu,%s,%d,%.4f,%d,%d,%.4f,%.3f,%.3f,%.3f,0x%x,0x%x,0x%x,"
                      "0x%x,%zu\n",
-                s, gname, fixed[s], anchor[s], motion_t[s],
+                s, gname, shadow[s], flat[s], fixed[s], anchor[s], motion_t[s],
                 mtx[s*3u], mtx[s*3u+1u], mtx[s*3u+2u], (unsigned)w0,
                 (unsigned)(obaf[pose*nslots+s]),
                 (unsigned)((obaf[pose*nslots+s] & 0x7fffffu) * 4u),
@@ -8738,59 +8786,191 @@ static int command_geo_scene(
     }
     {
         size_t nfixed = 0u;
+        size_t nshadow = 0u;
+        size_t ns_cam = 0u;   /* non-shadow camera-common */
+        size_t ns_self = 0u;  /* non-shadow self-moving */
         size_t nanchor = 0u;
+        size_t anchor_shadow = 0u;
         size_t anchor_self = 0u;
-        double cam_max = 0.0;
-        double self_min = -1.0;
-        double self_max = 0.0;
         double anchor_max = 0.0;
+        double shadow_flat_max = 0.0;
+        double body_flat_min = 2.0;
         for (s = 0u; s < nslots; ++s) {
             if (fixed[s]) {
                 ++nfixed;
             }
+            if (shadow[s]) {
+                ++nshadow;
+                if (flat[s] > shadow_flat_max) {
+                    shadow_flat_max = flat[s];
+                }
+            } else {
+                if (flat[s] < body_flat_min) {
+                    body_flat_min = flat[s];
+                }
+                if (grp[s] == 1) {
+                    ++ns_self;
+                } else {
+                    ++ns_cam;
+                }
+            }
             if (anchor[s]) {
                 ++nanchor;
-                if (grp[s] == 1) {
+                if (shadow[s]) {
+                    ++anchor_shadow;
+                } else if (grp[s] == 1) {
                     ++anchor_self;
                 }
                 if (motion_t[s] > anchor_max) {
                     anchor_max = motion_t[s];
                 }
             }
-            if (grp[s] == 0 && motion_t[s] > cam_max) {
-                cam_max = motion_t[s];
-            }
-            if (grp[s] == 1) {
-                if (self_min < 0.0 || motion_t[s] < self_min) {
-                    self_min = motion_t[s];
-                }
-                if (motion_t[s] > self_max) {
-                    self_max = motion_t[s];
-                }
-            }
         }
-        printf("  matrices: %zu/%zu slots have a byte-identical matrix across "
-               "all frames\n", nfixed, nslots);
-        printf("            -> the camera pan is composed into EVERY matrix; a "
-               "raw static/moving\n");
-        printf("            test cannot split decor from fighters (that is "
-               "Step 3, camera removal).\n");
-        printf("  motion_t bands (max frame-to-frame translation deviation):\n");
-        printf("    median (camera floor) = %.4f, band threshold = %.4f "
-               "(widest gap in the data)\n", floor_m, threshold);
-        printf("    camera-common = %zu slots (motion_t <= %.4f, max %.4f): "
-               "ride the camera only\n", gcount[0], threshold, cam_max);
-        if (self_min >= 0.0) {
-            printf("    self-moving   = %zu slots (motion_t >= %.4f, "
-                   "%.4f..%.4f): move on their own\n", gcount[1], threshold,
-                   self_min, self_max);
-        } else {
-            printf("    self-moving   = 0 slots\n");
-        }
-        printf("  Akira anchor cluster 0x130a44..0x1434a0: %zu slots, up to "
-               "motion_t %.4f; %zu are self-moving (his limbs this frame)\n",
-               nanchor, anchor_max, anchor_self);
+        printf("  matrices: %zu/%zu slots byte-identical across all frames -> "
+               "the camera is in EVERY matrix,\n", nfixed, nslots);
+        printf("            so a raw static/moving test cannot split decor from "
+               "fighters (Step 3).\n");
+        printf("  shadows (3x3 determinant ~ 0, limbs flattened to the ground): "
+               "%zu/%zu slots\n", nshadow, nslots);
+        printf("            flatness: shadows <= %.4f, every non-shadow slot "
+               ">= %.4f (clean gap vs GS_SHADOW_EPS=%.2f)\n",
+               shadow_flat_max, (body_flat_min <= 1.5) ? body_flat_min : 0.0,
+               (double)GS_SHADOW_EPS);
+        printf("  repartition of %zu: shadows=%zu  non-shadow camera-common=%zu "
+               " non-shadow self-moving=%zu\n", nslots, nshadow, ns_cam,
+               ns_self);
+        printf("    (camera-common/self-moving split at motion_t %.4f, the "
+               "widest gap; median %.4f)\n", threshold, floor_m);
+        printf("  Akira anchor cluster 0x130a44..0x1434a0: %zu slots "
+               "(%zu shadow, %zu self-moving limbs, rest ride camera; up to "
+               "motion_t %.4f)\n", nanchor, anchor_shadow, anchor_self,
+               anchor_max);
     }
+
+    /* Rotation-convention test: Akira's group (anchored, shadows removed),
+     * posed as-is and with the 3x3 transposed, each to its own OBJ, plus the
+     * mean closest-approach between pieces (articulation gap) for each -- the
+     * convention that joins the limbs has the smaller gap. */
+    {
+        size_t *akslot = (size_t *)malloc(nslots * sizeof(size_t));
+        size_t nak = 0u;
+        if (akslot != NULL) {
+            for (s = 0u; s < nslots; ++s) {
+                if (anchor[s] && !shadow[s]) {
+                    akslot[nak++] = s;
+                }
+            }
+        }
+        if (nak >= 2u) {
+            int variant;
+            size_t *pbeg = (size_t *)malloc(nak * sizeof(size_t));
+            size_t *pend = (size_t *)malloc(nak * sizeof(size_t));
+            size_t vcap = 300000u;
+            vf2_model_vertex *vbuf =
+                (vf2_model_vertex *)malloc(vcap * sizeof(*vbuf));
+            if (pbeg == NULL || pend == NULL || vbuf == NULL) {
+                free(pbeg); free(pend); free(vbuf); free(akslot);
+                goto ak_done;
+            }
+            for (variant = 0; variant < 2; ++variant) {
+                FILE *vo;
+                size_t vn = 0u;
+                int vsheet = -1;
+                size_t vb = 1u;
+                size_t i;
+                size_t j;
+                double gap_sum = 0.0;
+                double gap_max = 0.0;
+                size_t gap_cnt = 0u;
+                snprintf(path, sizeof(path), "%s/akira_%s.obj", out_dir,
+                         variant == 0 ? "asis" : "transposed");
+                vo = fopen(path, "wb");
+                if (vo == NULL) {
+                    continue;
+                }
+                fprintf(vo, "# VF2 Akira group, pose frame %zu, rotation %s. "
+                            "Local only.\nmtllib scene.mtl\n", pose,
+                        variant == 0 ? "as-is (MAME transform_point)"
+                                     : "transposed 3x3");
+                for (i = 0u; i < nak; ++i) {
+                    size_t slot = akslot[i];
+                    uint32_t w0 = tpaf[pose * nslots + slot];
+                    uint32_t off = 0u;
+                    uint32_t bnk = 0u;
+                    uint32_t id = 0u;
+                    uint32_t uvp;
+                    uint32_t thp;
+                    size_t tr = 0u;
+                    float mt[12];
+                    const float *m = &mat[(pose * nslots + slot) * 12u];
+                    pbeg[i] = vn;
+                    if (vf2_model_lookup_w0(main_data, main_size, w0, 0x4000u,
+                                            &off, &bnk, &id) == VF2_OK) {
+                        uvp = tl_u32(main_data, main_size,
+                                     0x000e0004u + (size_t)id*16u + 0u)
+                              & 0x7fffffu;
+                        thp = tl_u32(main_data, main_size,
+                                     0x000e0004u + (size_t)id*16u + 4u)
+                              & 0x7fffffu;
+                        if (variant == 1) {
+                            gs_transpose(m, mt);
+                        }
+                        fprintf(vo, "o akira_slot%03zu_oba%06x\n", slot,
+                                (unsigned)(obaf[pose*nslots+slot] & 0x7fffffu));
+                        vb = ext_emit_piece(vo, poly, poly_size, tex, tex_size,
+                                            off, uvp, thp, vb, &vsheet, &tr,
+                                            variant == 0 ? m : mt,
+                                            vbuf, &vn, vcap);
+                    }
+                    pend[i] = vn;
+                }
+                fclose(vo);
+                /* articulation gap: for each piece, the closest distance from
+                 * any of its vertices to any vertex of another piece. */
+                for (i = 0u; i < nak; ++i) {
+                    double best = -1.0;
+                    size_t a;
+                    if (pend[i] <= pbeg[i]) {
+                        continue;
+                    }
+                    for (a = pbeg[i]; a < pend[i]; ++a) {
+                        for (j = 0u; j < nak; ++j) {
+                            size_t b;
+                            if (j == i) {
+                                continue;
+                            }
+                            for (b = pbeg[j]; b < pend[j]; ++b) {
+                                double dx = (double)vbuf[a].x - (double)vbuf[b].x;
+                                double dy = (double)vbuf[a].y - (double)vbuf[b].y;
+                                double dz = (double)vbuf[a].z - (double)vbuf[b].z;
+                                double d = sqrt(dx*dx + dy*dy + dz*dz);
+                                if (best < 0.0 || d < best) {
+                                    best = d;
+                                }
+                            }
+                        }
+                    }
+                    if (best >= 0.0) {
+                        gap_sum += best;
+                        if (best > gap_max) {
+                            gap_max = best;
+                        }
+                        ++gap_cnt;
+                    }
+                }
+                printf("  Akira rotation %-10s: %zu pieces -> %s/akira_%s.obj; "
+                       "joint gap mean=%.4f max=%.4f\n",
+                       variant == 0 ? "as-is" : "transposed", nak,
+                       out_dir, variant == 0 ? "asis" : "transposed",
+                       gap_cnt ? gap_sum / (double)gap_cnt : 0.0, gap_max);
+            }
+            free(pbeg);
+            free(pend);
+            free(vbuf);
+        }
+        free(akslot);
+    }
+ak_done:
     printf("  scene.obj: %zu slots posed (%zu from ROM geometry, %zu position "
            "stubs) -> %s/scene.obj (+ scene.mtl, scene_groups.csv, tex0/1.png)"
            "\n", nslots, resolved, stub, out_dir);
