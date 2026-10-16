@@ -2246,6 +2246,75 @@ static vf2_status sound_board_dispatch_90(
        table pick reads d3.w only (0x894 `move.l (a1,d3.w)`), so the
        index is exact. */
     if (descriptor[2u] < 0xf0u) {
+        /* ROM 0xa3e-0xa88 LOW row walk (v0825 E1k): the same
+         * 0x6053aa table family as the 80-LOW walk (E1g), but
+         * the masking discipline differs -- 0xa44 andi.w and
+         * 0xa72 andi.w are WORD ops (d3/d4 uppers survive), yet
+         * every use reads .w/.b only (0xa4a move.l (a1,d3.w),
+         * 0xa52 cmp.b, 0xa6e add.b, 0xa7c move.b (a1,d4.w)), so
+         * the residue never participates (v0821 byte-domain
+         * rule, same conclusion as E1g's LONG audit by a
+         * different route). Files $1516 (word cursor+4), $1518
+         * (byte cursor+2), $1515 (byte 0x60c3e6+index, index =
+         * (base + byte(cursor+3)) & 0x7f with byte-add wrap),
+         * $1511 (desc[6]), then bra 0xf12 (voice allocator,
+         * S2/S3 setup territory -- refused). The walk is
+         * uncapped with per-read OOB fail-closed (E1g
+         * precedent: identical to silicon for every in-ROM
+         * walk). */
+        uint32_t select = (uint32_t)descriptor[2u] & 0x7fu;
+        uint32_t table_base = 0u;
+        uint32_t cursor = 0u;
+        uint8_t walk_base =
+            board->sound_ram[VF2_SOUND_LOOKUP_CURRENT];
+        uint8_t threshold = 0u;
+        uint8_t addend = 0u;
+        uint8_t meta = 0u;
+        uint8_t row_byte = 0u;
+        uint16_t word = 0u;
+        if (read_audio_be32(board,
+                            UINT32_C(0x6053aa) + select * 4u,
+                            &table_base) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        cursor = table_base;
+        for (;;) {
+            if (read_audio_byte_absolute(board, cursor,
+                                        &threshold) != VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            if ((uint32_t)walk_base <= (uint32_t)threshold) {
+                break;
+            }
+            cursor += 6u;
+        }
+        if (sound_board_read_table_word(board, cursor + 4u,
+                                        &word) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        write_be16(board->sound_ram + VF2_SOUND_LOOKUP_WORD, word);
+        if (read_audio_byte_absolute(board, cursor + 2u,
+                                    &meta) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        board->sound_ram[VF2_SOUND_LOOKUP_META] = meta;
+        if (read_audio_byte_absolute(board, cursor + 3u,
+                                    &addend) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        if (sound_board_read_table_u8(
+                board,
+                UINT32_C(0x60c3e6) +
+                (uint32_t)(((uint32_t)walk_base +
+                             (uint32_t)addend) &
+                            0x7fu),
+                &row_byte) != VF2_OK) {
+            return VF2_ERROR_OUT_OF_BOUNDS;
+        }
+        board->sound_ram[UINT32_C(0x2515)] = row_byte;
+        board->sound_ram[VF2_SOUND_LOOKUP_CONTROL] =
+            descriptor[6u];
+        report->handler_address = UINT32_C(0x00000f12);
         return VF2_ERROR_UNSUPPORTED;
     }
     {

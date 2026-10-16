@@ -374,14 +374,20 @@ int main(void)
 
         /* 90-class prefix (S2b primer truth: head = payload 0x05,
            second = ring byte 2 = 0x02). Base 0x15 (0x05 + 0x10),
-           mode = ROM[0x60c6a6+2]. desc[2] = 3 is LOW: refuse at the
-           0x878 split (S2d owns Loop-B only past the HIGH door),
-           packet held. */
+           mode = ROM[0x60c6a6+2]. desc[2] = 3 is LOW (E1k):
+           sel-3 synthetic row (th 0x7f, word 0x00ff), walk
+           stops at e0, files $1516/$1518/$1515/$1511, refuses
+           at the 0xf12 allocator, packet held. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
         audio_rom[0xc6a6u + 2u] = 0x44u;
+        audio_rom[0x53b6u] = 0x00u; audio_rom[0x53b7u] = 0x60u;
+        audio_rom[0x53b8u] = 0x74u; audio_rom[0x53b9u] = 0x00u;
+        audio_rom[0x7400u] = 0x7fu; audio_rom[0x7402u] = 0x00u;
+        audio_rom[0x7403u] = 0x00u; audio_rom[0x7404u] = 0x00u;
+        audio_rom[0x7405u] = 0xffu;
         descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
         descriptor[0] = 0x80u;
         descriptor[1] = 3u;
@@ -393,24 +399,37 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                     VF2_ERROR_UNSUPPORTED);
-        EXPECT_TRUE(dispatch.handler_address == 0x858u);
+        EXPECT_TRUE(dispatch.handler_address == 0xf12u);
         EXPECT_TRUE(dispatch.channel == 3u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x15u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x44u);
         EXPECT_TRUE(dispatch.selected_value == 0x44u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD + 1u] == 0xffu);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_META] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[0x2515u] == 0x00u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CONTROL] == 0x00u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
         /* 90-class mode with a nonzero base high byte (S2b: base =
            0x05 + 0x80 = 0x85, mid 0, so the marker lives at
            0x60c6a6+2 -- the old +0x10000 file read a mode the new
-           head never addresses). */
+           head never addresses). desc[2] = 15 is LOW (E1k):
+           sel-15 synthetic row needs th >= 0x85 (0x7f would be
+           skipped), so th 0xff; walk stops at e0, files, refuses
+           at 0xf12, held. */
         {
             static uint8_t big_rom[0x20000u];
             memset(big_rom, 0, sizeof(big_rom));
             test_boot_rom(big_rom);
             big_rom[0xc6a6u + 2u] = 0x2au;
+            big_rom[0x53e6u] = 0x00u; big_rom[0x53e7u] = 0x60u;
+            big_rom[0x53e8u] = 0x74u; big_rom[0x53e9u] = 0x00u;
+            big_rom[0x7400u] = 0xffu; big_rom[0x7402u] = 0x00u;
+            big_rom[0x7403u] = 0x00u; big_rom[0x7404u] = 0x00u;
+            big_rom[0x7405u] = 0xffu;
             EXPECT_TRUE(vf2_sound_board_initialize(&board, big_rom, sizeof(big_rom),
                                        sample_rom, sizeof(sample_rom)) == VF2_OK);
             descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -424,11 +443,13 @@ int main(void)
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
                         VF2_ERROR_UNSUPPORTED);
-            EXPECT_TRUE(dispatch.handler_address == 0x858u);
+            EXPECT_TRUE(dispatch.handler_address == 0xf12u);
             EXPECT_TRUE(dispatch.channel == 15u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_CURRENT] == 0x85u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_MODE] == 0x2au);
             EXPECT_TRUE(dispatch.selected_value == 0x2au);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD] == 0x00u);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_LOOKUP_WORD + 1u] == 0xffu);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         }
 
