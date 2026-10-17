@@ -776,7 +776,7 @@ vf2_status vf2_sound_board_maintain_streams(
         }
         /* Measured body: countdown decrements only. */
         if (records[0x0cu] != 0u) {
-            records[0x0du] -= 1u;
+            records[0x0du] = (uint8_t)(records[0x0du] - 1u);
         }
         for (index = 0u; index < 8u; ++index) {
             uint8_t *record = records + index * 0x20u;
