@@ -9202,6 +9202,86 @@ static size_t gf_find(size_t *p, size_t x)
     return x;
 }
 
+static void gf_store_word(uint8_t *ram, size_t idx_word, uint32_t v)
+{
+    size_t b = idx_word * 4u;
+    ram[b + 0u] = (uint8_t)(v & 0xffu);
+    ram[b + 1u] = (uint8_t)((v >> 8) & 0xffu);
+    ram[b + 2u] = (uint8_t)((v >> 16) & 0xffu);
+    ram[b + 3u] = (uint8_t)((v >> 24) & 0xffu);
+}
+
+/* Replay the frame's 0x05 (geo_polygon_data) commands into the two polygon-RAM
+ * buffers, exactly as MAME (model2_v.cpp:1886): address, count, then `count`
+ * words copied into polygon_ram1 (address & 0x01000000) or polygon_ram0 at word
+ * index address & 0x7fff. Each buffer is 0x8000 words = 0x20000 bytes (LE, the
+ * same layout ext_emit_piece reads the ROM in). *wmax0/1 = highest word index
+ * written, so a RAM object reading past it (not uploaded this frame) is reported. */
+static void gf_fill_polyram(const uint32_t *w, size_t nw, uint32_t readstart,
+                            uint8_t *ram0, uint8_t *ram1,
+                            size_t *wmax0, size_t *wmax1)
+{
+    size_t ptr = (size_t)((readstart & 0x1ffffu) >> 2);
+    size_t opc = 0u;
+    *wmax0 = 0u; *wmax1 = 0u;
+    while (opc++ < 0x40000u && ptr < nw) {
+        uint32_t op = w[ptr++];
+        uint32_t cmd;
+        size_t need = 0u;
+        if (op & 0x80000000u) { ptr = (size_t)((op & 0x1ffffu) >> 2); continue; }
+        cmd = (op >> 23) & 0x1fu;
+        switch (cmd) {
+        case 0x00u: need = 0u; break;
+        case 0x07u: case 0x17u: case 0x08u: case 0x18u:
+        case 0x10u: case 0x16u: case 0x1eu: need = 1u; break;
+        case 0x09u: case 0x19u: case 0x0du: need = 2u; break;
+        case 0x0au: case 0x1au: case 0x0cu: case 0x1cu: need = 3u; break;
+        case 0x03u: case 0x13u: need = 6u; break;
+        case 0x0bu: case 0x1bu: need = 12u; break;
+        case 0x01u: case 0x11u: need = 4u; break;
+        case 0x04u: case 0x14u: case 0x05u: case 0x15u:
+            if (ptr + 2u > nw) return;
+            need = 2u + (size_t)w[ptr + 1u]; break;
+        case 0x06u:
+            if (ptr + 2u > nw) return;
+            need = 2u + (size_t)w[ptr + 1u] * 2u; break;
+        case 0x1du:
+            if (ptr + 2u > nw) return;
+            need = 2u + (size_t)w[ptr + 1u] * 3u; break;
+        case 0x02u: case 0x12u: {
+            size_t p = ptr + 8u;
+            for (;;) {
+                uint32_t attr;
+                if (p >= nw) return;
+                attr = w[p++];
+                if ((attr & 3u) == 0u) break;
+                p += 5u;
+                if (attr & 1u) p += 3u;
+            }
+            need = p - ptr; break;
+        }
+        case 0x0eu:
+            if (ptr + 33u > nw) return;
+            need = 32u + 1u + (size_t)w[ptr + 32u] * 3u; break;
+        case 0x0fu: case 0x1fu: return;
+        default: return;
+        }
+        if (ptr + need > nw) return;
+        if (cmd == 0x05u || cmd == 0x15u) {
+            uint32_t address = w[ptr];
+            uint32_t count = w[ptr + 1u];
+            uint8_t *ram = (address & 0x01000000u) ? ram1 : ram0;
+            size_t *wm = (address & 0x01000000u) ? wmax1 : wmax0;
+            size_t idx = (size_t)(address & 0x7fffu);
+            size_t i;
+            for (i = 0u; i < count && (idx + i) < 0x8000u; ++i)
+                gf_store_word(ram, idx + i, w[ptr + 2u + i]);
+            if (idx + count > *wm) *wm = idx + count;
+        }
+        ptr += need;
+    }
+}
+
 static int command_geo_fighter(
     const char *bin_path, const char *txt_path, const char *rom_directory,
     const char *tex0_path, const char *tex1_path, const char *pose_str,
@@ -9234,6 +9314,10 @@ static int command_geo_fighter(
     int *grp2 = NULL;
     double *cand_scx = NULL, *dmat = NULL;
     float *worldv = NULL;
+    uint8_t *ram0 = NULL, *ram1 = NULL;
+    const uint8_t **cand_pbuf = NULL;
+    size_t *cand_psize = NULL;
+    size_t wmax0 = 0u, wmax1 = 0u, nram_unwritten = 0u;
     size_t ncand = 0u, i, j, k, wvn = 0u, wvcap;
     size_t ca = 0u, cb = 0u;      /* the two largest components' roots */
     double bestT = 0.05, best2nd = -1.0, Tt;
@@ -9279,11 +9363,18 @@ static int command_geo_fighter(
     words = (uint32_t *)malloc(frame_words * sizeof(*words));
     objs = (vf2_geo_object *)malloc(max_objs * sizeof(*objs));
     vacc = (vf2_model_vertex *)malloc(vcap * sizeof(*vacc));
-    if (bin == NULL || words == NULL || objs == NULL || vacc == NULL) { fprintf(stderr, "geo-fighter: alloc\n"); goto done; }
+    ram0 = (uint8_t *)calloc(0x20000u, 1u);
+    ram1 = (uint8_t *)calloc(0x20000u, 1u);
+    if (bin == NULL || words == NULL || objs == NULL || vacc == NULL ||
+        ram0 == NULL || ram1 == NULL) { fprintf(stderr, "geo-fighter: alloc\n"); goto done; }
     if (!gs_read_frame(bin, pose, frame_bytes, words, frame_words) ||
         vf2_geo_walk(words, frame_words, readstart[pose], objs, max_objs, &nobjs, &stop, NULL) != VF2_OK) {
         fprintf(stderr, "geo-fighter: frame %zu walk failed\n", pose); goto done;
     }
+    /* replay the frame's 0x05 commands to reconstruct the polygon RAM, so the
+     * RAM-sourced pieces (Akira's shin 0x000010 etc.) can be decoded like MAME. */
+    gf_fill_polyram(words, frame_words, readstart[pose], ram0, ram1,
+                    &wmax0, &wmax1);
 
     /* decor (shared) matrix -> camera; take the first decor-range object */
     for (s = 0u; s < nobjs; ++s) {
@@ -9305,35 +9396,45 @@ static int command_geo_fighter(
     pcount = (size_t *)malloc(nobjs * sizeof(*pcount));
     cand_scx = (double *)malloc(nobjs * sizeof(*cand_scx));
     sel = (size_t *)malloc(nobjs * sizeof(*sel));
+    cand_pbuf = (const uint8_t **)malloc(nobjs * sizeof(*cand_pbuf));
+    cand_psize = (size_t *)malloc(nobjs * sizeof(*cand_psize));
     wvcap = vcap;
     worldv = (float *)malloc(wvcap * 3u * sizeof(*worldv));
     if (mf == NULL || cand_rec == NULL ||
         cand_tpa == NULL || cand_s == NULL || pstart == NULL || pcount == NULL ||
-        cand_scx == NULL || sel == NULL || worldv == NULL)
+        cand_scx == NULL || sel == NULL || worldv == NULL ||
+        cand_pbuf == NULL || cand_psize == NULL)
         goto done;
 
     /* every non-shadow, resolvable fighter piece (the 2 decor-matrix records out):
      * decode its WORLD vertices (camera removed) and record its on-screen x. */
     for (s = 0u; s < nobjs; ++s) {
         uint32_t oba = objs[s].oba;
-        uint32_t rec = (oba & 0x7fffffu) * 4u;
-        size_t vn = 0u;
-        if (rec == 0x581d50u || rec == 0x1a9b54u) continue;
-        if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;  /* shadow */
-        if (rec >= 0x3c1facu && rec <= 0x3ca730u) continue;         /* decor */
-        /* MAME geo_object_data: oba bit24 = fast polygon RAM, bit23 = polygon ROM,
-         * else slow polygon RAM. Only ROM is in our capture; a RAM-sourced piece
-         * (e.g. Akira's shin 0x000010 at f20, in polygon RAM) cannot be decoded
-         * here -- skip it rather than read ROM garbage, and count it. */
-        if ((oba & 0x01000000u) != 0u || (oba & 0x00800000u) == 0u) {
-            ++nram;
-            continue;
+        const uint8_t *pbuf;
+        size_t psize, vn = 0u;
+        uint32_t rec;
+        int is_rom;
+        /* MAME geo_object_data source: bit24 = fast polygon RAM, bit23 = polygon
+         * ROM, else slow polygon RAM. ROM reads the static ROM at (oba&0x7fffff)*4;
+         * RAM reads the frame's reconstructed polygon RAM at (oba&0x7fff)*4. */
+        if (oba & 0x01000000u) { pbuf = ram1; psize = 0x20000u; rec = (oba & 0x7fffu) * 4u; is_rom = 0; }
+        else if (oba & 0x00800000u) { pbuf = poly; psize = poly_size; rec = (oba & 0x7fffffu) * 4u; is_rom = 1; }
+        else { pbuf = ram0; psize = 0x20000u; rec = (oba & 0x7fffu) * 4u; is_rom = 0; }
+        if (is_rom && (rec == 0x581d50u || rec == 0x1a9b54u)) continue;  /* bad */
+        if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;       /* shadow */
+        if (is_rom && rec >= 0x3c1facu && rec <= 0x3ca730u) continue;    /* decor */
+        if (!is_rom) {
+            /* RAM object: was its word index uploaded by a 0x05 this frame? */
+            size_t widx = (size_t)(oba & 0x7fffu);
+            size_t wm = (oba & 0x01000000u) ? wmax1 : wmax0;
+            if (widx >= wm) { ++nram_unwritten; continue; }
         }
-        if ((size_t)rec + 24u > poly_size) continue;
+        if ((size_t)rec + 24u > psize) continue;
         gs_worldframe(objs[s].matrix, mdec, adi, mf[ncand]);
-        (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u, 1u,
+        (void)ext_emit_piece(NULL, pbuf, psize, NULL, 0u, rec, 0u, 0u, 1u,
                              &sheet, &tr, mf[ncand], vacc, &vn, vcap);
         if (vn == 0u) continue;
+        if (!is_rom) ++nram;
         pstart[ncand] = wvn;
         for (e = 0u; e < vn && wvn < wvcap; ++e) {
             worldv[wvn * 3u + 0u] = vacc[e].x;
@@ -9342,11 +9443,13 @@ static int command_geo_fighter(
             ++wvn;
         }
         pcount[ncand] = wvn - pstart[ncand];
-        cand_scx[ncand] = gf_screen_cx(poly, poly_size, rec, objs[s].matrix,
+        cand_scx[ncand] = gf_screen_cx(pbuf, psize, rec, objs[s].matrix,
                                        vacc, vcap);
         cand_rec[ncand] = rec;
         cand_tpa[ncand] = objs[s].tpa;
         cand_s[ncand] = s;
+        cand_pbuf[ncand] = pbuf;
+        cand_psize[ncand] = psize;
         ++ncand;
     }
     if (ncand == 0u) { fprintf(stderr, "geo-fighter: no fighter pieces\n"); goto done; }
@@ -9520,9 +9623,9 @@ static int command_geo_fighter(
             th_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
         }
         fprintf(obj, "o %s_piece%02zu_rec%06x\n", which, k, (unsigned)cand_rec[idx]);
-        vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, cand_rec[idx],
-                               uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m2,
-                               NULL, NULL, 0u);
+        vbase = ext_emit_piece(obj, cand_pbuf[idx], cand_psize[idx], tex, tex_size,
+                               cand_rec[idx], uv_ptr, th_ptr, vbase, &cur_sheet,
+                               &tris, m2, NULL, NULL, 0u);
         tris_total += tris;
     }
     snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
@@ -9532,12 +9635,14 @@ static int command_geo_fighter(
 
     printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png)\n",
            which, pose, out_dir, which, which);
-    printf("  %zu ROM fighter pieces, 3D connected-components at joint threshold "
-           "%.2f; selected %s (%s) = %zu pieces, %zu triangles\n",
-           ncand, bestT, which, side == 0 ? "left" : "right", nsel, tris_total);
-    if (nram > 0u)
-        printf("  note: %zu RAM-sourced piece(s) skipped (in polygon RAM, not in "
-               "this capture) -- e.g. a shin; needs a polygon-RAM capture\n", nram);
+    printf("  %zu fighter pieces (%zu decoded from reconstructed polygon RAM), "
+           "3D connected-components at joint threshold %.2f; selected %s (%s) = "
+           "%zu pieces, %zu triangles\n",
+           ncand, nram, bestT, which, side == 0 ? "left" : "right", nsel,
+           tris_total);
+    if (nram_unwritten > 0u)
+        printf("  note: %zu RAM piece(s) read an index not uploaded this frame "
+               "(0x05 from a previous frame needed)\n", nram_unwritten);
     printf("  camera removed; vertical axis %c, feet at origin; "
            "bbox world extent (%.2f,%.2f,%.2f)\n",
            "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
@@ -9551,7 +9656,8 @@ done:
     free(words); free(objs); free(vacc); free(mf);
     free(cand_rec); free(cand_tpa); free(cand_s); free(pstart); free(pcount);
     free(cand_scx); free(sel); free(worldv); free(dmat); free(parent);
-    free(compsz); free(grp2);
+    free(compsz); free(grp2); free(ram0); free(ram1);
+    free(cand_pbuf); free(cand_psize);
     free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
     return rc;
 }
