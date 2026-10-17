@@ -137,6 +137,64 @@ vf2_status vf2_session_pump_audio(
     vf2_session_audio_pump_report *report
 );
 
+/* One sound-drain interrupt (vector 15) service report (v0853).
+ * `armed` is enable bit 10 of 0xe80004 at call entry; `ticks` counts
+ * ISR services run (one per byte emitted plus the ROM's final empty
+ * pass, which disarms); `bytes` holds what the ROM stored to the UART
+ * data slot, in order; `entries_popped` is the queue count delta. */
+enum {
+    VF2_SESSION_SOUND_DRAIN_MAX_BYTES = 64,
+    VF2_SESSION_SOUND_DRAIN_TICK_CAP = 80
+};
+
+typedef struct vf2_session_sound_drain_report {
+    uint32_t armed;
+    uint32_t ticks;
+    uint32_t bytes_moved;
+    uint32_t entries_popped;
+    uint8_t bytes[VF2_SESSION_SOUND_DRAIN_MAX_BYTES];
+} vf2_session_sound_drain_report;
+
+/* Run the real ROM sound-drain ISR on this session's CPU until the
+ * line disarms, reporting what the ROM sent (v0853).
+ *
+ * The i960 sound line is external interrupt vector 15: request bit 10
+ * of 0xe80000, enable bit 10 of 0xe80004. The ROM arms it itself --
+ * the queue filer 0x43888 pokes [0xe80004] with 0x21 then 0x421 on
+ * accept -- and the handler 0xe10 (gated on enable bit 10) calls
+ * 0x437d0, which acknowledges the line and drains exactly ONE byte
+ * per service to the Model 2A UART data slot 0x01c80000, re-arming
+ * while entries remain and returning without a re-arm when the queue
+ * runs out. The frame loop injects only vector 12, so the oracle
+ * never runs this ISR; no live UART write was ever observed in the
+ * 8c/8f hunts because of it (and a hunt that watched 0x009c0000
+ * instead of the ROM-staged 0x01c80000). This primitive services the
+ * line the way the enabled device would: while armed, raise the
+ * request bit and enter the vector, one full ISR invocation per
+ * tick, reading the byte the ROM stored after each tick.
+ *
+ * Measured contract (out/park-sixth-a6c0.vf2snap, live 3-entry
+ * queue, armed): 10 ticks, 9 bytes ae 10 1f 9e 0a 7f ae 10 1f, 3
+ * ring entries popped, end state count 0 / rcur 3 / byte index 0xff
+ * / staged word 0x00ae101f / enable 0x21 (the ROM's own empty pass
+ * disarms) / request 0x00000000. The pump's shadow-CPU drain emits
+ * the identical bytes and queue cells; the one measured difference
+ * is the enable register, which the shadow drain leaves at 0x421
+ * (it stops one tick earlier). See
+ * decomp/i960/notes/audio_isr_v15_live_v0853.md.
+ *
+ * Host-driven, never implicit in step (the pump's contract): an
+ * unarmed line reports VF2_OK with zero work, exactly the measured
+ * negative. Fails closed -- VF2_ERROR_UNSUPPORTED -- on a session the
+ * recovered native runtime last advanced (the drain runs raw
+ * interpreter instructions on the session CPU, only sound on
+ * interpreter-driven state) and on any tick that does not return to
+ * the interrupted IP within the step/tick caps. */
+vf2_status vf2_session_service_sound_drain(
+    vf2_session *session,
+    vf2_session_sound_drain_report *report
+);
+
 /* FNV-1a of the work RAM (0x00500000..0x005fffff); determinism checks. */
 vf2_status vf2_session_work_ram_digest(vf2_session *session, uint32_t *digest);
 

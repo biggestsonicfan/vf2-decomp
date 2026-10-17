@@ -534,6 +534,23 @@ if(VF2_BUILD_TESTS)
         set_tests_properties(vf2_session_queue_hunt PROPERTIES
             SKIP_RETURN_CODE 77
             TIMEOUT 900)
+        # Sound-drain interrupt (vector 15) live service (v0853): the
+        # real ROM ISR drains the live park queue to the UART slot
+        # (0x01c80000, the address the drainer's own lda stages); the
+        # pump's shadow-CPU C drain is the differential control.
+        # Needs the gitignored park + sixth-fresh snapshots; skips
+        # (exit 77) where absent, same rule as the legs above.
+        add_executable(vf2_session_sound_isr_tests tests/host/test_session_sound_isr.c)
+        target_link_libraries(vf2_session_sound_isr_tests PRIVATE vf2_core)
+        vf2_set_project_warnings(vf2_session_sound_isr_tests)
+        add_test(NAME vf2_session_sound_isr
+            COMMAND vf2_session_sound_isr_tests
+                "${VF2_ROM_DIR}"
+                "${CMAKE_SOURCE_DIR}/out/park-sixth-a6c0.vf2snap"
+                "${CMAKE_SOURCE_DIR}/out/sixth-fresh.vf2snap")
+        set_tests_properties(vf2_session_sound_isr PROPERTIES
+            SKIP_RETURN_CODE 77
+            TIMEOUT 900)
     endif()
 
     add_executable(vf2_game_tests tests/game/test_game.c)

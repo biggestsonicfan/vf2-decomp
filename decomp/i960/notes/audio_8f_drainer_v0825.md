@@ -68,3 +68,16 @@ mapped, unrecovered) and any live trigger. The synthetic chain
 entirely from stepper-proven C -- that composition is the next
 slice.
 ",
+
+## v0853 correction -- the drainer DOES have a live caller
+
+The census counted `call` instructions and missed the
+interrupt-vector entry. The live caller is external interrupt
+vector 15 (handler 0xe10, gated on enable bit 10); the only
+static `call 0x437d0` is the handler's own 0xe24. The
+drain now runs live under
+`vf2_session_service_sound_drain`: one byte per service to
+0x01c80000, re-arm 0x421 after each store, natural disarm to
+0x21 on the empty pass; the C-model pump drain is byte- and
+cell-identical, stopping one tick before that disarm. See
+`audio_isr_v15_live_v0853.md`.

@@ -212,3 +212,20 @@ test_cdispatch: reset/L1/L2/L3 entry words.)
   (Carried from the 8a/8b note -- repeated here because the
   bridge slice will touch sample windows again.)
 ",
+
+## v0853 correction -- the "no live writer event" premise is void
+
+- The 8d driver watched **0x009c0000**, a table-resident lead.
+  The drainer stages the ROM-immediate **0x01c80000** (0x43860
+  `lda 0x01c80000, r3`), and the pump reads that slot back.
+  Zero hits there measured the wrong address, not a silent game.
+- The oracle services no interrupt but the frame's (vector 12),
+  so the ROM's only UART writer -- the vector-15 drain ISR -- had
+  never run. It now has: `vf2_session_service_sound_drain`
+  drains the live park queue byte by byte (9 bytes
+  `ae 10 1f 9e 0a 7f ae 10 1f`, 10 services, 289 instructions,
+  self-disarm to enable 0x21). See `audio_isr_v15_live_v0853.md`.
+- The gameplay-writers hunt is NOT invalidated; only its
+  negative is. The source side (a gameplay event that files)
+  remains open; the pointer is `byte[0x500f00] == 1` at the
+  flusher 0x43abc (measured 0 in every parked state).

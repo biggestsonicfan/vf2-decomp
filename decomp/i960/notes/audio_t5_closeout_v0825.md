@@ -42,6 +42,14 @@ context files anything in 70+ hunted frames.
 - Gameplay writers: PUNCH/KICK/START-edge sixth-fresh,
   fighter-task frame all negative (70+ frames); contact
   snapshots don't exist; entry-2 (9e0a7f) filer uncaught.
+  (v0853 narrowed this: the sink side is now live -- the vector-15
+  ISR drains the queue to 0x01c80000, first writer event measured,
+  including the park queue's middle entry 0x009e0a7f -- and the 70+
+  frame negative is explained: the oracle services no interrupt but
+  the frame's, and the 8d driver watched 0x009c0000, not the
+  ROM-immediate 0x01c80000. The source side -- what opens the
+  flusher's `byte[0x500f00]` gate (measured 0 in every parked state)
+  -- remains open. See `audio_isr_v15_live_v0853.md`.)
 - Engine (0xc68+) keying/voicing: arrivals name the door,
   outcomes stay oracle-side. a0 body: residue-dependent,
   unrecovered by measurement (not by neglect).

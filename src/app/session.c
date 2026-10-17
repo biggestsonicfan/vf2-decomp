@@ -29,6 +29,11 @@ struct vf2_session {
     int audio_ready;
     vf2_status audio_status;
     uint32_t last_input;
+    /* Sticky: set once the recovered native runtime runs a frame in this
+     * session. The sound-drain service executes raw interpreter code on the
+     * session CPU, which is only a verified operation on interpreter-driven
+     * state, so it fails closed here (v0853). */
+    int stepped_native;
     /* cpu.executed_instructions carried by the start snapshot (boot to the
      * cold dispatch).  Instruction counts are reported relative to this so the
      * split reflects only what this session ran.  interpreted starts at 0: it
@@ -134,6 +139,9 @@ vf2_status vf2_session_step(vf2_session *s, uint32_t input)
     vf2_status st;
 
     if (s == NULL) return VF2_ERROR_INVALID_ARGUMENT;
+    /* The recovered native runtime taints the session for the sound-drain
+     * service even if the frame fails midway. */
+    s->stepped_native = 1;
     memset(&report, 0, sizeof(report));
     st = vf2_game_set_input(&s->game, input);
     if (st != VF2_OK) return st;
@@ -365,6 +373,12 @@ vf2_status vf2_session_audio_status(const vf2_session *s)
 #define VF2_SESSION_SOUND_UART_DATA UINT32_C(0x01c80000)
 #define VF2_SESSION_SOUND_DRAIN_ENTRY UINT32_C(0x00043800)
 #define VF2_SESSION_SOUND_PUMP_TICK_CAP 48u
+/* Sound-drain interrupt (vector 15) service (v0853). */
+#define VF2_SESSION_SOUND_ENABLE UINT32_C(0x00e80004)
+#define VF2_SESSION_SOUND_IRQ_BIT UINT32_C(0x00000400)
+#define VF2_SESSION_SOUND_IRQ_VECTOR 15u
+#define VF2_SESSION_SOUND_IRQ_LEVEL 1u
+#define VF2_SESSION_SOUND_TICK_STEP_CAP UINT64_C(4096)
 
 vf2_status vf2_session_pump_audio(
     vf2_session *s,
@@ -498,6 +512,113 @@ vf2_status vf2_session_pump_audio(
         report->voice_status =
             vf2_sound_board_maintain_voices(board, &voice_report);
     }
+    return VF2_OK;
+}
+
+vf2_status vf2_session_service_sound_drain(
+    vf2_session *s,
+    vf2_session_sound_drain_report *report
+)
+{
+    uint32_t enable = 0u;
+    uint8_t count_before = 0u;
+    uint8_t count_after = 0u;
+    vf2_status st = VF2_OK;
+
+    if (s == NULL || report == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    *report = (vf2_session_sound_drain_report){0};
+    /* Fail closed on a session the recovered native runtime last advanced:
+     * this primitive runs raw interpreter instructions on the session CPU,
+     * which is only verified on interpreter-driven state (a restored
+     * snapshot state or oracle-stepped frames). */
+    if (s->stepped_native) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    st = vf2_model2a_read_u32(&s->machine, VF2_SESSION_SOUND_ENABLE, &enable);
+    if (st != VF2_OK) {
+        return st;
+    }
+    report->armed = (enable & VF2_SESSION_SOUND_IRQ_BIT) != 0u ? 1u : 0u;
+    if (report->armed == 0u) {
+        /* The line is not armed: silicon would not service it either -- a
+         * measured negative (the ROM only reaches 0x437d0 through the
+         * enabled vector-15 entry), reported as zero work. */
+        return VF2_OK;
+    }
+    if (vf2_model2a_read(&s->machine, VF2_SESSION_SOUND_QUEUE_COUNT,
+                         &count_before, sizeof(count_before)) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    while ((enable & VF2_SESSION_SOUND_IRQ_BIT) != 0u) {
+        uint32_t entry_ip = s->cpu.ip;
+        vf2_i960_run_options options;
+        vf2_i960_run_result result;
+
+        if (report->ticks >= (uint32_t)VF2_SESSION_SOUND_DRAIN_TICK_CAP) {
+            /* Still armed after the cap: the ROM shape this recovery pins
+             * does not spin (its empty pass disarms), so refuse. */
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        /* UART-ready as the enabled device line: the ROM filer writes 0x421
+         * on accept, so an armed enable is exactly the state silicon would
+         * pend the request in. The ISR acknowledges it (its first act). */
+        st = vf2_model2a_raise_interrupt(
+            &s->machine, VF2_SESSION_SOUND_IRQ_BIT
+        );
+        if (st != VF2_OK) {
+            return st;
+        }
+        st = vf2_i960_cpu_enter_interrupt(
+            &s->cpu, &s->machine,
+            VF2_SESSION_SOUND_IRQ_VECTOR, VF2_SESSION_SOUND_IRQ_LEVEL
+        );
+        if (st != VF2_OK) {
+            return st;
+        }
+        memset(&options, 0, sizeof(options));
+        options.stop_address = entry_ip;
+        options.max_steps = VF2_SESSION_SOUND_TICK_STEP_CAP;
+        options.stop_on_self_branch = true;
+        st = vf2_i960_run(&s->cpu, &s->machine, &options, &result);
+        if (st != VF2_OK) {
+            return st;
+        }
+        if (result.halt_reason != VF2_I960_HALT_STOP_ADDRESS) {
+            /* A tick that does not return to the interrupted IP is not a
+             * verified shape; fail closed with the report as measured so
+             * far. */
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        ++report->ticks;
+        st = vf2_model2a_read_u32(
+            &s->machine, VF2_SESSION_SOUND_ENABLE, &enable
+        );
+        if (st != VF2_OK) {
+            return st;
+        }
+        if ((enable & VF2_SESSION_SOUND_IRQ_BIT) != 0u) {
+            /* The drainer re-arms only after it stored a byte, so an armed
+             * readback after the tick is exactly "one byte was sent". */
+            uint8_t byte = 0u;
+            if (vf2_model2a_read(&s->machine, VF2_SESSION_SOUND_UART_DATA,
+                                 &byte, sizeof(byte)) != VF2_OK) {
+                return VF2_ERROR_OUT_OF_BOUNDS;
+            }
+            if (report->bytes_moved >=
+                (uint32_t)VF2_SESSION_SOUND_DRAIN_MAX_BYTES) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            report->bytes[report->bytes_moved++] = byte;
+        }
+    }
+    if (vf2_model2a_read(&s->machine, VF2_SESSION_SOUND_QUEUE_COUNT,
+                         &count_after, sizeof(count_after)) != VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
+    report->entries_popped =
+        (uint32_t)(uint8_t)(count_before - count_after);
     return VF2_OK;
 }
 

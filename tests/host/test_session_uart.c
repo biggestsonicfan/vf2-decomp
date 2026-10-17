@@ -8,22 +8,37 @@
 #include "vf2/session.h"
 #include "vf2/status.h"
 
-/* Oracle-frame UART hunt driver (v0825 8d).
+/* Oracle-frame UART hunt driver (v0825 8d; window corrected v0853).
  *
  * vf2probe cannot reach sound writes: it injects no frame
  * interrupts, so the game parks in its frame-wait spin (all
  * sixth-fresh runs converge at ip=69536 with identical call
  * counts however inputs are held). This driver steps REAL
  * frames through the interpreter oracle (vf2_session_step_oracle)
- * with a passive bus observer watching the Model 2A serial port
- * (0x009c0000, main->sound UART), the architected sound-command
- * channel.
+ * with a passive bus observer watching the Model 2A sound UART
+ * data slot.
+ *
+ * Window correction (v0853): the slot is 0x01c80000 -- the address
+ * the drainer's own `lda` stages (0x43860, disasm-verified) and the
+ * address the pump reads back. The 8d driver watched 0x009c0000
+ * (the pre-8f table lead), which ROM-staged code never touches, so
+ * its zero hits were a measurement of the wrong address.
+ *
+ * The ROM's only UART writer is the vector-15 sound-drain ISR
+ * (0xe10 -> 0x437d0), and the frame loop injects vector 12 only, so
+ * an unserviced frame-stepped run still shows zero writes -- that is
+ * now a correct measured negative (the oracle never services the
+ * sound line). Pass argv[6] = "service" to run
+ * vf2_session_service_sound_drain at the end of every frame and see
+ * the ROM ISR's stores appear here (write_count counts them; the
+ * STOP-ON-WRITE shortcut is disabled in that mode so long plays
+ * continue past the initial queue drain).
  *
  * Gates (all ROM-backed, fail closed): session opens on the real
  * ROMs, audio attaches, every frame steps VF2_OK, the work-RAM
  * digest is readable per frame. UART hits are REPORTED evidence,
- * not gated: zero hits is a measured negative (writer fires on
- * unreached events), nonzero hits are the bridge fixture.
+ * not gated: zero hits is a measured negative in the unserviced
+ * mode, nonzero hits are the live-ISR witness.
  */
 
 static int g_fail;
@@ -32,8 +47,9 @@ static int g_fail;
     fprintf(stderr, "CHECK failed %s:%d: %s\n", __FILE__, __LINE__, #c); \
     ++g_fail; } } while (0)
 
-#define UART_BASE UINT32_C(0x009c0000)
-#define UART_END UINT32_C(0x009d0000)
+/* The sound UART data slot (v0825 8f; the drainer's 0x43860 lda). */
+#define UART_BASE UINT32_C(0x01c80000)
+#define UART_END UINT32_C(0x01c90000)
 #define MAX_HITS 64u
 
 typedef struct uart_hit {
@@ -59,7 +75,10 @@ typedef struct uart_capture {
  * three static 0x009c0000 table entries (debug table @0x111e2, MMIO
  * tables @0x29bd8/@0x50db4, 4 bytes each). ROM data loads go through
  * the observed public bus symbols, so any code that fetches the UART
- * address from its tables shows up here even when it never writes. */
+ * address from its tables shows up here even when it never writes.
+ * The tables are kept as the positive control of that read channel
+ * (they hold the pre-8f lead's address and are cold by design); the
+ * live drain goes straight to UART_BASE via an immediate lda. */
 static int in_watched_window(uint32_t address)
 {
     if (address >= UART_BASE && address < UART_END) {
@@ -126,11 +145,15 @@ int main(int argc, char **argv)
     uint32_t digest = 0u;
     uint32_t frame = 0u;
     uint32_t hit = 0u;
+    int service_sound = 0;
     uint64_t prev_observed = 0u;
     /* Frame budget: default replays the 10-frame evidence pattern
      * once (ctest stays fast); long-play hunts pass more and cycle
      * the pattern. Capped fail-closed. */
     uint32_t budget = (uint32_t)(sizeof(inputs) / sizeof(inputs[0]));
+    if (argc >= 7 && strcmp(argv[6], "service") == 0) {
+        service_sound = 1;
+    }
     if (argc >= 6) {
         unsigned long want = strtoul(argv[5], NULL, 0);
         if (want == 0ul || want > 2000ul) {
@@ -141,7 +164,9 @@ int main(int argc, char **argv)
     }
 
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <rom-dir> <snapshot> [held-input] [alt-input] [frames]\n",
+        fprintf(stderr,
+                "usage: %s <rom-dir> <snapshot> [held-input] [alt-input] "
+                "[frames] [service]\n",
                 argv[0]);
         return 2;
     }
@@ -195,6 +220,26 @@ int main(int argc, char **argv)
             break;
         }
         CHECK(vf2_session_work_ram_digest(session, &digest) == VF2_OK);
+        /* Optional live sound-line service (v0853): run the real ROM
+         * drain ISR at the frame boundary, the way the enabled device
+         * would. Its stores show up in this observer's write_count. */
+        if (service_sound) {
+            vf2_session_sound_drain_report drain;
+            memset(&drain, 0, sizeof(drain));
+            if (vf2_session_service_sound_drain(session, &drain) != VF2_OK) {
+                fprintf(stderr, "uart-hunt: frame %u sound service failed\n",
+                        (unsigned)frame);
+                CHECK(0);
+                break;
+            }
+            if (drain.armed != 0u) {
+                fprintf(stderr,
+                        "uart-hunt: frame %u drain armed=%u ticks=%u bytes=%u popped=%u\n",
+                        (unsigned)frame, (unsigned)drain.armed,
+                        (unsigned)drain.ticks, (unsigned)drain.bytes_moved,
+                        (unsigned)drain.entries_popped);
+            }
+        }
         /* Positive control: the oracle retires thousands of bus
          * accesses per frame through the observed symbols. A frame
          * with none means the hook is dead, not that the game is
@@ -202,8 +247,9 @@ int main(int argc, char **argv)
         CHECK(capture.observed > prev_observed);
         prev_observed = capture.observed;
         /* Long-play hunts stop at the first UART write: the byte +
-         * frame stamp below is the bridge fixture. */
-        if (capture.write_count > 0u) {
+         * frame stamp below is the bridge fixture. In service mode the
+         * writes are the expected ISR drain, so runs continue. */
+        if (capture.write_count > 0u && !service_sound) {
             fprintf(stderr, "uart-hunt: STOP-ON-WRITE at frame %u\n",
                     (unsigned)frame);
             ++frame;

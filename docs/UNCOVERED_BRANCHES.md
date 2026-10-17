@@ -4304,6 +4304,25 @@ applier) refuse cleanly and name the record; boot still never arms
 0x3000, so every reachable state is pokes-only. See
 `audio_l2_stream_tick_v0852.md`.)
 
+(v0853 correction: the 8c/8f "no live writer event" negative is
+**void on both counts**. The ROM's only UART writer is the vector-15
+sound-drain ISR (handler 0xe10 -> `call 0x437d0`), which the oracle
+never runs -- the frame loop injects vector 12 only -- and the 8d
+hunt watched 0x009c0000 while the drainer stages the ROM-immediate
+0x01c80000 (0x43860). `vf2_session_service_sound_drain` now runs the
+real ISR one byte per service on the live queue: 9 bytes
+`ae 10 1f 9e 0a 7f ae 10 1f`, 10 ticks / 3 entries popped / 289
+instructions / 38 enable stores (20x 0x21 + 18x 0x421) / 10 acks on
+out/park-sixth-a6c0, ending disarmed at 0x21 through the ROM's own
+empty pass; the pump's shadow-CPU drain emits identical bytes and
+queue cells, differing only in that final enable (0x421 -- one tick
+early). ctest `vf2_session_sound_isr` (4 legs incl. a drain-point
+convergence proof and a native-session refusal). The source side --
+a gameplay event that files -- is unchanged and remains the 9/10
+item; measured pointer: the flusher 0x43abc gates on
+`byte[0x500f00] == 1`, which is 0 at every parked state (0x508000 is
+0x8a00, bit 15 set). See `audio_isr_v15_live_v0853.md`.)
+
 A standing methodological note for this section: 68k audio
 recoveries were static-match, not differential-proven, until
 v0825: the m68k stepper (`src/m68k/stepper.c`, `vf2_m68k_run`)
