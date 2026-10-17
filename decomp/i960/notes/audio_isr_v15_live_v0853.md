@@ -176,18 +176,19 @@ pointers for the next slice:
 
 - the flusher `0x43abc` (per-frame sound sequencer task body,
   dispatched via `callx (r4)` at 0x10dc8, frame 17 at boot with
-  task record 0x515d80) gates on `byte[0x500f00] == 1` first, then
-  0x508000 bit 15. At every parked state measured (boot,
-  sixth-fresh, park-sixth) `byte[0x500f00]` is **0** and 0x508000 is
-  **0x8a00** (bit 15 set) -- so the closed gate is 0x500f00, and the
-  T4b "both closed" reading needs correcting to "0x500f00 closed".
+  task record 0x515d80) gates **only its mode-1 legacy event
+  block** on `byte[0x500f00] == 1` plus 0x508000 bit 15. (v0854:
+  `0x500f00` is the board-mode byte -- 0 = Model 2A at every parked
+  state -- so on 2A the event block is dead by design, the message
+  machinery always runs, and nothing is "closed"; see
+  `audio_flusher_mode_corrected_v0854.md`.)
 - the per-fighter driver `0x43950` always calls the dedup 0x439ac
   then the filer 0x43888 when it runs -- no additional gate. Zero
-  filer arrivals were observed in gameplay hunt frames, so the
-  unlocated piece is what sets the flusher's event bits (task-record
-  `[g13]` bits 30/27/28/29, selecting the 0x0201e940/980/9c0
-  tables) or opens `[0x500f00]`. Locating the setter is the next
-  slice.
+  filer arrivals were observed in gameplay hunt frames. (v0854:
+  the event bits (task-record `[g13]` bits 30/27/28/29, selecting
+  the 0x0201e940/980/9c0 tables) belong to the mode-1 legacy block;
+  the 9/10 target is the sound id at `entity + 0x1b1` and its
+  writer -- see `audio_flusher_mode_corrected_v0854.md`.)
 
 ## 8. Reproduce
 

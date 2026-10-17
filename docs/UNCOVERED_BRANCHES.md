@@ -4323,6 +4323,25 @@ item; measured pointer: the flusher 0x43abc gates on
 `byte[0x500f00] == 1`, which is 0 at every parked state (0x508000 is
 0x8a00, bit 15 set). See `audio_isr_v15_live_v0853.md`.)
 
+(v0854 correction: `byte[0x500f00]` is the board-mode byte
+(model 0 = Model 2A), not a sound gate. One writer -- the boot
+self-test at `0x1e4`, which stores 0 when its `0x01c00024`
+write-1/read-1 probe succeeds -- and eight readers; the flusher
+`0x43abc` gates only its mode-1 legacy event block on it, so on 2A
+the message machinery `0x43c9c`..`0x43db0` always runs and nothing
+is "closed". Measured cold: the flusher's message queue is empty
+(`0x43d34`/`0x43d68` zero arrivals in 20 frames; `0x43c9c` hit at
+frame 17, step 5692878) and the gameplay dispatchers
+`0x18a88`/`0x1b060` also take zero arrivals from cold (20 frames)
+and park-sixth (8 frames) -- "no sound" is a state, not a gate.
+The live Model 2A command path is mapped end to end: pointer table
+`0x0201e44c` (main_data) -> 18 records x 11 dwords (98 distinct
+`0x00AD23xx`/`0x00AD24xx` commands) -> readers `0x18a54` /
+`0x10230` / `0x1b05c`, mode-0 `0x00BD7B00` prefix, into the
+proven dedup `0x439ac` -> filer `0x43888` -> ring -> drain chain.
+The 9/10 source item is the byte at `entity + 0x1b1` (sound id, 0
+in every parked state). See `audio_flusher_mode_corrected_v0854.md`.)
+
 A standing methodological note for this section: 68k audio
 recoveries were static-match, not differential-proven, until
 v0825: the m68k stepper (`src/m68k/stepper.c`, `vf2_m68k_run`)
