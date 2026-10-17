@@ -7327,6 +7327,95 @@ static int png_write_rgb8(
     return ok;
 }
 
+/* Write an 8-bit RGBA PNG from a separate RGB plane (w*h*3) and alpha plane
+ * (w*h). Used for the coloured fighter atlas so a translucent polygon's cutout
+ * texels (texel 0x0f) bake transparent -- an OBJ viewer then shows the surface
+ * behind (e.g. skin through the eye-detail decal), as the scene render does by
+ * skipping those texels. Same stored-deflate container as png_write_rgb8. */
+static int png_write_rgba8(
+    const char *path, uint32_t w, uint32_t h,
+    const uint8_t *rgb, const uint8_t *alpha
+)
+{
+    static const uint8_t sig[8] = { 0x89u, 0x50u, 0x4eu, 0x47u,
+                                    0x0du, 0x0au, 0x1au, 0x0au };
+    uint8_t ihdr[13];
+    size_t stride = (size_t)w * 4u;
+    size_t raw_len = (size_t)h * (1u + stride);
+    uint8_t *raw = (uint8_t *)malloc(raw_len != 0u ? raw_len : 1u);
+    uint8_t *idat = NULL;
+    size_t cap;
+    size_t o = 0u;
+    size_t pos = 0u;
+    uint32_t row;
+    uint32_t col;
+    FILE *f = NULL;
+    int ok = 0;
+
+    if (raw == NULL) {
+        return 0;
+    }
+    for (row = 0u; row < h; ++row) {
+        uint8_t *d = raw + (size_t)row * (1u + stride);
+        *d++ = 0u; /* filter: none */
+        for (col = 0u; col < w; ++col) {
+            size_t p = (size_t)row * (size_t)w + col;
+            d[0] = rgb[p * 3u + 0u];
+            d[1] = rgb[p * 3u + 1u];
+            d[2] = rgb[p * 3u + 2u];
+            d[3] = alpha[p];
+            d += 4;
+        }
+    }
+    cap = 2u + raw_len + ((raw_len / 65535u) + 1u) * 5u + 4u;
+    idat = (uint8_t *)malloc(cap);
+    if (idat == NULL) {
+        free(raw);
+        return 0;
+    }
+    idat[o++] = 0x78u;
+    idat[o++] = 0x01u;
+    while (pos < raw_len) {
+        size_t blk = raw_len - pos;
+        uint16_t nlen;
+        if (blk > 65535u) {
+            blk = 65535u;
+        }
+        idat[o++] = (uint8_t)((pos + blk >= raw_len) ? 1u : 0u);
+        idat[o++] = (uint8_t)(blk & 0xffu);
+        idat[o++] = (uint8_t)((blk >> 8) & 0xffu);
+        nlen = (uint16_t)(~(uint16_t)blk);
+        idat[o++] = (uint8_t)(nlen & 0xffu);
+        idat[o++] = (uint8_t)((nlen >> 8) & 0xffu);
+        memcpy(idat + o, raw + pos, blk);
+        o += blk;
+        pos += blk;
+    }
+    png_be32(idat + o, png_adler32(raw, raw_len));
+    o += 4u;
+
+    f = fopen(path, "wb");
+    if (f == NULL) {
+        free(raw);
+        free(idat);
+        return 0;
+    }
+    png_be32(ihdr, w);
+    png_be32(ihdr + 4u, h);
+    ihdr[8] = 8u;  /* bit depth */
+    ihdr[9] = 6u;  /* color type: truecolor + alpha (RGBA) */
+    ihdr[10] = 0u;
+    ihdr[11] = 0u;
+    ihdr[12] = 0u;
+    ok = (fwrite(sig, 1u, 8u, f) == 8u) &&
+         png_chunk(f, "IHDR", ihdr, sizeof(ihdr)) &&
+         png_chunk(f, "IDAT", idat, o) && png_chunk(f, "IEND", NULL, 0u);
+    fclose(f);
+    free(raw);
+    free(idat);
+    return ok;
+}
+
 /* --- texture-link: dump an object's decoded polygon->texture link ------------
  *
  * Reads the object-table entry {w0=tpa, w1=tha, w2=oba, w3=obc} at 0x020e0004,
@@ -7657,7 +7746,7 @@ static void ext_colour_sheet_piece(
     const uint8_t *const bank[2], const size_t bank_size[2],
     const uint8_t *pal, size_t pal_n,
     const uint8_t *cxlat, size_t cxlat_n, const uint8_t *luma,
-    uint8_t *const csheet[2],
+    uint8_t *const csheet[2], uint8_t *const asheet[2],
     const float *vmat, const float *light,
     const uint8_t *tp_diffuse, const uint8_t *tp_ambient,
     const uint8_t *tp_sscale, const uint8_t *tp_sctrl, uint32_t geo_mode
@@ -7675,6 +7764,7 @@ static void ext_colour_sheet_piece(
         const uint8_t *bk;
         size_t bks;
         uint8_t *cs;
+        uint8_t *as;
         off += 4u;
         if ((attr & 3u) == 0u) break;
         /* 10-word block: [attr][normal(3)][P0(n)(3)][P1(n)(3)] -- read normal + P0(n) */
@@ -7692,7 +7782,8 @@ static void ext_colour_sheet_piece(
             ? gc_poly_luma(nv, va, vmat, light, (attr >> 18) & 0x1fu,
                            tp_diffuse, tp_ambient, tp_sscale, tp_sctrl, geo_mode)
             : 0xffu;
-        bk = bank[hd.sheet & 1u]; bks = bank_size[hd.sheet & 1u]; cs = csheet[hd.sheet & 1u];
+        bk = bank[hd.sheet & 1u]; bks = bank_size[hd.sheet & 1u];
+        cs = csheet[hd.sheet & 1u]; as = asheet[hd.sheet & 1u];
         if (untextured && translucent) goto sheet_advance;   /* solid translucent: nothing */
         if (untextured) {
             uint32_t sh = lumascale >> 2; uint8_t sr, sg, sb;
@@ -7707,8 +7798,9 @@ static void ext_colour_sheet_piece(
                     uint32_t sx = hd.tex_x + px;
                     size_t o;
                     if (sx >= 2048u) break;
-                    o = ((size_t)sy * 2048u + sx) * 3u;
-                    cs[o] = sr; cs[o + 1u] = sg; cs[o + 2u] = sb;
+                    o = (size_t)sy * 2048u + sx;
+                    cs[o * 3u] = sr; cs[o * 3u + 1u] = sg; cs[o * 3u + 2u] = sb;
+                    as[o] = 0xffu;   /* solid: opaque */
                 }
             }
             goto sheet_advance;
@@ -7719,12 +7811,16 @@ static void ext_colour_sheet_piece(
             for (px = 0u; px < hd.tex_width; ++px) {
                 uint32_t sx = hd.tex_x + px;
                 uint8_t t4, rgb[3];
+                size_t o;
                 if (sx >= 2048u) break;
+                o = (size_t)sy * 2048u + sx;
                 t4 = vf2_texture_sheet_texel(bk, bks, sx, sy);
                 if (gc_texel_rgb(t4, hd.luma_base, r5, g5, b5, lumascale, translucent,
                                  luma, cxlat, cxlat_n, rgb)) {
-                    size_t o = ((size_t)sy * 2048u + sx) * 3u;
-                    cs[o] = rgb[0]; cs[o + 1u] = rgb[1]; cs[o + 2u] = rgb[2];
+                    cs[o * 3u] = rgb[0]; cs[o * 3u + 1u] = rgb[1]; cs[o * 3u + 2u] = rgb[2];
+                    as[o] = 0xffu;   /* texel kept: opaque */
+                } else {
+                    as[o] = 0u;      /* translucent cutout (texel 0x0f): transparent */
                 }
             }
         }
@@ -9549,6 +9645,7 @@ static int command_geo_fighter(
     FILE *bin = NULL, *txt = NULL, *obj = NULL, *mtl = NULL;
     uint8_t *pal = NULL, *cxlat = NULL, *lumacap = NULL, *luma = NULL;
     uint8_t *csheet[2] = { NULL, NULL };
+    uint8_t *asheet[2] = { NULL, NULL };
     size_t pal_n = 0u, cxlat_n = 0u, luma_n = 0u;
     int colour = (colour_dir != NULL);
     int gf_lit = (colour_dir != NULL && texparams_path != NULL);
@@ -9637,7 +9734,12 @@ static int command_geo_fighter(
         luma = (uint8_t *)malloc(0x8000u);
         csheet[0] = (uint8_t *)calloc(sheet_rgb, 1u);
         csheet[1] = (uint8_t *)calloc(sheet_rgb, 1u);
-        if (luma == NULL || csheet[0] == NULL || csheet[1] == NULL) { fprintf(stderr, "geo-fighter: alloc colour\n"); goto done; }
+        /* alpha planes: 0 (transparent) everywhere; painted texels set 0xff, a
+         * translucent polygon's cutout texels (0x0f) stay transparent. */
+        asheet[0] = (uint8_t *)calloc(2048u * 1024u, 1u);
+        asheet[1] = (uint8_t *)calloc(2048u * 1024u, 1u);
+        if (luma == NULL || csheet[0] == NULL || csheet[1] == NULL ||
+            asheet[0] == NULL || asheet[1] == NULL) { fprintf(stderr, "geo-fighter: alloc colour\n"); goto done; }
         for (i = 0u; i < 0x8000u; ++i) luma[i] = (i * 4u < luma_n) ? lumacap[i * 4u] : 0u;
     }
 
@@ -9937,8 +10039,12 @@ static int command_geo_fighter(
             fprintf(mtl, "# VF2 %s textures (colour: palette+luma+colorxlat+gamma, "
                          "%s). Local only.\n", which,
                     gf_lit ? "representative per-polygon luma" : "full-light albedo");
-            fprintf(mtl, "newmtl sheet0\nmap_Kd %s_tex0.png\n", which);
-            fprintf(mtl, "newmtl sheet1\nmap_Kd %s_tex1.png\n", which);
+            /* RGBA atlas: a translucent polygon's cutout texels (0x0f) bake with
+             * alpha 0. map_d points at the same PNG so a viewer uses its alpha;
+             * set alpha-test blending (illum 1, d 1) so the surface behind the
+             * decal shows -- e.g. skin through the eye detail, as in the scene. */
+            fprintf(mtl, "newmtl sheet0\nillum 1\nd 1.0\nmap_Kd %s_tex0.png\nmap_d %s_tex0.png\n", which, which);
+            fprintf(mtl, "newmtl sheet1\nillum 1\nd 1.0\nmap_Kd %s_tex1.png\nmap_d %s_tex1.png\n", which, which);
         } else {
             fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", which);
             fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
@@ -9975,16 +10081,16 @@ static int command_geo_fighter(
             ext_colour_sheet_piece(cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                    cand_rec[idx], th_ptr,
                                    (const uint8_t *const *)bank, bank_size,
-                                   pal, pal_n, cxlat, cxlat_n, luma, csheet,
+                                   pal, pal_n, cxlat, cxlat_n, luma, csheet, asheet,
                                    gf_lit ? cand_vmat[idx] : NULL, gf_light,
                                    gf_diff, gf_amb, gf_sscale, gf_sctrl, gf_mode);
         tris_total += tris;
     }
     if (colour) {
         snprintf(path, sizeof(path), "%s/%s_tex0.png", out_dir, which);
-        (void)png_write_rgb8(path, 2048u, 1024u, csheet[0]);
+        (void)png_write_rgba8(path, 2048u, 1024u, csheet[0], asheet[0]);
         snprintf(path, sizeof(path), "%s/%s_tex1.png", out_dir, which);
-        (void)png_write_rgb8(path, 2048u, 1024u, csheet[1]);
+        (void)png_write_rgba8(path, 2048u, 1024u, csheet[1], asheet[1]);
     } else {
         snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
         (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
@@ -10020,6 +10126,7 @@ done:
     free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
     free(pal); free(cxlat); free(lumacap); free(luma);
     free(csheet[0]); free(csheet[1]);
+    free(asheet[0]); free(asheet[1]);
     return rc;
 }
 
