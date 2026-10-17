@@ -79,6 +79,7 @@ static void usage(const char *program)
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n"
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
+        "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir>\n"
         "  %s geo-project <ram9.bin> <readstarts.txt> <rom-dir> <pose-frame> <out.png> [W H xoff yoff]\n"
         "  %s export-pieces <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s export-textured <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
@@ -132,6 +133,7 @@ static void usage(const char *program)
         program, /* compare-snapshots */
         program, /* geo-walk */
         program, /* geo-scene */
+        program, /* geo-fighter */
         program, /* geo-project */
         program, /* export-pieces */
         program, /* export-textured */
@@ -8508,6 +8510,52 @@ static double gs_flatness(const float *m)
     return d > 0.0 ? fabs(det) / d : 0.0;
 }
 
+/* Inverse of the as-applied 3x3 A (A[r][c]=m[3r+c], point p' = p.A + T), into
+ * inv[3r+c]. Returns 0 if singular. */
+static int gs_mat3_inv(const float *m, double inv[9])
+{
+    double a = m[0], b = m[1], c = m[2];
+    double d = m[3], e = m[4], f = m[5];
+    double g = m[6], h = m[7], i = m[8];
+    double det = a * (e * i - f * h) - b * (d * i - f * g)
+               + c * (d * h - e * g);
+    double id;
+    if (fabs(det) < 1e-20) return 0;
+    id = 1.0 / det;
+    inv[0] = (e * i - f * h) * id; inv[1] = (c * h - b * i) * id;
+    inv[2] = (b * f - c * e) * id;
+    inv[3] = (f * g - d * i) * id; inv[4] = (a * i - c * g) * id;
+    inv[5] = (c * d - a * f) * id;
+    inv[6] = (d * h - e * g) * id; inv[7] = (b * g - a * h) * id;
+    inv[8] = (a * e - b * d) * id;
+    return 1;
+}
+
+/* Compose M_obj then (M_dec)^-1 into out[12]: express an object posed in view
+ * space (camera baked in) back in the decor's world frame (camera removed).
+ * out.A = A_obj . A_dec^-1 ; out.T = (T_obj - T_dec) . A_dec^-1. */
+static void gs_worldframe(const float *m_obj, const float *m_dec,
+                          const double adi[9], float out[12])
+{
+    int r, cc, k;
+    double tf[3];
+    for (r = 0; r < 3; ++r) {
+        for (cc = 0; cc < 3; ++cc) {
+            double s = 0.0;
+            for (k = 0; k < 3; ++k)
+                s += (double)m_obj[3 * r + k] * adi[3 * k + cc];
+            out[3 * r + cc] = (float)s;
+        }
+    }
+    for (cc = 0; cc < 3; ++cc) {
+        double s = 0.0;
+        for (k = 0; k < 3; ++k)
+            s += ((double)m_obj[9 + k] - (double)m_dec[9 + k]) * adi[3 * k + cc];
+        tf[cc] = s;
+    }
+    out[9] = (float)tf[0]; out[10] = (float)tf[1]; out[11] = (float)tf[2];
+}
+
 /* Transpose the as-applied 3x3, keeping the translation, into out[12]. */
 static void gs_transpose(const float *m, float *out)
 {
@@ -9102,6 +9150,221 @@ done:
     free(mtx);
     free(motion_t);
     free(sorted);
+    return rc;
+}
+
+/* --- geo-fighter: Step 3 -- export one fighter (by oba family) in world space ---
+ *
+ * Selects a fighter's objects at the pose frame by record family (rec>>16):
+ * Akira = 0x05/07/13/62/63, Lau = 0x0f/14/15/16/29/56/69 (measured stable across
+ * frames and captures). Shadows (flat matrix) and the two decor-matrix records
+ * 0x581d50/0x1a9b54 are excluded. Each object's captured matrix has the camera
+ * baked in (per Step 2); we re-express it in the decor's world frame by applying
+ * the inverse of the decor (shared) matrix -- so the fighter stands camera-free.
+ * The model is then centred on its feet: horizontally on the bbox centre, and the
+ * vertical axis (the longest bbox extent) shifted so the lowest point sits at 0.
+ * Geometry is decoded from oba and textured via the tpa UV/texheader table, as
+ * geo-scene does. Local only; never committed. */
+static const uint32_t GF_AKIRA[] = { 0x05u, 0x07u, 0x13u, 0x62u, 0x63u };
+static const uint32_t GF_LAU[]   = { 0x0fu, 0x14u, 0x15u, 0x16u, 0x29u,
+                                     0x56u, 0x69u };
+
+static int gf_fam_in(uint32_t rec, const uint32_t *fams, size_t nf)
+{
+    uint32_t fam = (rec >> 16);
+    size_t i;
+    for (i = 0u; i < nf; ++i)
+        if (fams[i] == fam) return 1;
+    return 0;
+}
+
+static int command_geo_fighter(
+    const char *bin_path, const char *txt_path, const char *rom_directory,
+    const char *tex0_path, const char *tex1_path, const char *pose_str,
+    const char *which, const char *out_dir
+)
+{
+    const size_t frame_bytes = 131072u;
+    const size_t frame_words = frame_bytes / 4u;
+    FILE *bin = NULL, *txt = NULL, *obj = NULL, *mtl = NULL;
+    char line[256];
+    char path[1100];
+    uint32_t *words = NULL;
+    vf2_geo_object *objs = NULL;
+    size_t max_objs = 4096u;
+    uint8_t *main_data = NULL, *poly = NULL, *tex = NULL;
+    uint8_t *bank[2] = { NULL, NULL };
+    size_t main_size = 0u, poly_size = 0u, tex_size = 0u;
+    size_t bank_size[2] = { 0u, 0u };
+    uint32_t readstart[GS_MAX_FRAMES];
+    size_t nframes = 0u, pose, nobjs = 0u, s;
+    vf2_geo_stop stop;
+    const uint32_t *fams;
+    size_t nfams;
+    float mdec[12];
+    double adi[9];
+    int have_dec = 0;
+    float (*mf)[12] = NULL;      /* per-selected-object world matrix */
+    uint32_t *selrec = NULL, *seltpa = NULL;
+    size_t nsel = 0u;
+    vf2_model_vertex *vacc = NULL;
+    size_t vcap = 400000u, vn = 0u, e;
+    double mn[3] = { 1e30, 1e30, 1e30 }, mx[3] = { -1e30, -1e30, -1e30 };
+    double off[3] = { 0.0, 0.0, 0.0 };
+    int vax = 1;
+    size_t vbase = 1u, tris_total = 0u;
+    int cur_sheet = -1, sheet = -1;
+    size_t tr = 0u;
+    vf2_status st;
+    int rc = EXIT_FAILURE;
+
+    if (strcmp(which, "akira") == 0) { fams = GF_AKIRA; nfams = 5u; }
+    else if (strcmp(which, "lau") == 0) { fams = GF_LAU; nfams = 7u; }
+    else { fprintf(stderr, "geo-fighter: which must be akira|lau\n"); return EXIT_FAILURE; }
+
+    pose = (size_t)strtoul(pose_str, NULL, 0);
+    txt = fopen(txt_path, "rb");
+    if (txt == NULL) { fprintf(stderr, "geo-fighter: cannot open %s\n", txt_path); return EXIT_FAILURE; }
+    while (fgets(line, (int)sizeof(line), txt) != NULL) {
+        unsigned idx, frameno, rs;
+        if (sscanf(line, "F %u %u %x", &idx, &frameno, &rs) == 3 && idx < GS_MAX_FRAMES) {
+            readstart[idx] = rs;
+            if ((size_t)idx + 1u > nframes) nframes = (size_t)idx + 1u;
+        }
+    }
+    fclose(txt); txt = NULL;
+    if (pose >= nframes) { fprintf(stderr, "geo-fighter: pose %zu >= %zu\n", pose, nframes); return EXIT_FAILURE; }
+
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data, &main_size);
+    if (st == VF2_OK) st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly, &poly_size);
+    if (st == VF2_OK) st = vf2_romset_build_region(rom_directory, VF2_REGION_TEXTURES, &tex, &tex_size);
+    if (st != VF2_OK) { fprintf(stderr, "geo-fighter: ROM regions: %s\n", vf2_status_string(st)); goto done; }
+    if (!ext_tex_load_file(tex0_path, &bank[0], &bank_size[0]) ||
+        !ext_tex_load_file(tex1_path, &bank[1], &bank_size[1])) {
+        fprintf(stderr, "geo-fighter: cannot read texture banks\n"); goto done;
+    }
+
+    bin = fopen(bin_path, "rb");
+    words = (uint32_t *)malloc(frame_words * sizeof(*words));
+    objs = (vf2_geo_object *)malloc(max_objs * sizeof(*objs));
+    vacc = (vf2_model_vertex *)malloc(vcap * sizeof(*vacc));
+    if (bin == NULL || words == NULL || objs == NULL || vacc == NULL) { fprintf(stderr, "geo-fighter: alloc\n"); goto done; }
+    if (!gs_read_frame(bin, pose, frame_bytes, words, frame_words) ||
+        vf2_geo_walk(words, frame_words, readstart[pose], objs, max_objs, &nobjs, &stop, NULL) != VF2_OK) {
+        fprintf(stderr, "geo-fighter: frame %zu walk failed\n", pose); goto done;
+    }
+
+    /* decor (shared) matrix -> camera; take the first decor-range object */
+    for (s = 0u; s < nobjs; ++s) {
+        uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
+        if (rec >= 0x3c1facu && rec <= 0x3ca730u) {
+            memcpy(mdec, objs[s].matrix, sizeof(mdec));
+            have_dec = 1; break;
+        }
+    }
+    if (!have_dec || !gs_mat3_inv(mdec, adi)) {
+        fprintf(stderr, "geo-fighter: no invertible decor matrix\n"); goto done;
+    }
+
+    mf = (float (*)[12])malloc(nobjs * sizeof(*mf));
+    selrec = (uint32_t *)malloc(nobjs * sizeof(*selrec));
+    seltpa = (uint32_t *)malloc(nobjs * sizeof(*seltpa));
+    if (mf == NULL || selrec == NULL || seltpa == NULL) goto done;
+
+    for (s = 0u; s < nobjs; ++s) {
+        uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
+        if (rec == 0x581d50u || rec == 0x1a9b54u) continue;
+        if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;  /* shadow */
+        if (!gf_fam_in(rec, fams, nfams)) continue;
+        if ((size_t)rec + 24u > poly_size) continue;
+        gs_worldframe(objs[s].matrix, mdec, adi, mf[nsel]);
+        selrec[nsel] = rec;
+        seltpa[nsel] = objs[s].tpa;
+        ++nsel;
+    }
+    if (nsel == 0u) { fprintf(stderr, "geo-fighter: no %s pieces at frame %zu\n", which, pose); goto done; }
+
+    /* pass 1: world-space bbox for feet centring */
+    for (s = 0u; s < nsel; ++s) {
+        vn = 0u;
+        (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, selrec[s], 0u, 0u,
+                             1u, &sheet, &tr, mf[s], vacc, &vn, vcap);
+        for (e = 0u; e < vn; ++e) {
+            int k;
+            double v[3];
+            v[0] = (double)vacc[e].x;
+            v[1] = (double)vacc[e].y;
+            v[2] = (double)vacc[e].z;
+            for (k = 0; k < 3; ++k) {
+                if (v[k] < mn[k]) mn[k] = v[k];
+                if (v[k] > mx[k]) mx[k] = v[k];
+            }
+        }
+    }
+    /* vertical axis = longest bbox extent; feet at that axis' minimum */
+    {
+        double ex0 = mx[0] - mn[0], ex1 = mx[1] - mn[1], ex2 = mx[2] - mn[2];
+        vax = (ex1 >= ex0 && ex1 >= ex2) ? 1 : (ex0 >= ex2 ? 0 : 2);
+    }
+    off[0] = 0.5 * (mn[0] + mx[0]);
+    off[1] = 0.5 * (mn[1] + mx[1]);
+    off[2] = 0.5 * (mn[2] + mx[2]);
+    off[vax] = mn[vax];
+
+    /* pass 2: write textured OBJ in the centred world frame */
+    snprintf(path, sizeof(path), "%s/%s.mtl", out_dir, which);
+    mtl = fopen(path, "wb");
+    if (mtl != NULL) {
+        fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", which);
+        fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
+        fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
+        fclose(mtl); mtl = NULL;
+    }
+    snprintf(path, sizeof(path), "%s/%s.obj", out_dir, which);
+    obj = fopen(path, "wb");
+    if (obj == NULL) { fprintf(stderr, "geo-fighter: cannot write %s\n", path); goto done; }
+    fprintf(obj, "# VF2 %s, pose frame %zu, camera removed (decor matrix inverse), "
+                 "feet-centred. %zu pieces. Local only, never committed.\n",
+            which, pose, nsel);
+    fprintf(obj, "mtllib %s.mtl\n", which);
+    for (s = 0u; s < nsel; ++s) {
+        uint32_t off32 = 0u, bnk = 0u, id = 0u, uv_ptr = 0u, th_ptr = 0u;
+        size_t tris = 0u;
+        float m2[12];
+        memcpy(m2, mf[s], sizeof(m2));
+        m2[9]  = (float)((double)m2[9]  - off[0]);
+        m2[10] = (float)((double)m2[10] - off[1]);
+        m2[11] = (float)((double)m2[11] - off[2]);
+        if (vf2_model_lookup_w0(main_data, main_size, seltpa[s], 0x4000u,
+                                &off32, &bnk, &id) == VF2_OK) {
+            uv_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
+            th_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
+        }
+        fprintf(obj, "o %s_piece%02zu_rec%06x\n", which, s, (unsigned)selrec[s]);
+        vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, selrec[s],
+                               uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m2,
+                               NULL, NULL, 0u);
+        tris_total += tris;
+    }
+    snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
+    snprintf(path, sizeof(path), "%s/tex1.png", out_dir);
+    (void)ext_tex_write_sheet_png(path, bank[1], bank_size[1]);
+
+    printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png)\n",
+           which, pose, out_dir, which, which);
+    printf("  %zu pieces, %zu triangles; camera removed; vertical axis %c, "
+           "feet at origin; bbox world extent (%.2f,%.2f,%.2f)\n",
+           nsel, tris_total, "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
+    rc = EXIT_SUCCESS;
+
+done:
+    if (bin != NULL) fclose(bin);
+    if (txt != NULL) fclose(txt);
+    if (obj != NULL) fclose(obj);
+    if (mtl != NULL) fclose(mtl);
+    free(words); free(objs); free(vacc); free(mf); free(selrec); free(seltpa);
+    free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
     return rc;
 }
 
@@ -10391,6 +10654,11 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "geo-scene") == 0 && argc == 9) {
         return command_geo_scene(argv[2], argv[3], argv[4], argv[5], argv[6],
                                  argv[7], argv[8]);
+    }
+
+    if (strcmp(argv[1], "geo-fighter") == 0 && argc == 10) {
+        return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
+                                   argv[7], argv[8], argv[9]);
     }
 
     if (strcmp(argv[1], "geo-project") == 0 && (argc == 7 || argc == 11)) {
