@@ -19,7 +19,17 @@ shadow exactly as geo-project/geo-scene do, excludes the two decor-matrix record
 Usage:
   geo_camtest.py <ram9.bin> <readstarts.txt>              # camera-lag test
   geo_camtest.py track <ram9.bin> <readstarts.txt> <shotdir>
+  geo_camtest.py rtrack <ram9.bin> <readstarts.txt> <shotdir>
   geo_camtest.py addrmap <ram9.bin> <readstarts.txt> [pose_frame]
+  geo_camtest.py coprochk <ram9_writes.bin> <writes.txt>
+
+`coprochk` verifies the TGP copro's RAM9 writes (the C lines of a write-trace
+capture) against the 0x0b fighter matrices in each frame's snapshot: it confirms
+the matrices we read are the copro's genuine per-frame output, not stale/corrupt.
+
+`rtrack` is `track` but each object is bound to its fighter by its RECORD (frozen
+from frame 0 by Tx sign, ties dropped), not by its live position -- so an advancing
+fighter's limbs do not get re-sorted into the other fighter late in the sequence.
 
 `addrmap` gives, for each body/shadow object of a frame, the RAM9 byte address of
 its 0x0b matrix command and its 0x01 object command and their 32 KiB zone relative
@@ -473,6 +483,148 @@ def cmd_track(binp, txtp, shotdir):
               f"(near 0 => body matrices ~frozen)")
 
 
+def _freeze_sides(objs):
+    """rec -> 'L'/'R' from a reference frame, by Tx sign; drop ties (records a
+    fighter shares, e.g. tiny generic primitives)."""
+    tally = {}
+    for mat, rec in objs:
+        tally.setdefault(rec, [0, 0])
+        tally[rec][0 if mat[9] < 0 else 1] += 1
+    side = {}
+    for rec, (nl, nr) in tally.items():
+        if nl > nr:
+            side[rec] = "L"
+        elif nr > nl:
+            side[rec] = "R"
+    return side
+
+
+def cmd_rtrack(binp, txtp, shotdir):
+    """Record-stable body/shadow/screen trace: each object is bound to a fighter
+    by its RECORD (frozen from frame 0), not by its live Tx position."""
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import geo_overlay as go
+
+    frames = load_frames(binp, txtp)
+    nfr = len(frames)
+    shots = _load_shots(shotdir)
+    body_side = _freeze_sides(frames[0]["fighter"])
+    shad_side = _freeze_sides(frames[0]["shadow"])
+
+    print(f"# record-stable trace ({binp}): fighter = frozen record->side from "
+          f"frame 0 (ties dropped)")
+    print(f"# bodies mapped: {sum(1 for v in body_side.values())} recs; "
+          f"shadows mapped: {sum(1 for v in shad_side.values())} recs")
+    print("# side L = Akira (screen-left), R = Lau (screen-right). x in screen "
+          "px.\n")
+    hdr = ("frm | side  bodyX  shdwX  realX | body-real  shdw-real  nBody")
+    print(hdr)
+    print("-" * len(hdr))
+    err = {"L": {"b": [], "s": []}, "R": {"b": [], "s": []}}
+    drift = {"L": [], "R": []}
+    first = {"L": None, "R": None}
+    for fr in range(nfr):
+        g = frames[fr]
+        real = (None, None)
+        if fr in shots:
+            try:
+                w, h, px = go.read_png(shots[fr])
+                real = go.shot_shadow_centroids(px, w, h)
+            except Exception:
+                real = (None, None)
+        for side, realc in (("L", real[0]), ("R", real[1])):
+            b = [o for o in g["fighter"] if body_side.get(o[1]) == side]
+            s = [o for o in g["shadow"] if shad_side.get(o[1]) == side]
+            bx = proj_centroid_x(b)
+            sx = proj_centroid_x(s)
+            rx = realc[0] if realc else None
+            br = (bx - rx) if bx is not None and rx is not None else None
+            sr = (sx - rx) if sx is not None and rx is not None else None
+            if br is not None:
+                err[side]["b"].append(br)
+            if sr is not None:
+                err[side]["s"].append(sr)
+            if bx is not None:
+                if first[side] is None:
+                    first[side] = bx
+                drift[side].append(bx - first[side])
+
+            def g5(v):
+                return ("%5.0f" % v) if v is not None else "    ."
+
+            def g6(v):
+                return ("%+6.0f" % v) if v is not None else "     ."
+            print(f"{fr:3d} | {side}   {g5(bx)}  {g5(sx)}  {g5(rx)} | "
+                  f"{g6(br)}    {g6(sr)}   {len(b):3d}")
+
+    def mae(xs):
+        return sum(abs(x) for x in xs) / len(xs) if xs else float("nan")
+
+    print("\nsummary (record-stable assignment):")
+    for side, who in (("L", "Akira (advancing)"), ("R", "Lau (near-still)")):
+        eb, es, dr = err[side]["b"], err[side]["s"], drift[side]
+        print(f"  side {side} {who}: body-real MAE {mae(eb):5.1f}px   "
+              f"shadow-real MAE {mae(es):5.1f}px   "
+              f"body total drift f0->f29 {dr[-1] if dr else float('nan'):+.0f}px")
+
+
+def cmd_coprochk(wbin, wtxt):
+    """Verify the TGP copro's RAM9 writes against the 0x0b fighter matrices in the
+    snapshot: for each frame, do the copro words that land on a fighter matrix
+    match the captured RAM9 value?"""
+    Fs = []
+    Cw = []
+    for ln in open(wtxt):
+        if ln.startswith("F "):
+            p = ln.split()
+            Fs.append((int(p[1]), float(p[3].replace(",", ".")), int(p[4], 16)))
+        elif ln.startswith("C "):
+            p = ln.split()
+            t = float(p[1].replace(",", "."))
+            Cw.append((t, (int(p[2], 16) & 0x7fff) * 4, int(p[3], 16)))
+    data = open(wbin, "rb").read()
+    print(f"# copro-vs-0x0b consistency ({wbin}), {len(Fs)} frames, "
+          f"{len(Cw)} copro writes")
+    print("frm  rsZone  figMats  matWords  coproMatch  mismatch  notWritten")
+    print("-" * 64)
+    for fr in range(len(Fs)):
+        idx, t_end, rs = Fs[fr]
+        t0 = Fs[fr - 1][1] if fr > 0 else -1.0
+        raw = data[fr * FRAME_BYTES:(fr + 1) * FRAME_BYTES]
+        w = list(struct.unpack("<%dI" % (FRAME_BYTES // 4), raw))
+        start = (rs & 0x1ffff) >> 2
+        objs, _ = walk_detailed(w, start)
+        mats = {}
+        for o in objs:
+            if o["rec"] in EXCLUDE:
+                continue
+            if classify(o["mat"], o["rec"]) == "fighter" and o["mat_addr"] >= 0:
+                mats[o["mat_addr"]] = True
+        lastC = {}
+        for (tt, addr, dv) in Cw:
+            if t0 < tt <= t_end:
+                lastC[addr] = dv
+        tot = mm = ok = nw = 0
+        for maddr in mats:
+            for k in range(12):
+                a = maddr + 4 + k * 4
+                tot += 1
+                if a in lastC:
+                    if lastC[a] == w[a // 4]:
+                        ok += 1
+                    else:
+                        mm += 1
+                else:
+                    nw += 1
+        print(f"{fr:3d}   z{(rs & 0x1ffff)//ZONE}     {len(mats):3d}      "
+              f"{tot:4d}      {ok:4d}        {mm:4d}      {nw:4d}")
+    print("\n(frame 0 has no prior interval captured, so 0 matches is expected.)")
+    print("coproMatch>0 with mismatch==0 => the copro writes ARE the 0x0b "
+          "matrices we read; notWritten = matrices unchanged this frame "
+          "(value persists in the zone).")
+
+
 def _starts(txtp):
     s = {}
     for ln in open(txtp):
@@ -558,6 +710,16 @@ def main():
             print(__doc__); sys.exit(1)
         pose = int(sys.argv[4]) if len(sys.argv) > 4 else 20
         cmd_addrmap(sys.argv[2], sys.argv[3], pose)
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "coprochk":
+        if len(sys.argv) < 4:
+            print(__doc__); sys.exit(1)
+        cmd_coprochk(sys.argv[2], sys.argv[3])
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "rtrack":
+        if len(sys.argv) < 5:
+            print(__doc__); sys.exit(1)
+        cmd_rtrack(sys.argv[2], sys.argv[3], sys.argv[4])
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "track":
         if len(sys.argv) < 5:
