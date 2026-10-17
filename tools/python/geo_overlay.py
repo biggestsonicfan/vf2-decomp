@@ -10,6 +10,7 @@ Usage:
   geo_overlay.py offsets <projdir> <screendir>
   geo_overlay.py objerr  <proj.png.csv> [W H]
   geo_overlay.py fighters <screenshot.png> <proj.png.tris> <proj.png.csv> <out.png>
+  geo_overlay.py fitfighters <shotdir> <frameidx> <proj.png.tris> <proj.png.csv> <ref_f00.csv>
 
 `overlay` blends the projection over the screenshot (projection colours kept:
 red anchor, grey other, dark shadow) and draws its silhouette edges, so the two
@@ -552,6 +553,135 @@ def cmd_fighters(shot_p, tris_p, csv_p, out_p, W=0, H=0):
     print(f"  screen shadows (green): L={sl} R={sr}")
 
 
+EXCLUDE_RECS = ("0x581d50", "0x1a9b54")
+
+
+def _rec_side_map(ref_csv):
+    """rec -> 'L'/'R' from a reference frame's CSV, by projected-matrix Tx sign;
+    ties dropped (records a fighter shares). Needs the `tx` column (geo-project)."""
+    tally = {}
+    for r in _csv_rows(ref_csv):
+        if r["group"] != "fighter" or r["rec_byte"] in EXCLUDE_RECS:
+            continue
+        tx = _fnum(r.get("tx"))
+        if tx is None:
+            continue
+        t = tally.setdefault(r["rec_byte"], [0, 0])
+        t[0 if tx < 0 else 1] += 1
+    side = {}
+    for rec, (nl, nr) in tally.items():
+        if nl > nr:
+            side[rec] = "L"
+        elif nr > nl:
+            side[rec] = "R"
+    return side
+
+
+def _fill_tris(tris, w, h):
+    """Rasterize a list of (x0,y0,x1,y1,x2,y2) to a filled 0/1 mask."""
+    mask = bytearray(w * h)
+    for (x0, y0, x1, y1, x2, y2) in tris:
+        minx = max(0, int(min(x0, x1, x2)))
+        maxx = min(w - 1, int(max(x0, x1, x2)) + 1)
+        miny = max(0, int(min(y0, y1, y2)))
+        maxy = min(h - 1, int(max(y0, y1, y2)) + 1)
+        if maxx < minx or maxy < miny:
+            continue
+        d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(d) < 1e-9:
+            continue
+        for y in range(miny, maxy + 1):
+            for x in range(minx, maxx + 1):
+                a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / d
+                b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / d
+                c = 1.0 - a - b
+                if a >= -0.01 and b >= -0.01 and c >= -0.01:
+                    mask[y * w + x] = 1
+    return mask
+
+
+def _boundary(mask, w, h):
+    pts = []
+    for y in range(1, h - 1):
+        row = y * w
+        for x in range(1, w - 1):
+            if mask[row + x] and not (mask[row + x - 1] and mask[row + x + 1]
+                                      and mask[row - w + x] and mask[row + w + x]):
+                pts.append((x, y))
+    return pts
+
+
+def _motion_mask(shotdir, idx, thr=28):
+    """Foreground = pixels that move between this screenshot and its neighbours
+    (isolates the fighters from the static stage). Returns (w,h,mask 0/1)."""
+    import os, re
+    files = {}
+    for fn in os.listdir(shotdir):
+        m = re.match(r"f(\d+)", fn)
+        if m and fn.lower().endswith(".png"):
+            files[int(m.group(1))] = os.path.join(shotdir, fn)
+    w, h, cur = read_png(files[idx])
+    gc_ = gray(cur, w * h)
+    mask = bytearray(w * h)
+    for nb in (idx - 1, idx + 1):
+        if nb not in files:
+            continue
+        w2, h2, o = read_png(files[nb])
+        if (w2, h2) != (w, h):
+            continue
+        go = gray(o, w * h)
+        for i in range(w * h):
+            if abs(gc_[i] - go[i]) > thr:
+                mask[i] = 1
+    return w, h, mask
+
+
+def cmd_fitfighters(shotdir, idx, tris_p, csv_p, ref_csv, rng=100):
+    idx = int(idx)
+    w, h, fg = _motion_mask(shotdir, idx)
+    recside = _rec_side_map(ref_csv)
+    side_tris = {"L": [], "R": []}
+    with open(tris_p) as f:
+        next(f, None)
+        for ln in f:
+            p = ln.rstrip("\n").split(",")
+            if len(p) < 9 or p[2] != "fighter" or p[1] in EXCLUDE_RECS:
+                continue
+            sd = recside.get(p[1])
+            if sd is None:
+                continue
+            side_tris[sd].append(tuple(float(v) for v in p[3:9]))
+    nfg = sum(fg)
+    print(f"# fitfighters frame {idx} ({shotdir})  motion-fg {nfg}px")
+    for side, who in (("L", "Akira"), ("R", "Lau")):
+        tris = side_tris[side]
+        if not tris:
+            print(f"  {side}/{who}: no triangles")
+            continue
+        mask = _fill_tris(tris, w, h)
+        pts = [(x, y) for y in range(h) for x in range(w) if mask[y * w + x]]
+        if len(pts) > 400:
+            step = len(pts) // 400 + 1
+            pts = pts[::step]
+        best = (-1.0, 0, 0)
+        for dy in range(-rng, rng + 1):
+            for dx in range(-rng, rng + 1):
+                s = 0
+                for (x, y) in pts:
+                    xx = x + dx; yy = y + dy
+                    if 0 <= xx < w and 0 <= yy < h and fg[yy * w + xx]:
+                        s += 1
+                if s > best[0]:
+                    best = (s, dx, dy)
+        sc, dx, dy = best
+        s0 = sum(1 for (x, y) in pts
+                 if fg[y * w + x]) if pts else 0
+        print(f"  {side}/{who}: best shift dx={dx:+d} dy={dy:+d}  "
+              f"silhouette-in-motion {100*sc/len(pts):.0f}% "
+              f"(vs {100*s0/len(pts):.0f}% at 0,0); {len(tris)} tris, "
+              f"{len(pts)} fill pts")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
@@ -572,6 +702,9 @@ def main():
         cmd_objerr(sys.argv[2], w, h)
     elif c == "fighters":
         cmd_fighters(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+    elif c == "fitfighters":
+        cmd_fitfighters(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
+                        sys.argv[6])
     else:
         print(__doc__); sys.exit(1)
 
