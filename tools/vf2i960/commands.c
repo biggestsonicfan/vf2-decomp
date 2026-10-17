@@ -7613,6 +7613,16 @@ static size_t ext_emit_piece(
     vf2_model_vertex p1;
     size_t off;
     uint32_t prim;
+    static int dbg_init = 0;
+    static uint32_t dbg_rec = 0xffffffffu;
+    int do_dbg;
+
+    if (!dbg_init) {
+        const char *e = getenv("VF2_PIECE_DBG");
+        if (e != NULL) dbg_rec = (uint32_t)strtoul(e, NULL, 0);
+        dbg_init = 1;
+    }
+    do_dbg = (rec_byte == dbg_rec && obj != NULL);
 
     if (!ext_read_xyz(poly, poly_size, rec_byte, &p0) ||
         !ext_read_xyz(poly, poly_size, rec_byte + 12u, &p1)) {
@@ -7631,7 +7641,17 @@ static size_t ext_emit_piece(
         uint32_t vtx;
 
         off += 4u;
-        if (attr == 0x00040401u || (attr & 3u) == 0u) {
+        if (do_dbg)
+            fprintf(stderr, "    prim %u @0x%zx attr=0x%08x (quad=%u tri=%u "
+                    "strip=%u)\n", prim, off - 4u, attr, (attr & 1u),
+                    ((attr & 3u) == 2u), (unsigned)((attr >> 8) & 3u));
+        /* MAME geo_parse_np_s/_nn_s end a piece ONLY on attr&3==0 (the link type
+         * bits zero). 0x00040401 is a valid quad (attr&3==1) that MAME keeps
+         * decoding; stopping on it here truncated pieces mid-mesh (e.g. Akira's
+         * trousers 0x13b998, cut at prim 10). */
+        if ((attr & 3u) == 0u) {
+            if (do_dbg)
+                fprintf(stderr, "    STOP at prim %u: attr&3==0\n", prim);
             break;
         }
         numv = (attr & 1u) ? 4u : 3u;
