@@ -9153,29 +9153,48 @@ done:
     return rc;
 }
 
-/* --- geo-fighter: Step 3 -- export one fighter (by oba family) in world space ---
+/* --- geo-fighter: Step 3 -- export one fighter (by screen side) in world space --
  *
- * Selects a fighter's objects at the pose frame by record family (rec>>16):
- * Akira = 0x05/07/13/62/63, Lau = 0x0f/14/15/16/29/56/69 (measured stable across
- * frames and captures). Shadows (flat matrix) and the two decor-matrix records
- * 0x581d50/0x1a9b54 are excluded. Each object's captured matrix has the camera
- * baked in (per Step 2); we re-express it in the decor's world frame by applying
- * the inverse of the decor (shared) matrix -- so the fighter stands camera-free.
- * The model is then centred on its feet: horizontally on the bbox centre, and the
- * vertical axis (the longest bbox extent) shifted so the lowest point sits at 0.
- * Geometry is decoded from oba and textured via the tpa UV/texheader table, as
- * geo-scene does. Local only; never committed. */
-static const uint32_t GF_AKIRA[] = { 0x05u, 0x07u, 0x13u, 0x62u, 0x63u };
-static const uint32_t GF_LAU[]   = { 0x0fu, 0x14u, 0x15u, 0x16u, 0x29u,
-                                     0x56u, 0x69u };
-
-static int gf_fam_in(uint32_t rec, const uint32_t *fams, size_t nf)
+ * Separates the two fighters by SCREEN POSITION, not record family: record
+ * families are shared (family 0x13 holds Akira's parts AND Lau's face 0x130a44;
+ * 0x00 primitives split too), so a family sort loses Lau's head/torso and mixes
+ * Akira (Step 3 redo). Every non-shadow, resolvable fighter piece (the two
+ * decor-matrix records 0x581d50/0x1a9b54 excluded) is projected to its on-screen
+ * centroid x (pieces with no vertex on screen are dropped -- they are degenerate /
+ * off-screen, not visible fighter parts); the two fighters split at the widest gap
+ * in the sorted x (each side >= 5 pieces); `akira` = the left group, `lau` = the
+ * right. Each piece's captured matrix has the camera
+ * baked in (Step 2); we re-express it in the decor's world frame by applying the
+ * inverse of the decor (shared) matrix, so the fighter stands camera-free, then
+ * centre on the feet: horizontally on the bbox centre, vertical axis (longest
+ * extent) shifted so the lowest point sits at 0. Geometry from oba, textured via
+ * the tpa UV/texheader table (as geo-scene). Local only; never committed. */
+/* Project a piece's on-screen centroid x in VF2 screen space (centre 248, focus
+ * 600, m_crtc_xoffset 0 -- Step 2m/2n) from its captured view-space matrix.
+ * Record families are shared between both fighters (e.g. 0x13 holds Akira's parts
+ * AND Lau's face 0x130a44), so the fighters must be separated by screen position,
+ * not by family (Step 3 redo). Falls back to the matrix translation if no vertex
+ * lands on screen; returns -1 if even that is behind the eye. */
+static double gf_screen_cx(const uint8_t *poly, size_t poly_size, uint32_t rec,
+                           const float *m, vf2_model_vertex *vacc, size_t vcap)
 {
-    uint32_t fam = (rec >> 16);
-    size_t i;
-    for (i = 0u; i < nf; ++i)
-        if (fams[i] == fam) return 1;
-    return 0;
+    size_t vn = 0u, e, non = 0u;
+    int sheet = -1;
+    size_t tr = 0u;
+    double sum = 0.0;
+    (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u, 1u,
+                         &sheet, &tr, m, vacc, &vn, vcap);
+    for (e = 0u; e < vn; ++e) {
+        double X = (double)vacc[e].x * 600.0;
+        double Z = (double)vacc[e].z;
+        double sx;
+        if (Z < 0.0001) continue;
+        sx = 248.0 + X / Z;
+        if (sx >= 0.0 && sx < 496.0) { sum += sx; ++non; }
+    }
+    /* no fallback: a piece with no vertex on screen is not a visible fighter part
+     * (degenerate record or off-frame) and must not pull the split. */
+    return (non > 0u) ? sum / (double)non : -1.0;
 }
 
 static int command_geo_fighter(
@@ -9199,13 +9218,17 @@ static int command_geo_fighter(
     uint32_t readstart[GS_MAX_FRAMES];
     size_t nframes = 0u, pose, nobjs = 0u, s;
     vf2_geo_stop stop;
-    const uint32_t *fams;
-    size_t nfams;
+    int side;                    /* 0 = akira (left), 1 = lau (right) */
     float mdec[12];
     double adi[9];
     int have_dec = 0;
     float (*mf)[12] = NULL;      /* per-selected-object world matrix */
     uint32_t *selrec = NULL, *seltpa = NULL;
+    uint32_t *cand_rec = NULL, *cand_tpa = NULL;
+    size_t *cand_s = NULL;
+    double *cand_cx = NULL, *sortcx = NULL;
+    size_t ncand = 0u, i, j;
+    double split = 248.0, bestgap = -1.0;
     size_t nsel = 0u;
     vf2_model_vertex *vacc = NULL;
     size_t vcap = 400000u, vn = 0u, e;
@@ -9218,8 +9241,8 @@ static int command_geo_fighter(
     vf2_status st;
     int rc = EXIT_FAILURE;
 
-    if (strcmp(which, "akira") == 0) { fams = GF_AKIRA; nfams = 5u; }
-    else if (strcmp(which, "lau") == 0) { fams = GF_LAU; nfams = 7u; }
+    if (strcmp(which, "akira") == 0) side = 0;       /* left on screen */
+    else if (strcmp(which, "lau") == 0) side = 1;    /* right on screen */
     else { fprintf(stderr, "geo-fighter: which must be akira|lau\n"); return EXIT_FAILURE; }
 
     pose = (size_t)strtoul(pose_str, NULL, 0);
@@ -9269,17 +9292,64 @@ static int command_geo_fighter(
     mf = (float (*)[12])malloc(nobjs * sizeof(*mf));
     selrec = (uint32_t *)malloc(nobjs * sizeof(*selrec));
     seltpa = (uint32_t *)malloc(nobjs * sizeof(*seltpa));
-    if (mf == NULL || selrec == NULL || seltpa == NULL) goto done;
+    cand_rec = (uint32_t *)malloc(nobjs * sizeof(*cand_rec));
+    cand_tpa = (uint32_t *)malloc(nobjs * sizeof(*cand_tpa));
+    cand_s = (size_t *)malloc(nobjs * sizeof(*cand_s));
+    cand_cx = (double *)malloc(nobjs * sizeof(*cand_cx));
+    sortcx = (double *)malloc(nobjs * sizeof(*sortcx));
+    if (mf == NULL || selrec == NULL || seltpa == NULL || cand_rec == NULL ||
+        cand_tpa == NULL || cand_s == NULL || cand_cx == NULL || sortcx == NULL)
+        goto done;
 
+    /* every non-shadow, resolvable fighter piece (the 2 decor-matrix records out),
+     * with its projected on-screen centroid x. */
     for (s = 0u; s < nobjs; ++s) {
         uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
         if (rec == 0x581d50u || rec == 0x1a9b54u) continue;
         if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;  /* shadow */
-        if (!gf_fam_in(rec, fams, nfams)) continue;
+        if (rec >= 0x3c1facu && rec <= 0x3ca730u) continue;         /* decor */
         if ((size_t)rec + 24u > poly_size) continue;
-        gs_worldframe(objs[s].matrix, mdec, adi, mf[nsel]);
-        selrec[nsel] = rec;
-        seltpa[nsel] = objs[s].tpa;
+        cand_rec[ncand] = rec;
+        cand_tpa[ncand] = objs[s].tpa;
+        cand_s[ncand] = s;
+        cand_cx[ncand] = gf_screen_cx(poly, poly_size, rec, objs[s].matrix,
+                                      vacc, vcap);
+        ++ncand;
+    }
+    if (ncand == 0u) { fprintf(stderr, "geo-fighter: no fighter pieces\n"); goto done; }
+
+    /* split the two fighters at the widest gap in the sorted on-screen x. */
+    {
+        size_t nv = 0u;
+        for (i = 0u; i < ncand; ++i)
+            if (cand_cx[i] >= 0.0) sortcx[nv++] = cand_cx[i];
+        for (i = 1u; i < nv; ++i) {        /* insertion sort (small n) */
+            double v = sortcx[i];
+            j = i;
+            while (j > 0u && sortcx[j - 1u] > v) { sortcx[j] = sortcx[j - 1u]; --j; }
+            sortcx[j] = v;
+        }
+        for (i = 1u; i < nv; ++i) {
+            double g = sortcx[i] - sortcx[i - 1u];
+            size_t lo = (i < nv - i) ? i : nv - i;   /* smaller side's count */
+            if (lo < 5u) continue;                    /* reject edge outliers */
+            if (g > bestgap) { bestgap = g; split = 0.5 * (sortcx[i] + sortcx[i - 1u]); }
+        }
+        if (bestgap < 0.0 && nv > 0u)                 /* fallback: screen centre */
+            split = 248.0;
+    }
+
+    /* select the requested side (akira = left of the split, lau = right). A piece
+     * with no on-screen centroid (cx < 0) is placed by its matrix translation x,
+     * already folded into cand_cx; if still < 0 it is skipped. */
+    for (i = 0u; i < ncand; ++i) {
+        int is_left;
+        if (cand_cx[i] < 0.0) continue;
+        is_left = (cand_cx[i] < split);
+        if ((side == 0) != (is_left != 0)) continue;
+        gs_worldframe(objs[cand_s[i]].matrix, mdec, adi, mf[nsel]);
+        selrec[nsel] = cand_rec[i];
+        seltpa[nsel] = cand_tpa[i];
         ++nsel;
     }
     if (nsel == 0u) { fprintf(stderr, "geo-fighter: no %s pieces at frame %zu\n", which, pose); goto done; }
@@ -9353,9 +9423,13 @@ static int command_geo_fighter(
 
     printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png)\n",
            which, pose, out_dir, which, which);
-    printf("  %zu pieces, %zu triangles; camera removed; vertical axis %c, "
-           "feet at origin; bbox world extent (%.2f,%.2f,%.2f)\n",
-           nsel, tris_total, "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
+    printf("  %zu fighter pieces total, screen-x split at %.0f (gap %.0f); "
+           "selected %s (%s) = %zu pieces, %zu triangles\n",
+           ncand, split, bestgap, which, side == 0 ? "left" : "right",
+           nsel, tris_total);
+    printf("  camera removed; vertical axis %c, feet at origin; "
+           "bbox world extent (%.2f,%.2f,%.2f)\n",
+           "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
     rc = EXIT_SUCCESS;
 
 done:
@@ -9364,6 +9438,7 @@ done:
     if (obj != NULL) fclose(obj);
     if (mtl != NULL) fclose(mtl);
     free(words); free(objs); free(vacc); free(mf); free(selrec); free(seltpa);
+    free(cand_rec); free(cand_tpa); free(cand_s); free(cand_cx); free(sortcx);
     free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
     return rc;
 }
