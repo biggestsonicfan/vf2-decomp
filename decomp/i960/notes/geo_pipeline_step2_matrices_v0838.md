@@ -1,5 +1,10 @@
 # geo_pipeline_step2_matrices_v0838 — per-object matrices, bands, posed scene
 
+> **CORRECTION (v0857/v0858):** this note (and v0834/v0836/v0837/v0839) calls
+> `0x130a44` "Akira's face / anchor". That was a wrong early guess. `0x130a44` is
+> **Lau's** face -- separated by projected screen position since v0841, and in
+> `lau.obj` since v0853. Fighters are split by 3D position, never by record range.
+
 **Geometriser pipeline, Step 2** (plan in `geo_pipeline_step0_sm2emu_review_v0836.md`,
 walker in `geo_pipeline_step1_walker_v0837.md`). Extracts every object's transform
 matrix across the 30 RAM9 frames, groups the 113 objects by how their matrix

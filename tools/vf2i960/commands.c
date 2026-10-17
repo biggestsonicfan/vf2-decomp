@@ -7656,14 +7656,21 @@ static size_t ext_emit_piece(
         }
         numv = (attr & 1u) ? 4u : 3u;
         off += 12u; /* skip unit normal (3 floats) */
-        if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vA)) {
+        if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vA)) { /* P0(n) */
             break;
         }
         off += 12u;
-        if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vB)) {
-            break;
+        if (numv == 4u) {
+            if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vB)) { /* P1(n) */
+                break;
+            }
+        } else {
+            /* triangle: MAME skips this slot and sm2-emu (geometrizer.cpp:557)
+             * sets P1(n) = P0(n) -- a degenerate 4th vertex. Reading the skipped
+             * slot as a real vertex produced garbage sliver triangles. */
+            vB = vA;
         }
-        off += 12u;
+        off += 12u; /* advance past the P1(n) slot either way (10-word stride) */
 
         thw[0] = tl_u16(tex, tex_size, th_ptr + 0u);
         thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
