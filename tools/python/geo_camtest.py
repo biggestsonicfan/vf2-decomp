@@ -16,9 +16,17 @@ shadow exactly as geo-project/geo-scene do, excludes the two decor-matrix record
   - predicted    : the gap the camera-lag hypothesis predicts (cam(n-1) vs cam(n))
   - recomposed   : the body-shadow screen gap after swapping cam(n-1)->cam(n)
 
-Usage:  geo_camtest.py <ram9.bin> <readstarts.txt>
+Usage:
+  geo_camtest.py <ram9.bin> <readstarts.txt>              # camera-lag test
+  geo_camtest.py track <ram9.bin> <readstarts.txt> <shotdir>
 
-Pure stdlib. Convention: a matrix is 12 floats m[0..11] applied as MAME
+`track` traces, per fighter and per frame, three screen-x positions -- projected
+body centre, projected shadow centre, and the real screenshot shadow (the green
+cross = `geo_overlay.shot_shadow_centroids`) -- and reports which projection
+(body or shadow) stays closest to the real fighter and whether the body matrices
+move frame-to-frame or stay frozen.
+
+Pure stdlib (track imports read_png/shot_shadow_centroids from geo_overlay.py). Convention: a matrix is 12 floats m[0..11] applied as MAME
 transform_point  p' = p . A + T,  A[i][j]=m[3i+j] (i,j in 0..2), T=m[9..11].
 Projection (VF2): fx=fy=600, screen_x = 84 + 248 + Tx*fx/Tz.
 """
@@ -195,10 +203,8 @@ def centroid_T(objs):
     return [sum(o[0][9 + k] for o in objs) / n for k in range(3)]
 
 
-def main():
-    if len(sys.argv) < 3:
-        print(__doc__); sys.exit(1)
-    binp, txtp = sys.argv[1], sys.argv[2]
+def load_frames(binp, txtp):
+    """Return a list[frame] of {"decor","fighter","shadow": [(matrix12, rec)]}."""
     starts = {}
     for ln in open(txtp):
         p = ln.split()
@@ -221,7 +227,12 @@ def main():
                 continue
             groups[classify(mat, rec)].append((mat, rec))
         frames.append(groups)
+    return frames
 
+
+def cmd_camtest(binp, txtp):
+    frames = load_frames(binp, txtp)
+    nfr = len(frames)
     print(f"# camera-lag test  ({binp}), {nfr} frames, excluding "
           f"{', '.join('0x%x' % r for r in EXCLUDE)}")
     print("# per fighter side (L: body Tx<0, R: Tx>=0); gaps in screen px "
@@ -316,6 +327,112 @@ def main():
         r = cov / (vg * vp) if vg > 0 and vp > 0 else float("nan")
         print(f"  corr(raw gap, predicted cam-lag gap) r = {r:+.2f}  "
               f"(near +1 => gap follows the camera)")
+
+
+def _load_shots(shotdir):
+    """index -> path for files like f00_frame2301.png."""
+    import os, re
+    out = {}
+    for fn in os.listdir(shotdir):
+        m = re.match(r"f(\d+)", fn)
+        if m and fn.lower().endswith(".png"):
+            out[int(m.group(1))] = os.path.join(shotdir, fn)
+    return out
+
+
+def proj_centroid_x(objs):
+    """Mean projected screen x over objects (each object as a point at its T)."""
+    xs = [screen_x(T_of(o[0])) for o in objs]
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+
+def cmd_track(binp, txtp, shotdir):
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import geo_overlay as go
+
+    frames = load_frames(binp, txtp)
+    nfr = len(frames)
+    shots = _load_shots(shotdir)
+
+    print(f"# fighter x-trace ({binp}) vs screenshots ({shotdir}), {nfr} frames")
+    print("# per fighter side (Tx<0 = left/Akira, Tx>=0 = right/Lau); x in "
+          "screen px.")
+    print("# bodyX = projected body centre, shdwX = projected shadow centre, "
+          "realX = screenshot shadow (green).")
+    print()
+    hdr = ("frm | side  bodyX  shdwX  realX | body-real  shdw-real  "
+           "dBody  dShdw  dReal")
+    print(hdr)
+    print("-" * len(hdr))
+
+    prev = {"L": {}, "R": {}}
+    err = {"L": {"body": [], "shdw": []}, "R": {"body": [], "shdw": []}}
+    frozen = {"L": [], "R": []}
+    for fr in range(nfr):
+        g = frames[fr]
+        real = (None, None)
+        if fr in shots:
+            try:
+                w, h, px = go.read_png(shots[fr])
+                real = go.shot_shadow_centroids(px, w, h)
+            except Exception:
+                real = (None, None)
+        for side, sel, realc in (("L", lambda t: t[0] < 0, real[0]),
+                                 ("R", lambda t: t[0] >= 0, real[1])):
+            b = [o for o in g["fighter"] if sel(o[0][9:12])]
+            s = [o for o in g["shadow"] if sel(o[0][9:12])]
+            bx = proj_centroid_x(b)
+            sx = proj_centroid_x(s)
+            rx = realc[0] if realc else None
+            # frame-to-frame deltas (is the body matrix moving, or frozen?)
+            dB = (bx - prev[side]["b"]) if bx is not None and prev[side].get("b") is not None else None
+            dS = (sx - prev[side]["s"]) if sx is not None and prev[side].get("s") is not None else None
+            dR = (rx - prev[side]["r"]) if rx is not None and prev[side].get("r") is not None else None
+            prev[side] = {"b": bx, "s": sx, "r": rx}
+            br = (bx - rx) if bx is not None and rx is not None else None
+            sr = (sx - rx) if sx is not None and rx is not None else None
+            if br is not None:
+                err[side]["body"].append(br)
+            if sr is not None:
+                err[side]["shdw"].append(sr)
+            if dB is not None:
+                frozen[side].append(dB)
+
+            def g6(v):
+                return ("%+6.0f" % v) if v is not None else "     ."
+
+            def g5(v):
+                return ("%5.0f" % v) if v is not None else "    ."
+            print(f"{fr:3d} | {side}   {g5(bx)}  {g5(sx)}  {g5(rx)} | "
+                  f"{g6(br)}    {g6(sr)}   {g6(dB)} {g6(dS)} {g6(dR)}")
+
+    def mae(xs):
+        return sum(abs(x) for x in xs) / len(xs) if xs else float("nan")
+
+    print("\nsummary -- which projection tracks the real fighter (lower MAE "
+          "to realX wins):")
+    for side, who in (("L", "Akira (advancing)"), ("R", "Lau (near-still)")):
+        eb = err[side]["body"]; es = err[side]["shdw"]
+        fz = frozen[side]
+        print(f"  side {side} {who}:")
+        print(f"    body-real  MAE {mae(eb):5.1f}px   shadow-real  MAE "
+              f"{mae(es):5.1f}px  -> {'SHADOW' if mae(es) < mae(eb) else 'BODY'}"
+              f" tracks the real fighter")
+        print(f"    body frame-to-frame |dTx->px| mean {mae(fz):.1f}px "
+              f"(near 0 => body matrices ~frozen)")
+
+
+def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "track":
+        if len(sys.argv) < 5:
+            print(__doc__); sys.exit(1)
+        cmd_track(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif len(sys.argv) >= 3:
+        cmd_camtest(sys.argv[1], sys.argv[2])
+    else:
+        print(__doc__); sys.exit(1)
 
 
 if __name__ == "__main__":
