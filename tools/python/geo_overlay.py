@@ -768,6 +768,74 @@ def cmd_fitdecor(shot_p, tris_p, group="decor", rngx=100, rngy=30):
           f"{len(tris)} tris, {len(pts)} edge pts")
 
 
+_PALETTE = [
+    (255, 80, 80), (80, 255, 80), (90, 150, 255), (255, 220, 60),
+    (255, 120, 255), (60, 230, 230), (255, 160, 40), (170, 110, 255),
+    (120, 255, 170), (230, 90, 150), (180, 230, 80), (90, 200, 255),
+    (255, 180, 120), (200, 140, 220), (140, 220, 140), (240, 240, 140),
+    (255, 100, 160), (120, 220, 220), (200, 200, 90), (160, 180, 255),
+]
+
+
+def cmd_piececolor(shot_p, tris_p, out_p, xmax=99999):
+    """Overlay each fighter piece in its own colour on the screenshot, and print a
+    legend (obj, rec, screen centroid+bbox). xmax restricts to pieces whose
+    centroid x < xmax (e.g. only the left fighter)."""
+    w, h, shot = read_png(shot_p)
+    buf = bytearray(len(shot))
+    for i in range(len(shot)):
+        buf[i] = (shot[i] * 55) // 100          # dim backdrop
+    objs = {}
+    with open(tris_p) as f:
+        next(f, None)
+        for ln in f:
+            p = ln.rstrip("\n").split(",")
+            if len(p) < 9 or p[2] != "fighter" or p[1] in EXCLUDE_RECS:
+                continue
+            o = int(p[0])
+            objs.setdefault(o, [p[1], []])[1].append(
+                tuple(float(v) for v in p[3:9]))
+
+    def blend(x, y, col, a=0.65):
+        if 0 <= x < w and 0 <= y < h:
+            i = (y * w + x) * 3
+            for c in range(3):
+                buf[i + c] = int(buf[i + c] * (1 - a) + col[c] * a)
+
+    legend = []
+    ci = 0
+    for o in sorted(objs):
+        rec, tris = objs[o]
+        xs = [v for t in tris for v in (t[0], t[2], t[4])]
+        ys = [v for t in tris for v in (t[1], t[3], t[5])]
+        cx = sum(xs) / len(xs); cy = sum(ys) / len(ys)
+        if cx >= xmax:
+            continue
+        col = _PALETTE[ci % len(_PALETTE)]; ci += 1
+        for (x0, y0, x1, y1, x2, y2) in tris:
+            minx = max(0, int(min(x0, x1, x2)))
+            maxx = min(w - 1, int(max(x0, x1, x2)) + 1)
+            miny = max(0, int(min(y0, y1, y2)))
+            maxy = min(h - 1, int(max(y0, y1, y2)) + 1)
+            d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+            if abs(d) < 1e-9:
+                continue
+            for y in range(miny, maxy + 1):
+                for x in range(minx, maxx + 1):
+                    a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / d
+                    b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / d
+                    if a >= -0.01 and b >= -0.01 and (a + b) <= 1.01:
+                        blend(x, y, col)
+        legend.append((o, rec, col, cx, cy,
+                       min(xs), min(ys), max(xs), max(ys)))
+    write_png(out_p, w, h, buf)
+    print(f"# piececolor {out_p} ({len(legend)} pieces, x<{xmax})")
+    print("obj    rec     colorRGB        cx   cy   bbox[x0,y0..x1,y1]")
+    for o, rec, col, cx, cy, x0, y0, x1, y1 in sorted(legend, key=lambda z: z[4]):
+        print(f"  {o:3d} {rec:>9} ({col[0]:3d},{col[1]:3d},{col[2]:3d}) "
+              f"{cx:5.0f}{cy:5.0f}  [{x0:.0f},{y0:.0f}..{x1:.0f},{y1:.0f}]")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
@@ -793,6 +861,9 @@ def main():
                         sys.argv[6])
     elif c == "fitdecor":
         cmd_fitdecor(sys.argv[2], sys.argv[3])
+    elif c == "piececolor":
+        xm = int(sys.argv[5]) if len(sys.argv) > 5 else 99999
+        cmd_piececolor(sys.argv[2], sys.argv[3], sys.argv[4], xm)
     else:
         print(__doc__); sys.exit(1)
 

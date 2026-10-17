@@ -9237,7 +9237,7 @@ static int command_geo_fighter(
     size_t ncand = 0u, i, j, k, wvn = 0u, wvcap;
     size_t ca = 0u, cb = 0u;      /* the two largest components' roots */
     double bestT = 0.05, best2nd = -1.0, Tt;
-    size_t nsel = 0u;
+    size_t nsel = 0u, nram = 0u;
     vf2_model_vertex *vacc = NULL;
     size_t vcap = 400000u, e;
     double mn[3] = { 1e30, 1e30, 1e30 }, mx[3] = { -1e30, -1e30, -1e30 };
@@ -9315,11 +9315,20 @@ static int command_geo_fighter(
     /* every non-shadow, resolvable fighter piece (the 2 decor-matrix records out):
      * decode its WORLD vertices (camera removed) and record its on-screen x. */
     for (s = 0u; s < nobjs; ++s) {
-        uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
+        uint32_t oba = objs[s].oba;
+        uint32_t rec = (oba & 0x7fffffu) * 4u;
         size_t vn = 0u;
         if (rec == 0x581d50u || rec == 0x1a9b54u) continue;
         if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;  /* shadow */
         if (rec >= 0x3c1facu && rec <= 0x3ca730u) continue;         /* decor */
+        /* MAME geo_object_data: oba bit24 = fast polygon RAM, bit23 = polygon ROM,
+         * else slow polygon RAM. Only ROM is in our capture; a RAM-sourced piece
+         * (e.g. Akira's shin 0x000010 at f20, in polygon RAM) cannot be decoded
+         * here -- skip it rather than read ROM garbage, and count it. */
+        if ((oba & 0x01000000u) != 0u || (oba & 0x00800000u) == 0u) {
+            ++nram;
+            continue;
+        }
         if ((size_t)rec + 24u > poly_size) continue;
         gs_worldframe(objs[s].matrix, mdec, adi, mf[ncand]);
         (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u, 1u,
@@ -9523,9 +9532,12 @@ static int command_geo_fighter(
 
     printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png)\n",
            which, pose, out_dir, which, which);
-    printf("  %zu fighter pieces, 3D connected-components at joint threshold "
+    printf("  %zu ROM fighter pieces, 3D connected-components at joint threshold "
            "%.2f; selected %s (%s) = %zu pieces, %zu triangles\n",
            ncand, bestT, which, side == 0 ? "left" : "right", nsel, tris_total);
+    if (nram > 0u)
+        printf("  note: %zu RAM-sourced piece(s) skipped (in polygon RAM, not in "
+               "this capture) -- e.g. a shin; needs a polygon-RAM capture\n", nram);
     printf("  camera removed; vertical axis %c, feet at origin; "
            "bbox world extent (%.2f,%.2f,%.2f)\n",
            "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
