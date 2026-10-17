@@ -7893,23 +7893,35 @@ static size_t ext_emit_piece(
         thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
         vf2_texture_header_decode(thw, &hd);
 
-        for (vtx = 0u; vtx < numv; ++vtx) {
-            uint16_t pv = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 0u);
-            uint16_t pu = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 1u);
-            float tu = vf2_texture_uv_texels(pu);
-            float tv = vf2_texture_uv_texels(pv);
-            float wq = (float)hd.tex_width;
-            float hq = (float)hd.tex_height;
-            float lu = (wq > 0.0f) ? (float)fmod((double)tu, (double)wq) : 0.0f;
-            float lv = (hq > 0.0f) ? (float)fmod((double)tv, (double)hq) : 0.0f;
-            if (lu < 0.0f) {
-                lu += wq;
+        {
+            /* Texel UVs are read per vertex, then wrapped into the tile with ONE
+             * common offset per axis for the whole polygon. A per-vertex fmod
+             * scrambled every polygon that straddles a tile boundary -- one vertex at
+             * V = tex_height wrapped to 0 while its neighbours stayed below, breaking
+             * the triangle's interpolation (the "mosaic" on Lau's back, record
+             * 0x69a890). A common offset (floor(min/size)*size) keeps the triangle
+             * contiguous and still brings a polygon that lives in a higher repeat
+             * (all vertices past tex_width/height) back onto the tile, exactly as the
+             * per-vertex wrap already did for that case. MAME wraps per pixel
+             * (model2rd.ipp:156-159), which the scene render reproduces; a baked OBJ
+             * cannot, so this is the contiguous equivalent. */
+            float tu4[4], tv4[4];
+            float wq = (float)hd.tex_width, hq = (float)hd.tex_height;
+            float minu = 0.0f, minv = 0.0f, offu = 0.0f, offv = 0.0f;
+            for (vtx = 0u; vtx < numv; ++vtx) {
+                uint16_t pv = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 0u);
+                uint16_t pu = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 1u);
+                tu4[vtx] = vf2_texture_uv_texels(pu);
+                tv4[vtx] = vf2_texture_uv_texels(pv);
+                if (vtx == 0u || tu4[vtx] < minu) minu = tu4[vtx];
+                if (vtx == 0u || tv4[vtx] < minv) minv = tv4[vtx];
             }
-            if (lv < 0.0f) {
-                lv += hq;
+            if (wq > 0.0f) offu = (float)floor((double)minu / (double)wq) * wq;
+            if (hq > 0.0f) offv = (float)floor((double)minv / (double)hq) * hq;
+            for (vtx = 0u; vtx < numv; ++vtx) {
+                uv[vtx][0] = ((float)hd.tex_x + (tu4[vtx] - offu)) / 2048.0f;
+                uv[vtx][1] = 1.0f - ((float)hd.tex_y + (tv4[vtx] - offv)) / 1024.0f;
             }
-            uv[vtx][0] = ((float)hd.tex_x + lu) / 2048.0f;
-            uv[vtx][1] = 1.0f - ((float)hd.tex_y + lv) / 1024.0f;
         }
         if (numv == 3u) {
             uv[3][0] = uv[2][0];
