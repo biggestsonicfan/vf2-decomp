@@ -31,7 +31,7 @@ Walking `vf2_fight_ram9_p1move_30f` (pose frame 20, the kick):
   re-count, confirms Step 1).
 - **0 / 113** slots have a byte-identical matrix across all frames. The camera
   pan is composed into **every** object's matrix, so a raw static-vs-moving test
-  does **not** split decor from fighters. celsowm's earlier assumption that stage
+  does **not** split decor from fighters. The earlier working assumption that stage
   matrices "stay fixed while the camera pans" is **false for the raw display-list
   matrices** — measured, not asserted.
 - What the raw matrices *do* give is two clean bands in `motion_t` (max
@@ -47,7 +47,7 @@ Walking `vf2_fight_ram9_p1move_30f` (pose frame 20, the kick):
   demonstrably moves — but so does the opponent, and much of each fighter rides
   the camera floor alongside the stage.
 
-**Conclusion:** the full decor / fighter-1 / fighter-2 / shadows split celsowm
+**Conclusion:** the full decor / fighter-1 / fighter-2 / shadows split kazuyette
 asked for is **not recoverable from the raw matrices** — the camera must be
 recovered and removed first, then per-object *residual* motion tests the split.
 That is exactly Step 3. Step 2 delivers the matrices, the measured camera finding

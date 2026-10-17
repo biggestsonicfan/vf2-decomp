@@ -8,13 +8,21 @@ Usage:
   geo_overlay.py overlay <screenshot.png> <proj.png> <out_overlay.png> [dx dy]
   geo_overlay.py score   <screenshot.png> <proj.png>
   geo_overlay.py offsets <projdir> <screendir>
+  geo_overlay.py objerr  <proj.png.csv> [W H]
 
 `overlay` blends the projection over the screenshot (projection colours kept:
 red anchor, grey other, dark shadow) and draws its silhouette edges, so the two
 can be compared by eye. `score` reports the best edge-alignment shift (dx,dy) and
 its score. `offsets` runs the edge score across every matched frame at temporal
 offsets -1/0/+1 (projection frame n vs screenshot n+t) and prints which wins --
-the test for a one-frame lag between RAM9 and the screen.
+the test for a one-frame lag between RAM9 and the screen. `objerr` reads the
+per-object CSV written by `geo-project` and reports, per object, an objective
+placement error: how far its projected bbox spills off the [0,W]x[0,H] canvas,
+whether it is degenerate (a vertex projected near Z=0, bbox exploding beyond
+2x the canvas), and its horizontal offset from the fighter cluster it belongs
+to. It splits the non-shadow fighter objects into two clusters at the widest
+gap in projected x and reports each cluster's centre and separation -- the
+measure of the two fighters' on-screen spread.
 """
 import sys, struct, zlib, os, re
 
@@ -308,6 +316,98 @@ def cmd_offsets(projdir, shotdir):
     print(f"  -> best temporal offset: t={best_t:+d}")
 
 
+def _csv_rows(path):
+    import csv
+    return list(csv.DictReader(open(path, newline="")))
+
+
+def _fnum(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def cmd_objerr(csv_path, W=496, H=384):
+    rows = _csv_rows(csv_path)
+    objs = []
+    for r in rows:
+        objs.append(dict(
+            obj=int(r["obj"]), rec=r["rec_byte"], group=r["group"],
+            side=r["side"], mode3=r["mode3"],
+            cx=_fnum(r["cx"]), cy=_fnum(r["cy"]),
+            minx=_fnum(r["minx"]), miny=_fnum(r["miny"]),
+            maxx=_fnum(r["maxx"]), maxy=_fnum(r["maxy"]),
+            h=_fnum(r["screen_h"]), ntri=int(r["ntri"])))
+
+    def off_canvas(o):
+        # pixels the bbox spills beyond the visible [0,W]x[0,H] canvas
+        if o["minx"] is None:
+            return 0.0
+        return max(0.0, -o["minx"]) + max(0.0, o["maxx"] - W) \
+            + max(0.0, -o["miny"]) + max(0.0, o["maxy"] - H)
+
+    def degenerate(o):
+        # a vertex near Z=0 blows the projection far past the canvas
+        return o["minx"] is not None and (
+            o["minx"] < -W or o["maxx"] > 2 * W
+            or o["miny"] < -H or o["maxy"] > 2 * H)
+
+    def onscreen(o):
+        return o["cx"] is not None and o["cx"] >= 0
+
+    print(f"# per-object placement error  canvas={W}x{H}  ({csv_path})")
+    for grp in ("decor", "fighter", "shadow"):
+        g = [o for o in objs if o["group"] == grp]
+        if not g:
+            continue
+        deg = [o for o in g if degenerate(o)]
+        spill = [o for o in g if off_canvas(o) > 0 and not degenerate(o)]
+        print(f"{grp}: {len(g)} objs | degenerate(Z~0) {len(deg)} | "
+              f"bbox spills off-canvas {len(spill)}")
+
+    # cluster on the solid body pieces only (fully on-canvas, not degenerate):
+    # off-canvas / Z~0 outliers would otherwise forge a spurious gap.
+    fset = [o for o in objs if o["group"] == "fighter" and onscreen(o)
+            and not degenerate(o) and off_canvas(o) == 0]
+    fset.sort(key=lambda o: o["cx"])
+    if len(fset) >= 2:
+        # split into two fighters at the widest gap in projected x
+        gaps = [(fset[i + 1]["cx"] - fset[i]["cx"], i)
+                for i in range(len(fset) - 1)]
+        gap, gi = max(gaps)
+        left = fset[:gi + 1]
+        right = fset[gi + 1:]
+
+        def wcen(c):
+            tw = sum(o["ntri"] for o in c)
+            return sum(o["cx"] * o["ntri"] for o in c) / tw if tw else 0.0
+        clx, crx = wcen(left), wcen(right)
+        print(f"\nfighter clusters (split at widest x-gap {gap:.0f}px):")
+        print(f"  cluster A (left) : {len(left):2d} objs  centre cx={clx:.0f}  "
+              f"x[{left[0]['cx']:.0f}..{left[-1]['cx']:.0f}]")
+        print(f"  cluster B (right): {len(right):2d} objs  centre cx={crx:.0f}  "
+              f"x[{right[0]['cx']:.0f}..{right[-1]['cx']:.0f}]")
+        print(f"  on-screen separation A<->B: {crx - clx:.0f}px")
+
+    worst = sorted(
+        [o for o in objs if o["group"] == "fighter"],
+        key=lambda o: (degenerate(o), off_canvas(o)), reverse=True)
+    print("\nworst-placed fighter objects (degenerate / off-canvas first):")
+    print("  obj      rec  m    cx     cy   off_canvas  bbox_x            flags")
+    for o in worst[:8]:
+        fl = []
+        if degenerate(o):
+            fl.append("DEGEN(Z~0)")
+        if o["maxx"] is not None and o["maxx"] > W:
+            fl.append("OVERFLOW_R")
+        cx = -1.0 if o["cx"] is None else o["cx"]
+        cy = -1.0 if o["cy"] is None else o["cy"]
+        bx = "n/a" if o["minx"] is None else f"[{o['minx']:.0f}..{o['maxx']:.0f}]"
+        print(f"  {o['obj']:>3} {o['rec']:>9} m{o['mode3']} {cx:6.1f} {cy:6.1f}"
+              f"  {off_canvas(o):9.0f}  {bx:17s} {' '.join(fl)}")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
@@ -322,6 +422,10 @@ def main():
         cmd_offsets(sys.argv[2], sys.argv[3])
     elif c == "fit":
         cmd_fit(sys.argv[2], sys.argv[3])
+    elif c == "objerr":
+        w = int(sys.argv[3]) if len(sys.argv) > 4 else 496
+        h = int(sys.argv[4]) if len(sys.argv) > 4 else 384
+        cmd_objerr(sys.argv[2], w, h)
     else:
         print(__doc__); sys.exit(1)
 
