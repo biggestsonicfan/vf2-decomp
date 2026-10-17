@@ -19,6 +19,13 @@ shadow exactly as geo-project/geo-scene do, excludes the two decor-matrix record
 Usage:
   geo_camtest.py <ram9.bin> <readstarts.txt>              # camera-lag test
   geo_camtest.py track <ram9.bin> <readstarts.txt> <shotdir>
+  geo_camtest.py addrmap <ram9.bin> <readstarts.txt> [pose_frame]
+
+`addrmap` gives, for each body/shadow object of a frame, the RAM9 byte address of
+its 0x0b matrix command and its 0x01 object command and their 32 KiB zone relative
+to the frame's readstart, lists the walk's jumps (flagging cross-zone ones), and
+then tabulates across all frames whether the body matrix addresses stay fixed while
+the readstart rotates through the 4 zones -- the test for a shared/stale zone.
 
 `track` traces, per fighter and per frame, three screen-x positions -- projected
 body centre, projected shadow centre, and the real screenshot shadow (the green
@@ -186,6 +193,48 @@ def walk(w, start_word):
             break
         ptr += need(w, cmd, ptr)
     return objs
+
+
+ZONE = 0x8000   # 32 KiB RAM9 bank
+
+
+def walk_detailed(w, start_word):
+    """Like walk() but records, per object, the byte address of the 0x0b matrix
+    command that set its current matrix and of its own 0x01 command, plus the
+    list of jumps (src_byte, dst_byte). Returns (objs, jumps) where each obj is
+    a dict(mat, rec, mat_addr, obj_addr)."""
+    objs = []
+    jumps = []
+    mat = [0.0] * 12
+    mat_addr = -1
+    ptr = start_word
+    opc = 0
+    nw = len(w)
+    while opc < 0x40000:
+        if ptr >= nw:
+            break
+        op = w[ptr]; op_addr = ptr * 4; ptr += 1; opc += 1
+        if op & 0x80000000:
+            dst = (op & 0x1ffff) >> 2
+            jumps.append((op_addr, dst * 4))
+            ptr = dst
+            continue
+        cmd = (op >> 23) & 0x1f
+        if cmd in (0x0b, 0x1b):
+            mat = [f32(w[ptr + k]) for k in range(12)]
+            mat_addr = op_addr
+        elif cmd in (0x0c, 0x1c):
+            mat = mat[:9] + [f32(w[ptr]), f32(w[ptr + 1]), f32(w[ptr + 2])]
+            mat_addr = op_addr
+        elif cmd in (0x01, 0x11):
+            oba = w[ptr + 2]
+            rec = (oba & 0x7fffff) * 4
+            objs.append(dict(mat=list(mat), rec=rec, mat_addr=mat_addr,
+                             obj_addr=op_addr))
+        if cmd in (0x0f, 0x1f):
+            break
+        ptr += need(w, cmd, ptr)
+    return objs, jumps
 
 
 def classify(mat, rec):
@@ -424,7 +473,92 @@ def cmd_track(binp, txtp, shotdir):
               f"(near 0 => body matrices ~frozen)")
 
 
+def _starts(txtp):
+    s = {}
+    for ln in open(txtp):
+        p = ln.split()
+        if len(p) >= 4 and p[0] == "F":
+            try:
+                s[int(p[1])] = int(p[3], 16)
+            except ValueError:
+                pass
+    return s
+
+
+def cmd_addrmap(binp, txtp, pose=20):
+    starts = _starts(txtp)
+    data = open(binp, "rb").read()
+    nfr = len(data) // FRAME_BYTES
+
+    def frame_objs(fr):
+        raw = data[fr * FRAME_BYTES:(fr + 1) * FRAME_BYTES]
+        w = list(struct.unpack("<%dI" % (FRAME_BYTES // 4), raw))
+        start = (starts.get(fr, 0) & 0x1ffff) >> 2
+        objs, jumps = walk_detailed(w, start)
+        return start * 4, objs, jumps
+
+    rs_byte, objs, jumps = frame_objs(pose)
+    rs_zone = rs_byte // ZONE
+    print(f"# RAM9 address map, frame {pose}  ({binp})")
+    print(f"# RAM9 = 0x20000 bytes = 4 zones of 0x8000 (32 KiB). "
+          f"readstart = 0x{rs_byte:05x} -> zone {rs_zone}")
+    print(f"# {len(jumps)} jump(s) this frame:")
+    for src, dst in jumps:
+        sz, dz = src // ZONE, dst // ZONE
+        tag = "  CROSS-ZONE" if sz != dz else ""
+        print(f"    jump @0x{src:05x}(z{sz}) -> 0x{dst:05x}(z{dz}){tag}")
+    print()
+    print("grp      rec       matAddr  mz  objAddr  oz  (z=32KiB zone; "
+          "* = not in readstart zone)")
+    print("-" * 78)
+    by_zone = {"decor": {}, "fighter": {}, "shadow": {}}
+    for o in objs:
+        if o["rec"] in EXCLUDE:
+            continue
+        g = classify(o["mat"], o["rec"])
+        mz = o["mat_addr"] // ZONE if o["mat_addr"] >= 0 else -1
+        oz = o["obj_addr"] // ZONE
+        by_zone[g][mz] = by_zone[g].get(mz, 0) + 1
+        star = "*" if mz != rs_zone else " "
+        # print decor once (all share one matrix), fighters/shadows in full
+        if g == "decor" and by_zone[g][mz] > 2:
+            continue
+        print(f"{g:8s} 0x{o['rec']:06x}  0x{o['mat_addr']:05x}  {mz}{star} "
+              f"  0x{o['obj_addr']:05x}  {oz}")
+    print(f"\n(decor rows truncated.) matrix-command zone histogram per group:")
+    for g in ("decor", "fighter", "shadow"):
+        print(f"  {g:8s}: " + ", ".join(f"zone{z}:{n}"
+              for z, n in sorted(by_zone[g].items())))
+
+    # across frames: do body matrix addresses stay put while readstart rotates?
+    print("\n# across frames: readstart zone vs body/decor matrix-address span")
+    print("frm  rsZone | decorMatAddr | bodyMat zones (addr range)")
+    print("-" * 68)
+    for fr in range(nfr):
+        rsb, os_, _ = frame_objs(fr)
+        rz = rsb // ZONE
+        dec = [o for o in os_ if classify(o["mat"], o["rec"]) == "decor"
+               and o["rec"] not in EXCLUDE]
+        fig = [o for o in os_ if classify(o["mat"], o["rec"]) == "fighter"
+               and o["rec"] not in EXCLUDE]
+        decaddr = ("0x%05x" % dec[0]["mat_addr"]) if dec else "   .  "
+        deczone = (dec[0]["mat_addr"] // ZONE) if dec else -1
+        if fig:
+            fa = [o["mat_addr"] for o in fig]
+            fzs = sorted(set(a // ZONE for a in fa))
+            frng = f"z{fzs} 0x{min(fa):05x}..0x{max(fa):05x}"
+        else:
+            frng = "."
+        print(f"{fr:3d}    z{rz}   | {decaddr}(z{deczone}) | {frng}")
+
+
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "addrmap":
+        if len(sys.argv) < 4:
+            print(__doc__); sys.exit(1)
+        pose = int(sys.argv[4]) if len(sys.argv) > 4 else 20
+        cmd_addrmap(sys.argv[2], sys.argv[3], pose)
+        return
     if len(sys.argv) >= 2 and sys.argv[1] == "track":
         if len(sys.argv) < 5:
             print(__doc__); sys.exit(1)
