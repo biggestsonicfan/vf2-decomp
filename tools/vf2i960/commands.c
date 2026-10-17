@@ -79,7 +79,7 @@ static void usage(const char *program)
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n"
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
-        "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir> [colour-capture-dir]\n"
+        "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir> [colour-capture-dir] [texparams.txt]\n"
         "  %s geo-colour <ram9.bin> <readstarts.txt> <rom-dir> <colour-capture-dir> <pose-frame> <out.png> [texparams.txt]\n"
         "  %s geo-texparams <ram9.bin> <readstarts.txt> <out-texparams.txt>\n"
         "  %s geo-project <ram9.bin> <readstarts.txt> <rom-dir> <pose-frame> <out.png> [W H xoff yoff]\n"
@@ -7544,6 +7544,75 @@ static int gc_texel_rgb(uint8_t t4, uint32_t lumabase, int r5, int g5, int b5,
     return 1;
 }
 
+/* Read one little-endian float from the polygon buffer. */
+static float gc_rdf(const uint8_t *p, size_t n, size_t o)
+{
+    uint32_t u = tl_u32(p, n, o);
+    float f;
+    memcpy(&f, &u, 4u);
+    return f;
+}
+
+/* Per-polygon lighting term (0..255), exactly as MAME geo_parse_np_s/_nn_s
+ * (model2_v.cpp:1076-1097 / 1223-1253): nt = normal x matrix(3x3); dotl = nt.light;
+ * dotp = nt.(matrix x firstVertex) gives front/back; lum = (dotl*dotp<0 ? 0 : |dotl|)
+ * * diffuse + ambient + specular (specular only in a specular parse mode). `nv`/`va`
+ * are the already-read normal and first new vertex in the polygon's local space; the
+ * point transform is in float to match ext_xform. This is the shade source the pixel
+ * stage needs -- NOT full light -- so dark materials (hair, shoes) come out dark. */
+static uint32_t gc_poly_luma(const float nv[3], const float va[3], const float *mat,
+    const float *light, uint32_t tpi,
+    const uint8_t *tp_diffuse, const uint8_t *tp_ambient,
+    const uint8_t *tp_sscale, const uint8_t *tp_sctrl, uint32_t geo_mode)
+{
+    double nt[3], dotl, dotp, lumv, spec = 0.0;
+    float ptx, pty, ptz;
+    nt[0] = (double)nv[0] * mat[0] + (double)nv[1] * mat[3] + (double)nv[2] * mat[6];
+    nt[1] = (double)nv[0] * mat[1] + (double)nv[1] * mat[4] + (double)nv[2] * mat[7];
+    nt[2] = (double)nv[0] * mat[2] + (double)nv[1] * mat[5] + (double)nv[2] * mat[8];
+    dotl = nt[0] * light[0] + nt[1] * light[1] + nt[2] * light[2];
+    ptx = va[0] * mat[0] + va[1] * mat[3] + va[2] * mat[6] + mat[9];
+    pty = va[0] * mat[1] + va[1] * mat[4] + va[2] * mat[7] + mat[10];
+    ptz = va[0] * mat[2] + va[1] * mat[5] + va[2] * mat[8] + mat[11];
+    dotp = nt[0] * (double)ptx + nt[1] * (double)pty + nt[2] * (double)ptz;
+    lumv = (dotl * dotp < 0.0) ? 0.0 : fabs(dotl);
+    if (((geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u) && tp_sctrl[tpi] != 0u) {
+        uint32_t sc = tp_sctrl[tpi];
+        spec = (2.0 * dotl) * nt[2] - (double)light[2];
+        if (spec < 0.0) spec = 0.0;
+        if ((sc >> 1) != 0u) spec *= spec;
+        if ((sc >> 2) != 0u) spec *= spec;
+        if (((sc + 1u) >> 3) != 0u) spec *= spec;
+        spec *= (double)tp_sscale[tpi];
+    }
+    lumv = lumv * (double)tp_diffuse[tpi] + (double)tp_ambient[tpi] + spec;
+    if (lumv < 0.0) lumv = 0.0;
+    if (lumv > 255.0) lumv = 255.0;
+    return (uint32_t)lumv;
+}
+
+/* Load a geo-texparams file into the per-index diffuse/ambient/specular tables
+ * (leaves the caller's defaults for any index the file omits; the two specular
+ * columns are optional for forward compatibility with older files). */
+static void gc_load_texparams(const char *path, uint8_t *tp_diffuse, uint8_t *tp_ambient,
+                              uint8_t *tp_sscale, uint8_t *tp_sctrl)
+{
+    FILE *f = fopen(path, "rb");
+    char line[256];
+    if (f == NULL) { fprintf(stderr, "geo: cannot read texparams %s (using defaults)\n", path); return; }
+    while (fgets(line, (int)sizeof(line), f) != NULL) {
+        unsigned idx, d, a, ss, sc;
+        int nf;
+        if (line[0] == '#') continue;
+        nf = sscanf(line, "%u %u %u %u %u", &idx, &d, &a, &ss, &sc);
+        if (nf >= 3 && idx < 32u) {
+            tp_diffuse[idx] = (uint8_t)d; tp_ambient[idx] = (uint8_t)a;
+            if (nf >= 5) { tp_sscale[idx] = (uint8_t)ss; tp_sctrl[idx] = (uint8_t)sc; }
+        }
+    }
+    fclose(f);
+}
+
 static int ext_tex_write_sheet_png(
     const char *path, const uint8_t *bank, size_t bank_size
 )
@@ -7570,12 +7639,17 @@ static int ext_tex_write_sheet_png(
 
 /* Paint one piece's polygons into the per-bank coloured sheets (2048x1024 RGB each):
  * for every polygon, decode its texture header (rectangle + colour_base + luma_base +
- * sheet) and colour each texel of its rectangle through gc_texel_rgb at full lighting
- * (albedo -- no per-polygon lighting, so a texel shared by two polygons does not
- * conflict). Mirrors ext_emit_piece's 10-word block walk but needs no vertices: only
- * attr (for the stride and the end bit) and the per-polygon th_ptr advance. Overlaps
- * (a rectangle reused with a different colour_base) are last-write-wins; transparent
- * texels (0x0f) are left as-is. */
+ * sheet + renderer) and colour it through the Model2 pixel pipeline using a
+ * REPRESENTATIVE per-polygon luma -- not full light -- so dark materials (hair,
+ * ponytail, shoes) come out dark as in-game. When `vmat` != NULL the luma is the real
+ * per-polygon lighting at this frame (gc_poly_luma: normal x matrix, dotl, diffuse/
+ * ambient/specular from the 0x06 table); when NULL it falls back to full light
+ * (0xff, albedo). Textured polygons (renderer bit1) colour each texel of their
+ * rectangle; untextured (solid) polygons fill the rectangle with one colorxlat colour
+ * at shade = luma>>2 (draw_scanline_solid) -- and a translucent solid renders nothing.
+ * Mirrors ext_emit_piece's 10-word block walk; reads the normal + first vertex for the
+ * lighting. Overlaps (a rectangle reused with a different material) are last-write-wins;
+ * transparent texels (0x0f) on a translucent polygon are left as-is. */
 static void ext_colour_sheet_piece(
     const uint8_t *poly, size_t poly_size,
     const uint8_t *tex, size_t tex_size,
@@ -7583,7 +7657,10 @@ static void ext_colour_sheet_piece(
     const uint8_t *const bank[2], const size_t bank_size[2],
     const uint8_t *pal, size_t pal_n,
     const uint8_t *cxlat, size_t cxlat_n, const uint8_t *luma,
-    uint8_t *const csheet[2]
+    uint8_t *const csheet[2],
+    const float *vmat, const float *light,
+    const uint8_t *tp_diffuse, const uint8_t *tp_ambient,
+    const uint8_t *tp_sscale, const uint8_t *tp_sctrl, uint32_t geo_mode
 )
 {
     size_t off = (size_t)rec_byte + 24u;
@@ -7592,21 +7669,50 @@ static void ext_colour_sheet_piece(
         uint32_t attr = tl_u32(poly, poly_size, (uint32_t)off);
         uint16_t thw[4];
         vf2_texture_header hd;
-        uint32_t palc, px, py;
-        int r5, g5, b5, translucent;
+        uint32_t palc, px, py, lumascale;
+        int r5, g5, b5, translucent, untextured;
+        float nv[3], va[3];
         const uint8_t *bk;
         size_t bks;
         uint8_t *cs;
         off += 4u;
         if ((attr & 3u) == 0u) break;
-        off += 36u;              /* unit normal + P0(n) + P1(n): the 10-word block */
+        /* 10-word block: [attr][normal(3)][P0(n)(3)][P1(n)(3)] -- read normal + P0(n) */
+        nv[0] = gc_rdf(poly, poly_size, off + 0u); nv[1] = gc_rdf(poly, poly_size, off + 4u); nv[2] = gc_rdf(poly, poly_size, off + 8u);
+        va[0] = gc_rdf(poly, poly_size, off + 12u); va[1] = gc_rdf(poly, poly_size, off + 16u); va[2] = gc_rdf(poly, poly_size, off + 20u);
+        off += 36u;
         thw[0] = tl_u16(tex, tex_size, th_ptr + 0u); thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
         thw[2] = tl_u16(tex, tex_size, th_ptr + 2u); thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
         vf2_texture_header_decode(thw, &hd);
         palc = gc_u16(pal, pal_n, (size_t)((hd.color_base + 0x1000u) & 0x1fffu)) & 0x7fffu;
         r5 = (int)(palc & 0x1fu); g5 = (int)((palc >> 5) & 0x1fu); b5 = (int)((palc >> 10) & 0x1fu);
         translucent = (int)(hd.renderer & 1u);   /* texheader[0] bit 13 */
+        untextured = ((hd.renderer & 2u) == 0u);  /* texheader[0] bit 14 clear */
+        lumascale = (vmat != NULL)
+            ? gc_poly_luma(nv, va, vmat, light, (attr >> 18) & 0x1fu,
+                           tp_diffuse, tp_ambient, tp_sscale, tp_sctrl, geo_mode)
+            : 0xffu;
         bk = bank[hd.sheet & 1u]; bks = bank_size[hd.sheet & 1u]; cs = csheet[hd.sheet & 1u];
+        if (untextured && translucent) goto sheet_advance;   /* solid translucent: nothing */
+        if (untextured) {
+            uint32_t sh = lumascale >> 2; uint8_t sr, sg, sb;
+            if (sh > 0x3fu) sh = 0x3fu;
+            sr = gc_gamma(gc_u16(cxlat, cxlat_n, 0x0000u + (size_t)r5 * 0x100u + sh) & 0xffu);
+            sg = gc_gamma(gc_u16(cxlat, cxlat_n, 0x2000u + (size_t)g5 * 0x100u + sh) & 0xffu);
+            sb = gc_gamma(gc_u16(cxlat, cxlat_n, 0x4000u + (size_t)b5 * 0x100u + sh) & 0xffu);
+            for (py = 0u; py < hd.tex_height; ++py) {
+                uint32_t sy = hd.tex_y + py;
+                if (sy >= 1024u) break;
+                for (px = 0u; px < hd.tex_width; ++px) {
+                    uint32_t sx = hd.tex_x + px;
+                    size_t o;
+                    if (sx >= 2048u) break;
+                    o = ((size_t)sy * 2048u + sx) * 3u;
+                    cs[o] = sr; cs[o + 1u] = sg; cs[o + 2u] = sb;
+                }
+            }
+            goto sheet_advance;
+        }
         for (py = 0u; py < hd.tex_height; ++py) {
             uint32_t sy = hd.tex_y + py;
             if (sy >= 1024u) break;
@@ -7615,13 +7721,14 @@ static void ext_colour_sheet_piece(
                 uint8_t t4, rgb[3];
                 if (sx >= 2048u) break;
                 t4 = vf2_texture_sheet_texel(bk, bks, sx, sy);
-                if (gc_texel_rgb(t4, hd.luma_base, r5, g5, b5, 0xffu, translucent,
+                if (gc_texel_rgb(t4, hd.luma_base, r5, g5, b5, lumascale, translucent,
                                  luma, cxlat, cxlat_n, rgb)) {
                     size_t o = ((size_t)sy * 2048u + sx) * 3u;
                     cs[o] = rgb[0]; cs[o + 1u] = rgb[1]; cs[o + 2u] = rgb[2];
                 }
             }
         }
+    sheet_advance:
         th_ptr = (uint32_t)((int32_t)th_ptr + vf2_texture_header_advance_words(attr));
     }
 }
@@ -9420,7 +9527,8 @@ static void gf_fill_polyram(const uint32_t *w, size_t nw, uint32_t readstart,
 static int command_geo_fighter(
     const char *bin_path, const char *txt_path, const char *rom_directory,
     const char *tex0_path, const char *tex1_path, const char *pose_str,
-    const char *which, const char *out_dir, const char *colour_dir
+    const char *which, const char *out_dir, const char *colour_dir,
+    const char *texparams_path
 )
 {
     const size_t frame_bytes = 131072u;
@@ -9431,6 +9539,7 @@ static int command_geo_fighter(
     uint8_t *csheet[2] = { NULL, NULL };
     size_t pal_n = 0u, cxlat_n = 0u, luma_n = 0u;
     int colour = (colour_dir != NULL);
+    int gf_lit = (colour_dir != NULL && texparams_path != NULL);
     char line[256];
     char path[1100];
     uint32_t *words = NULL;
@@ -9447,7 +9556,11 @@ static int command_geo_fighter(
     float mdec[12];
     double adi[9];
     int have_dec = 0;
-    float (*mf)[12] = NULL;       /* per-candidate world matrix */
+    float (*mf)[12] = NULL;       /* per-candidate world matrix (camera removed) */
+    float (*cand_vmat)[12] = NULL; /* per-candidate view-space matrix (for lighting) */
+    float gf_light[3] = { 0.0f, 0.0f, 1.0f };
+    uint8_t gf_diff[32], gf_amb[32], gf_sscale[32], gf_sctrl[32];
+    uint32_t gf_mode = 0u;
     uint32_t *cand_rec = NULL, *cand_tpa = NULL;
     size_t *cand_s = NULL, *pstart = NULL, *pcount = NULL;
     size_t *parent = NULL, *compsz = NULL, *sel = NULL;
@@ -9478,6 +9591,8 @@ static int command_geo_fighter(
     else { fprintf(stderr, "geo-fighter: which must be akira|lau\n"); return EXIT_FAILURE; }
 
     pose = (size_t)strtoul(pose_str, NULL, 0);
+    { size_t ti; for (ti = 0u; ti < 32u; ++ti) { gf_diff[ti] = 255u; gf_amb[ti] = 0u; gf_sscale[ti] = 0u; gf_sctrl[ti] = 0u; } }
+    if (gf_lit) gc_load_texparams(texparams_path, gf_diff, gf_amb, gf_sscale, gf_sctrl);
     txt = fopen(txt_path, "rb");
     if (txt == NULL) { fprintf(stderr, "geo-fighter: cannot open %s\n", txt_path); return EXIT_FAILURE; }
     while (fgets(line, (int)sizeof(line), txt) != NULL) {
@@ -9531,6 +9646,57 @@ static int command_geo_fighter(
     gf_fill_polyram(words, frame_words, readstart[pose], ram0, ram1,
                     &wmax0, &wmax1);
 
+    /* for coloured lighting, recover the frame's light vector (0x0a) and geo mode
+     * (0x07) -- the same per-polygon luma the scene render uses. */
+    if (gf_lit) {
+        size_t p = (size_t)((readstart[pose] & 0x1ffffu) >> 2), oc = 0u;
+        for (;;) {
+            uint32_t op, cmd; size_t need = 0u;
+            if (oc++ >= 0x40000u || p >= frame_words) break;
+            op = words[p++];
+            if (op & 0x80000000u) { p = (size_t)((op & 0x1ffffu) >> 2); continue; }
+            cmd = (op >> 23) & 0x1fu;
+            switch (cmd) {
+            case 0x00u: need = 0u; break;
+            case 0x07u: case 0x17u: case 0x08u: case 0x18u:
+            case 0x10u: case 0x16u: case 0x1eu: need = 1u; break;
+            case 0x09u: case 0x19u: case 0x0du: need = 2u; break;
+            case 0x0au: case 0x1au: case 0x0cu: case 0x1cu: need = 3u; break;
+            case 0x03u: case 0x13u: need = 6u; break;
+            case 0x0bu: case 0x1bu: need = 12u; break;
+            case 0x01u: case 0x11u: need = 4u; break;
+            case 0x04u: case 0x14u: case 0x05u: case 0x15u:
+                if (p + 2u > frame_words) goto scan_done;
+                need = 2u + (size_t)words[p + 1u]; break;
+            case 0x06u:
+                if (p + 2u > frame_words) goto scan_done;
+                need = 2u + (size_t)words[p + 1u] * 2u; break;
+            case 0x1du:
+                if (p + 2u > frame_words) goto scan_done;
+                need = 2u + (size_t)words[p + 1u] * 3u; break;
+            case 0x02u: case 0x12u: {
+                size_t q = p + 8u;
+                for (;;) { uint32_t a; if (q >= frame_words) goto scan_done; a = words[q++]; if ((a & 3u) == 0u) break; q += 5u; if (a & 1u) q += 3u; }
+                need = q - p; break;
+            }
+            case 0x0eu:
+                if (p + 33u > frame_words) goto scan_done;
+                need = 32u + 1u + (size_t)words[p + 32u] * 3u; break;
+            case 0x0fu: case 0x1fu: goto scan_done;
+            default: goto scan_done;
+            }
+            if (p + need > frame_words) goto scan_done;
+            if (cmd == 0x07u || cmd == 0x17u) gf_mode = words[p];
+            else if (cmd == 0x0au || cmd == 0x1au) {
+                uint32_t u; u = words[p]; memcpy(&gf_light[0], &u, 4u);
+                u = words[p + 1u]; memcpy(&gf_light[1], &u, 4u);
+                u = words[p + 2u]; memcpy(&gf_light[2], &u, 4u);
+            }
+            p += need;
+        }
+    scan_done: ;
+    }
+
     /* decor (shared) matrix -> camera; take the first decor-range object */
     for (s = 0u; s < nobjs; ++s) {
         uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
@@ -9544,6 +9710,7 @@ static int command_geo_fighter(
     }
 
     mf = (float (*)[12])malloc(nobjs * sizeof(*mf));
+    cand_vmat = (float (*)[12])malloc(nobjs * sizeof(*cand_vmat));
     cand_rec = (uint32_t *)malloc(nobjs * sizeof(*cand_rec));
     cand_tpa = (uint32_t *)malloc(nobjs * sizeof(*cand_tpa));
     cand_s = (size_t *)malloc(nobjs * sizeof(*cand_s));
@@ -9555,7 +9722,7 @@ static int command_geo_fighter(
     cand_psize = (size_t *)malloc(nobjs * sizeof(*cand_psize));
     wvcap = vcap;
     worldv = (float *)malloc(wvcap * 3u * sizeof(*worldv));
-    if (mf == NULL || cand_rec == NULL ||
+    if (mf == NULL || cand_vmat == NULL || cand_rec == NULL ||
         cand_tpa == NULL || cand_s == NULL || pstart == NULL || pcount == NULL ||
         cand_scx == NULL || sel == NULL || worldv == NULL ||
         cand_pbuf == NULL || cand_psize == NULL)
@@ -9586,6 +9753,7 @@ static int command_geo_fighter(
         }
         if ((size_t)rec + 24u > psize) continue;
         gs_worldframe(objs[s].matrix, mdec, adi, mf[ncand]);
+        memcpy(cand_vmat[ncand], objs[s].matrix, sizeof(cand_vmat[ncand]));
         (void)ext_emit_piece(NULL, pbuf, psize, NULL, 0u, rec, 0u, 0u, 1u,
                              &sheet, &tr, mf[ncand], vacc, &vn, vcap);
         if (vn == 0u) continue;
@@ -9755,7 +9923,8 @@ static int command_geo_fighter(
             /* colour sheets are per-fighter (each paints only its own pieces), so
              * name them <which>_tex0/1.png to coexist in one directory. */
             fprintf(mtl, "# VF2 %s textures (colour: palette+luma+colorxlat+gamma, "
-                         "full-light albedo). Local only.\n", which);
+                         "%s). Local only.\n", which,
+                    gf_lit ? "representative per-polygon luma" : "full-light albedo");
             fprintf(mtl, "newmtl sheet0\nmap_Kd %s_tex0.png\n", which);
             fprintf(mtl, "newmtl sheet1\nmap_Kd %s_tex1.png\n", which);
         } else {
@@ -9794,7 +9963,9 @@ static int command_geo_fighter(
             ext_colour_sheet_piece(cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                    cand_rec[idx], th_ptr,
                                    (const uint8_t *const *)bank, bank_size,
-                                   pal, pal_n, cxlat, cxlat_n, luma, csheet);
+                                   pal, pal_n, cxlat, cxlat_n, luma, csheet,
+                                   gf_lit ? cand_vmat[idx] : NULL, gf_light,
+                                   gf_diff, gf_amb, gf_sscale, gf_sctrl, gf_mode);
         tris_total += tris;
     }
     if (colour) {
@@ -9829,7 +10000,7 @@ done:
     if (txt != NULL) fclose(txt);
     if (obj != NULL) fclose(obj);
     if (mtl != NULL) fclose(mtl);
-    free(words); free(objs); free(vacc); free(mf);
+    free(words); free(objs); free(vacc); free(mf); free(cand_vmat);
     free(cand_rec); free(cand_tpa); free(cand_s); free(pstart); free(pcount);
     free(cand_scx); free(sel); free(worldv); free(dmat); free(parent);
     free(compsz); free(grp2); free(ram0); free(ram1);
@@ -9969,28 +10140,6 @@ done:
     return rc;
 }
 
-/* Load a geo-texparams file into the per-index diffuse/ambient/specular tables
- * (leaves the caller's defaults for any index the file omits; the two specular
- * columns are optional for forward compatibility with older files). */
-static void gc_load_texparams(const char *path, uint8_t *tp_diffuse, uint8_t *tp_ambient,
-                              uint8_t *tp_sscale, uint8_t *tp_sctrl)
-{
-    FILE *f = fopen(path, "rb");
-    char line[256];
-    if (f == NULL) { fprintf(stderr, "geo-colour: cannot read texparams %s (using defaults)\n", path); return; }
-    while (fgets(line, (int)sizeof(line), f) != NULL) {
-        unsigned idx, d, a, ss, sc;
-        int nf;
-        if (line[0] == '#') continue;
-        nf = sscanf(line, "%u %u %u %u %u", &idx, &d, &a, &ss, &sc);
-        if (nf >= 3 && idx < 32u) {
-            tp_diffuse[idx] = (uint8_t)d; tp_ambient[idx] = (uint8_t)a;
-            if (nf >= 5) { tp_sscale[idx] = (uint8_t)ss; tp_sctrl[idx] = (uint8_t)sc; }
-        }
-    }
-    fclose(f);
-}
-
 /* --- geo-colour: Step colours -- faithful textured render vs the screenshot ----
  *
  * Renders one RAM9 frame in colour exactly like MAME draw_scanline_tex / sm2-emu
@@ -10024,8 +10173,19 @@ static void gc_fill_tri_tex(
     const double *U, const double *V,
     const uint8_t *bank, size_t bank_size, const vf2_texture_header *hd,
     const uint8_t *luma, const uint8_t *cxlat, size_t cxlat_n,
-    uint32_t lumabase, int r5, int g5, int b5, uint32_t lumascale)
+    uint32_t lumabase, int r5, int g5, int b5, uint32_t lumascale, int untextured)
 {
+    /* Untextured (solid-colour) polygon: no texel, the shade is the polygon lighting
+     * term >> 2 indexing colorxlat directly (MAME draw_scanline_solid, model2rd.ipp:66).
+     * Precompute the one colour and fill the triangle with it. */
+    uint8_t solid[3];
+    if (untextured) {
+        uint32_t sh = lumascale >> 2; if (sh > 0x3fu) sh = 0x3fu;
+        solid[0] = gc_gamma(gc_u16(cxlat, cxlat_n, 0x0000u + (size_t)r5 * 0x100u + sh) & 0xffu);
+        solid[1] = gc_gamma(gc_u16(cxlat, cxlat_n, 0x2000u + (size_t)g5 * 0x100u + sh) & 0xffu);
+        solid[2] = gc_gamma(gc_u16(cxlat, cxlat_n, 0x4000u + (size_t)b5 * 0x100u + sh) & 0xffu);
+    } else { solid[0] = solid[1] = solid[2] = 0u; }
+    {
     int minx = (int)floor(X[0] < X[1] ? (X[0] < X[2] ? X[0] : X[2]) : (X[1] < X[2] ? X[1] : X[2]));
     int maxx = (int)ceil(X[0] > X[1] ? (X[0] > X[2] ? X[0] : X[2]) : (X[1] > X[2] ? X[1] : X[2]));
     int miny = (int)floor(Y[0] < Y[1] ? (Y[0] < Y[2] ? Y[0] : Y[2]) : (Y[1] < Y[2] ? Y[1] : Y[2]));
@@ -10049,6 +10209,19 @@ static void gc_fill_tri_tex(
             if (a < -0.001 || b < -0.001 || c < -0.001) continue;
             z = a * Z[0] + b * Z[1] + c * Z[2];
             if (z >= zb[fi]) continue;
+            if (untextured) {
+                zb[fi] = z;
+                fb[fi * 3u + 0u] = solid[0]; fb[fi * 3u + 1u] = solid[1]; fb[fi * 3u + 2u] = solid[2];
+                if (px == gc_tx && py == gc_ty) {
+                    uint32_t sh = lumascale >> 2; if (sh > 0x3fu) sh = 0x3fu;
+                    fprintf(stderr,
+                        "TRACE px(%d,%d) UNTEXTURED renderer=%u colorbase=0x%03x\n"
+                        "  r5=%d g5=%d b5=%d lumascale=%u shade(luma>>2)=%u -> gamma RGB=(%u,%u,%u)\n",
+                        px, py, hd->renderer, hd->color_base, r5, g5, b5, lumascale, sh,
+                        solid[0], solid[1], solid[2]);
+                }
+                continue;
+            }
             tu = a * U[0] + b * U[1] + c * U[2];
             tv = a * V[0] + b * V[1] + c * V[2];
             lu = hd->tex_width ? (int)fmod(tu, (double)hd->tex_width) : 0;
@@ -10083,6 +10256,7 @@ static void gc_fill_tri_tex(
                     rgb[0], rgb[1], rgb[2]);
             }
         }
+    }
     }
 }
 
@@ -10254,7 +10428,7 @@ static int command_geo_colour(
                 uint16_t thw[4]; vf2_texture_header hd; float uvt[4][2];
                 double Xs[3], Ys[3], Zs[3], Us[3], Vs[3];
                 double nt[3], dotl, dotp, lumv; uint32_t lumascale, lumabase, colorbase;
-                int r5, g5, b5; uint32_t palc, numv, vtx, tri;
+                int r5, g5, b5, untextured; uint32_t palc, numv, vtx, tri;
                 o += 4u;
                 if ((attr & 3u) == 0u) break;
                 numv = (attr & 1u) ? 4u : 3u;
@@ -10313,6 +10487,12 @@ static int command_geo_colour(
                     uvt[vtx][1] = vf2_texture_uv_texels(pvv);
                 }
                 if (numv == 3u) { uvt[3][0] = uvt[2][0]; uvt[3][1] = uvt[2][1]; }
+                /* renderer (model2_v.cpp:568): bit1 textured, bit0 translucent. An
+                 * untextured (solid) polygon colours from the lighting term via
+                 * colorxlat (draw_scanline_solid), not a texel; a translucent SOLID
+                 * renders nothing. */
+                untextured = ((hd.renderer & 2u) == 0u);
+                if (untextured && (hd.renderer & 1u)) goto poly_advance;
                 /* strip triangles: (p0,p1,vB) and, for a quad, (p0,vB,vA) */
                 for (tri = 0u; tri < (numv == 4u ? 2u : 1u); ++tri) {
                     vf2_model_vertex vv[3]; double uu[3][2]; int ok = 1, e;
@@ -10339,8 +10519,10 @@ static int command_geo_colour(
                     if (!ok) continue;
                     gc_fill_tri_tex(fb, zb, W, H, Xs, Ys, Zs, Us, Vs,
                                     bank[hd.sheet & 1u], bank_size[hd.sheet & 1u], &hd,
-                                    luma, cxlat, cxlat_n, lumabase, r5, g5, b5, lumascale);
+                                    luma, cxlat, cxlat_n, lumabase, r5, g5, b5, lumascale,
+                                    untextured);
                 }
+            poly_advance:
                 th_ptr = (uint32_t)((int32_t)th_ptr + vf2_texture_header_advance_words(attr));
                 uv_ptr += numv * 2u;
                 switch ((attr >> 8u) & 3u) {
@@ -11658,10 +11840,11 @@ int main(int argc, char **argv)
                                  argv[7], argv[8]);
     }
 
-    if (strcmp(argv[1], "geo-fighter") == 0 && (argc == 10 || argc == 11)) {
+    if (strcmp(argv[1], "geo-fighter") == 0 && (argc >= 10 && argc <= 12)) {
         return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
                                    argv[7], argv[8], argv[9],
-                                   argc == 11 ? argv[10] : NULL);
+                                   argc >= 11 ? argv[10] : NULL,
+                                   argc >= 12 ? argv[11] : NULL);
     }
 
     if (strcmp(argv[1], "geo-colour") == 0 && (argc == 8 || argc == 9)) {
