@@ -52,3 +52,37 @@ No `src/` change.
   stepper-trap-or-sled + xref + matchability method as Slice-1.
 - move-src mode-1 gap in decoder/stepper (blocks drain tracing
   past `0x7bc`).
+
+## Correction (v0826)
+
+Superseded by `audio_dsp_program_measured_v0826.md`.
+
+1. **Title/verdict "no DSP program" is wrong.** The scan scope
+   (`0x400-0x43F`, `(d16,a5)`/`(d8,a5,Xn)` forms) could not see the DSP
+   register window `0x700-0xBFF`, which is exactly where the sustained
+   traffic lives: the boot uploads a real `0x500`-byte DSP program
+   (ROM `0x28e`; blobs `0x604948`/`0x604e58` = COEF 64w + MADRS 32w +
+   128 MPRO steps; LastStep 82 / 44; EFREG writes at steps 45/47/79/81
+   and 41/43) and configures the delay ring via `0x402 = 0x138`.
+2. **`0x408` is not a dead letter.** `move.b $0016(a0),$0408(a5)` at
+   `0x265c` has **12** xref sites: `jmp` from `0x7ac` (drain idle) and
+   `0x816` (drain processed) plus 10 main-loop branch tails. The "no
+   xref entry" reading came from the reference forms (`jmp`/`bra`, not
+   `jsr`/`bsr`). Every measured drain leg stops **at** `0x265c`, so the
+   C model has no `0x408` write for a different reason: the instruction
+   is exactly one past the repo's measured boundary - live, unmeasured,
+   not dead.
+3. **"No writes exist ... `0x41c-0x421` ... `0x423-0x43F`" is wrong
+   for `0x41c-0x428`.** ROM `0x2d2-0x2f2` writes seven master words via
+   `movea.l a5,a0; lea $041c(a0),a0` + `move.w #imm,(a0)+`:
+   `0x41c=0, 0x41e=0xc8, 0x420=0, 0x422=0x2c8, 0x424=0x88,
+   0x426=0x48, 0x428=0` (`0x422` later overwritten by `0x40` at
+   `0x300`). The post-increment form is invisible to a `(d16,a5)`-only
+   scan. (Already modeled in the C boot mirror as `scsp_block[7]`.)
+4. **`0x402` function identified**: `RBL = (v>>7)&3 = 2` -> 32K-word
+   ring, `RBP = v&0x3f = 0x38` -> delay ring at word addresses
+   `0x38000-0x3ffff` (bytes `0x70000-0x7ffff`). The constant keeps its
+   measured value and now has a measured semantic.
+5. **`0x405` confirmed** as MIBUF (MIDI-in) reads: boot drain
+   `0x306-0x312` plus L3 `0x52a`. "Input, not DSP programming" stands;
+   the C comment's "waste" wording is replaced by the MIBUF annotation.

@@ -12,7 +12,7 @@
 | Base | Janela / região | Evidência e cuidado |
 |---|---|---|
 | `0x000000` | RAM de som, `0x080000` bytes no modelo | `VF2_SOUND_RAM_BYTES` |
-| `0x100000` | Registradores SCSP, `0x1000` bytes modelados | 32 slots x `0x20`; bloco master em offset `0x0400` |
+| `0x100000` | Registradores SCSP, `0x1000` bytes modelados | 32 slots x `0x20`; bloco master em offset `0x0400`; janela DSP `0x0700`–`0x0bff` (COEF/MADRS/MPRO — programa de efeito carregado no boot, [v0826](../../decomp/i960/notes/audio_dsp_program_measured_v0826.md)) |
 | `0x400000` | Latch/controle da placa | Não assumir todos os bits documentados |
 | `0x600000` | ROM do programa 68000, `0x080000` bytes | Região `audiocpu`; bytes reorganizados por `vf2rom` |
 | `0x800000` | Janela direta de amostras, `0x200000` bytes no modelo | A região `samples` reconstruída tem `0x800000` bytes; não inferir lógica completa de bancos |
@@ -102,7 +102,13 @@ offset do programa ou endereço físico/barramento.
   cinco ticks de manutenção e expiração medidos.
 - [E1o](../../decomp/i960/notes/audio_e1o_loopb_wiring_v0825.md):
   entradas do allocator e exaustão de vozes.
+- [v0826](../../decomp/i960/notes/audio_dsp_program_measured_v0826.md):
+  o boot carrega um programa de efeito real na janela DSP
+  (`0x0700`–`0x0bff`) e arma o retorno de efeito (`$0402` = anel de
+  delay; tabela `0x605368`). Execução/saída audível do DSP permanece
+  não modelada.
 
 **Não documentado como fato:** registradores não escritos pela ROM,
-bancos completos de amostra, temporização exata do SCSP, DSP,
-DAC analógico e comportamento de hardware não exercitado pelos testes.
+bancos completos de amostra, temporização exata do SCSP, execução e
+saída audível do DSP (a configuração é medida; v0826), DAC analógico e
+comportamento de hardware não exercitado pelos testes.

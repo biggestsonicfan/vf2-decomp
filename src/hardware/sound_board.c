@@ -312,7 +312,7 @@ vf2_status vf2_sound_board_initialize(
                                            0x88u, 0x48u, 0u};
     uint32_t blob = 0u;
     uint32_t image = 0u;
-    uint32_t volume_table = 0u;
+    uint32_t return_table = 0u;
     size_t index = 0u;
     size_t voice = 0u;
 
@@ -330,22 +330,32 @@ vf2_status vf2_sound_board_initialize(
                                           sample_rom, sample_rom_size);
     }
     /* ROM 0x28e SCSP init. $400001 writes are an unmodeled system
-       port outside the audio contract; $0405 reads are waste. */
+       port outside the audio contract; the four $0405 reads drain the
+       MIDI-in buffer (MIBUF) and are skipped here. */
     if (vf2_scsp_write_u8(&board->scsp, UINT32_C(0x401), 0u) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
     if (read_audio_be32(board, UINT32_C(0x604940), &blob) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
-    for (index = 0u; index < UINT32_C(0x500); ++index) {
-        uint8_t wave = 0u;
-        if (read_audio_byte_absolute(board, blob + (uint32_t)index, &wave) !=
+    /* DSP effect-program upload (v0826): the 0x500-byte blob is the
+       COEF (64 words) + MADRS (32 words) + zero pad + MPRO (128 steps
+       x 4 words) image of the 0x700-0xbff DSP register window. The
+       hardware starts the program when the burst crosses the MPRO
+       word at 0xbf0; the model stores the bytes verbatim. */
+    for (index = 0u; index < VF2_SCSP_DSP_BYTES; ++index) {
+        uint8_t program_byte = 0u;
+        if (read_audio_byte_absolute(board, blob + (uint32_t)index,
+                                     &program_byte) !=
             VF2_OK ||
-            vf2_scsp_write_u8(&board->scsp, UINT32_C(0x700) + (uint32_t)index,
-                              wave) != VF2_OK) {
+            vf2_scsp_write_u8(&board->scsp,
+                              VF2_SCSP_DSP_BASE + (uint32_t)index,
+                              program_byte) != VF2_OK) {
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
     }
+    /* DSP delay-ring config: RBL = (v >> 7) & 3 = 2 -> 32K words,
+       RBP = v & 0x3f = 0x38 -> ring at delay words 0x38000-0x3ffff. */
     if (vf2_scsp_write_u16(&board->scsp, UINT32_C(0x402), UINT16_C(0x138)) !=
         VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
@@ -360,6 +370,9 @@ vf2_status vf2_sound_board_initialize(
             return VF2_ERROR_OUT_OF_BOUNDS;
         }
     }
+    /* ROM 0x2d4-0x2f2 master block tail: lea $041c(a0),a0 then seven
+       move.w #imm,(a0)+ stores (0, 0xc8, 0, 0x2c8, 0x88, 0x48, 0). The
+       post-increment form is invisible to (d16,a5)-only scans. */
     for (index = 0u; index < 7u; ++index) {
         if (vf2_scsp_write_u16(&board->scsp,
                                UINT32_C(0x41c) + (uint32_t)index * 2u,
@@ -439,13 +452,15 @@ vf2_status vf2_sound_board_initialize(
         record[0x12u] = (uint8_t)((uint8_t)voice * 2u);
         record[0x16u] = (uint8_t)(8u + (uint8_t)voice * 8u);
     }
-    /* ROM 0x402 per-slot volumes from the 0x605368 table. */
-    if (read_audio_be32(board, UINT32_C(0x60536a), &volume_table) != VF2_OK) {
+    /* ROM 0x402: effect-return EFSDL/EFPAN (slot byte 0x17, bits 5-7
+       and 0-4) for slots 0-15, armed from the 0x605368 blob0. This is
+       the return path the DSP program's four EFREG channels feed. */
+    if (read_audio_be32(board, UINT32_C(0x60536a), &return_table) != VF2_OK) {
         return VF2_ERROR_OUT_OF_BOUNDS;
     }
     for (index = 0u; index < 16u; ++index) {
         uint8_t level = 0u;
-        if (read_audio_byte_absolute(board, volume_table + (uint32_t)index,
+        if (read_audio_byte_absolute(board, return_table + (uint32_t)index,
                                      &level) != VF2_OK ||
             vf2_scsp_write_u8(&board->scsp,
                               UINT32_C(0x17) + (uint32_t)index *

@@ -76,3 +76,29 @@ closure. No `src/` modifications.
 ## Files
 
 - `decomp/i960/notes/p5_fm_dsp_inventory_v0802.md` — this note
+
+## Resolution (v0826)
+
+The DSP TBDs above are answered: **VF2 does use the SCSP DSP.**
+
+- `0x0700-0x0bff` is the DSP register surface (COEF/MADRS/MPRO), and
+  the boot uploads a real `0x500`-byte effect program into it (ROM
+  `0x28e`, blobs `0x604948`/`0x604e58`), configures its delay ring
+  (`0x402 = 0x138`), and arms the effect return (ROM `0x1c4` `jsr
+  $0402`, table `0x605368`) - all live boot code.
+- "DSP effect (reverb, chorus)" row: usage = **YES, configured at
+  boot**. C state remains "not modeled" for *execution/audio*
+  (external silicon); the software-visible configuration is stored
+  byte-verbatim.
+- "DSP program loader" row: usage = **YES at boot**; the runtime
+  loader at `0x19c2` (command `0xAC`; also `0xAD/0xAE/0xAF` selects)
+  exists with measured bodies, but live reachability of those commands
+  is unproven (only the `0xBA` sample-upload entry has a measured live
+  caller).
+
+The "sample rate converter" and "envelope generator" rows are
+unaffected: the recovered program reads `MIXS[0]` (the slot mix bus)
+at step 0 and writes `EFREG[0..3]` via EWT - an effect insert, not a
+PCM playback path.
+
+See `audio_dsp_program_measured_v0826.md` for the measurement.

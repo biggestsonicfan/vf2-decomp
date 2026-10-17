@@ -48,7 +48,9 @@ context files anything in 70+ hunted frames.
 - Menu-lever replay from a pre-gating park (25 idle legs).
 - L1/L2 ticks in the host loop (game_update guard).
 - Full SCSP DSP / TGP / rasterizer: out of scope per
-  README principles, independent of this bar.
+  README principles, independent of this bar. (v0826 later measured
+  the DSP program + effect-return configuration; execution/audio stays
+  out of scope.)
 
 ## Methodological correction to UNCOVERED_BRANCHES §5
 

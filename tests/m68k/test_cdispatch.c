@@ -5353,6 +5353,176 @@ static void test_voice_lifecycle_l1(
     }
 }
 
+/* v0826: the 0x700-0xBFF window is the SCSP DSP surface, not sample
+ * wave data (audio_dsp_program_measured_v0826.md). This leg pins the
+ * static facts the recovery and the C boot mirror rely on: the
+ * program table at 0x60493e (count word + two long pointers); the
+ * 0x500-byte blob geometry (COEF 0x000-0x07f, MADRS 0x080-0x0bf, a
+ * zero pad 0x0c0-0x0ff aligning MPRO at 0x100); the MAME Step()
+ * invariants the programs satisfy (IRA <= 0x31, MRD/MWT only on odd
+ * steps, MPRO last nonzero step 81/43 -> LastStep 82/44 after the
+ * 0xBF0 start write); the EWT steps (blob0 -> EFREG[0..3], blob1 ->
+ * EFREG[0..1]); the effect-return table at 0x605368 with blob0
+ * arming slots 0-3 only; and the C boot mirror (ROM 0x1b0 jsr
+ * 0x28e + 0x1c4 jsr 0x402) uploading blob0 verbatim with $402 =
+ * 0x0138. A future ROM set that moves any of these fails here. */
+
+static uint16_t dsp_word(const uint8_t *bytes)
+{
+    return (uint16_t)(((uint16_t)bytes[0] << 8u) | bytes[1]);
+}
+
+static uint32_t dsp_long(const uint8_t *bytes)
+{
+    return ((uint32_t)bytes[0] << 24u) | ((uint32_t)bytes[1] << 16u) |
+           ((uint32_t)bytes[2] << 8u) | (uint32_t)bytes[3];
+}
+
+static void test_scsp_dsp_program(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    struct dsp_bank {
+        uint32_t pointer;
+        unsigned laststep;
+        unsigned nonzero_steps;
+        unsigned madrs_nonzero;
+        unsigned ewt_count;
+        unsigned ewt_step[4];
+        unsigned ewt_efreg[4];
+    };
+    static const struct dsp_bank banks[2] = {
+        {UINT32_C(0x604948), 82u, 73u, 12u, 4u,
+         {45u, 47u, 79u, 81u}, {0u, 1u, 2u, 3u}},
+        {UINT32_C(0x604e58), 44u, 38u, 9u, 2u,
+         {41u, 43u, 0u, 0u}, {0u, 1u, 0u, 0u}}
+    };
+    /* The 0xBF0 start write is MPRO step 126's first word
+       (window byte 0x100 + 126*8 = 0x4f0). */
+    _Static_assert(0x100u + 126u * 8u == 0x4f0u,
+                   "0xbf0 start write must land on MPRO step 126");
+    static vf2_sound_board board;
+    static uint8_t sample_window[0x300000u];
+    unsigned bank = 0u;
+    unsigned step = 0u;
+    unsigned index = 0u;
+
+    EXPECT_TRUE(audio_rom_size >= (size_t)UINT32_C(0x40000));
+    EXPECT_TRUE(dsp_word(audio_rom + 0x493eu) == 1u);
+    EXPECT_TRUE(dsp_long(audio_rom + 0x4940u) == UINT32_C(0x604948));
+    EXPECT_TRUE(dsp_long(audio_rom + 0x4944u) == UINT32_C(0x604e58));
+    for (bank = 0u; bank < 2u; ++bank) {
+        const uint8_t *blob =
+            audio_rom + (banks[bank].pointer - UINT32_C(0x600000));
+        unsigned nonzero = 0u;
+        unsigned madrs_nonzero = 0u;
+        unsigned last_nonzero = 0u;
+        unsigned ewt_index = 0u;
+        unsigned probe = 0u;
+
+        /* COEF head: both programs open with the same Q15 words. */
+        EXPECT_TRUE(dsp_word(blob + 0x00u) == UINT16_C(0x7ff8));
+        EXPECT_TRUE(dsp_word(blob + 0x02u) == UINT16_C(0x4000));
+        EXPECT_TRUE(dsp_word(blob + 0x04u) == 0u);
+        EXPECT_TRUE(dsp_word(blob + 0x06u) == UINT16_C(0xc000));
+        EXPECT_TRUE(dsp_word(blob + 0x08u) == UINT16_C(0x8008));
+        EXPECT_TRUE(dsp_word(blob + 0x0au) == UINT16_C(0x7ff8));
+        /* MADRS: both programs open with the same ring taps. */
+        EXPECT_TRUE(dsp_word(blob + 0x80u) == UINT16_C(0x1f00));
+        EXPECT_TRUE(dsp_word(blob + 0x82u) == 0u);
+        EXPECT_TRUE(dsp_word(blob + 0x84u) == UINT16_C(0x101c));
+        for (probe = 0u; probe < 32u; ++probe) {
+            if (dsp_word(blob + 0x80u + probe * 2u) != 0u) {
+                ++madrs_nonzero;
+            }
+        }
+        EXPECT_TRUE(madrs_nonzero == banks[bank].madrs_nonzero);
+        /* Zero pad 0x0c0-0x0ff aligns MPRO at 0x100. */
+        for (probe = 0u; probe < 32u; ++probe) {
+            EXPECT_TRUE(dsp_word(blob + 0xc0u + probe * 2u) == 0u);
+        }
+        for (step = 0u; step < 128u; ++step) {
+            const uint8_t *ip = blob + 0x100u + step * 8u;
+            uint16_t w0 = dsp_word(ip);
+            uint16_t w1 = dsp_word(ip + 2u);
+            uint16_t w2 = dsp_word(ip + 4u);
+            uint16_t w3 = dsp_word(ip + 6u);
+            unsigned ira = ((unsigned)w1 >> 6) & 0x3fu;
+            unsigned ewt = ((unsigned)w2 >> 12) & 1u;
+            unsigned ewa = ((unsigned)w2 >> 8) & 0x0fu;
+            unsigned mem = ((unsigned)w2 >> 13) & 0x03u;
+
+            if ((w0 | w1 | w2 | w3) == 0u) {
+                continue;
+            }
+            ++nonzero;
+            last_nonzero = step;
+            /* Step() aborts the whole program if IRA > 0x31. */
+            EXPECT_TRUE(ira <= 0x31u);
+            /* MAME only performs MRD/MWT on odd steps. */
+            if (mem != 0u) {
+                EXPECT_TRUE((step & 1u) != 0u);
+            }
+            if (ewt != 0u) {
+                EXPECT_TRUE(ewt_index < banks[bank].ewt_count);
+                EXPECT_TRUE(step == banks[bank].ewt_step[ewt_index]);
+                EXPECT_TRUE(ewa == banks[bank].ewt_efreg[ewt_index]);
+                ++ewt_index;
+            }
+        }
+        EXPECT_TRUE(nonzero == banks[bank].nonzero_steps);
+        EXPECT_TRUE(last_nonzero + 1u == banks[bank].laststep);
+        EXPECT_TRUE(ewt_index == banks[bank].ewt_count);
+        /* The 0xBF0 start write is MPRO step 126's first word
+         * (window byte 0x100 + 126*8 = 0x4f0, asserted above);
+         * steps 126-127 are zero, so the mid-burst Start() scan
+         * equals the scan after the full copy. */
+        for (probe = 0u; probe < 16u; ++probe) {
+            EXPECT_TRUE(blob[0x4f0u + probe] == 0u);
+        }
+        EXPECT_TRUE((size_t)(banks[bank].pointer - UINT32_C(0x600000)) +
+                        0x500u <=
+                    audio_rom_size);
+    }
+    /* Effect-return table: count 3, four pointers (entry 3 repeats
+     * entry 1), blob0 arms slots 0-3 (nonzero EFSDL), 4-15 zero. */
+    EXPECT_TRUE(dsp_word(audio_rom + 0x5368u) == 3u);
+    EXPECT_TRUE(dsp_long(audio_rom + 0x536au) == UINT32_C(0x60537a));
+    EXPECT_TRUE(dsp_long(audio_rom + 0x536eu) == UINT32_C(0x60538a));
+    EXPECT_TRUE(dsp_long(audio_rom + 0x5372u) == UINT32_C(0x60539a));
+    EXPECT_TRUE(dsp_long(audio_rom + 0x5376u) == UINT32_C(0x60538a));
+    EXPECT_TRUE(audio_rom[0x537au + 0u] == 0xdfu);
+    EXPECT_TRUE(audio_rom[0x537au + 1u] == 0xcfu);
+    EXPECT_TRUE(audio_rom[0x537au + 2u] == 0xffu);
+    EXPECT_TRUE(audio_rom[0x537au + 3u] == 0xefu);
+    for (index = 0u; index < 16u; ++index) {
+        const uint8_t level = audio_rom[0x537au + index];
+        if (index < 4u) {
+            EXPECT_TRUE(((level >> 5u) & 7u) != 0u);
+        } else {
+            EXPECT_TRUE(level == 0u);
+        }
+    }
+    /* C boot mirror: uploads blob0 and writes the delay-RAM config
+     * (RBP 0x38, RBL 2 -> 32K-word ring at words 0x38000-0x3ffff). */
+    memset(&board, 0, sizeof(board));
+    memset(sample_window, 0, sizeof(sample_window));
+    EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom,
+                                           audio_rom_size, sample_window,
+                                           sizeof(sample_window)) == VF2_OK);
+    EXPECT_TRUE(board.scsp.registers[0x402u] == 0x01u);
+    EXPECT_TRUE(board.scsp.registers[0x403u] == 0x38u);
+    for (index = 0u; index < 0x500u; ++index) {
+        EXPECT_TRUE(board.scsp.registers[0x700u + index] ==
+                    audio_rom[0x4948u + index]);
+    }
+    for (index = 0u; index < 16u; ++index) {
+        EXPECT_TRUE(board.scsp.registers[0x17u + index * 0x20u] ==
+                    audio_rom[0x537au + index]);
+    }
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -5461,6 +5631,7 @@ int main(int argc, char **argv)
     test_note_on_off(argv[1], audio_rom, audio_rom_size);
     test_voice_lifecycle_l1(argv[1], audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
+    test_scsp_dsp_program(audio_rom, audio_rom_size);
     test_vectors(audio_rom, audio_rom_size);
     free(audio_rom);
     if (failures != 0) {

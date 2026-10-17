@@ -20,6 +20,11 @@ enum {
     VF2_SCSP_MASTER_BYTES = 0x0200u,
     VF2_SCSP_RING_BASE = 0x0600u,
     VF2_SCSP_RING_BYTES = 0x0100u,
+    /* DSP register surface: COEF (64 words) + MADRS (32 words) + zero
+       pad + MPRO (128 steps x 4 words). The boot uploads a real
+       effect program here (v0826). */
+    VF2_SCSP_DSP_BASE = 0x0700u,
+    VF2_SCSP_DSP_BYTES = 0x0500u,
     VF2_SCSP_MIDI_FIFO_BYTES = 32u,
     VF2_SCSP_PENDING_MIDI = 0x0008u
 };

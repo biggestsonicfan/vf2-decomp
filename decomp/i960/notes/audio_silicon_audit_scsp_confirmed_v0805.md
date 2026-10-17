@@ -79,3 +79,19 @@ and instruction shapes only.
 - Next: Slice B minimal 68k oracle, then FM boundary measurement
   (which driver writes select FM vs PCM per slot, and what the music
   command path stages before them).
+
+## Correction (v0826)
+
+- Lines 13/25/35 ("wave area `0x0700`", "`0x0700` wave copy/upload"):
+  wrong name. `0x0700` is the SCSP **DSP register surface** (COEF
+  `0x700-0x77f`, MADRS `0x780-0x7bf` + mirror `0x7c0-0x7ff`, MPRO
+  `0x800-0xbff` = 128 steps x 4 words), and the boot's `0x500`-byte copy
+  into it (ROM `0x28e`) is a DSP **effect-program upload**, not wave
+  data. The `0x05xx` sample staging is the wave area.
+- Lines 51-52 ("v0804 already closed ... with no DSP-window traffic"):
+  superseded - v0804's scope (`0x400-0x43f`) could not see the window.
+  See `audio_dsp_program_measured_v0826.md`.
+- Line 76 ("keep ... FM/DSP marked spec-written or open"): the DSP
+  configuration half is now ROM-measured (program text, ring config,
+  effect-return arming). DSP *execution* and audible output remain
+  external-silicon/unmodeled.
