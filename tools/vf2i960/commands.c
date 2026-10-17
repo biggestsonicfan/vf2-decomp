@@ -8953,6 +8953,7 @@ static int command_geo_scene(
     float *mat = NULL;      /* [frame*nslots + slot][12] */
     uint32_t *obaf = NULL;  /* [frame*nslots + slot] */
     uint32_t *tpaf = NULL;
+    uint32_t *thaf = NULL;
     int *fixed = NULL;      /* matrix byte-identical in every frame? */
     int *grp = NULL;        /* 0 = camera-common, 1 = self-moving */
     int *anchor = NULL;     /* oba rec in Akira's ground-truth cluster */
@@ -8966,7 +8967,6 @@ static int command_geo_scene(
     size_t gcount[2] = { 0u, 0u };
     size_t resolved = 0u;
     size_t stub = 0u;
-    size_t lookup_disagree = 0u;
     size_t vbase = 1u;
     int cur_sheet = -1;
     vf2_status st;
@@ -9052,6 +9052,7 @@ static int command_geo_scene(
     mat = (float *)malloc(nframes * nslots * 12u * sizeof(*mat));
     obaf = (uint32_t *)malloc(nframes * nslots * sizeof(*obaf));
     tpaf = (uint32_t *)malloc(nframes * nslots * sizeof(*tpaf));
+    thaf = (uint32_t *)malloc(nframes * nslots * sizeof(*thaf));
     fixed = (int *)malloc(nslots * sizeof(*fixed));
     grp = (int *)malloc(nslots * sizeof(*grp));
     anchor = (int *)malloc(nslots * sizeof(*anchor));
@@ -9060,7 +9061,7 @@ static int command_geo_scene(
     mtx = (double *)malloc(nslots * 3u * sizeof(*mtx));
     motion_t = (double *)malloc(nslots * sizeof(*motion_t));
     sorted = (double *)malloc(nslots * sizeof(*sorted));
-    if (mat == NULL || obaf == NULL || tpaf == NULL || fixed == NULL ||
+    if (mat == NULL || obaf == NULL || tpaf == NULL || thaf == NULL || fixed == NULL ||
         grp == NULL || anchor == NULL || shadow == NULL || flat == NULL ||
         mtx == NULL || motion_t == NULL || sorted == NULL) {
         goto done;
@@ -9085,6 +9086,7 @@ static int command_geo_scene(
                 }
                 obaf[f * nslots + s] = objs[s].oba;
                 tpaf[f * nslots + s] = objs[s].tpa;
+                thaf[f * nslots + s] = objs[s].tha;
             } else {
                 /* Frame shorter than slot count (not seen in practice): hold
                  * the frame-0 pose so metrics stay defined. */
@@ -9093,6 +9095,7 @@ static int command_geo_scene(
                 }
                 obaf[f * nslots + s] = obaf[s];
                 tpaf[f * nslots + s] = tpaf[s];
+                thaf[f * nslots + s] = thaf[s];
             }
         }
     }
@@ -9195,7 +9198,7 @@ static int command_geo_scene(
     fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
     fprintf(mtl, "newmtl marker\nKd 1.0 0.0 0.0\n");
     fprintf(csv, "slot,band,shadow,flatness,fixed,anchor,motion_t,Tx,Ty,Tz,"
-                 "tpa,oba,rec_byte,obj_id,tris\n");
+                 "tpa,oba,rec_byte,tha,tris\n");
     fprintf(obj, "# VF2 posed scene: pose frame %zu, %zu object slots, RAM9 "
                  "Step-2 matrices. Local only, never committed.\n", pose,
             nslots);
@@ -9205,35 +9208,21 @@ static int command_geo_scene(
         const char *gname = shadow[s] ? "shadow"
                           : (grp[s] == 1) ? "selfmoving" : "cameracommon";
         const char *atag = anchor[s] ? "_akira" : "";
-        uint32_t w0 = tpaf[pose * nslots + s];     /* texture-point address */
         uint32_t oba = obaf[pose * nslots + s];
         uint32_t rec = (oba & 0x7fffffu) * 4u;     /* MAME geo_object_data:
                                                     * geometry = polygon_rom
                                                     * [oba & mask], byte = *4 */
-        uint32_t off = 0u;
-        uint32_t bnk = 0u;
-        uint32_t id = 0u;
-        uint32_t uv_ptr = 0u;
-        uint32_t th_ptr = 0u;
+        /* UV points from tpa, texture header from tha -- directly, as MAME
+         * geo_object_data does (model2_v.cpp:1715-1728), not via a tpa->record
+         * table lookup. */
+        uint32_t uv_ptr = tpaf[pose * nslots + s] & 0x7fffffu;
+        uint32_t th_ptr = thaf[pose * nslots + s] & 0x7fffffu;
         size_t tris = 0u;
         float *m = &mat[(pose * nslots + s) * 12u];
 
         fprintf(obj, "o slot%03zu_%s%s_oba%06x\n", s, gname, atag,
                 (unsigned)(oba & 0x7fffffu));
 
-        /* Textures come from the tpa lookup (UV/texheader table); GEOMETRY is
-         * read straight from oba, as MAME does -- the earlier tpa->record
-         * lookup was a FIFO-era indirection and is only used here for UVs. */
-        if (vf2_model_lookup_w0(main_data, main_size, w0, 0x4000u, &off, &bnk,
-                                &id) == VF2_OK) {
-            if (off != rec) {
-                ++lookup_disagree;
-            }
-            uv_ptr = tl_u32(main_data, main_size,
-                            0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
-            th_ptr = tl_u32(main_data, main_size,
-                            0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
-        }
         if ((size_t)rec + 24u <= poly_size) {
             vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, rec,
                                    uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m,
@@ -9250,10 +9239,11 @@ static int command_geo_scene(
         fprintf(csv, "%zu,%s,%d,%.4f,%d,%d,%.4f,%.3f,%.3f,%.3f,0x%x,0x%x,0x%x,"
                      "0x%x,%zu\n",
                 s, gname, shadow[s], flat[s], fixed[s], anchor[s], motion_t[s],
-                mtx[s*3u], mtx[s*3u+1u], mtx[s*3u+2u], (unsigned)w0,
+                mtx[s*3u], mtx[s*3u+1u], mtx[s*3u+2u],
+                (unsigned)(tpaf[pose*nslots+s]),
                 (unsigned)(obaf[pose*nslots+s]),
                 (unsigned)((obaf[pose*nslots+s] & 0x7fffffu) * 4u),
-                (unsigned)id, tris);
+                (unsigned)(thaf[pose*nslots+s]), tris);
     }
 
     snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
@@ -9320,10 +9310,8 @@ static int command_geo_scene(
                 }
             }
         }
-        printf("  geometry: decoded from oba directly (MAME geo_object_data); "
-               "the tpa->record lookup\n");
-        printf("            disagreed with oba on %zu/%zu slots (why the earlier "
-               "pieces scattered)\n", lookup_disagree, nslots);
+        printf("  geometry: from oba, texture header from tha, UV points from tpa "
+               "-- all directly, as MAME geo_object_data (no tpa->record lookup)\n");
         printf("  matrices: %zu/%zu slots byte-identical across all frames -> "
                "the camera is in EVERY matrix,\n", nfixed, nslots);
         printf("            so a raw static/moving test cannot split decor from "
@@ -9392,27 +9380,16 @@ static int command_geo_scene(
                                      : "transposed 3x3");
                 for (i = 0u; i < nak; ++i) {
                     size_t slot = akslot[i];
-                    uint32_t w0 = tpaf[pose * nslots + slot];
                     uint32_t oba = obaf[pose * nslots + slot];
                     uint32_t rec = (oba & 0x7fffffu) * 4u;
-                    uint32_t off = 0u;
-                    uint32_t bnk = 0u;
-                    uint32_t id = 0u;
-                    uint32_t uvp = 0u;
-                    uint32_t thp = 0u;
+                    /* texture header from tha, UV points from tpa (MAME
+                     * geo_object_data), not the tpa->record lookup. */
+                    uint32_t uvp = tpaf[pose * nslots + slot] & 0x7fffffu;
+                    uint32_t thp = thaf[pose * nslots + slot] & 0x7fffffu;
                     size_t tr = 0u;
                     float mt[12];
                     const float *m = &mat[(pose * nslots + slot) * 12u];
                     pbeg[i] = vn;
-                    if (vf2_model_lookup_w0(main_data, main_size, w0, 0x4000u,
-                                            &off, &bnk, &id) == VF2_OK) {
-                        uvp = tl_u32(main_data, main_size,
-                                     0x000e0004u + (size_t)id*16u + 0u)
-                              & 0x7fffffu;
-                        thp = tl_u32(main_data, main_size,
-                                     0x000e0004u + (size_t)id*16u + 4u)
-                              & 0x7fffffu;
-                    }
                     if ((size_t)rec + 24u <= poly_size) {
                         if (variant == 1) {
                             gs_transpose(m, mt);
@@ -9494,6 +9471,7 @@ done:
     free(mat);
     free(obaf);
     free(tpaf);
+    free(thaf);
     free(fixed);
     free(grp);
     free(anchor);
@@ -9670,7 +9648,7 @@ static int command_geo_fighter(
     float gf_light[3] = { 0.0f, 0.0f, 1.0f };
     uint8_t gf_diff[32], gf_amb[32], gf_sscale[32], gf_sctrl[32];
     uint32_t gf_mode = 0u;
-    uint32_t *cand_rec = NULL, *cand_tpa = NULL;
+    uint32_t *cand_rec = NULL, *cand_tpa = NULL, *cand_tha = NULL;
     size_t *cand_s = NULL, *pstart = NULL, *pcount = NULL;
     size_t *parent = NULL, *compsz = NULL, *sel = NULL;
     int *grp2 = NULL;
@@ -9827,6 +9805,7 @@ static int command_geo_fighter(
     cand_vmat = (float (*)[12])malloc(nobjs * sizeof(*cand_vmat));
     cand_rec = (uint32_t *)malloc(nobjs * sizeof(*cand_rec));
     cand_tpa = (uint32_t *)malloc(nobjs * sizeof(*cand_tpa));
+    cand_tha = (uint32_t *)malloc(nobjs * sizeof(*cand_tha));
     cand_s = (size_t *)malloc(nobjs * sizeof(*cand_s));
     pstart = (size_t *)malloc(nobjs * sizeof(*pstart));
     pcount = (size_t *)malloc(nobjs * sizeof(*pcount));
@@ -9837,7 +9816,7 @@ static int command_geo_fighter(
     wvcap = vcap;
     worldv = (float *)malloc(wvcap * 3u * sizeof(*worldv));
     if (mf == NULL || cand_vmat == NULL || cand_rec == NULL ||
-        cand_tpa == NULL || cand_s == NULL || pstart == NULL || pcount == NULL ||
+        cand_tpa == NULL || cand_tha == NULL || cand_s == NULL || pstart == NULL || pcount == NULL ||
         cand_scx == NULL || sel == NULL || worldv == NULL ||
         cand_pbuf == NULL || cand_psize == NULL)
         goto done;
@@ -9884,6 +9863,7 @@ static int command_geo_fighter(
                                        vacc, vcap);
         cand_rec[ncand] = rec;
         cand_tpa[ncand] = objs[s].tpa;
+        cand_tha[ncand] = objs[s].tha;
         cand_s[ncand] = s;
         cand_pbuf[ncand] = pbuf;
         cand_psize[ncand] = psize;
@@ -10061,18 +10041,17 @@ static int command_geo_fighter(
     fprintf(obj, "mtllib %s.mtl\n", which);
     for (k = 0u; k < nsel; ++k) {
         size_t idx = sel[k];
-        uint32_t off32 = 0u, bnk = 0u, id = 0u, uv_ptr = 0u, th_ptr = 0u;
         size_t tris = 0u;
         float m2[12];
+        /* texheader from tha, UV points from tpa -- directly, as MAME
+         * geo_object_data does (model2_v.cpp:1715-1728), not via the tpa->record
+         * table lookup (which returned the wrong texheader for objects sharing a
+         * tpa, e.g. Lau's vest reading navy instead of red). */
+        uint32_t uv_ptr = cand_tpa[idx] & 0x7fffffu, th_ptr = cand_tha[idx] & 0x7fffffu;
         memcpy(m2, mf[idx], sizeof(m2));
         m2[9]  = (float)((double)m2[9]  - off[0]);
         m2[10] = (float)((double)m2[10] - off[1]);
         m2[11] = (float)((double)m2[11] - off[2]);
-        if (vf2_model_lookup_w0(main_data, main_size, cand_tpa[idx], 0x4000u,
-                                &off32, &bnk, &id) == VF2_OK) {
-            uv_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
-            th_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
-        }
         fprintf(obj, "o %s_piece%02zu_rec%06x\n", which, k, (unsigned)cand_rec[idx]);
         vbase = ext_emit_piece(obj, cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                cand_rec[idx], uv_ptr, th_ptr, vbase, &cur_sheet,
@@ -10119,7 +10098,7 @@ done:
     if (obj != NULL) fclose(obj);
     if (mtl != NULL) fclose(mtl);
     free(words); free(objs); free(vacc); free(mf); free(cand_vmat);
-    free(cand_rec); free(cand_tpa); free(cand_s); free(pstart); free(pcount);
+    free(cand_rec); free(cand_tpa); free(cand_tha); free(cand_s); free(pstart); free(pcount);
     free(cand_scx); free(sel); free(worldv); free(dmat); free(parent);
     free(compsz); free(grp2); free(ram0); free(ram1);
     free(cand_pbuf); free(cand_psize);
@@ -10531,14 +10510,16 @@ static int command_geo_colour(
             cx = (double)icx; cy = (double)icy;
         } else if (cmd == 0x01u || cmd == 0x11u) {
             uint32_t oba = w[ptr + 2u], rec = (oba & 0x7fffffu) * 4u, tpa = w[ptr + 0u];
-            uint32_t off32 = 0u, bnk = 0u, id = 0u, uv_ptr = 0u, th_ptr = 0u;
+            /* MAME geo_object_data (model2_v.cpp:1715-1728): the object command is
+             * {tpa, tha, oba, obc}. UV points come straight from tpa and the
+             * texture header from tha -- NOT via a tpa->record table lookup (that
+             * inherited indirection returns the first entry sharing a tpa, whose
+             * tha can differ, giving the wrong texheader/colorbase). */
+            uint32_t tha = w[ptr + 1u];
+            uint32_t uv_ptr = tpa & 0x7fffffu, th_ptr = tha & 0x7fffffu;
             size_t o;
             vf2_model_vertex p0, p1;
             if ((size_t)rec + 24u > poly_size) { ptr += need; continue; }
-            if (vf2_model_lookup_w0(main_data, main_size, tpa, 0x4000u, &off32, &bnk, &id) == VF2_OK) {
-                uv_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
-                th_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
-            }
             if (!ext_read_xyz(poly, poly_size, rec, &p0) || !ext_read_xyz(poly, poly_size, rec + 12u, &p1)) { ptr += need; continue; }
             o = (size_t)rec + 24u;
             for (;;) {
