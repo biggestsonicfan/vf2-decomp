@@ -139,8 +139,10 @@ int main(int argc, char **argv)
     /* Optional pump leg (T3): open a second session from a
      * live-queue snapshot (park-sixth-a6c0 holds 3 filed entries)
      * and bridge them into audible-path state. Gates: 9 bytes
-     * moved over 9 drain ticks, 3 entries filed, then game_update
-     * (L1/L2 ticks) + render determinism. The 90-class entry
+     * moved over 9 drain ticks, 3 entries filed, then the
+     * autonomous per-frame board ticks (L2 stream tick + L1 voice
+     * maintenance, run inside the pump since v0852) + render
+     * determinism. The 90-class entry
      * misses on the init-state board (no staged voice, $152e
      * door -- the admitted 90 shape is proven with S4 arming in
      * the T2 differential, never staged here), both a0 entries
@@ -169,13 +171,15 @@ int main(int argc, char **argv)
         }
         CHECK(vf2_session_audio_status(pump) == VF2_OK);
         CHECK(vf2_session_pump_audio(pump, &preport) == VF2_OK);
-        fprintf(stderr, "session-audio: pump bytes=%u filed=%u dispatched=%u refused=%u ticks=%u drain=%d\n",
+        fprintf(stderr, "session-audio: pump bytes=%u filed=%u dispatched=%u refused=%u ticks=%u drain=%d stream=%d voice=%d\n",
                 (unsigned)preport.bytes_moved,
                 (unsigned)preport.entries_filed,
                 (unsigned)preport.entries_dispatched,
                 (unsigned)preport.entries_refused,
                 (unsigned)preport.drain_ticks,
-                (int)preport.drain_status);
+                (int)preport.drain_status,
+                (int)preport.stream_status,
+                (int)preport.voice_status);
         CHECK(preport.drain_status == VF2_OK);
         CHECK(preport.bytes_moved == 9u);
         CHECK(preport.drain_ticks == 9u);
@@ -187,6 +191,14 @@ int main(int argc, char **argv)
          * the pump never stages voices. */
         CHECK(preport.entries_dispatched == 0u);
         CHECK(preport.entries_refused == 3u);
+        /* The board then advances one frame of its own inside the
+         * pump: the L2 stream tick (v0852: the two SCSP pokes + the
+         * 0x3000 countdown walk; nothing live at boot) and the L1
+         * voice maintenance. Both complete on the init-state board. */
+        CHECK(preport.stream_ticks == 1u);
+        CHECK(preport.voice_ticks == 1u);
+        CHECK(preport.stream_status == VF2_OK);
+        CHECK(preport.voice_status == VF2_OK);
         CHECK(vf2_session_render_audio(pump, pleft_a, pright_a,
                                       FRAMES) == VF2_OK);
         CHECK(vf2_session_render_audio(pump, pleft_b, pright_b,

@@ -98,6 +98,13 @@ v0755b per-step hook pattern for the interpreted ranges. Gated:
 no C before S3-S6 legs are green. Exit: native legs + ROM-backed
 differential + frontier promotion.
 
+(v0852: the maintain_streams half is **done** — measured C (head
+pokes + countdown decrements + clean refusal on the two unmeasured
+live bodies) with five C-vs-stepper differential legs and per-frame
+pump wiring; see `audio_l2_stream_tick_v0852.md`. The per-step hook
+pattern was not needed: the tick is a board-model call, not an
+interpreted-range recovery.)
+
 ## Non-goals (closed)
 
 FM music (v0807 absence), MultiPCM (v0805 SCSP), decoder Dn->-(An)

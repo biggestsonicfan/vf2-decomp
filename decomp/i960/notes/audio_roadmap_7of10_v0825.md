@@ -72,6 +72,13 @@ mixing; timbre stays pending). Gate: non-silence + voice-count
    sequences" rationale predates the live-circuit findings).
    S2 re-examines it; if the 0x902 flow IS the sequencer, the
    stub is replaced, not patched.
+   (v0852: **resolved** — the stub is replaced by measured C:
+   0x1f16 head pokes + prescaler/worker countdown decrements +
+   clean refusal on the two unmeasured live bodies (beat emit /
+   stream-end, worker applier). The "never sequences" rationale
+   was right about reachable states (boot never arms 0x3000) and
+   wrong as fail-closed behavior (armed records were silently
+   accepted). See `audio_l2_stream_tick_v0852.md`.)
 
 ## 8/10 sketch (not this plan)
 

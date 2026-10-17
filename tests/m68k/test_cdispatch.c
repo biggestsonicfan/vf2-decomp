@@ -5523,6 +5523,240 @@ static void test_scsp_dsp_program(
     }
 }
 
+/* v0852: the L2 stream tick (ROM 0x1f16..0x1f7a, vector 26) as a
+ * C-vs-stepper differential. The tick runs: movem spill, two
+ * unconditional SCSP pokes (0x0418 = 0x00ce, 0x0422 = 0x0040), the
+ * ring-count gate at ram[0x2506], then the body -- prescaler jsr
+ * 0x21ba plus eight worker jsr 0x1f7c calls over the 0x3000 records
+ * (stride 0x20; record 0 is both the prescaler's and worker 0's).
+ * Fixtures:
+ * 1. boot-idle with the poke targets poisoned (the head is the only
+ *    state change; the 51-step F10 verdict);
+ * 2. count 0xff skips the body even for an armed record, pokes still
+ *    apply;
+ * 3. live countdowns decay: prescaler byte 5 -> 4, worker word 5 -> 4
+ *    and word 0 -> 0xffff (16-bit wrap exact);
+ * 4. refusal: an armed record whose word is 1 hands off to the
+ *    unmeasured applier -- S stops at the 0x1fba class jump with the
+ *    word already decremented; C refuses clean (no mutation);
+ * 5. refusal: the prescaler beat emit -- S files be 10 04 at the
+ *    ring + cursor/count and reloads; C refuses clean.
+ * Compare convention (triangle L1, widened): RAM below the ISR stack
+ * zone [0x7ec8,0x7f00) + at/above it (C is stackless; the zone holds
+ * the movem frame plus the deepest jsr push word), full SCSP, a7
+ * balanced, zero bus events. Refusal legs pin the C's clean state
+ * and document the S behavior (no equality claim: a refused tick is
+ * unmodeled, not silently wrong). */
+static void test_l2_stream_tick(
+    const uint8_t *audio_rom,
+    size_t audio_rom_size
+)
+{
+    static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp step_scsp;
+    static vf2_sound_board board;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_stream_maintenance_report report;
+    uint8_t *cram = NULL;
+    uint8_t *record = NULL;
+    uint32_t done = 0u;
+    vf2_status status = VF2_OK;
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = audio_rom;
+    board.audio_rom_size = audio_rom_size;
+    vf2_scsp_initialize(&board.scsp);
+    cram = board.sound_ram;
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = audio_rom;
+    bus.rom_size = audio_rom_size;
+    bus.sample_rom = NULL;
+    bus.sample_rom_size = 0u;
+    bus.scsp = &step_scsp;
+    bus.event_count = 0u;
+
+    /* Fixture 1: boot-idle, poke targets poisoned first. */
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0418u, 0x1122u) == VF2_OK);
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0422u, 0x3344u) == VF2_OK);
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_maintain_streams(&board, &report) == VF2_OK);
+    EXPECT_TRUE(report.descriptors_scanned == 8u);
+    EXPECT_TRUE(report.timers_expired == 0u);
+    EXPECT_TRUE(report.packets_emitted == 0u);
+    EXPECT_TRUE(report.refused_stage == 0u);
+    EXPECT_TRUE(report.refused_record == 0xffu);
+    EXPECT_TRUE(board.scsp.registers[0x418u] == 0x00u &&
+                board.scsp.registers[0x419u] == 0xceu);
+    EXPECT_TRUE(board.scsp.registers[0x422u] == 0x00u &&
+                board.scsp.registers[0x423u] == 0x40u);
+    vf2_m68k_regs_reset(&regs);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x1f16);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f7a), 0, 20000u, &done);
+    fprintf(stderr,
+            "l2-tick idle: S status=%d steps=%u a7=%05x events=%u\n",
+            (int)status, (unsigned)done, (unsigned)regs.a[7],
+            (unsigned)bus.event_count);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(done == 51u);
+    EXPECT_TRUE(regs.a[7] == UINT32_C(0x7f00));
+    EXPECT_TRUE(bus.event_count == 0u);
+    EXPECT_TRUE(memcmp(cram, step_ram, 0x7ec8u) == 0);
+    EXPECT_TRUE(memcmp(cram + 0x7f00u, step_ram + 0x7f00u,
+                       VF2_SOUND_RAM_BYTES - 0x7f00u) == 0);
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+
+    /* Fixture 2: ring-count gate 0xff skips the body. */
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    vf2_scsp_initialize(&board.scsp);
+    cram[VF2_SOUND_COMMAND_COUNT] = 0xffu;
+    record = cram + VF2_SOUND_STREAM_ALTERNATE_BASE;
+    record[0] = 0x80u;
+    record[2] = 0u;
+    record[3] = 5u;
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0418u, 0x1122u) == VF2_OK);
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_maintain_streams(&board, &report) == VF2_OK);
+    EXPECT_TRUE(report.descriptors_scanned == 0u);
+    EXPECT_TRUE(report.refused_stage == 0u);
+    EXPECT_TRUE(report.refused_record == 0xffu);
+    EXPECT_TRUE(board.scsp.registers[0x418u] == 0x00u &&
+                board.scsp.registers[0x419u] == 0xceu);
+    vf2_m68k_regs_reset(&regs);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x1f16);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f7a), 0, 20000u, &done);
+    fprintf(stderr, "l2-tick gate: S status=%d steps=%u\n",
+            (int)status, (unsigned)done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(done == 7u);
+    EXPECT_TRUE(memcmp(cram, step_ram, 0x7ec8u) == 0);
+    EXPECT_TRUE(memcmp(cram + 0x7f00u, step_ram + 0x7f00u,
+                       VF2_SOUND_RAM_BYTES - 0x7f00u) == 0);
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+
+    /* Fixture 3: live countdowns decay. */
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    vf2_scsp_initialize(&board.scsp);
+    record = cram + VF2_SOUND_DESCRIPTOR_BASE;
+    record[0x0cu] = 8u;
+    record[0x0du] = 5u;
+    record = cram + VF2_SOUND_STREAM_ALTERNATE_BASE;
+    record[0] = 0x80u;
+    record[2] = 0u;
+    record[3] = 5u;
+    record = cram + VF2_SOUND_DESCRIPTOR_BASE + 0x40u;
+    record[0] = 0x80u;
+    record[2] = 0u;
+    record[3] = 0u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_maintain_streams(&board, &report) == VF2_OK);
+    EXPECT_TRUE(report.descriptors_scanned == 8u);
+    EXPECT_TRUE(report.timers_expired == 0u);
+    EXPECT_TRUE(cram[VF2_SOUND_DESCRIPTOR_BASE + 0x0du] == 4u);
+    EXPECT_TRUE(cram[VF2_SOUND_STREAM_ALTERNATE_BASE + 2u] == 0u &&
+                cram[VF2_SOUND_STREAM_ALTERNATE_BASE + 3u] == 4u);
+    EXPECT_TRUE(cram[VF2_SOUND_DESCRIPTOR_BASE + 0x40u + 2u] == 0xffu &&
+                cram[VF2_SOUND_DESCRIPTOR_BASE + 0x40u + 3u] == 0xffu);
+    vf2_m68k_regs_reset(&regs);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x1f16);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f7a), 0, 20000u, &done);
+    fprintf(stderr, "l2-tick decay: S status=%d steps=%u\n",
+            (int)status, (unsigned)done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(done == 57u);
+    EXPECT_TRUE(memcmp(cram, step_ram, 0x7ec8u) == 0);
+    EXPECT_TRUE(memcmp(cram + 0x7f00u, step_ram + 0x7f00u,
+                       VF2_SOUND_RAM_BYTES - 0x7f00u) == 0);
+    EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
+
+    /* Fixture 4: armed record word 1 -> applier handoff, C refuses. */
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    vf2_scsp_initialize(&board.scsp);
+    record = cram + VF2_SOUND_STREAM_ALTERNATE_BASE;
+    record[0] = 0x80u;
+    record[2] = 0u;
+    record[3] = 1u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_maintain_streams(&board, &report) ==
+                VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(report.refused_stage == 2u);
+    EXPECT_TRUE(report.refused_record == 1u);
+    EXPECT_TRUE(report.timers_expired == 1u);
+    EXPECT_TRUE(report.packets_emitted == 0u);
+    EXPECT_TRUE(cram[VF2_SOUND_STREAM_ALTERNATE_BASE] == 0x80u);
+    EXPECT_TRUE(cram[VF2_SOUND_STREAM_ALTERNATE_BASE + 2u] == 0u &&
+                cram[VF2_SOUND_STREAM_ALTERNATE_BASE + 3u] == 1u);
+    vf2_m68k_regs_reset(&regs);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x1f16);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1fba), 0, 20000u, &done);
+    fprintf(stderr, "l2-tick worker-refuse: S status=%d steps=%u\n",
+            (int)status, (unsigned)done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(done == 32u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_STREAM_ALTERNATE_BASE + 2u] == 0u &&
+                step_ram[VF2_SOUND_STREAM_ALTERNATE_BASE + 3u] == 0u);
+
+    /* Fixture 5: prescaler beat emit -> C refuses; S files the beat. */
+    memset(cram, 0, VF2_SOUND_RAM_BYTES);
+    vf2_scsp_initialize(&board.scsp);
+    record = cram + VF2_SOUND_DESCRIPTOR_BASE;
+    record[0x0cu] = 8u;
+    record[0x0du] = 1u;
+    record[0x0eu] = 8u;
+    memcpy(step_ram, cram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&report, 0, sizeof(report));
+    EXPECT_TRUE(vf2_sound_board_maintain_streams(&board, &report) ==
+                VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(report.refused_stage == 1u);
+    EXPECT_TRUE(report.refused_record == 0u);
+    EXPECT_TRUE(report.timers_expired == 1u);
+    EXPECT_TRUE(cram[VF2_SOUND_DESCRIPTOR_BASE + 0x0du] == 1u);
+    EXPECT_TRUE(cram[VF2_SOUND_DESCRIPTOR_BASE + 0x0eu] == 8u);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_RING_BASE] == 0u);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    vf2_m68k_regs_reset(&regs);
+    regs.a[5] = UINT32_C(0x100000);
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x1f16);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f7a), 0, 20000u, &done);
+    fprintf(stderr, "l2-tick emit-refuse: S status=%d steps=%u\n",
+            (int)status, (unsigned)done);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(done == 67u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_COMMAND_RING_BASE] == 0xbeu);
+    EXPECT_TRUE(step_ram[VF2_SOUND_COMMAND_RING_BASE + 1u] == 0x10u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_COMMAND_RING_BASE + 2u] == 0x04u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR] == 0u &&
+                step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] == 4u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_DESCRIPTOR_BASE + 0x0du] == 8u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_DESCRIPTOR_BASE + 0x0eu] == 4u);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t *audio_rom = NULL;
@@ -5630,6 +5864,7 @@ int main(int argc, char **argv)
     test_dispatch_80_low(argv[1], audio_rom, audio_rom_size);
     test_note_on_off(argv[1], audio_rom, audio_rom_size);
     test_voice_lifecycle_l1(argv[1], audio_rom, audio_rom_size);
+    test_l2_stream_tick(audio_rom, audio_rom_size);
     test_session_attach(argv[1]);
     test_scsp_dsp_program(audio_rom, audio_rom_size);
     test_vectors(audio_rom, audio_rom_size);

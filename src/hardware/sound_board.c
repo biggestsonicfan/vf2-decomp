@@ -716,28 +716,85 @@ vf2_status vf2_sound_board_maintain_voices(
     return VF2_OK;
 }
 
+/* L2 stream tick (ROM 0x1f16..0x1f7a, vector 26), measured v0852.
+   Head (0x1f16): movem spill (frame 0x7ecc..0x7eff), then two
+   unconditional SCSP pokes -- 0x0418 = 0x00ce and 0x0422 = 0x0040,
+   the timer/control words the boot master tail 0x2f4 stages -- then
+   the ring-count gate: a byte of 0xff at ram[0x2506] takes 0x1f2e's
+   bcc past the whole body. Body (0x1f32): a2 = 0x3000 (a6 = 0x1000),
+   prescaler jsr 0x21ba, then eight worker jsr 0x1f7c calls over
+   records 0x3000 + i*0x20. Measured boot-state verdict (v0823 F10):
+   boot clears 0x3000 and no ROM store ever arms it, so the
+   prescaler returns at its [0xc] == 0 gate and all eight workers
+   bail at their bit-7 gate -- 51 steps to the rte, no RAM delta,
+   pokes the only state change. The recovered tick applies the pokes,
+   the prescaler countdown ([0xc] != 0 -> [0xd]--, 8-bit wrap exact)
+   and the worker countdowns (bit 7 set -> word[+2]--, 16-bit wrap
+   exact, 0x1f88) while every countdown stays nonzero. A countdown
+   of 1 is the handoff to an unmeasured body: the prescaler files
+   either the 3-byte beat (be 10 <[0xe]> + cursor/count, 0x21e6-
+   0x2206, [0xe] >= 4) or, with [0xe] < 4, the stream-end (be 50 7e
+   00 + bit7 clear + [0xc] = 0, 0x2208-0x223c); the worker applier
+   (0x1f92-0x1fba) reads stream bytes + the +1 latch and jumps the
+   0x1fbc class table. The tick then refuses BEFORE mutating
+   anything and names the record, fail closed. */
 vf2_status vf2_sound_board_maintain_streams(
     vf2_sound_board *board,
     vf2_sound_stream_maintenance_report *report
 )
 {
-    /* The ROM sequence engine (driver 0x1f16, worker 0x1f7c, prescaler
-       0x21ba, appliers, tail) never runs: the driver has no static
-       entry anywhere in the image, and every slot's +0x0c byte is
-       boot-cleared and never stored nonzero, so the prescaler would
-       abort to the main loop at slot 0 regardless. Packet flow on ROM
-       is main-CPU-authored (drain-consumed); the 68k never sequences.
-       The old per-descriptor worker model matched none of the ROM
-       applier bytes and is removed. Faithful behavior here is no
-       state change; the cursors are reported to document stillness. */
+    uint8_t *records = NULL;
+    size_t index = 0u;
+
     if (board == NULL || report == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
     }
     *report = (vf2_sound_stream_maintenance_report){0};
+    report->refused_record = 0xffu;
     report->write_cursor_before = read_be16(
         board->sound_ram + VF2_SOUND_COMMAND_WRITE_CURSOR
     );
     report->write_cursor_after = report->write_cursor_before;
+    records = board->sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
+    /* 0x1f26-0x1f2e: byte gate, == 0xff skips the body. */
+    if (board->sound_ram[VF2_SOUND_COMMAND_COUNT] != 0xffu) {
+        /* Preflight both live-body handoffs before any mutation. */
+        if (records[0x0cu] != 0u && records[0x0du] == 1u) {
+            report->timers_expired = 1u;
+            report->refused_stage = 1u;
+            report->refused_record = 0u;
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        for (index = 0u; index < 8u; ++index) {
+            uint8_t *record = records + index * 0x20u;
+            if ((record[0] & 0x80u) != 0u && read_be16(record + 2u) == 1u) {
+                report->timers_expired = 1u;
+                report->refused_stage = 2u;
+                report->refused_record = (uint8_t)index;
+                return VF2_ERROR_UNSUPPORTED;
+            }
+        }
+        /* Measured body: countdown decrements only. */
+        if (records[0x0cu] != 0u) {
+            records[0x0du] -= 1u;
+        }
+        for (index = 0u; index < 8u; ++index) {
+            uint8_t *record = records + index * 0x20u;
+            if ((record[0] & 0x80u) != 0u) {
+                write_be16(record + 2u,
+                           (uint16_t)(read_be16(record + 2u) - 1u));
+            }
+        }
+        report->descriptors_scanned = 8u;
+    }
+    /* 0x1f1a/0x1f20: applied on every tick that is not refused (the
+       gate skip still leaves the head's pokes applied). */
+    if (vf2_scsp_write_u16(&board->scsp, UINT32_C(0x418), UINT16_C(0xce)) !=
+            VF2_OK ||
+        vf2_scsp_write_u16(&board->scsp, UINT32_C(0x422), UINT16_C(0x40)) !=
+            VF2_OK) {
+        return VF2_ERROR_OUT_OF_BOUNDS;
+    }
     return VF2_OK;
 }
 

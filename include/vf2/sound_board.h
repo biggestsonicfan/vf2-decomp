@@ -84,6 +84,20 @@ typedef struct vf2_sound_voice_maintenance_report {
 } vf2_sound_voice_maintenance_report;
 
 typedef struct vf2_sound_stream_maintenance_report {
+    /* L2 stream tick (ROM 0x1f16, vector 26) diagnostics, measured
+       v0852. descriptors_scanned = worker calls a completed walk made
+       (8; 0 when the ring-count gate skipped the body). timers_expired
+       = countdowns that reached zero this tick (the first such body is
+       unmeasured, so a nonzero value comes with a refusal).
+       packets_emitted = prescaler beats filed: 0 while the emit body
+       is refused (never half-applied). escape_records /
+       pointer_handoffs / control_updates / bytes_consumed are retired
+       from the removed per-descriptor model and stay 0. Refusal
+       detail: refused_stage 0 = none, 1 = prescaler beat emit
+       (0x21c2-0x2206), 2 = worker applier (0x1f92-0x1fba);
+       refused_record = record index 0..7 (the prescaler lives in
+       record 0's a2), 0xff when none. On a refusal the tick applied
+       no mutation. */
     size_t descriptors_scanned;
     size_t timers_expired;
     size_t packets_emitted;
@@ -91,6 +105,8 @@ typedef struct vf2_sound_stream_maintenance_report {
     size_t pointer_handoffs;
     size_t control_updates;
     size_t bytes_consumed;
+    uint8_t refused_stage;
+    uint8_t refused_record;
     uint16_t write_cursor_before;
     uint16_t write_cursor_after;
 } vf2_sound_stream_maintenance_report;

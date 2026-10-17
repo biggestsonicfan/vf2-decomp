@@ -382,6 +382,8 @@ vf2_status vf2_session_pump_audio(
     }
     *report = (vf2_session_audio_pump_report){0};
     report->drain_status = VF2_OK;
+    report->stream_status = VF2_OK;
+    report->voice_status = VF2_OK;
     if (!s->audio_ready || s->game.sound == NULL) {
         return VF2_ERROR_UNSUPPORTED;
     }
@@ -477,6 +479,24 @@ vf2_status vf2_session_pump_audio(
                 (uint8_t)cursor;
         }
         --pending;
+    }
+    /* Autonomous end-of-frame board advance: the sound CPU's timer
+     * ISRs, one tick each per pumped frame. The L2 stream tick is the
+     * measured 0x1f16 body (pokes + countdown decrements; a live
+     * record refuses cleanly and is reported). The L1 voice tick is
+     * the E1fd differential. A refusal never fails the frame: the
+     * board simply stays put and the report names the status. */
+    {
+        vf2_sound_stream_maintenance_report stream_report;
+        vf2_sound_voice_maintenance_report voice_report;
+        memset(&stream_report, 0, sizeof(stream_report));
+        memset(&voice_report, 0, sizeof(voice_report));
+        report->stream_ticks = 1u;
+        report->stream_status =
+            vf2_sound_board_maintain_streams(board, &stream_report);
+        report->voice_ticks = 1u;
+        report->voice_status =
+            vf2_sound_board_maintain_voices(board, &voice_report);
     }
     return VF2_OK;
 }

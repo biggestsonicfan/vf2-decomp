@@ -97,14 +97,24 @@ vf2_status vf2_session_audio_status(const vf2_session *session);
  * (0xff reboot door, bus error), or VF2_OK when the queue
  * drained cleanly; a non-OK status stops the pump but still
  * returns VF2_OK -- the report carries the detail so one
- * corrupt queue byte cannot fail the frame. */
+ * corrupt queue byte cannot fail the frame. `stream_ticks` /
+ * `voice_ticks` count the autonomous per-frame board ticks run
+ * after the dispatches (L2 maintain_streams, L1
+ * maintain_voices; 1 each per pump). Their statuses are
+ * VF2_OK when the tick completed; a tick refusal (unmeasured
+ * live stream record) is reported without failing the frame,
+ * the same way a drain refusal is. */
 typedef struct vf2_session_audio_pump_report {
     uint32_t bytes_moved;
     uint32_t entries_filed;
     uint32_t entries_dispatched;
     uint32_t entries_refused;
     uint32_t drain_ticks;
+    uint32_t stream_ticks;
+    uint32_t voice_ticks;
     vf2_status drain_status;
+    vf2_status stream_status;
+    vf2_status voice_status;
 } vf2_session_audio_pump_report;
 
 /* Bridge one frame's worth of live sound: drain the i960 queue
@@ -112,12 +122,16 @@ typedef struct vf2_session_audio_pump_report {
  * the session CPU is untouched) through the UART slot into the
  * board's L3 ring file, then dispatch each newly filed entry,
  * consuming refuse-doors the way the silicon drain epilogue does
- * (cursor advance regardless of outcome). Only live-filed queue
- * content flows; nothing is staged or seeded. Host-driven (call
- * after step, before render_audio), never implicit in step --
- * pumping mutates IO-control RAM and would otherwise perturb
- * oracle digests. Returns VF2_OK unless the session/audio is
- * unusable (bad argument, audio not attached). */
+ * (cursor advance regardless of outcome). Then advance the board
+ * one frame of its own: the L2 stream tick and the L1 voice
+ * maintenance (the recovered timer ISRs; on hardware they are
+ * asynchronous, one tick per pumped frame is the model
+ * convention). Only live-filed queue content flows; nothing is
+ * staged or seeded. Host-driven (call after step, before
+ * render_audio), never implicit in step -- pumping mutates
+ * IO-control RAM and would otherwise perturb oracle digests.
+ * Returns VF2_OK unless the session/audio is unusable (bad
+ * argument, audio not attached). */
 vf2_status vf2_session_pump_audio(
     vf2_session *session,
     vf2_session_audio_pump_report *report

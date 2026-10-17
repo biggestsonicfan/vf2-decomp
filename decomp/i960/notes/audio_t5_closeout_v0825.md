@@ -51,6 +51,12 @@ context files anything in 70+ hunted frames.
   8 already pinned, 4 test holes closed with new C-level pins, the
   pump's unattached guard documented unpinnable; see
   `audio_failclosed_pins_audit_v0850.md`.)
+  (v0852 closed the item: the L2 stream tick is recovered (0x1f16
+  head pokes + prescaler/worker countdown decrements; armed records
+  refuse cleanly) and `vf2_session_pump_audio` runs one L1 + one L2
+  tick per pumped frame, reported as `stream_ticks`/`voice_ticks` +
+  statuses; `game_update`'s oracle guard stays as designed. See
+  `audio_l2_stream_tick_v0852.md`.)
 - Full SCSP DSP / TGP / rasterizer: out of scope per
   README principles, independent of this bar. (v0826 later measured
   the DSP program + effect-return configuration; execution/audio stays

@@ -4292,6 +4292,18 @@ sample-start programming exists), SCSP FM/DSP synthesis, native
 windowing, gamepad mappings, frame pacing and production platform
 integration remain unimplemented.
 
+(v0852 correction: per-frame stream maintenance is **no longer a
+no-op**. The 0x1f16 L2 tick is recovered as measured C -- the two
+unconditional SCSP head pokes ($0418 = 0x00ce, $0422 = 0x0040), the
+ram[0x2506] ring-count gate, and the prescaler/worker countdown
+decrements -- and `vf2_session_pump_audio` runs one L2 plus one L1
+tick per pumped frame (counts + statuses in the pump report).
+Records whose countdown reaches zero (prescaler `[0xd] == 1` -> beat
+emit / stream-end, or an armed worker `word[+2] == 1` -> the 0x1f92
+applier) refuse cleanly and name the record; boot still never arms
+0x3000, so every reachable state is pokes-only. See
+`audio_l2_stream_tick_v0852.md`.)
+
 A standing methodological note for this section: 68k audio
 recoveries were static-match, not differential-proven, until
 v0825: the m68k stepper (`src/m68k/stepper.c`, `vf2_m68k_run`)

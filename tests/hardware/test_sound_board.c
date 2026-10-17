@@ -753,29 +753,73 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
         EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
-        /* Stream maintenance is a documented no-op (v0796): the ROM
-           sequence engine (driver/worker/appliers) has no static entry
-           and every slot aborts on its zero +0x0c byte, so nothing on
-           ROM sequences per frame. */
+        /* L2 stream tick (v0852, ROM 0x1f16): the head applies two
+           unconditional SCSP pokes (0x0418 = 0x00ce, 0x0422 = 0x0040),
+           the ring-count gate reads 0x2506, and the body walks the
+           eight 0x3000 records. On the boot state every countdown is
+           clear: decrement-only, no RAM delta (the 51-step F10
+           verdict). Poke the two registers away from their boot values
+           first so the head is load-bearing here. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
         test_boot_rom(audio_rom);
+        board.scsp.registers[0x418u] = 0x11u;
+        board.scsp.registers[0x419u] = 0x22u;
+        board.scsp.registers[0x422u] = 0x33u;
+        board.scsp.registers[0x423u] = 0x44u;
         EXPECT_TRUE(vf2_sound_board_maintain_streams(
             &board, &stream_maintenance
         ) == VF2_OK);
-        EXPECT_TRUE(stream_maintenance.descriptors_scanned == 0u);
+        EXPECT_TRUE(stream_maintenance.descriptors_scanned == 8u);
         EXPECT_TRUE(stream_maintenance.timers_expired == 0u);
         EXPECT_TRUE(stream_maintenance.packets_emitted == 0u);
+        EXPECT_TRUE(stream_maintenance.refused_stage == 0u);
+        EXPECT_TRUE(stream_maintenance.refused_record == 0xffu);
         EXPECT_TRUE(stream_maintenance.escape_records == 0u);
         EXPECT_TRUE(stream_maintenance.pointer_handoffs == 0u);
         EXPECT_TRUE(stream_maintenance.bytes_consumed == 0u);
+        EXPECT_TRUE(board.scsp.registers[0x418u] == 0x00u &&
+                    board.scsp.registers[0x419u] == 0xceu);
+        EXPECT_TRUE(board.scsp.registers[0x422u] == 0x00u &&
+                    board.scsp.registers[0x423u] == 0x40u);
         EXPECT_TRUE(stream_maintenance.write_cursor_before ==
                     stream_maintenance.write_cursor_after);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
 
-        /* Even an armed stream descriptor is untouched: no timers decay,
-           no packets emit, cursors hold. */
+        /* Measured body: countdowns decay. The prescaler byte sits in
+           record 0 ([0xc] != 0 -> [0xd]--); workers decay the word at
+           +2 when bit 7 is set, 16-bit wrap exact (0 -> 0xffff). */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
+        descriptor[0x0cu] = 8u;
+        descriptor[0x0du] = 5u;
+        descriptor = board.sound_ram + VF2_SOUND_STREAM_ALTERNATE_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[2] = 0u;
+        descriptor[3] = 5u;
+        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE + 0x40u;
+        descriptor[0] = 0x80u;
+        descriptor[2] = 0u;
+        descriptor[3] = 0u;
+        EXPECT_TRUE(vf2_sound_board_maintain_streams(
+            &board, &stream_maintenance
+        ) == VF2_OK);
+        EXPECT_TRUE(stream_maintenance.descriptors_scanned == 8u);
+        EXPECT_TRUE(stream_maintenance.timers_expired == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_DESCRIPTOR_BASE + 0x0du] == 4u);
+        descriptor = board.sound_ram + VF2_SOUND_STREAM_ALTERNATE_BASE;
+        EXPECT_TRUE(descriptor[0] == 0x80u);
+        EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 4u);
+        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE + 0x40u;
+        EXPECT_TRUE(descriptor[2] == 0xffu && descriptor[3] == 0xffu);
+
+        /* An armed record whose countdown reaches zero hands off to the
+           unmeasured applier: refuse before mutating anything and name
+           the record (worker stage). */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -791,15 +835,61 @@ int main(void)
         descriptor[7] = 0u;
         EXPECT_TRUE(vf2_sound_board_maintain_streams(
             &board, &stream_maintenance
-        ) == VF2_OK);
+        ) == VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(stream_maintenance.refused_stage == 2u);
+        EXPECT_TRUE(stream_maintenance.refused_record == 0u);
+        EXPECT_TRUE(stream_maintenance.timers_expired == 1u);
         EXPECT_TRUE(stream_maintenance.packets_emitted == 0u);
-        EXPECT_TRUE(stream_maintenance.timers_expired == 0u);
+        EXPECT_TRUE(descriptor[0] == 0x80u);
+        EXPECT_TRUE(descriptor[1] == 0xc0u);
         EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 1u);
         EXPECT_TRUE(descriptor[4] == 0u && descriptor[5] == 0x60u &&
                     descriptor[6] == 0x81u && descriptor[7] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(stream_maintenance.write_cursor_before ==
                     stream_maintenance.write_cursor_after);
+
+        /* The prescaler's beat emit is the other unmeasured body:
+           record 0 [0xc] != 0 with [0xd] == 1 refuses at the prescaler
+           stage, and nothing is half-applied. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        descriptor = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE;
+        descriptor[0x0cu] = 8u;
+        descriptor[0x0du] = 1u;
+        descriptor[0x0eu] = 8u;
+        EXPECT_TRUE(vf2_sound_board_maintain_streams(
+            &board, &stream_maintenance
+        ) == VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(stream_maintenance.refused_stage == 1u);
+        EXPECT_TRUE(stream_maintenance.refused_record == 0u);
+        EXPECT_TRUE(stream_maintenance.timers_expired == 1u);
+        EXPECT_TRUE(descriptor[0x0du] == 1u && descriptor[0x0eu] == 8u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_RING_BASE] == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+
+        /* The ring-count gate: 0xff skips the body (0x1f2e bcc) even
+           for an armed record; the head pokes still apply. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        board.sound_ram[VF2_SOUND_COMMAND_COUNT] = 0xffu;
+        board.scsp.registers[0x418u] = 0x11u;
+        descriptor = board.sound_ram + VF2_SOUND_STREAM_ALTERNATE_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[2] = 0u;
+        descriptor[3] = 5u;
+        EXPECT_TRUE(vf2_sound_board_maintain_streams(
+            &board, &stream_maintenance
+        ) == VF2_OK);
+        EXPECT_TRUE(stream_maintenance.descriptors_scanned == 0u);
+        EXPECT_TRUE(stream_maintenance.refused_stage == 0u);
+        EXPECT_TRUE(descriptor[2] == 0u && descriptor[3] == 5u);
+        EXPECT_TRUE(board.scsp.registers[0x418u] == 0x00u &&
+                    board.scsp.registers[0x419u] == 0xceu);
 
         /* The instruction-aligned e0 handler completes its table lookup and
            channel result write when no live voice needs the wider SCSP tail. */
