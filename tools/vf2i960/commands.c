@@ -79,8 +79,9 @@ static void usage(const char *program)
         "  %s compare-snapshots <expected.vf2snap> <actual.vf2snap>\n"
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
-        "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir>\n"
-        "  %s geo-colour <ram9.bin> <readstarts.txt> <rom-dir> <colour-capture-dir> <pose-frame> <out.png>\n"
+        "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir> [colour-capture-dir]\n"
+        "  %s geo-colour <ram9.bin> <readstarts.txt> <rom-dir> <colour-capture-dir> <pose-frame> <out.png> [texparams.txt]\n"
+        "  %s geo-texparams <ram9.bin> <readstarts.txt> <out-texparams.txt>\n"
         "  %s geo-project <ram9.bin> <readstarts.txt> <rom-dir> <pose-frame> <out.png> [W H xoff yoff]\n"
         "  %s export-pieces <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s export-textured <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
@@ -136,6 +137,7 @@ static void usage(const char *program)
         program, /* geo-scene */
         program, /* geo-fighter */
         program, /* geo-colour */
+        program, /* geo-texparams */
         program, /* geo-project */
         program, /* export-pieces */
         program, /* export-textured */
@@ -7496,6 +7498,48 @@ static int ext_tex_load_file(const char *path, uint8_t **buf, size_t *size)
     return *size == (size_t)n;
 }
 
+/* --- shared Model2 colour pipeline (used by geo-colour and the coloured-texture
+ * export) -- texel -> luma tone curve -> shade -> colorxlat per channel -> gamma -- */
+
+static uint16_t gc_u16(const uint8_t *b, size_t n, size_t i)
+{
+    size_t o = i * 2u;
+    return (o + 1u < n) ? (uint16_t)(b[o] | (b[o + 1u] << 8)) : 0u;
+}
+
+/* VF2's fixed monitor colour-space conversion (model2_v.cpp:2390-2394): a hard-
+ * coded bias-64 / gain-(255/191) ramp applied to every channel after the colorxlat
+ * lookup. It is a constant, not programmed RAM, so the native port reproduces it
+ * directly (no HLE). Shadows below 64 crush to 0; the rest stretches to full range. */
+static uint8_t gc_gamma(uint32_t v)
+{
+    if (v <= 64u) return 0u;
+    v = (v - 64u) * 255u / 191u;
+    return (uint8_t)(v > 255u ? 255u : v);
+}
+
+/* One texel's final RGB. 4-bit texel -> 8-bit -> polygon tone curve in luma RAM ->
+ * scale by the lighting term and clamp to 6-bit shade -> colorxlat per channel (R/G/B
+ * regions at word 0x0000/0x2000/0x4000) -> VF2 gamma (model2rd.ipp:336-349). r5/g5/b5
+ * are the polygon colour's 5-bit channels (from palram[colorbase+0x1000]&0x7fff).
+ * lumascale is the polygon lighting (0xff = full / unlit albedo). Returns 0 and writes
+ * nothing when the texel is the transparent one (0x0f). */
+static int gc_texel_rgb(uint8_t t4, uint32_t lumabase, int r5, int g5, int b5,
+                        uint32_t lumascale, const uint8_t *luma,
+                        const uint8_t *cxlat, size_t cxlat_n, uint8_t out[3])
+{
+    uint32_t t8, curve, shade;
+    if (t4 == 0x0fu) return 0;            /* brightest = transparent */
+    t8 = (uint32_t)t4 << 4;
+    curve = luma[(lumabase + (t8 >> 1)) & 0x7fffu];
+    shade = (curve * lumascale) / 256u;
+    if (shade > 0x3fu) shade = 0x3fu;
+    out[0] = gc_gamma(gc_u16(cxlat, cxlat_n, 0x0000u + (size_t)r5 * 0x100u + shade) & 0xffu);
+    out[1] = gc_gamma(gc_u16(cxlat, cxlat_n, 0x2000u + (size_t)g5 * 0x100u + shade) & 0xffu);
+    out[2] = gc_gamma(gc_u16(cxlat, cxlat_n, 0x4000u + (size_t)b5 * 0x100u + shade) & 0xffu);
+    return 1;
+}
+
 static int ext_tex_write_sheet_png(
     const char *path, const uint8_t *bank, size_t bank_size
 )
@@ -7518,6 +7562,63 @@ static int ext_tex_write_sheet_png(
     ok = png_write_gray8(path, w, h, px);
     free(px);
     return ok;
+}
+
+/* Paint one piece's polygons into the per-bank coloured sheets (2048x1024 RGB each):
+ * for every polygon, decode its texture header (rectangle + colour_base + luma_base +
+ * sheet) and colour each texel of its rectangle through gc_texel_rgb at full lighting
+ * (albedo -- no per-polygon lighting, so a texel shared by two polygons does not
+ * conflict). Mirrors ext_emit_piece's 10-word block walk but needs no vertices: only
+ * attr (for the stride and the end bit) and the per-polygon th_ptr advance. Overlaps
+ * (a rectangle reused with a different colour_base) are last-write-wins; transparent
+ * texels (0x0f) are left as-is. */
+static void ext_colour_sheet_piece(
+    const uint8_t *poly, size_t poly_size,
+    const uint8_t *tex, size_t tex_size,
+    uint32_t rec_byte, uint32_t th_ptr,
+    const uint8_t *const bank[2], const size_t bank_size[2],
+    const uint8_t *pal, size_t pal_n,
+    const uint8_t *cxlat, size_t cxlat_n, const uint8_t *luma,
+    uint8_t *const csheet[2]
+)
+{
+    size_t off = (size_t)rec_byte + 24u;
+    uint32_t prim;
+    for (prim = 0u; prim < 65536u; ++prim) {
+        uint32_t attr = tl_u32(poly, poly_size, (uint32_t)off);
+        uint16_t thw[4];
+        vf2_texture_header hd;
+        uint32_t palc, px, py;
+        int r5, g5, b5;
+        const uint8_t *bk;
+        size_t bks;
+        uint8_t *cs;
+        off += 4u;
+        if ((attr & 3u) == 0u) break;
+        off += 36u;              /* unit normal + P0(n) + P1(n): the 10-word block */
+        thw[0] = tl_u16(tex, tex_size, th_ptr + 0u); thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
+        thw[2] = tl_u16(tex, tex_size, th_ptr + 2u); thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
+        vf2_texture_header_decode(thw, &hd);
+        palc = gc_u16(pal, pal_n, (size_t)((hd.color_base + 0x1000u) & 0x1fffu)) & 0x7fffu;
+        r5 = (int)(palc & 0x1fu); g5 = (int)((palc >> 5) & 0x1fu); b5 = (int)((palc >> 10) & 0x1fu);
+        bk = bank[hd.sheet & 1u]; bks = bank_size[hd.sheet & 1u]; cs = csheet[hd.sheet & 1u];
+        for (py = 0u; py < hd.tex_height; ++py) {
+            uint32_t sy = hd.tex_y + py;
+            if (sy >= 1024u) break;
+            for (px = 0u; px < hd.tex_width; ++px) {
+                uint32_t sx = hd.tex_x + px;
+                uint8_t t4, rgb[3];
+                if (sx >= 2048u) break;
+                t4 = vf2_texture_sheet_texel(bk, bks, sx, sy);
+                if (gc_texel_rgb(t4, hd.luma_base, r5, g5, b5, 0xffu,
+                                 luma, cxlat, cxlat_n, rgb)) {
+                    size_t o = ((size_t)sy * 2048u + sx) * 3u;
+                    cs[o] = rgb[0]; cs[o + 1u] = rgb[1]; cs[o + 2u] = rgb[2];
+                }
+            }
+        }
+        th_ptr = (uint32_t)((int32_t)th_ptr + vf2_texture_header_advance_words(attr));
+    }
 }
 
 static int ext_read_xyz(
@@ -9314,12 +9415,17 @@ static void gf_fill_polyram(const uint32_t *w, size_t nw, uint32_t readstart,
 static int command_geo_fighter(
     const char *bin_path, const char *txt_path, const char *rom_directory,
     const char *tex0_path, const char *tex1_path, const char *pose_str,
-    const char *which, const char *out_dir
+    const char *which, const char *out_dir, const char *colour_dir
 )
 {
     const size_t frame_bytes = 131072u;
     const size_t frame_words = frame_bytes / 4u;
+    const size_t sheet_rgb = 2048u * 1024u * 3u;
     FILE *bin = NULL, *txt = NULL, *obj = NULL, *mtl = NULL;
+    uint8_t *pal = NULL, *cxlat = NULL, *lumacap = NULL, *luma = NULL;
+    uint8_t *csheet[2] = { NULL, NULL };
+    size_t pal_n = 0u, cxlat_n = 0u, luma_n = 0u;
+    int colour = (colour_dir != NULL);
     char line[256];
     char path[1100];
     uint32_t *words = NULL;
@@ -9386,6 +9492,21 @@ static int command_geo_fighter(
     if (!ext_tex_load_file(tex0_path, &bank[0], &bank_size[0]) ||
         !ext_tex_load_file(tex1_path, &bank[1], &bank_size[1])) {
         fprintf(stderr, "geo-fighter: cannot read texture banks\n"); goto done;
+    }
+    if (colour) {
+        /* colour-capture dir supplies palette / colorxlat / luma RAM (same regions
+         * and formats as geo-colour); build the per-bank coloured (albedo) sheets. */
+        snprintf(path, sizeof(path), "%s/palette_01800000.bin", colour_dir);
+        if (!ext_tex_load_file(path, &pal, &pal_n)) { fprintf(stderr, "geo-fighter: %s\n", path); goto done; }
+        snprintf(path, sizeof(path), "%s/colorxlat_01810000.bin", colour_dir);
+        if (!ext_tex_load_file(path, &cxlat, &cxlat_n)) { fprintf(stderr, "geo-fighter: %s\n", path); goto done; }
+        snprintf(path, sizeof(path), "%s/luma_12800000.bin", colour_dir);
+        if (!ext_tex_load_file(path, &lumacap, &luma_n)) { fprintf(stderr, "geo-fighter: %s\n", path); goto done; }
+        luma = (uint8_t *)malloc(0x8000u);
+        csheet[0] = (uint8_t *)calloc(sheet_rgb, 1u);
+        csheet[1] = (uint8_t *)calloc(sheet_rgb, 1u);
+        if (luma == NULL || csheet[0] == NULL || csheet[1] == NULL) { fprintf(stderr, "geo-fighter: alloc colour\n"); goto done; }
+        for (i = 0u; i < 0x8000u; ++i) luma[i] = (i * 4u < luma_n) ? lumacap[i * 4u] : 0u;
     }
 
     bin = fopen(bin_path, "rb");
@@ -9625,9 +9746,18 @@ static int command_geo_fighter(
     snprintf(path, sizeof(path), "%s/%s.mtl", out_dir, which);
     mtl = fopen(path, "wb");
     if (mtl != NULL) {
-        fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", which);
-        fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
-        fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
+        if (colour) {
+            /* colour sheets are per-fighter (each paints only its own pieces), so
+             * name them <which>_tex0/1.png to coexist in one directory. */
+            fprintf(mtl, "# VF2 %s textures (colour: palette+luma+colorxlat+gamma, "
+                         "full-light albedo). Local only.\n", which);
+            fprintf(mtl, "newmtl sheet0\nmap_Kd %s_tex0.png\n", which);
+            fprintf(mtl, "newmtl sheet1\nmap_Kd %s_tex1.png\n", which);
+        } else {
+            fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", which);
+            fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
+            fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
+        }
         fclose(mtl); mtl = NULL;
     }
     snprintf(path, sizeof(path), "%s/%s.obj", out_dir, which);
@@ -9655,15 +9785,27 @@ static int command_geo_fighter(
         vbase = ext_emit_piece(obj, cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                cand_rec[idx], uv_ptr, th_ptr, vbase, &cur_sheet,
                                &tris, m2, NULL, NULL, 0u);
+        if (colour)
+            ext_colour_sheet_piece(cand_pbuf[idx], cand_psize[idx], tex, tex_size,
+                                   cand_rec[idx], th_ptr,
+                                   (const uint8_t *const *)bank, bank_size,
+                                   pal, pal_n, cxlat, cxlat_n, luma, csheet);
         tris_total += tris;
     }
-    snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
-    (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
-    snprintf(path, sizeof(path), "%s/tex1.png", out_dir);
-    (void)ext_tex_write_sheet_png(path, bank[1], bank_size[1]);
+    if (colour) {
+        snprintf(path, sizeof(path), "%s/%s_tex0.png", out_dir, which);
+        (void)png_write_rgb8(path, 2048u, 1024u, csheet[0]);
+        snprintf(path, sizeof(path), "%s/%s_tex1.png", out_dir, which);
+        (void)png_write_rgb8(path, 2048u, 1024u, csheet[1]);
+    } else {
+        snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
+        (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
+        snprintf(path, sizeof(path), "%s/tex1.png", out_dir);
+        (void)ext_tex_write_sheet_png(path, bank[1], bank_size[1]);
+    }
 
-    printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png)\n",
-           which, pose, out_dir, which, which);
+    printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png %s)\n",
+           which, pose, out_dir, which, which, colour ? "[colour]" : "[grayscale]");
     printf("  %zu fighter pieces (%zu decoded from reconstructed polygon RAM), "
            "3D connected-components at joint threshold %.2f; selected %s (%s) = "
            "%zu pieces, %zu triangles\n",
@@ -9688,7 +9830,160 @@ done:
     free(compsz); free(grp2); free(ram0); free(ram1);
     free(cand_pbuf); free(cand_psize);
     free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
+    free(pal); free(cxlat); free(lumacap); free(luma);
+    free(csheet[0]); free(csheet[1]);
     return rc;
+}
+
+/* --- geo-texparams: find command 0x06 across a series of RAM9 lists --------------
+ *
+ * The geometry engine's per-index texture parameters (diffuse/ambient lighting, set
+ * by command 0x06) PERSIST across frames -- a fight frame often carries no 0x06 at
+ * all, so a single-frame colour render falls back to defaults and under-lights the
+ * decor (see command_geo_colour). This tool walks every frame of a multi-frame RAM9
+ * capture (e.g. one spanning stage load + round start) in readstarts order, applies
+ * every 0x06 in sequence, and writes the resulting PERSISTED state -- the most recent
+ * value for each of the 32 indices -- as "<index> <diffuse> <ambient>" lines. Feed
+ * the file back to `geo-colour ... <texparams.txt>` to light the decor. Local only. */
+static int command_geo_texparams(
+    const char *bin_path, const char *txt_path, const char *out_path
+)
+{
+    const size_t frame_bytes = 131072u, frame_words = frame_bytes / 4u;
+    FILE *bin = NULL, *txt = NULL, *out = NULL;
+    char line[256];
+    uint32_t *w = NULL;
+    uint32_t readstart[GS_MAX_FRAMES];
+    uint8_t tp_diffuse[32], tp_ambient[32], tp_sscale[32], tp_sctrl[32];
+    size_t nframes = 0u, f, i, total06 = 0u, total07 = 0u;
+    uint32_t geo_mode = 0u;
+    int seen_mode = 0;
+    int rc = EXIT_FAILURE;
+
+    for (i = 0u; i < 32u; ++i) { tp_diffuse[i] = 255u; tp_ambient[i] = 0u; tp_sscale[i] = 0u; tp_sctrl[i] = 0u; }
+    txt = fopen(txt_path, "rb");
+    if (txt == NULL) { fprintf(stderr, "geo-texparams: cannot open %s\n", txt_path); return EXIT_FAILURE; }
+    while (fgets(line, (int)sizeof(line), txt) != NULL) {
+        unsigned idx, fn, rs;
+        if (sscanf(line, "F %u %u %x", &idx, &fn, &rs) == 3 && idx < GS_MAX_FRAMES) {
+            readstart[idx] = rs;
+            if ((size_t)idx + 1u > nframes) nframes = (size_t)idx + 1u;
+        }
+    }
+    fclose(txt); txt = NULL;
+    if (nframes == 0u) { fprintf(stderr, "geo-texparams: no frames in %s\n", txt_path); return EXIT_FAILURE; }
+
+    bin = fopen(bin_path, "rb");
+    w = (uint32_t *)malloc(frame_words * sizeof(*w));
+    out = fopen(out_path, "wb");
+    if (bin == NULL || w == NULL || out == NULL) { fprintf(stderr, "geo-texparams: alloc/open\n"); goto done; }
+    fprintf(out, "# VF2 persisted texture parameters (command 0x06), accumulated over\n");
+    fprintf(out, "# %zu frame(s). Format: <index> <diffuse> <ambient> <spec_scale> <spec_ctrl>\n", nframes);
+    fprintf(out, "# (diffuse=param&0xff, ambient=(param>>8)&0xff, spec_scale=(param>>16)&0xff,\n");
+    fprintf(out, "#  spec_ctrl=param>>24; coef/LOD omitted -- unused without mipmapping). Local only.\n");
+
+    for (f = 0u; f < nframes; ++f) {
+        size_t ptr, opc = 0u, n06 = 0u;
+        if (!gs_read_frame(bin, f, frame_bytes, w, frame_words)) continue;
+        ptr = (size_t)((readstart[f] & 0x1ffffu) >> 2);
+        for (;;) {
+            uint32_t op, cmd;
+            size_t need = 0u;
+            if (opc++ >= 0x40000u || ptr >= frame_words) break;
+            op = w[ptr++];
+            if (op & 0x80000000u) { ptr = (size_t)((op & 0x1ffffu) >> 2); continue; }
+            cmd = (op >> 23) & 0x1fu;
+            switch (cmd) {
+            case 0x00u: need = 0u; break;
+            case 0x07u: case 0x17u: case 0x08u: case 0x18u:
+            case 0x10u: case 0x16u: case 0x1eu: need = 1u; break;
+            case 0x09u: case 0x19u: case 0x0du: need = 2u; break;
+            case 0x0au: case 0x1au: case 0x0cu: case 0x1cu: need = 3u; break;
+            case 0x03u: case 0x13u: need = 6u; break;
+            case 0x0bu: case 0x1bu: need = 12u; break;
+            case 0x01u: case 0x11u: need = 4u; break;
+            case 0x04u: case 0x14u: case 0x05u: case 0x15u:
+                if (ptr + 2u > frame_words) goto fend;
+                need = 2u + (size_t)w[ptr + 1u]; break;
+            case 0x06u:
+                if (ptr + 2u > frame_words) goto fend;
+                need = 2u + (size_t)w[ptr + 1u] * 2u; break;
+            case 0x1du:
+                if (ptr + 2u > frame_words) goto fend;
+                need = 2u + (size_t)w[ptr + 1u] * 3u; break;
+            case 0x02u: case 0x12u: {
+                size_t p = ptr + 8u;
+                for (;;) { uint32_t a; if (p >= frame_words) goto fend; a = w[p++]; if ((a & 3u) == 0u) break; p += 5u; if (a & 1u) p += 3u; }
+                need = p - ptr; break;
+            }
+            case 0x0eu: if (ptr + 33u > frame_words) goto fend; need = 32u + 1u + (size_t)w[ptr + 32u] * 3u; break;
+            case 0x0fu: case 0x1fu: goto fend;
+            default: goto fend;
+            }
+            if (ptr + need > frame_words) goto fend;
+            if (cmd == 0x07u || cmd == 0x17u) { geo_mode = w[ptr]; seen_mode = 1; ++total07; }
+            if (cmd == 0x06u) {
+                uint32_t index = (w[ptr] >> 2) & 0x1fu, count = w[ptr + 1u], j;
+                ++n06;
+                for (j = 0u; j < count; ++j) {
+                    uint32_t prm = w[ptr + 2u + j * 2u];   /* param word; +1 = coef (LOD) */
+                    tp_diffuse[index] = (uint8_t)(prm & 0xffu);
+                    tp_ambient[index] = (uint8_t)((prm >> 8) & 0xffu);
+                    tp_sscale[index]  = (uint8_t)((prm >> 16) & 0xffu);
+                    tp_sctrl[index]   = (uint8_t)((prm >> 24) & 0xffu);
+                    index = (index + 1u) & 0x1fu;
+                }
+            }
+            ptr += need;
+        }
+    fend:
+        if (n06 > 0u) { fprintf(out, "# frame %zu: %zu x 0x06\n", f, n06); total06 += n06; }
+    }
+    if (seen_mode)
+        fprintf(out, "# geo_mode (command 0x07) last seen = 0x%08x; parser (mode&3) = %u (%s)\n",
+                geo_mode, geo_mode & 3u,
+                (geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u ? "specular" : "no-specular");
+    else
+        fprintf(out, "# geo_mode (command 0x07) not seen in this capture (persists from earlier; defaulting to no-specular)\n");
+    for (i = 0u; i < 32u; ++i)
+        fprintf(out, "%2zu %3u %3u %3u %3u\n", i, tp_diffuse[i], tp_ambient[i],
+                tp_sscale[i], tp_sctrl[i]);
+    printf("geo-texparams: %zu frame(s), %zu x 0x06, %zu x 0x07 -> %s\n",
+           nframes, total06, total07, out_path);
+    if (seen_mode)
+        printf("  geo_mode = 0x%08x, parser (mode&3) = %u (%s)\n", geo_mode, geo_mode & 3u,
+               (geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u ? "specular" : "no-specular");
+    if (total06 == 0u)
+        printf("  (no 0x06 found -- capture frames spanning stage load / round start)\n");
+    rc = EXIT_SUCCESS;
+done:
+    if (bin != NULL) fclose(bin);
+    if (txt != NULL) fclose(txt);
+    if (out != NULL) fclose(out);
+    free(w);
+    return rc;
+}
+
+/* Load a geo-texparams file into the per-index diffuse/ambient/specular tables
+ * (leaves the caller's defaults for any index the file omits; the two specular
+ * columns are optional for forward compatibility with older files). */
+static void gc_load_texparams(const char *path, uint8_t *tp_diffuse, uint8_t *tp_ambient,
+                              uint8_t *tp_sscale, uint8_t *tp_sctrl)
+{
+    FILE *f = fopen(path, "rb");
+    char line[256];
+    if (f == NULL) { fprintf(stderr, "geo-colour: cannot read texparams %s (using defaults)\n", path); return; }
+    while (fgets(line, (int)sizeof(line), f) != NULL) {
+        unsigned idx, d, a, ss, sc;
+        int nf;
+        if (line[0] == '#') continue;
+        nf = sscanf(line, "%u %u %u %u %u", &idx, &d, &a, &ss, &sc);
+        if (nf >= 3 && idx < 32u) {
+            tp_diffuse[idx] = (uint8_t)d; tp_ambient[idx] = (uint8_t)a;
+            if (nf >= 5) { tp_sscale[idx] = (uint8_t)ss; tp_sctrl[idx] = (uint8_t)sc; }
+        }
+    }
+    fclose(f);
 }
 
 /* --- geo-colour: Step colours -- faithful textured render vs the screenshot ----
@@ -9711,24 +10006,8 @@ done:
  * mipmapping, bilinear and perspective-correct UV are deferred. The per-index
  * diffuse/ambient come from command 0x06, which persists across frames and is absent
  * from a single-frame capture -- see the default-init note in command_geo_colour.
- * Local only; never committed. */
-static uint16_t gc_u16(const uint8_t *b, size_t n, size_t i)
-{
-    size_t o = i * 2u;
-    return (o + 1u < n) ? (uint16_t)(b[o] | (b[o + 1u] << 8)) : 0u;
-}
-
-/* VF2's fixed monitor colour-space conversion (model2_v.cpp:2390-2394): a hard-
- * coded bias-64 / gain-(255/191) ramp applied to every channel after the colorxlat
- * lookup. It is a constant, not programmed RAM, so the native port reproduces it
- * directly (no HLE). Shadows below 64 crush to 0; the rest stretches to full range. */
-static uint8_t gc_gamma(uint32_t v)
-{
-    if (v <= 64u) return 0u;
-    v = (v - 64u) * 255u / 191u;
-    return (uint8_t)(v > 255u ? 255u : v);
-}
-
+ * Local only; never committed. (gc_u16 / gc_gamma / gc_texel_rgb are defined with the
+ * texture writers above, shared with the coloured-texture export.) */
 static void gc_fill_tri_tex(
     uint8_t *fb, double *zb, int W, int H,
     const double *X, const double *Y, const double *Z,
@@ -9756,8 +10035,7 @@ static void gc_fill_tri_tex(
             double z, tu, tv;
             size_t fi = (size_t)py * (size_t)W + (size_t)px;
             int lu, lv;
-            uint8_t t4;
-            uint32_t t8, curve, shade;
+            uint8_t t4, rgb[3];
             if (a < -0.001 || b < -0.001 || c < -0.001) continue;
             z = a * Z[0] + b * Z[1] + c * Z[2];
             if (z >= zb[fi]) continue;
@@ -9770,25 +10048,20 @@ static void gc_fill_tri_tex(
             t4 = vf2_texture_sheet_texel(bank, bank_size,
                                          hd->tex_x + (uint32_t)lu,
                                          hd->tex_y + (uint32_t)lv);
-            if (t4 == 0x0fu) continue;            /* brightest = transparent */
-            t8 = (uint32_t)t4 << 4;
-            curve = luma[(lumabase + (t8 >> 1)) & 0x7fffu];
-            shade = (curve * lumascale) / 256u;
-            if (shade > 0x3fu) shade = 0x3fu;
+            if (!gc_texel_rgb(t4, lumabase, r5, g5, b5, lumascale,
+                              luma, cxlat, cxlat_n, rgb)) continue;
             zb[fi] = z;
-            fb[fi * 3u + 0u] = gc_gamma(gc_u16(cxlat, cxlat_n,
-                                 0x0000u + (size_t)r5 * 0x100u + shade) & 0xffu);
-            fb[fi * 3u + 1u] = gc_gamma(gc_u16(cxlat, cxlat_n,
-                                 0x2000u + (size_t)g5 * 0x100u + shade) & 0xffu);
-            fb[fi * 3u + 2u] = gc_gamma(gc_u16(cxlat, cxlat_n,
-                                 0x4000u + (size_t)b5 * 0x100u + shade) & 0xffu);
+            fb[fi * 3u + 0u] = rgb[0];
+            fb[fi * 3u + 1u] = rgb[1];
+            fb[fi * 3u + 2u] = rgb[2];
         }
     }
 }
 
 static int command_geo_colour(
     const char *bin_path, const char *txt_path, const char *rom_directory,
-    const char *capture_dir, const char *pose_str, const char *out_path
+    const char *capture_dir, const char *pose_str, const char *out_path,
+    const char *texparams_path
 )
 {
     const size_t frame_bytes = 131072u;
@@ -9806,10 +10079,11 @@ static int command_geo_colour(
     uint8_t *fb = NULL;
     double *zb = NULL;
     uint32_t readstart[GS_MAX_FRAMES];
-    size_t nframes = 0u, pose, ptr, opc = 0u, i;
+    size_t nframes = 0u, pose, ptr, opc = 0u, i, nspec = 0u;
     float mat[12];
     float light[3] = { 0.0f, 0.0f, 1.0f };
-    uint8_t tp_diffuse[32], tp_ambient[32];
+    uint32_t geo_mode = 0u;      /* command 0x07; (mode&3)==1 or 3 enables specular */
+    uint8_t tp_diffuse[32], tp_ambient[32], tp_sscale[32], tp_sctrl[32];
     double fx = 600.0, fy = 600.0, cx = 248.0, cy = 319.0, xoff = 0.0, yoff = 130.0;
     int rc = EXIT_FAILURE;
     vf2_status st;
@@ -9822,8 +10096,12 @@ static int command_geo_colour(
      * capture contains no 0x06, so the real ambient term -- set in an earlier frame
      * -- is unavailable; we fall back to full diffuse / no ambient. That renders the
      * fighters faithfully (they are diffuse-lit) but under-lights decor faces angled
-     * away from the light, which in-game are lifted by the persisted ambient. */
-    for (i = 0u; i < 32u; ++i) { tp_diffuse[i] = 255u; tp_ambient[i] = 0u; }
+     * away from the light, which in-game are lifted by the persisted ambient.
+     * `geo-texparams` recovers those persisted values from a multi-frame capture;
+     * pass its output as texparams_path to light the decor correctly. */
+    for (i = 0u; i < 32u; ++i) { tp_diffuse[i] = 255u; tp_ambient[i] = 0u; tp_sscale[i] = 0u; tp_sctrl[i] = 0u; }
+    if (texparams_path != NULL)
+        gc_load_texparams(texparams_path, tp_diffuse, tp_ambient, tp_sscale, tp_sctrl);
 
     txt = fopen(txt_path, "rb");
     if (txt == NULL) { fprintf(stderr, "geo-colour: cannot open %s\n", txt_path); return EXIT_FAILURE; }
@@ -9910,14 +10188,18 @@ static int command_geo_colour(
             uint32_t u; float f; u = w[ptr]; memcpy(&f, &u, 4u); fx = (double)f; u = w[ptr + 1u]; memcpy(&f, &u, 4u); fy = (double)f;
         } else if (cmd == 0x0au || cmd == 0x1au) {
             uint32_t u; u = w[ptr]; memcpy(&light[0], &u, 4u); u = w[ptr + 1u]; memcpy(&light[1], &u, 4u); u = w[ptr + 2u]; memcpy(&light[2], &u, 4u);
+        } else if (cmd == 0x07u || cmd == 0x17u) {
+            geo_mode = w[ptr];   /* geo_mode (model2_v.cpp:1956); (mode&3) picks parser */
         } else if (cmd == 0x06u) {
             /* each entry is TWO words: [param][distance-coef] (geo_texture_parameters,
-             * model2_v.cpp:1931-1944). diffuse/ambient live in the param word. */
+             * model2_v.cpp:1931-1944). diffuse/ambient/specular live in the param word. */
             uint32_t index = (w[ptr] >> 2) & 0x1fu, count = w[ptr + 1u], j;
             for (j = 0u; j < count; ++j) {
                 uint32_t prm = w[ptr + 2u + j * 2u];
                 tp_diffuse[index] = (uint8_t)(prm & 0xffu);
                 tp_ambient[index] = (uint8_t)((prm >> 8) & 0xffu);
+                tp_sscale[index]  = (uint8_t)((prm >> 16) & 0xffu);
+                tp_sctrl[index]   = (uint8_t)((prm >> 24) & 0xffu);
                 index = (index + 1u) & 0x1fu;
             }
         } else if (cmd == 0x03u || cmd == 0x13u) {
@@ -9969,7 +10251,21 @@ static int command_geo_colour(
                 lumv = (dotl * dotp < 0.0) ? 0.0 : fabs(dotl);
                 {
                     uint32_t tpi = (attr >> 18) & 0x1fu;
-                    lumv = lumv * (double)tp_diffuse[tpi] + (double)tp_ambient[tpi];
+                    double spec = 0.0;
+                    /* specular, only in a specular parse mode (geo_parse_np_s,
+                     * model2_v.cpp:1243-1252): spec = max(2*dotl*nz - light.z, 0),
+                     * squared per specular_control bit, times specular_scale. */
+                    if (((geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u) && tp_sctrl[tpi] != 0u) {
+                        uint32_t sc = tp_sctrl[tpi];
+                        spec = (2.0 * dotl) * nt[2] - (double)light[2];
+                        if (spec < 0.0) spec = 0.0;
+                        if ((sc >> 1) != 0u) spec *= spec;
+                        if ((sc >> 2) != 0u) spec *= spec;
+                        if (((sc + 1u) >> 3) != 0u) spec *= spec;
+                        spec *= (double)tp_sscale[tpi];
+                        if (spec > 0.0) ++nspec;
+                    }
+                    lumv = lumv * (double)tp_diffuse[tpi] + (double)tp_ambient[tpi] + spec;
                 }
                 if (lumv < 0.0) lumv = 0.0;
                 if (lumv > 255.0) lumv = 255.0;
@@ -10032,6 +10328,9 @@ cend:
     if (!png_write_rgb8(out_path, (uint32_t)W, (uint32_t)H, fb)) { fprintf(stderr, "geo-colour: write %s\n", out_path); goto done; }
     printf("geo-colour: frame %zu -> %s (%dx%d); palette %zuB colorxlat %zuB luma %zuB\n",
            pose, out_path, W, H, pal_n, cxlat_n, luma_n);
+    printf("  texparams %s; geo_mode 0x%x (parser %u, %s); %zu specular polygon-term(s)\n",
+           texparams_path ? texparams_path : "(defaults 255/0)", geo_mode, geo_mode & 3u,
+           (geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u ? "specular" : "no-specular", nspec);
     rc = EXIT_SUCCESS;
 done:
     if (bin != NULL) fclose(bin);
@@ -11330,14 +11629,19 @@ int main(int argc, char **argv)
                                  argv[7], argv[8]);
     }
 
-    if (strcmp(argv[1], "geo-fighter") == 0 && argc == 10) {
+    if (strcmp(argv[1], "geo-fighter") == 0 && (argc == 10 || argc == 11)) {
         return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
-                                   argv[7], argv[8], argv[9]);
+                                   argv[7], argv[8], argv[9],
+                                   argc == 11 ? argv[10] : NULL);
     }
 
-    if (strcmp(argv[1], "geo-colour") == 0 && argc == 8) {
+    if (strcmp(argv[1], "geo-colour") == 0 && (argc == 8 || argc == 9)) {
         return command_geo_colour(argv[2], argv[3], argv[4], argv[5], argv[6],
-                                  argv[7]);
+                                  argv[7], argc == 9 ? argv[8] : NULL);
+    }
+
+    if (strcmp(argv[1], "geo-texparams") == 0 && argc == 5) {
+        return command_geo_texparams(argv[2], argv[3], argv[4]);
     }
 
     if (strcmp(argv[1], "geo-project") == 0 && (argc == 7 || argc == 11)) {
