@@ -604,6 +604,23 @@ int main(void)
             &board, 0u, 32u,
             &dispatch) == VF2_ERROR_INVALID_ARGUMENT);
 
+        /* v0850 pins-audit: the setup-author odd-slot guard (ROM
+           move.w address-error shape; E1j "odd/wild rows fail
+           closed"). Slot word 0x0001 is odd: refuse before any
+           authoring -- the flags byte stays clear. The stepper has no
+           address-error model, so only this C-level leg pins the
+           guard. */
+        {
+            uint8_t *odd_voice =
+                board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            odd_voice[0] = 0x00u;
+            odd_voice[1] = 0x01u;
+            odd_voice[VF2_SOUND_VOICE_FLAGS] = 0x00u;
+            EXPECT_TRUE(vf2_sound_board_setup_author(
+                &board, 0u, 0u, &dispatch) == VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(odd_voice[VF2_SOUND_VOICE_FLAGS] == 0x00u);
+        }
+
         /* Default class (S2b): ROM rts at 0x856 -- no body, no
            $150f/$1510 writes. The drain still consumes the packet
            (count 0, cursor 4, handled). */
@@ -710,6 +727,31 @@ int main(void)
         EXPECT_TRUE(dispatch.channel == 5u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
+
+        /* v0850 pins-audit: the a0 row max word gates through move.w;
+           an odd row pointer (0x00607401) is the ROM address-error
+           shape -- refuse at the 0x1e74 head with the packet held.
+           The stepper has no address-error model, so only this C-level
+           leg pins the guard. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0x8e16u] = 0x00u; audio_rom[0x8e17u] = 0x60u;
+        audio_rom[0x8e18u] = 0x74u; audio_rom[0x8e19u] = 0x01u; /* odd */
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0u;
+        descriptor[2] = 0u;
+        {
+            const uint8_t packet[4] = {0xa0u, 0x01u, 0x01u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x1e74u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
 
         /* Stream maintenance is a documented no-op (v0796): the ROM
            sequence engine (driver/worker/appliers) has no static entry
@@ -954,6 +996,54 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[0x203bu] == 0xcdu);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
 
+        /* v0850 pins-audit: the e0 voice-tail odd-slot guard. Same
+           fixture as the small-shaped leg above, but the slot word is
+           0x0021 (odd): refuse (ROM move.w address-error shape) before
+           the SCSP write -- slot+0x10 (0x0030) stays clear and the
+           packet is held. */
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
+                                   sample_rom, sizeof(sample_rom)) == VF2_OK);
+        memset(audio_rom, 0, sizeof(audio_rom));
+        test_boot_rom(audio_rom);
+        audio_rom[0x2b26u] = 0x00u; audio_rom[0x2b27u] = 0x60u;
+        audio_rom[0x2b28u] = 0x40u; audio_rom[0x2b29u] = 0x00u;
+        audio_rom[0x4000u + 0xfeu] = 0x05u;
+        audio_rom[0x2682u] = 0x00u; audio_rom[0x2683u] = 0x60u;
+        audio_rom[0x2684u] = 0x50u; audio_rom[0x2685u] = 0x00u;
+        audio_rom[0x5036u] = 0x00u; audio_rom[0x5037u] = 0x20u;
+        audio_rom[0xc726u] = 0x00u; audio_rom[0xc727u] = 0x60u;
+        audio_rom[0xc728u] = 0x60u; audio_rom[0xc729u] = 0x00u;
+        audio_rom[0x6096u] = 0xabu; audio_rom[0x6097u] = 0xcdu;
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        descriptor[0] = 0x80u;
+        descriptor[1] = 2u;
+        descriptor[2] = 2u;
+        descriptor[5] = 0u;
+        descriptor[6] = 0u;
+        descriptor[7] = 0u;
+        {
+            uint8_t *tail_voice = board.sound_ram + VF2_SOUND_VOICE_TABLE_BASE;
+            tail_voice[0] = 0u;
+            tail_voice[1] = 0x21u; /* slot 0x0021: odd */
+            tail_voice[2] = 0x01u;
+            tail_voice[3] = 0x03u;
+            tail_voice[4] = 2u;
+            tail_voice[5] = 2u;
+            tail_voice[10] = 0x20u;
+        }
+        {
+            const uint8_t packet[4] = {0xe2u, 0x42u, 0u, 0u};
+            EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        }
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                    VF2_ERROR_UNSUPPORTED);
+        EXPECT_TRUE(dispatch.handler_address == 0x12b6u);
+        EXPECT_TRUE(dispatch.voices_matched == 0u);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+        EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x0030u, &value) == VF2_OK);
+        EXPECT_TRUE(value == 0u);
+
         /* B0 default (v0795b): entry = command&0x7f; anything but 0x3a
            takes the table-default rts: consume, no effects. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
@@ -1026,6 +1116,58 @@ int main(void)
             EXPECT_TRUE(board.sound_ram[0x5002u] == 0x00u);
             EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
             EXPECT_TRUE(dispatch.cursor_after == 4u);
+        }
+
+        /* v0850 pins-audit: the sample stager's row/selector word reads
+           address through the bus; an unmapped pointer is the bus-error
+           class and fails closed (UNSUPPORTED, packet held) -- the same
+           shape the stepper refuses with. The boot upload inside
+           initialize() must still run with test_boot_rom's valid row,
+           so each fixture poisons the row AFTER init.
+           Row 0x005FFFFE fails the first (record-total) read while its
+           +2 selector read would land on the audio ROM base, so the
+           first fixture pins exactly the record-total guard; row
+           0x0007FFFE (RAM top) passes the record-total read and pins
+           exactly the selector guard. */
+        {
+            static uint8_t bus_rom[0x10010u];
+            memset(bus_rom, 0, sizeof(bus_rom));
+            test_boot_rom(bus_rom);
+            EXPECT_TRUE(vf2_sound_board_initialize(&board, bus_rom, sizeof(bus_rom),
+                                       sample_rom, sizeof(sample_rom)) == VF2_OK);
+            bus_rom[0x8df2u] = 0x00u; bus_rom[0x8df3u] = 0x5fu;
+            bus_rom[0x8df4u] = 0xffu; bus_rom[0x8df5u] = 0xfeu;
+            descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+            descriptor[0] = 0x80u;
+            descriptor[1] = 10u;
+            descriptor[2] = 10u;
+            {
+                const uint8_t packet[4] = {0xbau, 0x00u, 0u, 0u};
+                EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+            }
+            EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                        VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+            EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
+
+            memset(bus_rom, 0, sizeof(bus_rom));
+            test_boot_rom(bus_rom);
+            EXPECT_TRUE(vf2_sound_board_initialize(&board, bus_rom, sizeof(bus_rom),
+                                       sample_rom, sizeof(sample_rom)) == VF2_OK);
+            bus_rom[0x8df2u] = 0x00u; bus_rom[0x8df3u] = 0x07u;
+            bus_rom[0x8df4u] = 0xffu; bus_rom[0x8df5u] = 0xfeu;
+            descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+            descriptor[0] = 0x80u;
+            descriptor[1] = 10u;
+            descriptor[2] = 10u;
+            {
+                const uint8_t packet[4] = {0xbau, 0x00u, 0u, 0u};
+                EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+            }
+            EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
+                        VF2_ERROR_UNSUPPORTED);
+            EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+            EXPECT_TRUE(dispatch.cursor_after == dispatch.cursor_before);
         }
 
         /* B0 entry 0x3a upload (payload 0x05): max-gate + indexed row

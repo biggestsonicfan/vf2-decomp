@@ -47,6 +47,10 @@ context files anything in 70+ hunted frames.
   unrecovered by measurement (not by neglect).
 - Menu-lever replay from a pre-gating park (25 idle legs).
 - L1/L2 ticks in the host loop (game_update guard).
+  (v0850 audited the fail-closed pins: 13 planted fail-open mutations,
+  8 already pinned, 4 test holes closed with new C-level pins, the
+  pump's unattached guard documented unpinnable; see
+  `audio_failclosed_pins_audit_v0850.md`.)
 - Full SCSP DSP / TGP / rasterizer: out of scope per
   README principles, independent of this bar. (v0826 later measured
   the DSP program + effect-return configuration; execution/audio stays
