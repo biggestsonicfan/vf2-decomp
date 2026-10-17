@@ -12,6 +12,7 @@ Usage:
   geo_overlay.py fighters <screenshot.png> <proj.png.tris> <proj.png.csv> <out.png>
   geo_overlay.py fitfighters <shotdir> <frameidx> <proj.png.tris> <proj.png.csv> <ref_f00.csv>
   geo_overlay.py fitdecor <shot.png> <proj.png.tris>
+  geo_overlay.py colourerr <screen.png> <render.png> [akira x0,y0,x1,y1] [lau ...] [bg r,g,b]
 
 `overlay` blends the projection over the screenshot (projection colours kept:
 red anchor, grey other, dark shadow) and draws its silhouette edges, so the two
@@ -836,6 +837,47 @@ def cmd_piececolor(shot_p, tris_p, out_p, xmax=99999):
               f"{cx:5.0f}{cy:5.0f}  [{x0:.0f},{y0:.0f}..{x1:.0f},{y1:.0f}]")
 
 
+def cmd_colourerr(shot_p, render_p, akira="90,105,215,355",
+                  lau="235,105,370,355", bg="18,18,24"):
+    """Mean per-pixel colour error of a `geo-colour` render vs the MAME screenshot,
+    split into Akira / Lau / decor. Only pixels the 3D render actually drew (colour
+    != the background clear `bg`) are scored, so the 2D tilemap sky/HUD -- which the
+    3D-only render never produces -- is excluded. Error is the mean over R,G,B of the
+    absolute difference, 0..255. The two fighter boxes are approximate (x0,y0,x1,y1);
+    drawn pixels outside both are counted as decor."""
+    w, h, shot = read_png(shot_p)
+    pw, ph, ren = read_png(render_p)
+    assert (w, h) == (pw, ph), "size mismatch %dx%d vs %dx%d" % (w, h, pw, ph)
+    bgr, bgg, bgb = (int(v) for v in bg.split(","))
+    ax0, ay0, ax1, ay1 = (int(v) for v in akira.split(","))
+    lx0, ly0, lx1, ly1 = (int(v) for v in lau.split(","))
+    acc = {"akira": [0, 0.0], "lau": [0, 0.0], "decor": [0, 0.0]}
+    for y in range(h):
+        for x in range(w):
+            i = (y * w + x) * 3
+            r, g, b = ren[i], ren[i + 1], ren[i + 2]
+            if r == bgr and g == bgg and b == bgb:
+                continue
+            e = (abs(r - shot[i]) + abs(g - shot[i + 1]) +
+                 abs(b - shot[i + 2])) / 3.0
+            if ax0 <= x < ax1 and ay0 <= y < ay1:
+                k = "akira"
+            elif lx0 <= x < lx1 and ly0 <= y < ly1:
+                k = "lau"
+            else:
+                k = "decor"
+            acc[k][0] += 1
+            acc[k][1] += e
+    tn = ts = 0
+    for k in ("akira", "lau", "decor"):
+        n, s = acc[k]
+        tn += n; ts += s
+        print("%-6s %6d px  mean colour error %5.1f / 255" %
+              (k, n, (s / n) if n else 0.0))
+    print("%-6s %6d px  mean colour error %5.1f / 255" %
+          ("ALL", tn, (ts / tn) if tn else 0.0))
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
@@ -864,6 +906,8 @@ def main():
     elif c == "piececolor":
         xm = int(sys.argv[5]) if len(sys.argv) > 5 else 99999
         cmd_piececolor(sys.argv[2], sys.argv[3], sys.argv[4], xm)
+    elif c == "colourerr":
+        cmd_colourerr(*sys.argv[2:])
     else:
         print(__doc__); sys.exit(1)
 

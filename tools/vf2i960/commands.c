@@ -80,6 +80,7 @@ static void usage(const char *program)
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
         "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir>\n"
+        "  %s geo-colour <ram9.bin> <readstarts.txt> <rom-dir> <colour-capture-dir> <pose-frame> <out.png>\n"
         "  %s geo-project <ram9.bin> <readstarts.txt> <rom-dir> <pose-frame> <out.png> [W H xoff yoff]\n"
         "  %s export-pieces <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
         "  %s export-textured <rom-dir> <capture.txt> <tex0.bin> <tex1.bin> <out-dir>\n"
@@ -134,6 +135,7 @@ static void usage(const char *program)
         program, /* geo-walk */
         program, /* geo-scene */
         program, /* geo-fighter */
+        program, /* geo-colour */
         program, /* geo-project */
         program, /* export-pieces */
         program, /* export-textured */
@@ -9689,6 +9691,357 @@ done:
     return rc;
 }
 
+/* --- geo-colour: Step colours -- faithful textured render vs the screenshot ----
+ *
+ * Renders one RAM9 frame in colour exactly like MAME draw_scanline_tex / sm2-emu
+ * polygon.frag: per pixel, fetch the 4-bit texel, scale to 8 bits, look it up in
+ * the polygon's tone curve in luma RAM (chosen by lumabase = (texheader[1]&0xff)
+ * <<7), scale by the polygon's lighting term, clamp to a 6-bit shade, then index
+ * the colorxlat table with that shade and each 5-bit channel of the colour entry,
+ * then run each channel through VF2's fixed monitor gamma (bias 64, gain 255/191).
+ *
+ * The colour is INDIRECT: colorbase = (texheader[3]>>6)&0x3ff selects a palette
+ * slot, and the real 5-5-5 colour is palram[colorbase + 0x1000] & 0x7fff -- the low
+ * 0x1000 words are the 2D tilemap palette (reddish here), so a direct read tints the
+ * whole stage red (model2rd.ipp:256-274). colorxlat channel regions are at word
+ * 0x0000/0x2000/0x4000 (R/G/B). palette / colorxlat / luma come from the local
+ * colour capture (0x01800000 / 0x01810000 / 0x12800000).
+ *
+ * Lighting is the geo_parse diffuse+ambient term (model2_v.cpp:1092-1097); specular,
+ * mipmapping, bilinear and perspective-correct UV are deferred. The per-index
+ * diffuse/ambient come from command 0x06, which persists across frames and is absent
+ * from a single-frame capture -- see the default-init note in command_geo_colour.
+ * Local only; never committed. */
+static uint16_t gc_u16(const uint8_t *b, size_t n, size_t i)
+{
+    size_t o = i * 2u;
+    return (o + 1u < n) ? (uint16_t)(b[o] | (b[o + 1u] << 8)) : 0u;
+}
+
+/* VF2's fixed monitor colour-space conversion (model2_v.cpp:2390-2394): a hard-
+ * coded bias-64 / gain-(255/191) ramp applied to every channel after the colorxlat
+ * lookup. It is a constant, not programmed RAM, so the native port reproduces it
+ * directly (no HLE). Shadows below 64 crush to 0; the rest stretches to full range. */
+static uint8_t gc_gamma(uint32_t v)
+{
+    if (v <= 64u) return 0u;
+    v = (v - 64u) * 255u / 191u;
+    return (uint8_t)(v > 255u ? 255u : v);
+}
+
+static void gc_fill_tri_tex(
+    uint8_t *fb, double *zb, int W, int H,
+    const double *X, const double *Y, const double *Z,
+    const double *U, const double *V,
+    const uint8_t *bank, size_t bank_size, const vf2_texture_header *hd,
+    const uint8_t *luma, const uint8_t *cxlat, size_t cxlat_n,
+    uint32_t lumabase, int r5, int g5, int b5, uint32_t lumascale)
+{
+    int minx = (int)floor(X[0] < X[1] ? (X[0] < X[2] ? X[0] : X[2]) : (X[1] < X[2] ? X[1] : X[2]));
+    int maxx = (int)ceil(X[0] > X[1] ? (X[0] > X[2] ? X[0] : X[2]) : (X[1] > X[2] ? X[1] : X[2]));
+    int miny = (int)floor(Y[0] < Y[1] ? (Y[0] < Y[2] ? Y[0] : Y[2]) : (Y[1] < Y[2] ? Y[1] : Y[2]));
+    int maxy = (int)ceil(Y[0] > Y[1] ? (Y[0] > Y[2] ? Y[0] : Y[2]) : (Y[1] > Y[2] ? Y[1] : Y[2]));
+    double d = (Y[1] - Y[2]) * (X[0] - X[2]) + (X[2] - X[1]) * (Y[0] - Y[2]);
+    int px, py;
+    if (minx < 0) minx = 0;
+    if (miny < 0) miny = 0;
+    if (maxx >= W) maxx = W - 1;
+    if (maxy >= H) maxy = H - 1;
+    if (fabs(d) < 1e-9) return;
+    for (py = miny; py <= maxy; ++py) {
+        for (px = minx; px <= maxx; ++px) {
+            double a = ((Y[1] - Y[2]) * (px - X[2]) + (X[2] - X[1]) * (py - Y[2])) / d;
+            double b = ((Y[2] - Y[0]) * (px - X[2]) + (X[0] - X[2]) * (py - Y[2])) / d;
+            double c = 1.0 - a - b;
+            double z, tu, tv;
+            size_t fi = (size_t)py * (size_t)W + (size_t)px;
+            int lu, lv;
+            uint8_t t4;
+            uint32_t t8, curve, shade;
+            if (a < -0.001 || b < -0.001 || c < -0.001) continue;
+            z = a * Z[0] + b * Z[1] + c * Z[2];
+            if (z >= zb[fi]) continue;
+            tu = a * U[0] + b * U[1] + c * U[2];
+            tv = a * V[0] + b * V[1] + c * V[2];
+            lu = hd->tex_width ? (int)fmod(tu, (double)hd->tex_width) : 0;
+            lv = hd->tex_height ? (int)fmod(tv, (double)hd->tex_height) : 0;
+            if (lu < 0) lu += (int)hd->tex_width;
+            if (lv < 0) lv += (int)hd->tex_height;
+            t4 = vf2_texture_sheet_texel(bank, bank_size,
+                                         hd->tex_x + (uint32_t)lu,
+                                         hd->tex_y + (uint32_t)lv);
+            if (t4 == 0x0fu) continue;            /* brightest = transparent */
+            t8 = (uint32_t)t4 << 4;
+            curve = luma[(lumabase + (t8 >> 1)) & 0x7fffu];
+            shade = (curve * lumascale) / 256u;
+            if (shade > 0x3fu) shade = 0x3fu;
+            zb[fi] = z;
+            fb[fi * 3u + 0u] = gc_gamma(gc_u16(cxlat, cxlat_n,
+                                 0x0000u + (size_t)r5 * 0x100u + shade) & 0xffu);
+            fb[fi * 3u + 1u] = gc_gamma(gc_u16(cxlat, cxlat_n,
+                                 0x2000u + (size_t)g5 * 0x100u + shade) & 0xffu);
+            fb[fi * 3u + 2u] = gc_gamma(gc_u16(cxlat, cxlat_n,
+                                 0x4000u + (size_t)b5 * 0x100u + shade) & 0xffu);
+        }
+    }
+}
+
+static int command_geo_colour(
+    const char *bin_path, const char *txt_path, const char *rom_directory,
+    const char *capture_dir, const char *pose_str, const char *out_path
+)
+{
+    const size_t frame_bytes = 131072u;
+    const size_t frame_words = frame_bytes / 4u;
+    const int W = 496, H = 384;
+    FILE *bin = NULL, *txt = NULL;
+    char line[256], path[1100];
+    uint32_t *w = NULL;
+    uint8_t *main_data = NULL, *poly = NULL, *tex = NULL;
+    uint8_t *bank[2] = { NULL, NULL };
+    uint8_t *pal = NULL, *cxlat = NULL, *lumacap = NULL, *luma = NULL;
+    size_t main_size = 0u, poly_size = 0u, tex_size = 0u;
+    size_t bank_size[2] = { 0u, 0u };
+    size_t pal_n = 0u, cxlat_n = 0u, luma_n = 0u;
+    uint8_t *fb = NULL;
+    double *zb = NULL;
+    uint32_t readstart[GS_MAX_FRAMES];
+    size_t nframes = 0u, pose, ptr, opc = 0u, i;
+    float mat[12];
+    float light[3] = { 0.0f, 0.0f, 1.0f };
+    uint8_t tp_diffuse[32], tp_ambient[32];
+    double fx = 600.0, fy = 600.0, cx = 248.0, cy = 319.0, xoff = 0.0, yoff = 130.0;
+    int rc = EXIT_FAILURE;
+    vf2_status st;
+
+    pose = (size_t)strtoul(pose_str, NULL, 0);
+    memset(mat, 0, sizeof(mat));
+    /* Texture parameters (diffuse/ambient per index) are set by command 0x06 and
+     * PERSIST in the geometry engine across frames (MAME value-inits them to 0/0 in
+     * geo_init and they are only ever overwritten, never reset). This single-frame
+     * capture contains no 0x06, so the real ambient term -- set in an earlier frame
+     * -- is unavailable; we fall back to full diffuse / no ambient. That renders the
+     * fighters faithfully (they are diffuse-lit) but under-lights decor faces angled
+     * away from the light, which in-game are lifted by the persisted ambient. */
+    for (i = 0u; i < 32u; ++i) { tp_diffuse[i] = 255u; tp_ambient[i] = 0u; }
+
+    txt = fopen(txt_path, "rb");
+    if (txt == NULL) { fprintf(stderr, "geo-colour: cannot open %s\n", txt_path); return EXIT_FAILURE; }
+    while (fgets(line, (int)sizeof(line), txt) != NULL) {
+        unsigned idx, fn, rs;
+        if (sscanf(line, "F %u %u %x", &idx, &fn, &rs) == 3 && idx < GS_MAX_FRAMES) {
+            readstart[idx] = rs;
+            if ((size_t)idx + 1u > nframes) nframes = (size_t)idx + 1u;
+        }
+    }
+    fclose(txt); txt = NULL;
+    if (pose >= nframes) { fprintf(stderr, "geo-colour: pose %zu >= %zu\n", pose, nframes); return EXIT_FAILURE; }
+
+    st = vf2_romset_build_region(rom_directory, VF2_REGION_MAIN_DATA, &main_data, &main_size);
+    if (st == VF2_OK) st = vf2_romset_build_region(rom_directory, VF2_REGION_POLYGONS, &poly, &poly_size);
+    if (st == VF2_OK) st = vf2_romset_build_region(rom_directory, VF2_REGION_TEXTURES, &tex, &tex_size);
+    if (st != VF2_OK) { fprintf(stderr, "geo-colour: ROM: %s\n", vf2_status_string(st)); goto done; }
+
+    snprintf(path, sizeof(path), "%s/tex0_12000000.bin", capture_dir);
+    if (!ext_tex_load_file(path, &bank[0], &bank_size[0])) { fprintf(stderr, "geo-colour: %s\n", path); goto done; }
+    snprintf(path, sizeof(path), "%s/tex1_12400000.bin", capture_dir);
+    if (!ext_tex_load_file(path, &bank[1], &bank_size[1])) { fprintf(stderr, "geo-colour: %s\n", path); goto done; }
+    snprintf(path, sizeof(path), "%s/palette_01800000.bin", capture_dir);
+    if (!ext_tex_load_file(path, &pal, &pal_n)) { fprintf(stderr, "geo-colour: %s\n", path); goto done; }
+    snprintf(path, sizeof(path), "%s/colorxlat_01810000.bin", capture_dir);
+    if (!ext_tex_load_file(path, &cxlat, &cxlat_n)) { fprintf(stderr, "geo-colour: %s\n", path); goto done; }
+    snprintf(path, sizeof(path), "%s/luma_12800000.bin", capture_dir);
+    if (!ext_tex_load_file(path, &lumacap, &luma_n)) { fprintf(stderr, "geo-colour: %s\n", path); goto done; }
+    /* luma capture is the 0x20000-byte address space, 1 byte per 32-bit word */
+    luma = (uint8_t *)malloc(0x8000u);
+    if (luma == NULL) goto done;
+    for (i = 0u; i < 0x8000u; ++i) luma[i] = (i * 4u < luma_n) ? lumacap[i * 4u] : 0u;
+
+    bin = fopen(bin_path, "rb");
+    w = (uint32_t *)malloc(frame_words * sizeof(*w));
+    fb = (uint8_t *)malloc((size_t)W * (size_t)H * 3u);
+    zb = (double *)malloc((size_t)W * (size_t)H * sizeof(*zb));
+    if (bin == NULL || w == NULL || fb == NULL || zb == NULL) { fprintf(stderr, "geo-colour: alloc\n"); goto done; }
+    if (!gs_read_frame(bin, pose, frame_bytes, w, frame_words)) { fprintf(stderr, "geo-colour: read %zu\n", pose); goto done; }
+    for (i = 0u; i < (size_t)W * (size_t)H; ++i) { fb[i * 3u] = 18u; fb[i * 3u + 1u] = 18u; fb[i * 3u + 2u] = 24u; zb[i] = 1e30; }
+
+    ptr = (size_t)((readstart[pose] & 0x1ffffu) >> 2);
+    for (;;) {
+        uint32_t op, cmd;
+        size_t need = 0u;
+        if (opc++ >= 0x40000u || ptr >= frame_words) break;
+        op = w[ptr++];
+        if (op & 0x80000000u) { ptr = (size_t)((op & 0x1ffffu) >> 2); continue; }
+        cmd = (op >> 23) & 0x1fu;
+        switch (cmd) {
+        case 0x00u: need = 0u; break;
+        case 0x07u: case 0x17u: case 0x08u: case 0x18u:
+        case 0x10u: case 0x16u: case 0x1eu: need = 1u; break;
+        case 0x09u: case 0x19u: case 0x0du: need = 2u; break;
+        case 0x0au: case 0x1au: case 0x0cu: case 0x1cu: need = 3u; break;
+        case 0x03u: case 0x13u: need = 6u; break;
+        case 0x0bu: case 0x1bu: need = 12u; break;
+        case 0x01u: case 0x11u: need = 4u; break;
+        case 0x04u: case 0x14u: case 0x05u: case 0x15u:
+            if (ptr + 2u > frame_words) goto cend;
+            need = 2u + (size_t)w[ptr + 1u]; break;
+        case 0x06u:
+            if (ptr + 2u > frame_words) goto cend;
+            need = 2u + (size_t)w[ptr + 1u] * 2u; break;
+        case 0x1du:
+            if (ptr + 2u > frame_words) goto cend;
+            need = 2u + (size_t)w[ptr + 1u] * 3u; break;
+        case 0x02u: case 0x12u: {
+            size_t p = ptr + 8u;
+            for (;;) { uint32_t a; if (p >= frame_words) goto cend; a = w[p++]; if ((a & 3u) == 0u) break; p += 5u; if (a & 1u) p += 3u; }
+            need = p - ptr; break;
+        }
+        case 0x0eu: if (ptr + 33u > frame_words) goto cend; need = 32u + 1u + (size_t)w[ptr + 32u] * 3u; break;
+        case 0x0fu: case 0x1fu: goto cend;
+        default: goto cend;
+        }
+        if (ptr + need > frame_words) goto cend;
+
+        if (cmd == 0x0bu || cmd == 0x1bu) {
+            size_t k; for (k = 0u; k < 12u; ++k) { uint32_t u = w[ptr + k]; memcpy(&mat[k], &u, 4u); }
+        } else if (cmd == 0x0cu || cmd == 0x1cu) {
+            uint32_t u; u = w[ptr]; memcpy(&mat[9], &u, 4u); u = w[ptr + 1u]; memcpy(&mat[10], &u, 4u); u = w[ptr + 2u]; memcpy(&mat[11], &u, 4u);
+        } else if (cmd == 0x09u || cmd == 0x19u) {
+            uint32_t u; float f; u = w[ptr]; memcpy(&f, &u, 4u); fx = (double)f; u = w[ptr + 1u]; memcpy(&f, &u, 4u); fy = (double)f;
+        } else if (cmd == 0x0au || cmd == 0x1au) {
+            uint32_t u; u = w[ptr]; memcpy(&light[0], &u, 4u); u = w[ptr + 1u]; memcpy(&light[1], &u, 4u); u = w[ptr + 2u]; memcpy(&light[2], &u, 4u);
+        } else if (cmd == 0x06u) {
+            /* each entry is TWO words: [param][distance-coef] (geo_texture_parameters,
+             * model2_v.cpp:1931-1944). diffuse/ambient live in the param word. */
+            uint32_t index = (w[ptr] >> 2) & 0x1fu, count = w[ptr + 1u], j;
+            for (j = 0u; j < count; ++j) {
+                uint32_t prm = w[ptr + 2u + j * 2u];
+                tp_diffuse[index] = (uint8_t)(prm & 0xffu);
+                tp_ambient[index] = (uint8_t)((prm >> 8) & 0xffu);
+                index = (index + 1u) & 0x1fu;
+            }
+        } else if (cmd == 0x03u || cmd == 0x13u) {
+            uint32_t c = w[ptr + 2u]; int icx = (int)((c >> 16) & 0xfffu), icy = (int)(c & 0xfffu);
+            if (icx & 0x800) icx = -(0x800 - (icx & 0x7ff));
+            if (icy & 0x800) icy = -(0x800 - (icy & 0x7ff));
+            cx = (double)icx; cy = (double)icy;
+        } else if (cmd == 0x01u || cmd == 0x11u) {
+            uint32_t oba = w[ptr + 2u], rec = (oba & 0x7fffffu) * 4u, tpa = w[ptr + 0u];
+            uint32_t off32 = 0u, bnk = 0u, id = 0u, uv_ptr = 0u, th_ptr = 0u;
+            size_t o;
+            vf2_model_vertex p0, p1;
+            if ((size_t)rec + 24u > poly_size) { ptr += need; continue; }
+            if (vf2_model_lookup_w0(main_data, main_size, tpa, 0x4000u, &off32, &bnk, &id) == VF2_OK) {
+                uv_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
+                th_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
+            }
+            if (!ext_read_xyz(poly, poly_size, rec, &p0) || !ext_read_xyz(poly, poly_size, rec + 12u, &p1)) { ptr += need; continue; }
+            o = (size_t)rec + 24u;
+            for (;;) {
+                uint32_t attr = tl_u32(poly, poly_size, (uint32_t)o);
+                vf2_model_vertex nv, vA, vB;
+                uint16_t thw[4]; vf2_texture_header hd; float uvt[4][2];
+                double Xs[3], Ys[3], Zs[3], Us[3], Vs[3];
+                double nt[3], dotl, dotp, lumv; uint32_t lumascale, lumabase, colorbase;
+                int r5, g5, b5; uint32_t palc, numv, vtx, tri;
+                o += 4u;
+                if ((attr & 3u) == 0u) break;
+                numv = (attr & 1u) ? 4u : 3u;
+                (void)ext_read_xyz(poly, poly_size, (uint32_t)o, &nv);   /* normal */
+                o += 12u;
+                if (!ext_read_xyz(poly, poly_size, (uint32_t)o, &vA)) break;
+                o += 12u;
+                if (numv == 4u) { if (!ext_read_xyz(poly, poly_size, (uint32_t)o, &vB)) break; } else { vB = vA; }
+                o += 12u;
+                thw[0] = tl_u16(tex, tex_size, th_ptr + 0u); thw[1] = tl_u16(tex, tex_size, th_ptr + 1u);
+                thw[2] = tl_u16(tex, tex_size, th_ptr + 2u); thw[3] = tl_u16(tex, tex_size, th_ptr + 3u);
+                vf2_texture_header_decode(thw, &hd);
+                colorbase = ((uint32_t)thw[3] >> 6) & 0x3ffu;
+                lumabase = ((uint32_t)thw[1] & 0xffu) << 7;
+                /* lighting: transform normal by the 3x3, diffuse+ambient term */
+                nt[0] = (double)nv.x * mat[0] + (double)nv.y * mat[3] + (double)nv.z * mat[6];
+                nt[1] = (double)nv.x * mat[1] + (double)nv.y * mat[4] + (double)nv.z * mat[7];
+                nt[2] = (double)nv.x * mat[2] + (double)nv.y * mat[5] + (double)nv.z * mat[8];
+                dotl = nt[0] * light[0] + nt[1] * light[1] + nt[2] * light[2];
+                /* dotp uses THIS polygon's own new point (MAME model2_v.cpp:1080),
+                 * i.e. vA (the first vertex read this iteration), not the strip base. */
+                { vf2_model_vertex pt; ext_xform(mat, &vA, &pt); dotp = nt[0] * pt.x + nt[1] * pt.y + nt[2] * pt.z; }
+                lumv = (dotl * dotp < 0.0) ? 0.0 : fabs(dotl);
+                {
+                    uint32_t tpi = (attr >> 18) & 0x1fu;
+                    lumv = lumv * (double)tp_diffuse[tpi] + (double)tp_ambient[tpi];
+                }
+                if (lumv < 0.0) lumv = 0.0;
+                if (lumv > 255.0) lumv = 255.0;
+                lumascale = (uint32_t)lumv;
+                /* colorbase is an INDIRECT palette index: the real 5-5-5 colour is
+                 * palram[colorbase + 0x1000] & 0x7fff (model2rd.ipp:270). The low
+                 * 0x1000 words are the 2D tilemap palette, not the 3D polygon one. */
+                palc = gc_u16(pal, pal_n, (size_t)((colorbase + 0x1000u) & 0x1fffu)) & 0x7fffu;
+                r5 = (int)(palc & 0x1fu); g5 = (int)((palc >> 5) & 0x1fu); b5 = (int)((palc >> 10) & 0x1fu);
+                /* UVs (texel coords) for the ring vertices, table order
+                 * [P1(n-1),P0(n-1),P0(n),P1(n)] = uvt[0..3]. */
+                for (vtx = 0u; vtx < numv; ++vtx) {
+                    uint16_t pvv = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 0u);
+                    uint16_t puu = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 1u);
+                    uvt[vtx][0] = vf2_texture_uv_texels(puu);
+                    uvt[vtx][1] = vf2_texture_uv_texels(pvv);
+                }
+                if (numv == 3u) { uvt[3][0] = uvt[2][0]; uvt[3][1] = uvt[2][1]; }
+                /* strip triangles: (p0,p1,vB) and, for a quad, (p0,vB,vA) */
+                for (tri = 0u; tri < (numv == 4u ? 2u : 1u); ++tri) {
+                    vf2_model_vertex vv[3]; double uu[3][2]; int ok = 1, e;
+                    if (tri == 0u) {
+                        vv[0] = p0; vv[1] = p1; vv[2] = vB;
+                        uu[0][0] = uvt[1][0]; uu[0][1] = uvt[1][1];
+                        uu[1][0] = uvt[0][0]; uu[1][1] = uvt[0][1];
+                        uu[2][0] = uvt[3][0]; uu[2][1] = uvt[3][1];
+                    } else {
+                        vv[0] = p0; vv[1] = vB; vv[2] = vA;
+                        uu[0][0] = uvt[1][0]; uu[0][1] = uvt[1][1];
+                        uu[1][0] = uvt[3][0]; uu[1][1] = uvt[3][1];
+                        uu[2][0] = uvt[2][0]; uu[2][1] = uvt[2][1];
+                    }
+                    for (e = 0; e < 3; ++e) {
+                        vf2_model_vertex pv; double Zc;
+                        ext_xform(mat, &vv[e], &pv);
+                        Zc = (double)pv.z;
+                        if (Zc < 0.0001) { ok = 0; break; }
+                        Xs[e] = xoff + cx + ((double)pv.x * fx) / Zc;
+                        Ys[e] = ((double)384.0 - cy) + yoff - ((double)pv.y * fy) / Zc;
+                        Zs[e] = Zc; Us[e] = uu[e][0]; Vs[e] = uu[e][1];
+                    }
+                    if (!ok) continue;
+                    gc_fill_tri_tex(fb, zb, W, H, Xs, Ys, Zs, Us, Vs,
+                                    bank[hd.sheet & 1u], bank_size[hd.sheet & 1u], &hd,
+                                    luma, cxlat, cxlat_n, lumabase, r5, g5, b5, lumascale);
+                }
+                th_ptr = (uint32_t)((int32_t)th_ptr + vf2_texture_header_advance_words(attr));
+                uv_ptr += numv * 2u;
+                switch ((attr >> 8u) & 3u) {
+                case 0u: case 2u: p0 = vA; p1 = vB; break;
+                case 1u: p1 = vA; break;
+                case 3u: p0 = vB; break;
+                default: break;
+                }
+            }
+        }
+        ptr += need;
+    }
+cend:
+    if (!png_write_rgb8(out_path, (uint32_t)W, (uint32_t)H, fb)) { fprintf(stderr, "geo-colour: write %s\n", out_path); goto done; }
+    printf("geo-colour: frame %zu -> %s (%dx%d); palette %zuB colorxlat %zuB luma %zuB\n",
+           pose, out_path, W, H, pal_n, cxlat_n, luma_n);
+    rc = EXIT_SUCCESS;
+done:
+    if (bin != NULL) fclose(bin);
+    if (txt != NULL) fclose(txt);
+    free(w); free(fb); free(zb); free(luma);
+    free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
+    free(pal); free(cxlat); free(lumacap);
+    return rc;
+}
+
 /* --- geo-project: Step 2c -- MAME-exact 2D projection of one frame to PNG -----
  *
  * Walks one RAM9 frame, tracks the current transform matrix (0x0b/0x0c), focal
@@ -10980,6 +11333,11 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "geo-fighter") == 0 && argc == 10) {
         return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
                                    argv[7], argv[8], argv[9]);
+    }
+
+    if (strcmp(argv[1], "geo-colour") == 0 && argc == 8) {
+        return command_geo_colour(argv[2], argv[3], argv[4], argv[5], argv[6],
+                                  argv[7]);
     }
 
     if (strcmp(argv[1], "geo-project") == 0 && (argc == 7 || argc == 11)) {
