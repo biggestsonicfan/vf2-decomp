@@ -9185,8 +9185,10 @@ static int command_geo_project(
     FILE *bin = NULL;
     FILE *txt = NULL;
     FILE *csv = NULL;
+    FILE *tri = NULL;
     char line[256];
     char csvpath[1100];
+    char tripath[1100];
     uint32_t *w = NULL;
     uint8_t *main_data = NULL;
     uint8_t *poly = NULL;
@@ -9195,6 +9197,7 @@ static int command_geo_project(
     uint8_t *fb = NULL;
     double *zb = NULL;
     vf2_model_vertex *vb = NULL;
+    vf2_model_vertex *vb2 = NULL;
     size_t vcap = 200000u;
     uint32_t readstart[GS_MAX_FRAMES];
     size_t nframes = 0u;
@@ -9257,7 +9260,9 @@ static int command_geo_project(
     fb = (uint8_t *)malloc((size_t)W * (size_t)H * 3u);
     zb = (double *)malloc((size_t)W * (size_t)H * sizeof(*zb));
     vb = (vf2_model_vertex *)malloc(vcap * sizeof(*vb));
-    if (bin == NULL || w == NULL || fb == NULL || zb == NULL || vb == NULL) {
+    vb2 = (vf2_model_vertex *)malloc(vcap * sizeof(*vb2));
+    if (bin == NULL || w == NULL || fb == NULL || zb == NULL || vb == NULL ||
+        vb2 == NULL) {
         fprintf(stderr, "geo-project: open/alloc failed\n");
         goto done;
     }
@@ -9276,7 +9281,14 @@ static int command_geo_project(
     csv = fopen(csvpath, "wb");
     if (csv != NULL) {
         fprintf(csv, "obj,rec_byte,group,side,mode3,cx,cy,minx,miny,maxx,"
-                     "maxy,screen_h,ntri\n");
+                     "maxy,screen_h,ntri,rawext,c0n,c1n,c2n,zmin,zmax\n");
+    }
+    /* per-triangle projected dump (screen coords) so an external overlay can
+     * draw each object's actual contour -- not just its bbox. */
+    snprintf(tripath, sizeof(tripath), "%s.tris", out_path);
+    tri = fopen(tripath, "wb");
+    if (tri != NULL) {
+        fprintf(tri, "obj,rec_byte,group,x0,y0,x1,y1,x2,y2\n");
     }
 
     ptr = (size_t)((readstart[pose] & 0x1ffffu) >> 2);
@@ -9379,10 +9391,51 @@ static int command_geo_project(
                 size_t non = 0u;
                 size_t otri = 0u;
                 double objcx;
+                double zmin = 1e30;
+                double zmax = -1e30;
+                double rawext = 0.0;
+                double c0n;
+                double c1n;
+                double c2n;
+                size_t vn2 = 0u;
+                int sheet2 = -1;
+                size_t tr2 = 0u;
+                double rx0 = 1e30, ry0 = 1e30, rz0 = 1e30;
+                double rx1 = -1e30, ry1 = -1e30, rz1 = -1e30;
                 vn = 0u;
                 (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
                                      0u, 0u, 1u, &sheet, &tr, mat, vb, &vn,
                                      vcap);
+                /* raw (identity-posed) vertices, to compare the object's own
+                 * vertex scale against its matrix column norms. */
+                (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
+                                     0u, 0u, 1u, &sheet2, &tr2, NULL, vb2, &vn2,
+                                     vcap);
+                for (e = 0u; e < vn2; ++e) {
+                    double rvx = (double)vb2[e].x;
+                    double rvy = (double)vb2[e].y;
+                    double rvz = (double)vb2[e].z;
+                    if (rvx < rx0) rx0 = rvx;
+                    if (rvx > rx1) rx1 = rvx;
+                    if (rvy < ry0) ry0 = rvy;
+                    if (rvy > ry1) ry1 = rvy;
+                    if (rvz < rz0) rz0 = rvz;
+                    if (rvz > rz1) rz1 = rvz;
+                }
+                if (vn2 > 0u) {
+                    double dx = rx1 - rx0;
+                    double dy = ry1 - ry0;
+                    double dz = rz1 - rz0;
+                    rawext = dx;
+                    if (dy > rawext) rawext = dy;
+                    if (dz > rawext) rawext = dz;
+                }
+                c0n = sqrt((double)(mat[0]*mat[0] + mat[1]*mat[1]
+                                    + mat[2]*mat[2]));
+                c1n = sqrt((double)(mat[3]*mat[3] + mat[4]*mat[4]
+                                    + mat[5]*mat[5]));
+                c2n = sqrt((double)(mat[6]*mat[6] + mat[7]*mat[7]
+                                    + mat[8]*mat[8]));
                 /* pass 1: robust screen centroid from on-screen vertices */
                 for (e = 0u; e < vn; ++e) {
                     double X = (double)vb[e].x * fx;
@@ -9390,6 +9443,8 @@ static int command_geo_project(
                     double Z = (double)vb[e].z;
                     double sx;
                     double sy;
+                    if (Z < zmin) zmin = Z;
+                    if (Z > zmax) zmax = Z;
                     if (Z < 0.0001) continue;
                     sx = xoff + cx + X / Z;
                     sy = ((double)384.0 - cy) + yoff - Y / Z;
@@ -9442,14 +9497,22 @@ static int command_geo_project(
                     gs_fill_tri(fb, zb, W, H,
                                 px[0], py[0], pz[0], px[1], py[1], pz[1],
                                 px[2], py[2], pz[2], cr, cg, cb);
+                    if (tri != NULL) {
+                        fprintf(tri,
+                                "%zu,0x%x,%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f\n",
+                                nobj, (unsigned)rec, og, px[0], py[0],
+                                px[1], py[1], px[2], py[2]);
+                    }
                     ++ntri;
                     ++otri;
                 }
                 if (csv != NULL && otri > 0u) {
                     fprintf(csv, "%zu,0x%x,%s,%s,%u,%.1f,%.1f,%.1f,%.1f,%.1f,"
-                                 "%.1f,%.1f,%zu\n", nobj, (unsigned)rec, og,
+                                 "%.1f,%.1f,%zu,%.1f,%.4f,%.4f,%.4f,%.2f,%.2f\n",
+                            nobj, (unsigned)rec, og,
                             side, m3, objcx, 0.5 * (oy0 + oy1),
-                            ox0, oy0, ox1, oy1, oy1 - oy0, otri);
+                            ox0, oy0, ox1, oy1, oy1 - oy0, otri,
+                            rawext, c0n, c1n, c2n, zmin, zmax);
                 }
                 ++nobj;
             }
@@ -9475,12 +9538,14 @@ done:
     if (bin != NULL) fclose(bin);
     if (txt != NULL) fclose(txt);
     if (csv != NULL) fclose(csv);
+    if (tri != NULL) fclose(tri);
     free(w);
     free(main_data);
     free(poly);
     free(fb);
     free(zb);
     free(vb);
+    free(vb2);
     return rc;
 }
 

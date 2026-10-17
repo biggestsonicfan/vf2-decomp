@@ -9,6 +9,7 @@ Usage:
   geo_overlay.py score   <screenshot.png> <proj.png>
   geo_overlay.py offsets <projdir> <screendir>
   geo_overlay.py objerr  <proj.png.csv> [W H]
+  geo_overlay.py fighters <screenshot.png> <proj.png.tris> <proj.png.csv> <out.png>
 
 `overlay` blends the projection over the screenshot (projection colours kept:
 red anchor, grey other, dark shadow) and draws its silhouette edges, so the two
@@ -408,6 +409,149 @@ def cmd_objerr(csv_path, W=496, H=384):
               f"  {off_canvas(o):9.0f}  {bx:17s} {' '.join(fl)}")
 
 
+def _putpx(buf, w, h, x, y, col):
+    x = int(round(x)); y = int(round(y))
+    if 0 <= x < w and 0 <= y < h:
+        i = (y * w + x) * 3
+        buf[i] = col[0]; buf[i + 1] = col[1]; buf[i + 2] = col[2]
+
+
+def _disk(buf, w, h, x, y, r, col):
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx * dx + dy * dy <= r * r:
+                _putpx(buf, w, h, x + dx, y + dy, col)
+
+
+def _line(buf, w, h, x0, y0, x1, y1, col, r=1):
+    # clip trivially-huge endpoints so off-canvas spill does not explode the loop
+    def cl(v, lo, hi):
+        return lo if v < lo else hi if v > hi else v
+    x0 = cl(x0, -2 * w, 3 * w); x1 = cl(x1, -2 * w, 3 * w)
+    y0 = cl(y0, -2 * h, 3 * h); y1 = cl(y1, -2 * h, 3 * h)
+    x0 = int(round(x0)); y0 = int(round(y0))
+    x1 = int(round(x1)); y1 = int(round(y1))
+    dx = abs(x1 - x0); dy = -abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx + dy
+    while True:
+        _disk(buf, w, h, x0, y0, r, col)
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy; x0 += sx
+        if e2 <= dx:
+            err += dx; y0 += sy
+
+
+def _cross(buf, w, h, x, y, size, col, r=1):
+    if x is None or y is None:
+        return
+    _line(buf, w, h, x - size, y, x + size, y, (255, 255, 255), r + 1)
+    _line(buf, w, h, x, y - size, x, y + size, (255, 255, 255), r + 1)
+    _line(buf, w, h, x - size, y, x + size, y, col, r)
+    _line(buf, w, h, x, y - size, x, y + size, col, r)
+
+
+def cmd_fighters(shot_p, tris_p, csv_p, out_p, W=0, H=0):
+    w, h, shot = read_png(shot_p)
+    if W and H and (W, H) != (w, h):
+        print(f"note: screenshot {w}x{h} != requested {W}x{H}")
+    # dim the screenshot so the overlay reads clearly
+    buf = bytearray(len(shot))
+    for i in range(len(shot)):
+        buf[i] = (shot[i] * 42) // 100
+
+    rows = _csv_rows(csv_p)
+    fcx = {}       # obj -> (cx, cy, ntri) for on-canvas fighters
+    shadow_c = []  # projected shadow centres
+    for r in rows:
+        o = int(r["obj"]); grp = r["group"]
+        cx = _fnum(r["cx"]); cy = _fnum(r["cy"])
+        minx = _fnum(r["minx"]); maxx = _fnum(r["maxx"])
+        miny = _fnum(r["miny"]); maxy = _fnum(r["maxy"])
+        deg = (minx is not None and (minx < -w or maxx > 2 * w
+               or miny < -h or maxy > 2 * h))
+        spill = (minx is not None and (minx < 0 or maxx > w
+                 or miny < 0 or maxy > h))
+        if grp == "shadow" and cx is not None and cx >= 0:
+            shadow_c.append((cx, cy))
+        if grp == "fighter" and cx is not None and cx >= 0 and not deg \
+                and not spill:
+            fcx[o] = (cx, cy, int(r["ntri"]))
+
+    # split the solid fighters into two clusters at the widest x-gap
+    items = sorted(fcx.items(), key=lambda kv: kv[1][0])
+    split = None
+    if len(items) >= 2:
+        gaps = [(items[i + 1][1][0] - items[i][1][0], i)
+                for i in range(len(items) - 1)]
+        _, gi = max(gaps)
+        split = 0.5 * (items[gi][1][0] + items[gi + 1][1][0])
+        clusterA = set(o for o, v in items if v[0] <= split)
+    else:
+        clusterA = set(fcx)
+
+    def side_of(o, px_mid):
+        # cluster for any fighter triangle; fall back to x vs the split line
+        if o in clusterA:
+            return "A"
+        if o in fcx:
+            return "B"
+        return "A" if (split is not None and px_mid <= split) else "B"
+
+    COL_A = (80, 150, 255)    # left group  (Akira)
+    COL_B = (255, 140, 40)    # right group (Lau)
+
+    # thick fighter contours, coloured by cluster
+    ntr = 0
+    with open(tris_p) as f:
+        next(f, None)
+        for ln in f:
+            p = ln.rstrip("\n").split(",")
+            if len(p) < 9 or p[2] != "fighter":
+                continue
+            o = int(p[0])
+            xs = [float(p[3]), float(p[5]), float(p[7])]
+            ys = [float(p[4]), float(p[6]), float(p[8])]
+            col = COL_A if side_of(o, sum(xs) / 3.0) == "A" else COL_B
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                _line(buf, w, h, xs[a], ys[a], xs[b], ys[b], col, r=1)
+            ntr += 1
+
+    # group centres (ntri-weighted) from the clean fighter set
+    def centre(members):
+        tw = sum(fcx[o][2] for o in members if o in fcx)
+        if not tw:
+            return None, None
+        cx = sum(fcx[o][0] * fcx[o][2] for o in members if o in fcx) / tw
+        cy = sum(fcx[o][1] * fcx[o][2] for o in members if o in fcx) / tw
+        return cx, cy
+    ax, ay = centre(clusterA)
+    bx, by = centre(set(fcx) - clusterA)
+    _cross(buf, w, h, ax, ay, 11, COL_A, r=2)
+    _cross(buf, w, h, bx, by, 11, COL_B, r=2)
+
+    # projected shadow centres (yellow) and screen shadow centres (green)
+    for (sx, sy) in shadow_c:
+        _cross(buf, w, h, sx, sy, 5, (255, 230, 0), r=1)
+    sl, sr = shot_shadow_centroids(shot, w, h)
+    for c in (sl, sr):
+        if c:
+            _cross(buf, w, h, c[0], c[1], 7, (0, 255, 120), r=1)
+
+    write_png(out_p, w, h, buf)
+    print(f"fighters overlay -> {out_p} ({w}x{h}); {ntr} fighter tris, "
+          f"{len(fcx)} solid fighter objs, {len(shadow_c)} shadow centres")
+    print(f"  cluster A (left, blue)  centre=({ax:.0f},{ay:.0f})"
+          if ax is not None else "  cluster A: empty")
+    print(f"  cluster B (right, orange) centre=({bx:.0f},{by:.0f})"
+          if bx is not None else "  cluster B: empty")
+    print(f"  screen shadows (green): L={sl} R={sr}")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
@@ -426,6 +570,8 @@ def main():
         w = int(sys.argv[3]) if len(sys.argv) > 4 else 496
         h = int(sys.argv[4]) if len(sys.argv) > 4 else 384
         cmd_objerr(sys.argv[2], w, h)
+    elif c == "fighters":
+        cmd_fighters(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
     else:
         print(__doc__); sys.exit(1)
 
