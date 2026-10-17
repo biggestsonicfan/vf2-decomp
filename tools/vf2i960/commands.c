@@ -9192,9 +9192,14 @@ static double gf_screen_cx(const uint8_t *poly, size_t poly_size, uint32_t rec,
         sx = 248.0 + X / Z;
         if (sx >= 0.0 && sx < 496.0) { sum += sx; ++non; }
     }
-    /* no fallback: a piece with no vertex on screen is not a visible fighter part
-     * (degenerate record or off-frame) and must not pull the split. */
     return (non > 0u) ? sum / (double)non : -1.0;
+}
+
+/* union-find root with path halving. */
+static size_t gf_find(size_t *p, size_t x)
+{
+    while (p[x] != x) { p[x] = p[p[x]]; x = p[x]; }
+    return x;
 }
 
 static int command_geo_fighter(
@@ -9222,16 +9227,19 @@ static int command_geo_fighter(
     float mdec[12];
     double adi[9];
     int have_dec = 0;
-    float (*mf)[12] = NULL;      /* per-selected-object world matrix */
-    uint32_t *selrec = NULL, *seltpa = NULL;
+    float (*mf)[12] = NULL;       /* per-candidate world matrix */
     uint32_t *cand_rec = NULL, *cand_tpa = NULL;
-    size_t *cand_s = NULL;
-    double *cand_cx = NULL, *sortcx = NULL;
-    size_t ncand = 0u, i, j;
-    double split = 248.0, bestgap = -1.0;
+    size_t *cand_s = NULL, *pstart = NULL, *pcount = NULL;
+    size_t *parent = NULL, *compsz = NULL, *sel = NULL;
+    int *grp2 = NULL;
+    double *cand_scx = NULL, *dmat = NULL;
+    float *worldv = NULL;
+    size_t ncand = 0u, i, j, k, wvn = 0u, wvcap;
+    size_t ca = 0u, cb = 0u;      /* the two largest components' roots */
+    double bestT = 0.05, best2nd = -1.0, Tt;
     size_t nsel = 0u;
     vf2_model_vertex *vacc = NULL;
-    size_t vcap = 400000u, vn = 0u, e;
+    size_t vcap = 400000u, e;
     double mn[3] = { 1e30, 1e30, 1e30 }, mx[3] = { -1e30, -1e30, -1e30 };
     double off[3] = { 0.0, 0.0, 0.0 };
     int vax = 1;
@@ -9290,84 +9298,175 @@ static int command_geo_fighter(
     }
 
     mf = (float (*)[12])malloc(nobjs * sizeof(*mf));
-    selrec = (uint32_t *)malloc(nobjs * sizeof(*selrec));
-    seltpa = (uint32_t *)malloc(nobjs * sizeof(*seltpa));
     cand_rec = (uint32_t *)malloc(nobjs * sizeof(*cand_rec));
     cand_tpa = (uint32_t *)malloc(nobjs * sizeof(*cand_tpa));
     cand_s = (size_t *)malloc(nobjs * sizeof(*cand_s));
-    cand_cx = (double *)malloc(nobjs * sizeof(*cand_cx));
-    sortcx = (double *)malloc(nobjs * sizeof(*sortcx));
-    if (mf == NULL || selrec == NULL || seltpa == NULL || cand_rec == NULL ||
-        cand_tpa == NULL || cand_s == NULL || cand_cx == NULL || sortcx == NULL)
+    pstart = (size_t *)malloc(nobjs * sizeof(*pstart));
+    pcount = (size_t *)malloc(nobjs * sizeof(*pcount));
+    cand_scx = (double *)malloc(nobjs * sizeof(*cand_scx));
+    sel = (size_t *)malloc(nobjs * sizeof(*sel));
+    wvcap = vcap;
+    worldv = (float *)malloc(wvcap * 3u * sizeof(*worldv));
+    if (mf == NULL || cand_rec == NULL ||
+        cand_tpa == NULL || cand_s == NULL || pstart == NULL || pcount == NULL ||
+        cand_scx == NULL || sel == NULL || worldv == NULL)
         goto done;
 
-    /* every non-shadow, resolvable fighter piece (the 2 decor-matrix records out),
-     * with its projected on-screen centroid x. */
+    /* every non-shadow, resolvable fighter piece (the 2 decor-matrix records out):
+     * decode its WORLD vertices (camera removed) and record its on-screen x. */
     for (s = 0u; s < nobjs; ++s) {
         uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
+        size_t vn = 0u;
         if (rec == 0x581d50u || rec == 0x1a9b54u) continue;
         if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;  /* shadow */
         if (rec >= 0x3c1facu && rec <= 0x3ca730u) continue;         /* decor */
         if ((size_t)rec + 24u > poly_size) continue;
+        gs_worldframe(objs[s].matrix, mdec, adi, mf[ncand]);
+        (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u, 1u,
+                             &sheet, &tr, mf[ncand], vacc, &vn, vcap);
+        if (vn == 0u) continue;
+        pstart[ncand] = wvn;
+        for (e = 0u; e < vn && wvn < wvcap; ++e) {
+            worldv[wvn * 3u + 0u] = vacc[e].x;
+            worldv[wvn * 3u + 1u] = vacc[e].y;
+            worldv[wvn * 3u + 2u] = vacc[e].z;
+            ++wvn;
+        }
+        pcount[ncand] = wvn - pstart[ncand];
+        cand_scx[ncand] = gf_screen_cx(poly, poly_size, rec, objs[s].matrix,
+                                       vacc, vcap);
         cand_rec[ncand] = rec;
         cand_tpa[ncand] = objs[s].tpa;
         cand_s[ncand] = s;
-        cand_cx[ncand] = gf_screen_cx(poly, poly_size, rec, objs[s].matrix,
-                                      vacc, vcap);
         ++ncand;
     }
     if (ncand == 0u) { fprintf(stderr, "geo-fighter: no fighter pieces\n"); goto done; }
 
-    /* split the two fighters at the widest gap in the sorted on-screen x. */
-    {
-        size_t nv = 0u;
-        for (i = 0u; i < ncand; ++i)
-            if (cand_cx[i] >= 0.0) sortcx[nv++] = cand_cx[i];
-        for (i = 1u; i < nv; ++i) {        /* insertion sort (small n) */
-            double v = sortcx[i];
-            j = i;
-            while (j > 0u && sortcx[j - 1u] > v) { sortcx[j] = sortcx[j - 1u]; --j; }
-            sortcx[j] = v;
+    /* pairwise minimum vertex distance between pieces (world space). */
+    dmat = (double *)malloc(ncand * ncand * sizeof(*dmat));
+    parent = (size_t *)malloc(ncand * sizeof(*parent));
+    compsz = (size_t *)malloc(ncand * sizeof(*compsz));
+    grp2 = (int *)malloc(ncand * sizeof(*grp2));
+    if (dmat == NULL || parent == NULL || compsz == NULL || grp2 == NULL)
+        goto done;
+    for (i = 0u; i < ncand; ++i) {
+        dmat[i * ncand + i] = 0.0;
+        for (j = i + 1u; j < ncand; ++j) {
+            double best = 1e30;
+            size_t a, b;
+            for (a = 0u; a < pcount[i]; ++a) {
+                const float *va = &worldv[(pstart[i] + a) * 3u];
+                for (b = 0u; b < pcount[j]; ++b) {
+                    const float *vb = &worldv[(pstart[j] + b) * 3u];
+                    double dx = (double)va[0] - vb[0];
+                    double dy = (double)va[1] - vb[1];
+                    double dz = (double)va[2] - vb[2];
+                    double d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 < best) best = d2;
+                }
+            }
+            dmat[i * ncand + j] = dmat[j * ncand + i] = sqrt(best);
         }
-        for (i = 1u; i < nv; ++i) {
-            double g = sortcx[i] - sortcx[i - 1u];
-            size_t lo = (i < nv - i) ? i : nv - i;   /* smaller side's count */
-            if (lo < 5u) continue;                    /* reject edge outliers */
-            if (g > bestgap) { bestgap = g; split = 0.5 * (sortcx[i] + sortcx[i - 1u]); }
-        }
-        if (bestgap < 0.0 && nv > 0u)                 /* fallback: screen centre */
-            split = 248.0;
     }
 
-    /* select the requested side (akira = left of the split, lau = right). A piece
-     * with no on-screen centroid (cx < 0) is placed by its matrix translation x,
-     * already folded into cand_cx; if still < 0 it is skipped. */
+    /* Connected components: two pieces of the same fighter touch at a joint
+     * (small min vertex distance), while the two fighters stay separated. Sweep
+     * the joint threshold and keep the one whose 2nd-largest component is biggest
+     * -- both fighters whole and not merged (a too-small T fragments a fighter, a
+     * too-large T fuses the two). */
+    for (Tt = 0.02; Tt <= 0.6001; Tt += 0.02) {
+        size_t b1 = 0u, b2 = 0u;
+        for (i = 0u; i < ncand; ++i) parent[i] = i;
+        for (i = 0u; i < ncand; ++i)
+            for (j = i + 1u; j < ncand; ++j)
+                if (dmat[i * ncand + j] <= Tt) {
+                    size_t ri = gf_find(parent, i), rj = gf_find(parent, j);
+                    if (ri != rj) parent[ri] = rj;
+                }
+        for (i = 0u; i < ncand; ++i) compsz[i] = 0u;
+        for (i = 0u; i < ncand; ++i) compsz[gf_find(parent, i)]++;
+        for (i = 0u; i < ncand; ++i) {
+            if (compsz[i] > b1) { b2 = b1; b1 = compsz[i]; }
+            else if (compsz[i] > b2) { b2 = compsz[i]; }
+        }
+        if ((double)b2 > best2nd) { best2nd = (double)b2; bestT = Tt; }
+    }
+
+    /* final components at bestT */
+    for (i = 0u; i < ncand; ++i) parent[i] = i;
+    for (i = 0u; i < ncand; ++i)
+        for (j = i + 1u; j < ncand; ++j)
+            if (dmat[i * ncand + j] <= bestT) {
+                size_t ri = gf_find(parent, i), rj = gf_find(parent, j);
+                if (ri != rj) parent[ri] = rj;
+            }
+    for (i = 0u; i < ncand; ++i) compsz[i] = 0u;
+    for (i = 0u; i < ncand; ++i) compsz[gf_find(parent, i)]++;
+    /* two largest components = the two fighters */
+    {
+        size_t na = 0u, nb = 0u;
+        ca = cb = ncand;
+        for (i = 0u; i < ncand; ++i) {
+            if (compsz[i] == 0u) continue;
+            if (compsz[i] > na) { cb = ca; nb = na; ca = i; na = compsz[i]; }
+            else if (compsz[i] > nb) { cb = i; nb = compsz[i]; }
+        }
+    }
+    if (ca == ncand || cb == ncand) { fprintf(stderr, "geo-fighter: <2 fighter components\n"); goto done; }
+    /* Assign every piece to the nearer of the two cores. A crouched fighter's
+     * lower legs can sit as far from his own torso as from the opponent (a wide
+     * knee gap at f20), so they form their own small component; attaching each
+     * orphan to the nearer core puts them back on the right fighter. Pieces far
+     * from both cores (> GF_ATTACH_CAP) are dropped as garbage/off-frame. */
     for (i = 0u; i < ncand; ++i) {
-        int is_left;
-        if (cand_cx[i] < 0.0) continue;
-        is_left = (cand_cx[i] < split);
-        if ((side == 0) != (is_left != 0)) continue;
-        gs_worldframe(objs[cand_s[i]].matrix, mdec, adi, mf[nsel]);
-        selrec[nsel] = cand_rec[i];
-        seltpa[nsel] = cand_tpa[i];
-        ++nsel;
+        size_t ri = gf_find(parent, i), m, n;
+        double dA, dB;
+        if (ri == ca) { grp2[i] = 0; continue; }
+        if (ri == cb) { grp2[i] = 1; continue; }
+        /* orphan: nearest core for the WHOLE component (keep a limb's pieces
+         * together -- e.g. the front foot that reaches toward the opponent). */
+        dA = 1e30; dB = 1e30;
+        for (m = 0u; m < ncand; ++m) {
+            if (gf_find(parent, m) != ri) continue;
+            for (n = 0u; n < ncand; ++n) {
+                size_t rn = gf_find(parent, n);
+                double d = dmat[m * ncand + n];
+                if (rn == ca && d < dA) dA = d;
+                else if (rn == cb && d < dB) dB = d;
+            }
+        }
+        if (dA > 0.5 && dB > 0.5) grp2[i] = -1;           /* garbage/off-frame */
+        else grp2[i] = (dA <= dB) ? 0 : 1;
+    }
+
+    /* label the two groups by mean on-screen x: the left one is akira. */
+    {
+        double sa = 0.0, sb = 0.0;
+        size_t na = 0u, nb = 0u;
+        int akira_grp, want_grp;
+        for (i = 0u; i < ncand; ++i) {
+            if (cand_scx[i] < 0.0) continue;
+            if (grp2[i] == 0) { sa += cand_scx[i]; ++na; }
+            else if (grp2[i] == 1) { sb += cand_scx[i]; ++nb; }
+        }
+        sa = na ? sa / (double)na : 1e9;
+        sb = nb ? sb / (double)nb : 1e9;
+        akira_grp = (sa <= sb) ? 0 : 1;
+        want_grp = (side == 0) ? akira_grp : 1 - akira_grp;
+        for (i = 0u; i < ncand; ++i)
+            if (grp2[i] == want_grp) sel[nsel++] = i;
     }
     if (nsel == 0u) { fprintf(stderr, "geo-fighter: no %s pieces at frame %zu\n", which, pose); goto done; }
 
-    /* pass 1: world-space bbox for feet centring */
-    for (s = 0u; s < nsel; ++s) {
-        vn = 0u;
-        (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, selrec[s], 0u, 0u,
-                             1u, &sheet, &tr, mf[s], vacc, &vn, vcap);
-        for (e = 0u; e < vn; ++e) {
-            int k;
-            double v[3];
-            v[0] = (double)vacc[e].x;
-            v[1] = (double)vacc[e].y;
-            v[2] = (double)vacc[e].z;
-            for (k = 0; k < 3; ++k) {
-                if (v[k] < mn[k]) mn[k] = v[k];
-                if (v[k] > mx[k]) mx[k] = v[k];
+    /* pass 1: world-space bbox for feet centring (from the stored world verts) */
+    for (k = 0u; k < nsel; ++k) {
+        size_t idx = sel[k], a;
+        for (a = 0u; a < pcount[idx]; ++a) {
+            const float *v = &worldv[(pstart[idx] + a) * 3u];
+            int kk;
+            for (kk = 0; kk < 3; ++kk) {
+                if ((double)v[kk] < mn[kk]) mn[kk] = (double)v[kk];
+                if ((double)v[kk] > mx[kk]) mx[kk] = (double)v[kk];
             }
         }
     }
@@ -9397,21 +9496,22 @@ static int command_geo_fighter(
                  "feet-centred. %zu pieces. Local only, never committed.\n",
             which, pose, nsel);
     fprintf(obj, "mtllib %s.mtl\n", which);
-    for (s = 0u; s < nsel; ++s) {
+    for (k = 0u; k < nsel; ++k) {
+        size_t idx = sel[k];
         uint32_t off32 = 0u, bnk = 0u, id = 0u, uv_ptr = 0u, th_ptr = 0u;
         size_t tris = 0u;
         float m2[12];
-        memcpy(m2, mf[s], sizeof(m2));
+        memcpy(m2, mf[idx], sizeof(m2));
         m2[9]  = (float)((double)m2[9]  - off[0]);
         m2[10] = (float)((double)m2[10] - off[1]);
         m2[11] = (float)((double)m2[11] - off[2]);
-        if (vf2_model_lookup_w0(main_data, main_size, seltpa[s], 0x4000u,
+        if (vf2_model_lookup_w0(main_data, main_size, cand_tpa[idx], 0x4000u,
                                 &off32, &bnk, &id) == VF2_OK) {
             uv_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 0u) & 0x7fffffu;
             th_ptr = tl_u32(main_data, main_size, 0x000e0004u + (size_t)id * 16u + 4u) & 0x7fffffu;
         }
-        fprintf(obj, "o %s_piece%02zu_rec%06x\n", which, s, (unsigned)selrec[s]);
-        vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, selrec[s],
+        fprintf(obj, "o %s_piece%02zu_rec%06x\n", which, k, (unsigned)cand_rec[idx]);
+        vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, cand_rec[idx],
                                uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m2,
                                NULL, NULL, 0u);
         tris_total += tris;
@@ -9423,10 +9523,9 @@ static int command_geo_fighter(
 
     printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png)\n",
            which, pose, out_dir, which, which);
-    printf("  %zu fighter pieces total, screen-x split at %.0f (gap %.0f); "
-           "selected %s (%s) = %zu pieces, %zu triangles\n",
-           ncand, split, bestgap, which, side == 0 ? "left" : "right",
-           nsel, tris_total);
+    printf("  %zu fighter pieces, 3D connected-components at joint threshold "
+           "%.2f; selected %s (%s) = %zu pieces, %zu triangles\n",
+           ncand, bestT, which, side == 0 ? "left" : "right", nsel, tris_total);
     printf("  camera removed; vertical axis %c, feet at origin; "
            "bbox world extent (%.2f,%.2f,%.2f)\n",
            "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
@@ -9437,8 +9536,10 @@ done:
     if (txt != NULL) fclose(txt);
     if (obj != NULL) fclose(obj);
     if (mtl != NULL) fclose(mtl);
-    free(words); free(objs); free(vacc); free(mf); free(selrec); free(seltpa);
-    free(cand_rec); free(cand_tpa); free(cand_s); free(cand_cx); free(sortcx);
+    free(words); free(objs); free(vacc); free(mf);
+    free(cand_rec); free(cand_tpa); free(cand_s); free(pstart); free(pcount);
+    free(cand_scx); free(sel); free(worldv); free(dmat); free(parent);
+    free(compsz); free(grp2);
     free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
     return rc;
 }
