@@ -9281,7 +9281,8 @@ static int command_geo_project(
     csv = fopen(csvpath, "wb");
     if (csv != NULL) {
         fprintf(csv, "obj,rec_byte,group,side,mode3,cx,cy,minx,miny,maxx,"
-                     "maxy,screen_h,ntri,rawext,c0n,c1n,c2n,zmin,zmax\n");
+                     "maxy,screen_h,ntri,rawext,c0n,c1n,c2n,zmin,zmax,"
+                     "tx,ty,tz\n");
     }
     /* per-triangle projected dump (screen coords) so an external overlay can
      * draw each object's actual contour -- not just its bbox. */
@@ -9508,11 +9509,13 @@ static int command_geo_project(
                 }
                 if (csv != NULL && otri > 0u) {
                     fprintf(csv, "%zu,0x%x,%s,%s,%u,%.1f,%.1f,%.1f,%.1f,%.1f,"
-                                 "%.1f,%.1f,%zu,%.1f,%.4f,%.4f,%.4f,%.2f,%.2f\n",
+                                 "%.1f,%.1f,%zu,%.1f,%.4f,%.4f,%.4f,%.2f,%.2f,"
+                                 "%.4f,%.4f,%.4f\n",
                             nobj, (unsigned)rec, og,
                             side, m3, objcx, 0.5 * (oy0 + oy1),
                             ox0, oy0, ox1, oy1, oy1 - oy0, otri,
-                            rawext, c0n, c1n, c2n, zmin, zmax);
+                            rawext, c0n, c1n, c2n, zmin, zmax,
+                            (double)mat[9], (double)mat[10], (double)mat[11]);
                 }
                 ++nobj;
             }
