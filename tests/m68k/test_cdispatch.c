@@ -1900,13 +1900,19 @@ static void test_dispatch_90_low(
     EXPECT_TRUE(scsp_equal(&board.scsp, &step_scsp));
 }
 
-/* E1o-exhausted: allocator dbf-exhaustion to the 0xf50 door.
- * Same 90-low fixture ($151a = 0x2800) but all 32 voices busy
- * (+2 = 0x40): the scan finds nothing, cursor untouched,
- * refuse at the 0xf50 reaper scan with the packet held. S
- * arrives at 0xf50 (steps print-first, locked after
- * measurement) with full-RAM (drain exclusions) + SCSP
- * equality (neither side wrote anything past the walk). */
+/* E1o-exhausted + E1r completion: allocator dbf-exhaustion to
+ * the 0xf50 reaper (all 32 voices busy, +2 = 0x40 / +9 =
+ * 0x40), then the reaper's own dbf exhaustion at 0xf68. E1r
+ * pinned the return: the rts pops the drain's jsr 0x81a return
+ * and lands at 0x7f6, the descriptor scan resumes with no
+ * writes, the drain tail advances the ring cursor by 4 at
+ * 0x804 and control exits at 0x265c. The command completes
+ * consumed with no authoring -- the C returns OK and
+ * dispatch_next's consume block models the drain tail
+ * (count 0, cursor 0 -> 4). S phases: arrival at 0xf50 (246
+ * steps, print-first), the rts return (0x7f6), the drain tail
+ * (0x265c). Full-RAM + SCSP equality with no drain exclusions
+ * (both sides agree on count/cursor here). */
 static void test_allocator_exhausted(
     const uint8_t *audio_rom,
     size_t audio_rom_size
@@ -1978,10 +1984,11 @@ static void test_allocator_exhausted(
             (unsigned)cram[0x251au + 2u],
             (unsigned)cram[0x251au + 3u],
             (unsigned)cram[VF2_SOUND_COMMAND_COUNT]);
-    EXPECT_TRUE(cstatus == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(cstatus == VF2_OK);
     EXPECT_TRUE(creport.handler_address == UINT32_C(0xf50));
-    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 1u);
-    EXPECT_TRUE(creport.cursor_after == creport.cursor_before);
+    EXPECT_TRUE(cram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    EXPECT_TRUE(creport.cursor_before == 0u);
+    EXPECT_TRUE(creport.cursor_after == 4u);
     EXPECT_TRUE(cram[0x251au] == 0x00u);
     EXPECT_TRUE(cram[0x251au + 1u] == 0x00u);
     EXPECT_TRUE(cram[0x251au + 2u] == 0x28u);
@@ -2011,12 +2018,49 @@ static void test_allocator_exhausted(
     EXPECT_TRUE(regs.pc == UINT32_C(0xf50));
     EXPECT_TRUE(done == 246u);
     EXPECT_TRUE(bus.event_count == 0u);
+    /* The drain entry already consumed the count (0x7b4) and the
+       jsr 0x81a return is still on the stack: a7 = 0x7f00 - 4
+       (0x7b0 movem) - 16 (0x7ee movem) - 4 (jsr). */
+    fprintf(stderr, "dispatch alloc-x: s-a7=0x%05x count=%u cursor=%02x%02x\n",
+            (unsigned)regs.a[7],
+            (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)step_ram[0x2508u],
+            (unsigned)step_ram[0x2509u]);
+    EXPECT_TRUE(step_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    EXPECT_TRUE(step_ram[0x2508u] == 0u && step_ram[0x2509u] == 0u);
+    EXPECT_TRUE(regs.a[7] == UINT32_C(0x7ee8));
+
+    /* E1r phase 2: the reaper's dbf exhaustion falls into the
+       0xf68 rts, which pops the drain's jsr return -- 0x7f6. */
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x7f6), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch alloc-x: s-rts pc=0x%05x steps=%u a7=0x%05x\n",
+            (unsigned)regs.pc, (unsigned)done, (unsigned)regs.a[7]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x7f6));
+    EXPECT_TRUE(done == 131u);
+    EXPECT_TRUE(regs.a[7] == UINT32_C(0x7eec));
+
+    /* E1r phase 3: the drain tail -- the descriptor scan resumes
+       (descriptors 1..19 do not match), the ring cursor advances
+       by 4 at 0x804 and control exits at 0x265c. */
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c), 0, 20000u,
+                          &done);
+    fprintf(stderr, "dispatch alloc-x: s-tail pc=0x%05x steps=%u count=%u cursor=%02x%02x\n",
+            (unsigned)regs.pc, (unsigned)done,
+            (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)step_ram[0x2508u],
+            (unsigned)step_ram[0x2509u]);
+    EXPECT_TRUE(status == VF2_OK);
+    EXPECT_TRUE(regs.pc == UINT32_C(0x265c));
+    EXPECT_TRUE(done == 84u);
+    EXPECT_TRUE(bus.event_count == 0u);
+    EXPECT_TRUE(step_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    EXPECT_TRUE(step_ram[0x2508u] == 0u && step_ram[0x2509u] == 0x04u);
     {
         uint32_t addr = 0u;
         for (addr = 0u; addr < VF2_SOUND_RAM_BYTES; ++addr) {
-            if (addr == 0x2506u ||
-                (addr >= 0x2508u && addr < 0x250au) ||
-                addr >= 0x7e00u) {
+            if (addr >= 0x7e00u) {
                 continue;
             }
             if (cram[addr] != step_ram[addr]) {

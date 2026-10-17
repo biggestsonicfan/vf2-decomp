@@ -434,17 +434,23 @@ vf2_status vf2_session_pump_audio(
         (uint32_t)((board->sound_ram[VF2_SOUND_COMMAND_COUNT] -
                     board_count_before) &
                    UINT32_C(0xff));
-    /* Dispatch each newly filed entry at the board's read cursor,
-     * advancing past every outcome the way the silicon drain
-     * epilogue does (cursor += 4 regardless of arm). The 0xcb2
+    /* Dispatch each newly filed entry at the board's read cursor.
+     * dispatch_next already models the drain epilogue for entries
+     * it completes: an OK return has consumed inside itself
+     * (count--, cursor += 4, handled = 1) -- the E1c key-on arm,
+     * gate-hits, unlisted classes and (E1r) the 0xf50 reaper-exhaust
+     * completion. Refused entries stop at their door, so the pump
+     * advances past those (the T3 consume-even-refused rule) --
+     * EXACTLY one cursor step per entry either way. The 0xcb2
      * copy-loop door applies the full slot program before refusing
      * (E1b fall-through shape, T2 round-1: handler + effects proven
      * C==S) and counts as dispatched, as does the 0xdf8 door
      * (E1i d92 arm: bclr + slot program + stream RMW before the
-     * same dead loop); a completed key-on arm (E1c 0xed8, VF2_OK)
-     * counts the same way; earlier doors count as refused. The
+     * same dead loop); earlier doors count as refused. The
      * pre-E1b 0xc68 pin is retired -- no path refuses there
-     * anymore. */
+     * anymore. An unconditional advance here would double-advance
+     * on OK and silently skip the next filed entry (latent since
+     * T3; pinned by the E1r staged pump leg). */
     pending = report->entries_filed;
     while (pending > 0u) {
         vf2_sound_dispatch_report dispatch;
@@ -460,14 +466,16 @@ vf2_status vf2_session_pump_audio(
         } else {
             ++report->entries_refused;
         }
-        cursor = (uint16_t)(((uint16_t)(board->sound_ram[VF2_SOUND_COMMAND_CURSOR] << 8u) |
-                            board->sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u]) +
-                           4u) &
-                 UINT16_C(0x0fff);
-        board->sound_ram[VF2_SOUND_COMMAND_CURSOR] =
-            (uint8_t)(cursor >> 8u);
-        board->sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] =
-            (uint8_t)cursor;
+        if (!dispatch.handled) {
+            cursor = (uint16_t)(((uint16_t)(board->sound_ram[VF2_SOUND_COMMAND_CURSOR] << 8u) |
+                                board->sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u]) +
+                               4u) &
+                     UINT16_C(0x0fff);
+            board->sound_ram[VF2_SOUND_COMMAND_CURSOR] =
+                (uint8_t)(cursor >> 8u);
+            board->sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] =
+                (uint8_t)cursor;
+        }
         --pending;
     }
     return VF2_OK;

@@ -508,6 +508,19 @@ if(VF2_BUILD_TESTS)
         set_tests_properties(vf2_session_audio_pump PROPERTIES
             SKIP_RETURN_CODE 77
             TIMEOUT 900)
+        # E1r pump cursor accounting: argv[4] = a probe-staged queue
+        # (OK b0-class entry + refused 90 entry) on top of the park
+        # snapshot; skips where the staged snapshot is absent (it is
+        # a local out/ artifact, same rule as the other legs).
+        add_test(NAME vf2_session_audio_pump_staged
+            COMMAND vf2_session_audio_tests
+                "${VF2_ROM_DIR}"
+                "${CMAKE_SOURCE_DIR}/out/sixth-fresh.vf2snap"
+                "${CMAKE_SOURCE_DIR}/out/park-sixth-a6c0.vf2snap"
+                "${CMAKE_SOURCE_DIR}/out/park-staged-2entries.vf2snap")
+        set_tests_properties(vf2_session_audio_pump_staged PROPERTIES
+            SKIP_RETURN_CODE 77
+            TIMEOUT 900)
         # T4 queue hunt: oracle-frame filer/flusher arrivals from
         # gameplay (sixth-fresh). Hits reported, not gated; the
         # 8d snapshot rule applies.

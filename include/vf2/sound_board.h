@@ -113,6 +113,8 @@ typedef struct vf2_sound_dispatch_report {
     uint32_t lookup_word;
     size_t voices_updated;
     uint32_t handler_address;
+    /* 1 when dispatch_next consumed the entry itself (count--,
+       ring cursor += 4); the session pump advances only when 0. */
     int handled;
 } vf2_sound_dispatch_report;
 

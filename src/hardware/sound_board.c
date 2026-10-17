@@ -2260,8 +2260,13 @@ static vf2_status sound_board_run_allocator_0f12(
 /* ROM 0xf50-0xfac reaper (v0825 E1p). 32-voice scan from the
  * 0x2800 table base for +9 == 0 (move.b/compare, stride
  * 0x10 -- base reset, NOT the $151a cursor). Exhausted (dbf,
- * none age-zero): rts with the packet held -- refuse at
- * 0xf50 (the E1o alloc-x leg pins it). Found (0xf6a): d4 =
+ * none age-zero): the 0xf68 rts pops the drain's jsr 0x81a
+ * return and resumes at 0x7f6 -- the descriptor scan finishes
+ * (no writes), the ring cursor advances by 4 at 0x804 and
+ * control exits at 0x265c (all stepper-pinned, E1r). The
+ * command completes with no authoring: VF2_OK, so
+ * dispatch_next's consume block models that drain tail
+ * (handler pin stays 0xf50). Found (0xf6a): d4 =
  * voice slot word; SCSP[slot+0x0b] = 0x1f, SCSP[slot] =
  * 0x10, voice+2 = 0, ram[0x2000+slot] = 0; rebalance loop
  * decrements every non-0xff age INCLUDING the just-found
@@ -2317,8 +2322,15 @@ static vf2_status sound_board_run_reaper_0f50(
                 board, descriptor, voice, report);
         }
     }
+    /* Exhausted: the rts at 0xf68 resumes the drain (0x7f6),
+       which consumes the command -- the drain tail advances the
+       ring cursor by 4 (0x804) and exits at 0x265c with no
+       authoring. VF2_OK, not a refusal (E1r: cursor 0 -> 4,
+       steps pinned). The pump counts it dispatched, matching
+       silicon's silent drop of a 90 command on a fully busy
+       voice table. */
     report->handler_address = UINT32_C(0x00000f50);
-    return VF2_ERROR_UNSUPPORTED;
+    return VF2_OK;
 }
 
 static vf2_status sound_board_dispatch_90(

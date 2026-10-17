@@ -206,6 +206,54 @@ int main(int argc, char **argv)
         fprintf(stderr, "session-audio: pump peak=%d\n", (int)ppeak);
         vf2_session_close(pump);
     }
+    /* E1r staged leg: same binary, argv[4] = a queue staged by
+     * vf2probe on park-sixth-a6c0 with ZERO steps run (--until
+     * equals the parked IP): i960 count 2 at 0x504001, rcur 0,
+     * byte idx 0xff, ring[0] = 0x00be0000 and ring[1] = 0x009e0a7f.
+     * Packet BE 00 00 is a b0-class entry 0x3e: the table default
+     * consumes with no side effects (OK). Packet 9E 0A 7F is the
+     * live 90-class entry: refused on the init-state board (the
+     * T3 pin's 90 shape). This pins the pump's exactly-once ring
+     * cursor rule on an OK outcome: dispatch_next consumes inside
+     * itself (count--, cursor += 4), so the pump must not advance
+     * again. A double advance skips the 9e entry, reads the zeroed
+     * ring at +8 (class 0x00 -> consume) and reports 2 dispatched
+     * / 0 refused. */
+    if (argc >= 5) {
+        vf2_session *staged = NULL;
+        vf2_session_audio_pump_report sreport;
+        FILE *sprobe = fopen(argv[4], "rb");
+        if (sprobe == NULL) {
+            fprintf(stderr, "session-audio: SKIP staged, no snapshot at %s\n",
+                    argv[4]);
+            return 77;
+        }
+        (void)fclose(sprobe);
+        memset(&sreport, 0, sizeof(sreport));
+        CHECK(vf2_session_open(argv[1], argv[4], &staged) == VF2_OK);
+        if (staged == NULL) {
+            return 1;
+        }
+        CHECK(vf2_session_audio_status(staged) == VF2_OK);
+        CHECK(vf2_session_pump_audio(staged, &sreport) == VF2_OK);
+        fprintf(stderr, "session-audio: staged bytes=%u filed=%u dispatched=%u refused=%u ticks=%u drain=%d\n",
+                (unsigned)sreport.bytes_moved,
+                (unsigned)sreport.entries_filed,
+                (unsigned)sreport.entries_dispatched,
+                (unsigned)sreport.entries_refused,
+                (unsigned)sreport.drain_ticks,
+                (int)sreport.drain_status);
+        CHECK(sreport.drain_status == VF2_OK);
+        CHECK(sreport.bytes_moved == 6u);
+        CHECK(sreport.drain_ticks == 6u);
+        CHECK(sreport.entries_filed == 2u);
+        /* One OK consume (0xbe) + one refusal (0x9e): exactly one
+         * cursor advance per entry, so the second entry must still
+         * be the one dispatched at +4. */
+        CHECK(sreport.entries_dispatched == 1u);
+        CHECK(sreport.entries_refused == 1u);
+        vf2_session_close(staged);
+    }
     if (g_fail != 0) {
         fprintf(stderr, "session-audio: %d failures\n", g_fail);
     }
