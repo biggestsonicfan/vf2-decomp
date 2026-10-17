@@ -11,6 +11,7 @@ Usage:
   geo_overlay.py objerr  <proj.png.csv> [W H]
   geo_overlay.py fighters <screenshot.png> <proj.png.tris> <proj.png.csv> <out.png>
   geo_overlay.py fitfighters <shotdir> <frameidx> <proj.png.tris> <proj.png.csv> <ref_f00.csv>
+  geo_overlay.py fitdecor <shot.png> <proj.png.tris>
 
 `overlay` blends the projection over the screenshot (projection colours kept:
 red anchor, grey other, dark shadow) and draws its silhouette edges, so the two
@@ -682,6 +683,91 @@ def cmd_fitfighters(shotdir, idx, tris_p, csv_p, ref_csv, rng=100):
               f"{len(pts)} fill pts")
 
 
+def _edge_points(tris, w, h):
+    """Rasterize triangle edges (wireframe) to a clipped set of (x,y) points."""
+    pts = set()
+
+    def line(ax, ay, bx, by):
+        ax, ay, bx, by = int(round(ax)), int(round(ay)), int(round(bx)), int(round(by))
+        if min(ax, bx) > w + 50 or max(ax, bx) < -50:
+            return
+        if min(ay, by) > h + 50 or max(ay, by) < -50:
+            return
+        dx = abs(bx - ax); dy = -abs(by - ay)
+        sx = 1 if ax < bx else -1
+        sy = 1 if ay < by else -1
+        err = dx + dy
+        n = 0
+        while n < 4000:
+            if 0 <= ax < w and 0 <= ay < h:
+                pts.add((ax, ay))
+            if ax == bx and ay == by:
+                break
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy; ax += sx
+            if e2 <= dx:
+                err += dx; ay += sy
+            n += 1
+    for (x0, y0, x1, y1, x2, y2) in tris:
+        line(x0, y0, x1, y1)
+        line(x1, y1, x2, y2)
+        line(x2, y2, x0, y0)
+    return list(pts)
+
+
+def _edge_mask(shot, w, h, keep=0.15):
+    """Binary screenshot-edge map (top `keep` fraction of Sobel), dilated by 1px."""
+    mag = sobel(gray(shot, w * h), w, h)
+    srt = sorted(mag)
+    thr = srt[int((1.0 - keep) * len(srt))]
+    em = bytearray(w * h)
+    for i in range(w * h):
+        if mag[i] >= thr:
+            em[i] = 1
+    dil = bytearray(em)
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            i = y * w + x
+            if em[i]:
+                dil[i - 1] = 1; dil[i + 1] = 1
+                dil[i - w] = 1; dil[i + w] = 1
+    return dil
+
+
+def cmd_fitdecor(shot_p, tris_p, group="decor", rngx=100, rngy=30):
+    w, h, shot = read_png(shot_p)
+    em = _edge_mask(shot, w, h)
+    tris = []
+    with open(tris_p) as f:
+        next(f, None)
+        for ln in f:
+            p = ln.rstrip("\n").split(",")
+            if len(p) >= 9 and p[2] == group and p[1] not in EXCLUDE_RECS:
+                tris.append(tuple(float(v) for v in p[3:9]))
+    pts = _edge_points(tris, w, h)
+    if len(pts) > 1000:
+        step = len(pts) // 1000 + 1
+        pts = pts[::step]
+    # coverage metric: fraction of projected edge points that land on a
+    # screenshot edge -- robust to strong-edge domination.
+    best = (-1.0, 0, 0)
+    for dy in range(-rngy, rngy + 1):
+        for dx in range(-rngx, rngx + 1):
+            s = 0
+            for (x, y) in pts:
+                xx = x + dx; yy = y + dy
+                if 0 <= xx < w and 0 <= yy < h and em[yy * w + xx]:
+                    s += 1
+            if s > best[0]:
+                best = (s, dx, dy)
+    sc, dx, dy = best
+    s0 = sum(1 for (x, y) in pts if em[y * w + x])
+    print(f"  {group}: best shift dx={dx:+d} dy={dy:+d}  edge-coverage "
+          f"{100*sc/len(pts):.0f}% (vs {100*s0/len(pts):.0f}% at 0,0); "
+          f"{len(tris)} tris, {len(pts)} edge pts")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
@@ -705,6 +791,8 @@ def main():
     elif c == "fitfighters":
         cmd_fitfighters(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
                         sys.argv[6])
+    elif c == "fitdecor":
+        cmd_fitdecor(sys.argv[2], sys.argv[3])
     else:
         print(__doc__); sys.exit(1)
 

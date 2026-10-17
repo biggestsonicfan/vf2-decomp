@@ -10396,8 +10396,13 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "geo-project") == 0 && (argc == 7 || argc == 11)) {
         int W = 496;        /* MAME visible screen, to overlay 1:1 */
         int H = 384;
-        double xo = 84.0;   /* MAME m_crtc_xoffset (84 + hsync); no crop */
-        double yo = 130.0;  /* MAME m_crtc_yoffset (130 + vsync); no crop */
+        /* m_crtc_xoffset = 84 + (int16_t)hsync (model2_v.cpp:643): the 84 is a
+         * MAME per-game base (comment :69), and VF2's CRTC H output cancels it,
+         * so the effective x-offset is 0 -- measured by contour-fitting BOTH the
+         * decor and the fighters (Step 2n): at xo=84 each sits ~84px too far
+         * right; at xo=0 both register. y keeps 130 (decor dy~0 there). */
+        double xo = 0.0;    /* VF2 effective m_crtc_xoffset (84 base + hsync) */
+        double yo = 130.0;  /* MAME m_crtc_yoffset (130 + vsync) */
         if (argc == 11) {
             W = atoi(argv[7]);
             H = atoi(argv[8]);
