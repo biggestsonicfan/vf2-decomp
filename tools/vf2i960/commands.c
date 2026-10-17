@@ -7522,14 +7522,18 @@ static uint8_t gc_gamma(uint32_t v)
  * scale by the lighting term and clamp to 6-bit shade -> colorxlat per channel (R/G/B
  * regions at word 0x0000/0x2000/0x4000) -> VF2 gamma (model2rd.ipp:336-349). r5/g5/b5
  * are the polygon colour's 5-bit channels (from palram[colorbase+0x1000]&0x7fff).
- * lumascale is the polygon lighting (0xff = full / unlit albedo). Returns 0 and writes
- * nothing when the texel is the transparent one (0x0f). */
+ * lumascale is the polygon lighting (0xff = full / unlit albedo). `translucent` is the
+ * polygon's transparent flag (texheader[0] bit 13); texel 0x0f is the cutout ONLY for
+ * a translucent polygon (MAME selects draw_scanline_tex<Translucent>, model2_v.cpp:568
+ * + model2rd.ipp). For an opaque polygon 0x0f is simply the brightest intensity --
+ * treating it as transparent turned flat 0x0f-filled opaque regions (Lau's gi, a lot
+ * of skin) fully black. Returns 0 and writes nothing only for a translucent cutout. */
 static int gc_texel_rgb(uint8_t t4, uint32_t lumabase, int r5, int g5, int b5,
-                        uint32_t lumascale, const uint8_t *luma,
+                        uint32_t lumascale, int translucent, const uint8_t *luma,
                         const uint8_t *cxlat, size_t cxlat_n, uint8_t out[3])
 {
     uint32_t t8, curve, shade;
-    if (t4 == 0x0fu) return 0;            /* brightest = transparent */
+    if (translucent && t4 == 0x0fu) return 0;   /* translucent cutout only */
     t8 = (uint32_t)t4 << 4;
     curve = luma[(lumabase + (t8 >> 1)) & 0x7fffu];
     shade = (curve * lumascale) / 256u;
@@ -7589,7 +7593,7 @@ static void ext_colour_sheet_piece(
         uint16_t thw[4];
         vf2_texture_header hd;
         uint32_t palc, px, py;
-        int r5, g5, b5;
+        int r5, g5, b5, translucent;
         const uint8_t *bk;
         size_t bks;
         uint8_t *cs;
@@ -7601,6 +7605,7 @@ static void ext_colour_sheet_piece(
         vf2_texture_header_decode(thw, &hd);
         palc = gc_u16(pal, pal_n, (size_t)((hd.color_base + 0x1000u) & 0x1fffu)) & 0x7fffu;
         r5 = (int)(palc & 0x1fu); g5 = (int)((palc >> 5) & 0x1fu); b5 = (int)((palc >> 10) & 0x1fu);
+        translucent = (int)(hd.renderer & 1u);   /* texheader[0] bit 13 */
         bk = bank[hd.sheet & 1u]; bks = bank_size[hd.sheet & 1u]; cs = csheet[hd.sheet & 1u];
         for (py = 0u; py < hd.tex_height; ++py) {
             uint32_t sy = hd.tex_y + py;
@@ -7610,7 +7615,7 @@ static void ext_colour_sheet_piece(
                 uint8_t t4, rgb[3];
                 if (sx >= 2048u) break;
                 t4 = vf2_texture_sheet_texel(bk, bks, sx, sy);
-                if (gc_texel_rgb(t4, hd.luma_base, r5, g5, b5, 0xffu,
+                if (gc_texel_rgb(t4, hd.luma_base, r5, g5, b5, 0xffu, translucent,
                                  luma, cxlat, cxlat_n, rgb)) {
                     size_t o = ((size_t)sy * 2048u + sx) * 3u;
                     cs[o] = rgb[0]; cs[o + 1u] = rgb[1]; cs[o + 2u] = rgb[2];
@@ -10008,6 +10013,11 @@ static void gc_load_texparams(const char *path, uint8_t *tp_diffuse, uint8_t *tp
  * from a single-frame capture -- see the default-init note in command_geo_colour.
  * Local only; never committed. (gc_u16 / gc_gamma / gc_texel_rgb are defined with the
  * texture writers above, shared with the coloured-texture export.) */
+/* Optional single-pixel trace target (VF2_COLOUR_TRACE="x,y"): when the pixel that
+ * wins the z-test is (gc_tx,gc_ty), dump the full draw_scanline_tex pipeline for it so
+ * a witness polygon can be compared field by field against screen.png. */
+static int gc_tx = -1, gc_ty = -1;
+
 static void gc_fill_tri_tex(
     uint8_t *fb, double *zb, int W, int H,
     const double *X, const double *Y, const double *Z,
@@ -10049,11 +10059,29 @@ static void gc_fill_tri_tex(
                                          hd->tex_x + (uint32_t)lu,
                                          hd->tex_y + (uint32_t)lv);
             if (!gc_texel_rgb(t4, lumabase, r5, g5, b5, lumascale,
-                              luma, cxlat, cxlat_n, rgb)) continue;
+                              (int)(hd->renderer & 1u), luma, cxlat, cxlat_n, rgb)) continue;
             zb[fi] = z;
             fb[fi * 3u + 0u] = rgb[0];
             fb[fi * 3u + 1u] = rgb[1];
             fb[fi * 3u + 2u] = rgb[2];
+            if (px == gc_tx && py == gc_ty) {
+                uint32_t t8 = (uint32_t)t4 << 4;
+                uint32_t curve = luma[(lumabase + (t8 >> 1)) & 0x7fffu];
+                uint32_t shade = (curve * lumascale) / 256u; if (shade > 0x3fu) shade = 0x3fu;
+                fprintf(stderr,
+                    "TRACE px(%d,%d) sheet%u rect(%u,%u %ux%u) renderer=%u translucent=%u\n"
+                    "  colorbase=0x%03x lumabase=0x%04x r5=%d g5=%d b5=%d lumascale=%u\n"
+                    "  texel=0x%x t8=0x%02x curve(luma[0x%04x])=%u shade=%u\n"
+                    "  colorxlat R=%u G=%u B=%u -> gamma RGB=(%u,%u,%u)\n",
+                    px, py, hd->sheet, hd->tex_x, hd->tex_y, hd->tex_width, hd->tex_height,
+                    hd->renderer, hd->renderer & 1u,
+                    hd->color_base, lumabase, r5, g5, b5, lumascale,
+                    t4, t8, (lumabase + (t8 >> 1)) & 0x7fffu, curve, shade,
+                    gc_u16(cxlat, cxlat_n, 0x0000u + (size_t)r5 * 0x100u + shade) & 0xffu,
+                    gc_u16(cxlat, cxlat_n, 0x2000u + (size_t)g5 * 0x100u + shade) & 0xffu,
+                    gc_u16(cxlat, cxlat_n, 0x4000u + (size_t)b5 * 0x100u + shade) & 0xffu,
+                    rgb[0], rgb[1], rgb[2]);
+            }
         }
     }
 }
@@ -10089,6 +10117,7 @@ static int command_geo_colour(
     vf2_status st;
 
     pose = (size_t)strtoul(pose_str, NULL, 0);
+    { const char *tr = getenv("VF2_COLOUR_TRACE"); if (tr != NULL) sscanf(tr, "%d,%d", &gc_tx, &gc_ty); }
     memset(mat, 0, sizeof(mat));
     /* Texture parameters (diffuse/ambient per index) are set by command 0x06 and
      * PERSIST in the geometry engine across frames (MAME value-inits them to 0/0 in
