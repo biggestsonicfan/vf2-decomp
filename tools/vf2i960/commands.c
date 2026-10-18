@@ -7863,33 +7863,32 @@ static void ext_xform(const float *m, const vf2_model_vertex *in,
     out->z = in->x * m[2] + in->y * m[5] + in->z * m[8] + m[11];
 }
 
-/* Emit one triangle (3 vertices + 3 UVs in lockstep, so the v and vt index of a
- * corner match). `mtx` (NULL = identity) poses each vertex into world/view
- * space. `onrm`/`eps`: when non-NULL and non-zero, shift the whole triangle by
- * `eps` world units along its (object-space) normal rotated into world space --
- * used to lift a translucent decal (dragon, ornament) off the coplanar opaque
- * base so a z-buffered viewer draws it on top, as MAME does by rendering
- * translucent polygons over opaque ones. When `onrm` is non-NULL the triangle's
- * winding is also oriented so its geometric normal agrees with `onrm` (the
- * model's own winding is not consistently outward, which shows as inside-out
- * faces in a bare OBJ viewer). Returns the next running index. */
-static size_t ext_emit_tri(
+/* Emit one polygon (3 or 4 vertices + matching UVs, in lockstep so each corner's
+ * v and vt index match) as a single OBJ face. `mtx` (NULL = identity) poses each
+ * vertex into world/view space. The polygon is emitted as an n-gon (not
+ * pre-triangulated) exactly as MAME scan-converts it (render_polygon<4>), so a
+ * viewer triangulates a non-convex/non-planar quad correctly; pre-splitting on a
+ * fixed diagonal put the split outside such a quad and made an inward spike
+ * (Lau's fist tops, Akira's foot tops). `onrm`/`eps`: when non-NULL and non-zero,
+ * shift the whole face by `eps` world units along its (object-space) normal
+ * rotated into world space -- used to lift a translucent decal (dragon, ornament)
+ * off the coplanar opaque base so a z-buffered viewer draws it on top, as MAME
+ * renders translucent over opaque. When `onrm` is non-NULL the face winding is
+ * also oriented so its geometric normal agrees with `onrm` (the model's own
+ * winding is not consistently outward). Returns the next running index. */
+static size_t ext_emit_poly(
     FILE *obj, size_t n,
-    const vf2_model_vertex *a, const float ua[2],
-    const vf2_model_vertex *b, const float ub[2],
-    const vf2_model_vertex *c, const float uc[2],
+    const vf2_model_vertex *pv[4], const float *puv[4], uint32_t numv,
     const float *mtx, const float *onrm, float eps,
     vf2_model_vertex *vacc, size_t *vacc_n, size_t vacc_cap
 )
 {
-    vf2_model_vertex ta;
-    vf2_model_vertex tb;
-    vf2_model_vertex tc;
-    const float *ua2 = ua, *ub2 = ub, *uc2 = uc;
+    vf2_model_vertex tv[4];
+    uint32_t ord[4] = {0u, 1u, 2u, 3u};
+    uint32_t i;
     float wn[3] = {0.0f, 0.0f, 0.0f}, wlen = 0.0f;
-    ext_xform(mtx, a, &ta);
-    ext_xform(mtx, b, &tb);
-    ext_xform(mtx, c, &tc);
+    if (numv < 3u || numv > 4u) return n;
+    for (i = 0u; i < numv; ++i) ext_xform(mtx, pv[i], &tv[i]);
     if (onrm != NULL) {
         if (mtx != NULL) {
             wn[0] = onrm[0]*mtx[0] + onrm[1]*mtx[3] + onrm[2]*mtx[6];
@@ -7899,41 +7898,34 @@ static size_t ext_emit_tri(
         wlen = (float)sqrt((double)(wn[0]*wn[0] + wn[1]*wn[1] + wn[2]*wn[2]));
         if (wlen > 1e-6f && eps != 0.0f) {
             float s = eps / wlen;
-            ta.x += wn[0]*s; ta.y += wn[1]*s; ta.z += wn[2]*s;
-            tb.x += wn[0]*s; tb.y += wn[1]*s; tb.z += wn[2]*s;
-            tc.x += wn[0]*s; tc.y += wn[1]*s; tc.z += wn[2]*s;
+            for (i = 0u; i < numv; ++i) { tv[i].x += wn[0]*s; tv[i].y += wn[1]*s; tv[i].z += wn[2]*s; }
         }
         if (wlen > 1e-6f) {
-            /* orient winding so the triangle faces the same way as the model
-             * normal; swap two corners (vertex + UV together) if it is reversed. */
-            float e1x = tb.x-ta.x, e1y = tb.y-ta.y, e1z = tb.z-ta.z;
-            float e2x = tc.x-ta.x, e2y = tc.y-ta.y, e2z = tc.z-ta.z;
+            /* orient winding so the face normal agrees with the model normal;
+             * reverse the corner order (0, n-1, .., 1) if it is flipped. */
+            float e1x = tv[1].x-tv[0].x, e1y = tv[1].y-tv[0].y, e1z = tv[1].z-tv[0].z;
+            float e2x = tv[2].x-tv[0].x, e2y = tv[2].y-tv[0].y, e2z = tv[2].z-tv[0].z;
             float gx = e1y*e2z - e1z*e2y, gy = e1z*e2x - e1x*e2z, gz = e1x*e2y - e1y*e2x;
             if (gx*wn[0] + gy*wn[1] + gz*wn[2] < 0.0f) {
-                vf2_model_vertex tmp = tb; tb = tc; tc = tmp;
-                ub2 = uc; uc2 = ub;
+                if (numv == 4u) { ord[1] = 3u; ord[3] = 1u; }
+                else { ord[1] = 2u; ord[2] = 1u; }
             }
         }
     }
     if (obj != NULL) {
-        fprintf(obj, "v %.6f %.6f %.6f\n",
-                (double)ta.x, (double)ta.y, (double)ta.z);
-        fprintf(obj, "v %.6f %.6f %.6f\n",
-                (double)tb.x, (double)tb.y, (double)tb.z);
-        fprintf(obj, "v %.6f %.6f %.6f\n",
-                (double)tc.x, (double)tc.y, (double)tc.z);
-        fprintf(obj, "vt %.6f %.6f\n", (double)ua2[0], (double)ua2[1]);
-        fprintf(obj, "vt %.6f %.6f\n", (double)ub2[0], (double)ub2[1]);
-        fprintf(obj, "vt %.6f %.6f\n", (double)uc2[0], (double)uc2[1]);
-        fprintf(obj, "f %zu/%zu %zu/%zu %zu/%zu\n", n, n, n + 1u, n + 1u,
-                n + 2u, n + 2u);
+        for (i = 0u; i < numv; ++i)
+            fprintf(obj, "v %.6f %.6f %.6f\n",
+                    (double)tv[ord[i]].x, (double)tv[ord[i]].y, (double)tv[ord[i]].z);
+        for (i = 0u; i < numv; ++i)
+            fprintf(obj, "vt %.6f %.6f\n", (double)puv[ord[i]][0], (double)puv[ord[i]][1]);
+        fprintf(obj, "f");
+        for (i = 0u; i < numv; ++i)
+            fprintf(obj, " %zu/%zu", n + i, n + i);
+        fprintf(obj, "\n");
     }
-    if (vacc != NULL && vacc_n != NULL && *vacc_n + 3u <= vacc_cap) {
-        vacc[(*vacc_n)++] = ta;
-        vacc[(*vacc_n)++] = tb;
-        vacc[(*vacc_n)++] = tc;
-    }
-    return n + 3u;
+    if (vacc != NULL && vacc_n != NULL && *vacc_n + numv <= vacc_cap)
+        for (i = 0u; i < numv; ++i) vacc[(*vacc_n)++] = tv[i];
+    return n + numv;
 }
 
 /* Decode one model record (a quad strip) into textured triangles and write
@@ -8067,12 +8059,12 @@ static size_t ext_emit_piece(
         }
 
         if (*cur_sheet != (int)hd.sheet) {
-            fprintf(obj, "usemtl sheet%u\n", (unsigned)hd.sheet);
+            if (obj != NULL) fprintf(obj, "usemtl sheet%u\n", (unsigned)hd.sheet);
             *cur_sheet = (int)hd.sheet;
         }
 
-        /* Always pass the polygon's unit normal so ext_emit_tri can orient each
-         * triangle's winding to agree with it (the model's winding is not
+        /* Always pass the polygon's unit normal so ext_emit_poly can orient each
+         * face's winding to agree with it (the model's winding is not
          * consistently outward -- MAME relies on the explicit normal, so a bare
          * OBJ shows some faces inside-out, e.g. Lau's fist tops, Akira's nose and
          * foot tops). A translucent polygon (renderer bit0) is additionally a
@@ -8082,14 +8074,20 @@ static size_t ext_emit_piece(
         dnrm = pnrm;
         deps = (hd.renderer & 1u) ? -0.003f : 0.0f;
 
-        vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB, uv[3],
-                             mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
-        *tri_count += 1u;
-        if (numv == 4u) {
-            vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA, uv[2],
-                                 mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
-            *tri_count += 1u;
+        /* Emit the polygon as a single face in MAME's vertex order
+         * v0..v3 = P1(n-1), P0(n-1), P0(n), P1(n) = p1, p0, vA, vB, with UVs in
+         * the table order [P1(n-1),P0(n-1),P0(n),P1(n)] = uv[0..3]. A triangle
+         * (numv==3) drops P1(n). */
+        {
+            const vf2_model_vertex *pv[4]; const float *puv[4];
+            pv[0] = &p1;  puv[0] = uv[0];
+            pv[1] = &p0;  puv[1] = uv[1];
+            pv[2] = &vA;  puv[2] = uv[2];
+            pv[3] = &vB;  puv[3] = uv[3];
+            vbase = ext_emit_poly(obj, vbase, pv, puv, numv,
+                                  mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
         }
+        *tri_count += (numv == 4u) ? 2u : 1u;
 
         uv_ptr += numv * 2u;
         th_ptr = (uint32_t)((int32_t)th_ptr +
