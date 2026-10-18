@@ -132,11 +132,56 @@ class TestAudioUartTransport(unittest.TestCase):
 
     def test_gap_drops_provenance(self):
         lines,selected=stream()
-        idx=next(i for i,x in enumerate(lines) if '"ip_before": 5892' in x) if False else 1
         data=json.loads(lines[1]);data['step']=data['step']+3;lines[1]=json.dumps(data)
         result=observe_transport(lines,selected_writes={selected})
         self.assertNotIn('i960_ring_to_uart_complete',result['counts'])
         self.assertGreater(result['counts'].get('trace_step_gaps',0),0)
+
+    def test_alien_full_store_invalidates_pending_ring_slot(self):
+        lines,selected=stream()
+        lines=self.inject_before_irq(lines, 0x43800, QUEUE_LO, 0x00AD2342, 4)
+        result=observe_transport(lines,selected_writes={selected})
+        self.assertNotIn('i960_ring_to_uart_complete',result['counts'])
+        self.assertEqual(result['counts']['unverified_ring_write'],1)
+
+    def test_cross_boundary_partial_write_invalidates_first_slot(self):
+        lines,selected=stream()
+        lines=self.inject_before_irq(lines,0x43800,QUEUE_LO-1,0x1234,2)
+        result=observe_transport(lines,selected_writes={selected})
+        self.assertNotIn('i960_ring_to_uart_complete',result['counts'])
+        self.assertEqual(result['counts']['unconsumed_slot_overwritten'],1)
+
+    def test_unrelated_other_slot_remains_attributed(self):
+        lines,selected=stream()
+        lines=self.inject_before_irq(lines,0x43800,QUEUE_LO+8,0x12345678,4)
+        result=observe_transport(lines,selected_writes={selected})
+        self.assertEqual(result['counts']['verified_selector_to_uart'],1)
+
+    def test_unverified_stage_overwrite_refused(self):
+        lines,selected=stream()
+        # Insert an alien stage write just before the first byte read.
+        lines=self.inject_before_ip(lines,BYTE_READ,0x43800,STAGE,0x00AD2342,4)
+        result=observe_transport(lines,selected_writes={selected})
+        self.assertNotIn('i960_ring_to_uart_complete',result['counts'])
+        self.assertIn('unverified_stage_overwrite',result['counts'])
+
+    @staticmethod
+    def inject_before_ip(lines,target_pc,source_pc,address,value,width):
+        objects=[json.loads(s) for s in lines]
+        loc=next(i for i,item in enumerate(objects) if item.get('type')=='step' and item['ip_before']==target_pc)
+        start=objects[loc]['step']
+        for obj in objects:
+            if obj['step'] >= start:
+                obj['step'] += 1
+        loc=next(i for i,item in enumerate(objects) if item['step']==start+1)
+        new_mem=json.loads(mem(start,'write',address,value,width))
+        new_step=json.loads(step(start,source_pc,target_pc))
+        objects[loc:loc]=[new_mem,new_step]
+        return [json.dumps(obj) for obj in objects]
+
+    @classmethod
+    def inject_before_irq(cls,lines,pc,address,value,width):
+        return cls.inject_before_ip(lines,IRQ_CALL,pc,address,value,width)
 
     def test_no_irq_call_refused(self):
         lines,selected=stream()

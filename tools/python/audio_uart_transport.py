@@ -51,7 +51,8 @@ def memory_event(e: dict) -> dict | None:
         value = int.from_bytes(bytes.fromhex(raw), 'little')
     except ValueError:
         return None
-    if not (QUEUE_LO <= a < QUEUE_HI or STAGE <= a < STAGE + 4 or a == CURSOR or a == UART):
+    if not (a < QUEUE_HI and a + n > QUEUE_LO or
+            a < STAGE + 4 and a + n > STAGE or a == CURSOR or a == UART):
         return None
     return {'step': e.get('step'), 'kind': e['kind'], 'address': a,
             'size': n, 'value': value}
@@ -130,12 +131,19 @@ def observe_transport(lines, *, selected_writes=(), max_examples=64) -> dict:
             stats['vector_15_service_calls'] += 1
         for m in mem:
             a, n, value, kind = m['address'], m['size'], m['value'], m['kind']
-            if kind == 'write' and pc == QUEUE_WRITE and QUEUE_LO <= a < QUEUE_HI and n == 4 and (a-QUEUE_LO)%4 == 0:
-                if a in ring:
+            if kind == 'write' and a < QUEUE_HI and a + n > QUEUE_LO:
+                # Any write touching a pending ring entry breaks its authorship,
+                # including partial, boundary-crossing, and alien-PC stores.
+                touched = [slot for slot in ring if a < slot + 4 and a + n > slot]
+                for slot in touched:
+                    del ring[slot]
                     stats['unconsumed_slot_overwritten'] += 1
-                ring[a] = {'step': step, 'slot': a, 'command': value,
-                           'selected': (step, a, value) in upstream}
-                stats['original_filer_ring_writes'] += 1
+                if pc == QUEUE_WRITE and QUEUE_LO <= a < QUEUE_HI and n == 4 and (a-QUEUE_LO)%4 == 0:
+                    ring[a] = {'step': step, 'slot': a, 'command': value,
+                               'selected': (step, a, value) in upstream}
+                    stats['original_filer_ring_writes'] += 1
+                else:
+                    stats['unverified_ring_write'] += 1
             elif kind == 'read' and pc == POP_READ and irq and QUEUE_LO <= a < QUEUE_HI and n == 4 and (a-QUEUE_LO)%4 == 0:
                 abandon('new_pop_before_previous_complete')
                 writer = ring.pop(a, None)
@@ -145,14 +153,14 @@ def observe_transport(lines, *, selected_writes=(), max_examples=64) -> dict:
                 else:
                     active = {'writer': writer, 'command': value, 'pop_step': step}
                     stats['queue_pop_matched_to_original_filer'] += 1
-            elif kind == 'write' and pc == STAGE_WRITE and irq and a == STAGE and n == 4:
-                if active and active['command'] == value:
+            elif kind == 'write' and a < STAGE + 4 and a + n > STAGE:
+                if pc == STAGE_WRITE and irq and a == STAGE and n == 4 and active and active['command'] == value:
                     staged = {**active, 'stage_step': step, 'bytes': [], 'pending_byte': None,
                               'cursor_pending': None, 'services': 0}
                     stats['stage_matches_queue_pop'] += 1
                 else:
                     stats['unverified_stage'] += 1
-                    staged = None
+                    abandon('unverified_stage_overwrite')
                 active = None
             elif kind == 'read' and pc == BYTE_READ and irq and STAGE <= a < STAGE + 3 and n == 1:
                 if staged and staged['pending_byte'] is None and staged['cursor_pending'] is None and len(staged['bytes']) < 3:
@@ -172,8 +180,8 @@ def observe_transport(lines, *, selected_writes=(), max_examples=64) -> dict:
                 else:
                     stats['unattributed_uart_write'] += 1
                     abandon('uart_byte_mismatch_or_missing_read')
-            elif kind == 'write' and pc == CURSOR_WRITE and irq and a == CURSOR and n == 1:
-                if staged and staged['cursor_pending'] and step == staged['cursor_pending']['uart_step'] + 2:
+            elif kind == 'write' and a == CURSOR:
+                if pc == CURSOR_WRITE and irq and n == 1 and staged and staged['cursor_pending'] and step == staged['cursor_pending']['uart_step'] + 2:
                     expected = (1, 0, 255)[len(staged['bytes'])]
                     if value == expected:
                         staged['bytes'].append(staged['cursor_pending']['byte'])
@@ -183,6 +191,7 @@ def observe_transport(lines, *, selected_writes=(), max_examples=64) -> dict:
                         abandon('unexpected_byte_cursor')
                 else:
                     stats['unattributed_cursor_write'] += 1
+                    abandon('unverified_cursor_write')
         if pc == DRAIN_RET and after == IRQ_RETURN:
             if not irq:
                 stats['unpaired_isr_return'] += 1
