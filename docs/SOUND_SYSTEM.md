@@ -93,7 +93,8 @@ rotinas de jogador, e **não** um identificador independente de evento
 sonoro. O driver i960 em `0x4396c` lê esse campo e em `0x43974` lê
 `fighter + 0x624`. Neste segundo campo, 37 dos 39 candidatos de
 escrita direta têm sequências locais de zero comprováveis; `0x23b44`
-é um dos dois casos restantes que exigem rastreamento. Isso **não**
+faz parte de `fa_coli`/`0x23878` (remapeamento de bits de colisão,
+medido anteriormente em v0283), **não é prova de um evento de áudio**. Isso **não**
 prova que `+0x624` seja o gatilho: só um evento real com trace e
 diferencial pode fechar essa lacuna.
 

@@ -26,8 +26,12 @@ produced the following **candidates** (not reachability claims):
 - `0x43974`: `ldos +0x624(g7), r14`, in the same path.
 - `0x14190`: `stos r3,+0x624(g7)`, among a cluster of field stores;
   not yet classified for value or reachability.
-- `0x23b44`: `stos g3,+0x624(g7)`; **best candidate for a
-  dynamic/nonzero writer**, but source/producer still unmeasured.
+- `0x23b44`: `stos g3,+0x624(g7)`, immediately after the
+  `call 0x23878` at `0x23b40` inside `fa_coli` (`0x2396c`). The
+  earlier **measured** collision/poly-cluster study v0283 already
+  captured exactly three bit-remap calls per invocation and this
+  post-remap store. It is a dynamic writer, **NOT evidence of a
+  sound-event producer**. See `fa_coli_2396c_measure_v0283.md`.
 - `0x54ad4`: `stos r3,+0x624(g7)` immediately after a local
   zeroing sequence (reset, not an event trigger).
 
@@ -51,8 +55,10 @@ tool neither emits ROM bytes nor writes extracted files.
 
 ## Next recovery gate
 
-1. Disassemble `0x23b44` and its incoming paths with `vf2i960`;
-   trace the reaching definition of `g3`. Also audit `0x14190`.
+1. Reuse the already-measured `fa_coli` `0x2396c`/`0x23878`
+   differential to attribute the actual `+0x624` values to the
+   poly-cluster bit-remap, **without treating them as audio events**;
+   separately audit `0x14190` and unmodeled MEMB/indirect writers.
 2. In a *valid live* pre-action fighter snapshot, passively watch writes
    to `fighter_base + 0x624`, then `0x43950` / `0x43888`
    and the existing vector-15 UART drain. Record producer PC, actual
