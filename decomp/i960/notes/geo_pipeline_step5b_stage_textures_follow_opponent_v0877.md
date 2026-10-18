@@ -54,9 +54,35 @@ character are paired, so:
   from the P2 selection, so forcing the P2 character at select-confirm (as `0x500064`
   is forced) is the practical lever.
 
-Open: pinning a single global "current opponent/stage" counter that sets decor,
-opponent and textures together would let one write do everything; `0x508000` /
-`0x50083c` (read by `player_entry`/`enemy_control`) are candidates for the task-array
-base, not yet resolved. No ROM/capture/OBJ committed; stages local in
-snap/stages_obj_colour. gcc+clang clean under `-DVF2_WARNINGS_AS_ERRORS=ON`;
-geo/display/geometry tests pass.
+## Stage -> owner character (arcade pairing table, ROM 0x12508) [MEASURED]
+
+The arcade match setup reads the round index at `0x00500054`, then
+`ldob 0x00012508[round*2]` -> stage (stored to `0x500064`, at `0xcf6c`) and
+`ldob 0x00012509[round*2]` -> opponent character (at `0xce68`). So ROM table
+`0x00012508` is a stride-2 list of `(stage, opponent-char)` per round. Inverting it
+(char index = select order Akira0/Pai1/Lau2/Wolf3/Jeffry4/Kage5/Sarah6/Jacky7/Shun8/
+Lion9/Dural10):
+
+| stage (0x500064) | owner character |
+|------------------|-----------------|
+| 0 | Jeffry (/Lau) -- stone towers, the VS default |
+| 1 | Shun |
+| 2 | Sarah |
+| 3 | Dural |
+| 4 | **Kage** |
+| 5 | Wolf |
+| 6 | **Pai** |
+| 7 | **Jacky** |
+| 8 | Akira |
+| 9 | **Lion** |
+| 10 | Akira (the "variant of 10" round) |
+
+So to capture a stage with correct textures/palette: set P2 to the paired character
+(+ force `0x500064`), since the texture/palette set `0x42510` picks follows the P2
+character. For the four wrong arenas: 4=Kage, 6=Pai, 7=Jacky, 9=Lion. (The ROM region
+is reconstructed from the four maincpu EPROMs with the VF2_LOAD32_WORD interleave
+from `rom_manifest.c`; char-index numbering corroborated by char 8 = Shun being the
+one odd entry in the `0x3cdb4` texture table.)
+
+No ROM/capture/OBJ committed; stages local in snap/stages_obj_colour. gcc+clang clean
+under `-DVF2_WARNINGS_AS_ERRORS=ON`; geo/display/geometry tests pass.
