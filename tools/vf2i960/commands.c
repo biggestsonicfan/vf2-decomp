@@ -8074,11 +8074,16 @@ static size_t ext_emit_piece(
         dnrm = pnrm;
         deps = (hd.renderer & 1u) ? -0.003f : 0.0f;
 
-        /* Emit the polygon as a single face in MAME's vertex order
+        /* Link type 0 is a strip restart: MAME culls it (check_culling,
+         * model2_v.cpp:254) but still advances the strip (the link update at
+         * :529 is outside the cull guard). Its polygon joins the stale previous
+         * edge to the new points -- a spike -- and exists only to load the next
+         * strip's base, so skip emitting it while still advancing below.
+         * Emit the polygon as a single face in MAME's vertex order
          * v0..v3 = P1(n-1), P0(n-1), P0(n), P1(n) = p1, p0, vA, vB, with UVs in
          * the table order [P1(n-1),P0(n-1),P0(n),P1(n)] = uv[0..3]. A triangle
          * (numv==3) drops P1(n). */
-        {
+        if (((attr >> 8u) & 3u) != 0u) {
             const vf2_model_vertex *pv[4]; const float *puv[4];
             pv[0] = &p1;  puv[0] = uv[0];
             pv[1] = &p0;  puv[1] = uv[1];
@@ -8086,8 +8091,8 @@ static size_t ext_emit_piece(
             pv[3] = &vB;  puv[3] = uv[3];
             vbase = ext_emit_poly(obj, vbase, pv, puv, numv,
                                   mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
+            *tri_count += (numv == 4u) ? 2u : 1u;
         }
-        *tri_count += (numv == 4u) ? 2u : 1u;
 
         uv_ptr += numv * 2u;
         th_ptr = (uint32_t)((int32_t)th_ptr +
@@ -10644,6 +10649,9 @@ static int command_geo_colour(
                  * renders nothing. */
                 untextured = ((hd.renderer & 2u) == 0u);
                 if (untextured && (hd.renderer & 1u)) goto poly_advance;
+                /* link type 0 is a culled strip-restart polygon (MAME
+                 * check_culling, model2_v.cpp:254): skip drawing, still advance. */
+                if (((attr >> 8u) & 3u) == 0u) goto poly_advance;
                 /* strip triangles: (p0,p1,vB) and, for a quad, (p0,vB,vA) */
                 for (tri = 0u; tri < (numv == 4u ? 2u : 1u); ++tri) {
                     vf2_model_vertex vv[3]; double uu[3][2]; int ok = 1, e;
