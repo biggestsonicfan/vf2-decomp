@@ -25,14 +25,58 @@ RING_LABELS = {
 }
 
 
-def parse_events(lines, fighter_bases=()):
-    """Join memory with instruction PC on SAME step; missing PC stays unknown.
+def decode_sound_memory(record, fighter_bases):
+    """Retain only validated sound writes; do not invent a full packet."""
+    if record.get("kind") != "write":
+        return None
+    step, addr, size, raw = (record.get("step"), record.get("address"),
+                             record.get("size"), record.get("bytes"))
+    if (not isinstance(step, int) or isinstance(step, bool)
+            or not isinstance(addr, int) or isinstance(addr, bool)
+            or not isinstance(size, int) or isinstance(size, bool)
+            or not 1 <= size <= 8 or not isinstance(raw, str)
+            or len(raw) != size * 2):
+        return None
+    try:
+        value = int.from_bytes(bytes.fromhex(raw), "little")
+    except ValueError:
+        return None
+    if QUEUE_BEGIN <= addr < QUEUE_END and addr + size <= QUEUE_END:
+        kind = ("queue_entry" if size == 4 and (addr - QUEUE_BEGIN) % 4 == 0
+                else "queue_fragment")
+    elif addr < QUEUE_END and addr + size > QUEUE_BEGIN:
+        kind = "queue_boundary_overlap"
+    elif addr in RING_LABELS:
+        kind = RING_LABELS[addr]
+    elif addr == QUEUE_STAGE:
+        kind = "staged_command"
+    elif addr == UART:
+        kind = "uart_byte"
+    else:
+        kind = None
+        for base in fighter_bases:
+            if addr == base + 0x1B1:
+                kind = "fighter_type"
+                break
+            if addr == base + 0x624:
+                kind = "fighter_field_624"
+                break
+    if kind is None:
+        return None
+    return {"step": step, "pc": None, "address": addr,
+            "kind": kind, "width": size, "value": value}
 
-    vf2probe assigns memory step cpu.executed_instructions+1; its
-    instruction trace has the same event.step. Do not use adjacent PCs.
+
+def parse_events(lines, fighter_bases=()):
+    """Stream vf2probe events; join only the identical integer step.
+
+    Memory-observer callbacks occur before the step trace callback
+    for an instruction. Keep only matching sound records and a single
+    pending-step group instead of indexing every instruction in RAM.
+    Also handles step-first fixtures without backfilling neighbors.
     """
-    steps = {}
-    memory = []
+    out, pending = [], []
+    last_step = last_pc = None
     for line in lines:
         if not line.lstrip().startswith("{"):
             continue
@@ -40,50 +84,34 @@ def parse_events(lines, fighter_bases=()):
             record = json.loads(line)
         except (ValueError, TypeError):
             continue
-        if not isinstance(record, dict) or not isinstance(record.get("step"), int):
+        if not isinstance(record, dict):
             continue
-        if record.get("type") == "step" and isinstance(record.get("ip_before"), int):
-            steps[record["step"]] = record["ip_before"]
-        elif record.get("type") == "memory" and record.get("kind") == "write":
-            memory.append(record)
-
-    out = []
-    for record in memory:
-        addr, size = record.get("address"), record.get("size")
-        if not isinstance(addr, int) or not isinstance(size, int) or not 1 <= size <= 8:
+        step = record.get("step")
+        if not isinstance(step, int) or isinstance(step, bool):
             continue
-        raw = record.get("bytes")
-        if not isinstance(raw, str) or len(raw) != 2 * size:
-            continue
-        try:
-            data = bytes.fromhex(raw)
-        except ValueError:
-            continue
-        label = None
-        if addr < QUEUE_END and addr + size > QUEUE_BEGIN:
-            label = "queue_entry"
-        elif addr in RING_LABELS:
-            label = RING_LABELS[addr]
-        elif addr == QUEUE_STAGE:
-            label = "staged_command"
-        elif addr == UART:
-            label = "uart_byte"
-        else:
-            for base in fighter_bases:
-                if addr == base + 0x1B1:
-                    label = "fighter_type"
-                    break
-                if addr == base + 0x624:
-                    label = "fighter_field_624"
-                    break
-        if label is None:
-            continue
-        pc = steps.get(record["step"])
-        out.append({
-            "step": record["step"], "pc": pc, "address": addr,
-            "kind": label, "width": size, "value": int.from_bytes(data, "little"),
-        })
-    return sorted(out, key=lambda item: (item["step"], item["address"]))
+        if record.get("type") == "step":
+            pc = record.get("ip_before")
+            pc = pc if isinstance(pc, int) and not isinstance(pc, bool) else None
+            for event in pending:
+                if event["step"] == step:
+                    event["pc"] = pc
+                out.append(event)
+            pending.clear()
+            last_step, last_pc = step, pc
+        elif record.get("type") == "memory":
+            event = decode_sound_memory(record, fighter_bases)
+            if event is None:
+                continue
+            if last_step == step:
+                event["pc"] = last_pc
+                out.append(event)
+            else:
+                if pending and pending[-1]["step"] != step:
+                    out.extend(pending)
+                    pending.clear()
+                pending.append(event)
+    out.extend(pending)
+    return sorted(out, key=lambda event: (event["step"], event["address"]))
 
 
 def summarize(events):

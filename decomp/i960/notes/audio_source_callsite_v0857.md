@@ -35,3 +35,16 @@ The next acceptance gate is a real pre-contact state with per-frame
 IRQs, observing a queue write caused by gameplay and then the
 i960 → UART → 68000 L3 → SCSP path in the C/stepper differential.
 No C native runtime/SCSP functionality was claimed or modified.
+
+## v0857b — passive trace parser contract correction
+
+The queue provenance tool now handles long vf2probe traces without building
+a full step-number-to-PC dictionary. It buffers only relevant writes
+until the matching instruction step and retains unknown PCs when the
+step event is missing. Full queue entries require an aligned 4-byte
+write; partial writes and boundary overlaps have distinct labels and
+are excluded from "full packet" writer summaries. Six regression
+cases cover callback ordering, missing steps, partials, malformed
+records, and a 30,000-step input stream. Combined local Python
+validation: 22/22 test cases. A natural pre-contact C/stepper
+differential and the native C suite are still unrun here.

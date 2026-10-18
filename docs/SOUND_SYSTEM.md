@@ -85,6 +85,14 @@ posteriores e o código em `master`.
 - [decomp/i960/notes/](../decomp/i960/notes/): notas `audio_*.md` por
   recuperação; preferir as correções mais recentes.
 
+A varredura estática v0857 da ROM identificou **80** chamadas diretas
+ao filer, **8** à entrada comum, **15** ao deduplicador (todas seguidas
+imediatamente de uma chamada ao filer) e duas ao despachante Model 2A
+em `0x1615c` e `0x2308c`. O segundo caminho ainda exige
+medição dinâmica. O rastreador da fila foi ajustado para memória
+incremental, PC por passo idêntico e rejeição de pacotes incompletos.
+Ver [v0857](../decomp/i960/notes/audio_source_callsite_v0857.md).
+
 ## Correção de proveniência do evento (v0855)
 
 A análise estática da ROM identificou um erro de atribuição do relatório
