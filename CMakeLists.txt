@@ -593,6 +593,12 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_m68k_cdispatch_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_cdispatch_tests)
 
+    # ROM-backed L3 comparison for real 0xAD23xx/0xAD24xx
+    # selections, independent from the i960 gameplay trigger.
+    add_executable(vf2_m68k_l3_selection_tests tests/m68k/test_l3_real_rom_selections.c)
+    target_link_libraries(vf2_m68k_l3_selection_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_l3_selection_tests)
+
     add_executable(vf2_m68k_snapshot_tests tests/m68k/test_snapshot.c)
     target_link_libraries(vf2_m68k_snapshot_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_snapshot_tests)
@@ -1055,6 +1061,8 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_midi_probe COMMAND vf2_m68k_midi_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_dispatch_probe COMMAND vf2_m68k_dispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
+        add_test(NAME vf2_m68k_l3_real_selections
+                 COMMAND vf2_m68k_l3_selection_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_snapshot_differential COMMAND vf2_m68k_snapshot_tests "${VF2_ROM_DIR}")
         # (v0823: the Loop-B WILL_FAIL is removed -- the probe is
         # re-pinned under the +2 base and green. The +4-era comment
