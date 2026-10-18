@@ -80,6 +80,7 @@ static void usage(const char *program)
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
         "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir> [colour-capture-dir] [texparams.txt]\n"
+        "  %s geo-stage <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir> [colour-capture-dir] [texparams.txt]\n"
         "  %s geo-colour <ram9.bin> <readstarts.txt> <rom-dir> <colour-capture-dir> <pose-frame> <out.png> [texparams.txt]\n"
         "  %s geo-texparams <ram9.bin> <readstarts.txt> <out-texparams.txt>\n"
         "  %s geo-project <ram9.bin> <readstarts.txt> <rom-dir> <pose-frame> <out.png> [W H xoff yoff]\n"
@@ -136,6 +137,7 @@ static void usage(const char *program)
         program, /* geo-walk */
         program, /* geo-scene */
         program, /* geo-fighter */
+        program, /* geo-stage */
         program, /* geo-colour */
         program, /* geo-texparams */
         program, /* geo-project */
@@ -9738,7 +9740,7 @@ static int command_geo_fighter(
     const char *bin_path, const char *txt_path, const char *rom_directory,
     const char *tex0_path, const char *tex1_path, const char *pose_str,
     const char *which, const char *out_dir, const char *colour_dir,
-    const char *texparams_path
+    const char *texparams_path, int stage_mode
 )
 {
     const size_t frame_bytes = 131072u;
@@ -9804,7 +9806,10 @@ static int command_geo_fighter(
      * captures so far P1 is the named character (akira, jacky, ...) and the
      * right-hand fighter is Lau, so lau -> right, anything else -> left. A
      * right-side subject would append "-r". */
-    {
+    if (stage_mode) {
+        /* geo-stage: no fighter, no side -- export the decor set as "stage". */
+        memcpy(base, "stage", 6u); side = 0;
+    } else {
         size_t wl = strlen(which);
         int suff = (wl >= 2u && which[wl - 2u] == '-' &&
                     (which[wl-1u]=='l'||which[wl-1u]=='L'||which[wl-1u]=='r'||which[wl-1u]=='R'));
@@ -9975,6 +9980,15 @@ static int command_geo_fighter(
         else { pbuf = ram0; psize = 0x20000u; rec = (oba & 0x7fffu) * 4u; is_rom = 0; }
         if (is_rom && (rec == 0x581d50u || rec == 0x1a9b54u)) continue;  /* bad */
         if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;       /* shadow */
+        if (stage_mode) {
+            /* geo-stage: KEEP only the decor set (ROM records in the shared-matrix
+             * range), the inverse of the fighter filter, and dedup repeats. */
+            size_t q; int seen = 0;
+            if (!(is_rom && rec >= 0x3c1facu && rec <= 0x3ca730u)) continue;
+            for (q = 0u; q < ncand; ++q) if (cand_rec[q] == rec) { seen = 1; break; }
+            if (seen) continue;
+            goto emit_cand;
+        }
         if (is_rom && rec >= 0x3c1facu && rec <= 0x3ca730u) continue;    /* decor */
         if (!is_rom) {
             /* RAM object: was its word index uploaded by a 0x05 this frame? */
@@ -9982,6 +9996,7 @@ static int command_geo_fighter(
             size_t wm = (oba & 0x01000000u) ? wmax1 : wmax0;
             if (widx >= wm) { ++nram_unwritten; continue; }
         }
+    emit_cand:
         if ((size_t)rec + 24u > psize) continue;
         gs_worldframe(objs[s].matrix, mdec, adi, mf[ncand]);
         memcpy(cand_vmat[ncand], objs[s].matrix, sizeof(cand_vmat[ncand]));
@@ -10007,7 +10022,31 @@ static int command_geo_fighter(
         cand_psize[ncand] = psize;
         ++ncand;
     }
-    if (ncand == 0u) { fprintf(stderr, "geo-fighter: no fighter pieces\n"); goto done; }
+    if (ncand == 0u) {
+        fprintf(stderr, "geo-%s: no %s pieces\n",
+                stage_mode ? "stage" : "fighter", stage_mode ? "decor" : "fighter");
+        goto done;
+    }
+
+    if (stage_mode) {
+        /* no fighters to separate: every decor object is kept, in its own
+         * camera-removed world frame (the same frame in every capture). */
+        for (i = 0u; i < ncand; ++i) sel[nsel++] = i;
+        if (getenv("VF2_CASE_CHECK") != NULL) {
+            size_t ndet = 0u, ci;
+            for (ci = 0u; ci < ncand; ++ci) {
+                const float *m = cand_vmat[ci];
+                double det = (double)m[0]*((double)m[4]*m[8]-(double)m[5]*m[7])
+                           - (double)m[1]*((double)m[3]*m[8]-(double)m[5]*m[6])
+                           + (double)m[2]*((double)m[3]*m[7]-(double)m[4]*m[6]);
+                if (det < 0.0) { ++ndet;
+                    fprintf(stderr, "CASE det<0 (reflection) rec=0x%06x det=%+.3f\n",
+                            cand_rec[ci], det); }
+            }
+            fprintf(stderr, "CASES: %zu decor objects, det<0=%zu\n", ncand, ndet);
+        }
+        goto stage_selected;
+    }
 
     /* pairwise minimum vertex distance between pieces (world space). */
     dmat = (double *)malloc(ncand * ncand * sizeof(*dmat));
@@ -10139,7 +10178,8 @@ static int command_geo_fighter(
     }
     if (nsel == 0u) { fprintf(stderr, "geo-fighter: no %s pieces at frame %zu\n", which, pose); goto done; }
 
-    /* pass 1: world-space bbox for feet centring (from the stored world verts) */
+stage_selected:
+    /* pass 1: world-space bbox (for feet centring; also reported for the stage) */
     for (k = 0u; k < nsel; ++k) {
         size_t idx = sel[k], a;
         for (a = 0u; a < pcount[idx]; ++a) {
@@ -10156,10 +10196,17 @@ static int command_geo_fighter(
         double ex0 = mx[0] - mn[0], ex1 = mx[1] - mn[1], ex2 = mx[2] - mn[2];
         vax = (ex1 >= ex0 && ex1 >= ex2) ? 1 : (ex0 >= ex2 ? 0 : 2);
     }
-    off[0] = 0.5 * (mn[0] + mx[0]);
-    off[1] = 0.5 * (mn[1] + mx[1]);
-    off[2] = 0.5 * (mn[2] + mx[2]);
-    off[vax] = mn[vax];
+    if (stage_mode) {
+        /* keep the shared camera-removed world frame -- do NOT recentre, so the
+         * same decor record lands at the same coordinates in every capture and
+         * the per-capture stages merge by record. */
+        off[0] = off[1] = off[2] = 0.0;
+    } else {
+        off[0] = 0.5 * (mn[0] + mx[0]);
+        off[1] = 0.5 * (mn[1] + mx[1]);
+        off[2] = 0.5 * (mn[2] + mx[2]);
+        off[vax] = mn[vax];
+    }
 
     /* pass 2: write textured OBJ in the centred world frame. The MTL is written
      * after the mesh (below) so it can declare a metallic material for each
@@ -10266,19 +10313,26 @@ static int command_geo_fighter(
         fclose(mtl); mtl = NULL;
     }
 
-    printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png %s)\n",
+    printf("geo-%s: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png %s)\n",
+           stage_mode ? "stage" : "fighter",
            base, pose, out_dir, base, base, colour ? "[colour]" : "[grayscale]");
-    printf("  %zu fighter pieces (%zu decoded from reconstructed polygon RAM), "
-           "3D connected-components at joint threshold %.2f; selected %s (%s) = "
-           "%zu pieces, %zu triangles\n",
-           ncand, nram, bestT, base, side == 0 ? "left" : "right", nsel,
-           tris_total);
-    if (nram_unwritten > 0u)
-        printf("  note: %zu RAM piece(s) read an index not uploaded this frame "
-               "(0x05 from a previous frame needed)\n", nram_unwritten);
-    printf("  camera removed; vertical axis %c, feet at origin; "
-           "bbox world extent (%.2f,%.2f,%.2f)\n",
-           "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
+    if (stage_mode)
+        printf("  %zu distinct decor objects (shared-matrix stage set), %zu triangles; "
+               "camera removed, world frame kept (merges by record across captures)\n",
+               nsel, tris_total);
+    else {
+        printf("  %zu fighter pieces (%zu decoded from reconstructed polygon RAM), "
+               "3D connected-components at joint threshold %.2f; selected %s (%s) = "
+               "%zu pieces, %zu triangles\n",
+               ncand, nram, bestT, base, side == 0 ? "left" : "right", nsel,
+               tris_total);
+        if (nram_unwritten > 0u)
+            printf("  note: %zu RAM piece(s) read an index not uploaded this frame "
+                   "(0x05 from a previous frame needed)\n", nram_unwritten);
+        printf("  camera removed; vertical axis %c, feet at origin; "
+               "bbox world extent (%.2f,%.2f,%.2f)\n",
+               "xyz"[vax], mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
+    }
     rc = EXIT_SUCCESS;
 
 done:
@@ -12136,7 +12190,14 @@ int main(int argc, char **argv)
         return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
                                    argv[7], argv[8], argv[9],
                                    argc >= 11 ? argv[10] : NULL,
-                                   argc >= 12 ? argv[11] : NULL);
+                                   argc >= 12 ? argv[11] : NULL, 0);
+    }
+
+    if (strcmp(argv[1], "geo-stage") == 0 && (argc >= 9 && argc <= 11)) {
+        return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
+                                   argv[7], "stage", argv[8],
+                                   argc >= 10 ? argv[9] : NULL,
+                                   argc >= 11 ? argv[10] : NULL, 1);
     }
 
     if (strcmp(argv[1], "geo-colour") == 0 && (argc == 8 || argc == 9)) {
