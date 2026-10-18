@@ -7955,6 +7955,10 @@ static size_t ext_emit_poly(
  * [P1(n-1),P0(n-1),P0(n),P1(n)], texheader advance (attr>>12)&0x1f*4, strip
  * advance (attr>>8)&3. `cur_sheet` carries the last-emitted material across
  * calls (-1 forces a fresh `usemtl`). Returns the next 1-based vertex index. */
+/* A texture tile that a repeat-UV polygon references; emitted as a standalone
+ * repeat-wrapped image rather than baked into the atlas (see the tiled-poly path). */
+typedef struct gf_tile { uint16_t sheet, x, y, w, h; } gf_tile;
+
 static size_t ext_emit_piece(
     FILE *obj,
     const uint8_t *poly, size_t poly_size,
@@ -7963,7 +7967,8 @@ static size_t ext_emit_piece(
     size_t vbase, int *cur_sheet, size_t *tri_count,
     const float *mtx,
     vf2_model_vertex *vacc, size_t *vacc_n, size_t vacc_cap,
-    const uint8_t *tp_sctrl, uint32_t geo_mode, uint32_t *used_spec
+    const uint8_t *tp_sctrl, uint32_t geo_mode, uint32_t *used_spec,
+    gf_tile *tiles, size_t *ntiles, size_t tiles_cap
 )
 {
     vf2_model_vertex p0;
@@ -8005,6 +8010,8 @@ static size_t ext_emit_piece(
         float pnrm[3];
         const float *dnrm; float deps;
         uint32_t vtx;
+        int poly_tiled = 0;   /* this prim samples a repeated tile -> standalone image */
+        int tile_rank = -1;
 
         off += 4u;
         if (do_dbg)
@@ -8079,6 +8086,36 @@ static size_t ext_emit_piece(
                 uv[vtx][0] = ((float)hd.tex_x + (tu4[vtx] - offu)) / 2048.0f;
                 uv[vtx][1] = 1.0f - ((float)hd.tex_y + (tv4[vtx] - offv)) / 1024.0f;
             }
+            /* A polygon whose UV span exceeds its tile samples the texture REPEATED
+             * (floor paving especially). The atlas holds one copy of the tile, so
+             * the wrapped UVs run off it into blank atlas -> a grey floor. Mark it
+             * so it is emitted against a standalone repeat-wrapped tile image with
+             * UVs in tile units instead (tiled[]), not baked into the atlas. */
+            {
+                float mxu = tu4[0], mxv = tv4[0]; uint32_t z;
+                for (z = 1u; z < numv; ++z) { if (tu4[z] > mxu) mxu = tu4[z]; if (tv4[z] > mxv) mxv = tv4[z]; }
+                poly_tiled = (tiles != NULL && ntiles != NULL &&
+                              ((wq > 0.0f && (mxu - minu) > 1.5f * wq) ||
+                               (hq > 0.0f && (mxv - minv) > 1.5f * hq)));
+                if (poly_tiled) {
+                    size_t ti;
+                    for (vtx = 0u; vtx < numv; ++vtx) {
+                        uv[vtx][0] = (wq > 0.0f) ? tu4[vtx] / wq : 0.0f;
+                        uv[vtx][1] = (hq > 0.0f) ? 1.0f - tv4[vtx] / hq : 0.0f;
+                    }
+                    for (ti = 0u; ti < *ntiles; ++ti)
+                        if (tiles[ti].sheet == (uint16_t)hd.sheet &&
+                            tiles[ti].x == hd.tex_x && tiles[ti].y == hd.tex_y) break;
+                    if (ti == *ntiles && *ntiles < tiles_cap) {
+                        tiles[ti].sheet = (uint16_t)hd.sheet;
+                        tiles[ti].x = (uint16_t)hd.tex_x; tiles[ti].y = (uint16_t)hd.tex_y;
+                        tiles[ti].w = (uint16_t)hd.tex_width; tiles[ti].h = (uint16_t)hd.tex_height;
+                        ++*ntiles;
+                    }
+                    tile_rank = (ti < tiles_cap) ? (int)ti : -1;
+                    if (tile_rank < 0) poly_tiled = 0;
+                }
+            }
         }
         if (numv == 3u) {
             uv[3][0] = uv[2][0];
@@ -8092,15 +8129,19 @@ static size_t ext_emit_piece(
          * (every non-colour caller) keeps the plain sheetN material, byte for byte. */
         {
             uint32_t tpi = (attr >> 18) & 0x1fu;
-            int spec_active = (tp_sctrl != NULL &&
+            int spec_active = (!poly_tiled && tp_sctrl != NULL &&
                 ((geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u) &&
                 tp_sctrl[tpi] != 0u);
-            int mtl_key = spec_active
-                ? (int)(0x1000u | ((uint32_t)(hd.sheet & 1u) << 5) | tpi)
-                : (int)(hd.sheet & 1u);
+            int mtl_key = poly_tiled
+                ? (int)(0x4000u | (uint32_t)tile_rank)
+                : (spec_active
+                   ? (int)(0x1000u | ((uint32_t)(hd.sheet & 1u) << 5) | tpi)
+                   : (int)(hd.sheet & 1u));
             if (*cur_sheet != mtl_key) {
                 if (obj != NULL) {
-                    if (spec_active)
+                    if (poly_tiled)
+                        fprintf(obj, "usemtl tile%d\n", tile_rank);
+                    else if (spec_active)
                         fprintf(obj, "usemtl sheet%u_spec%u\n",
                                 (unsigned)(hd.sheet & 1u), tpi);
                     else
@@ -8370,7 +8411,7 @@ static int command_export_textured(
                                    pieces[i].rec_byte, pieces[i].uv_ptr,
                                    pieces[i].th_ptr, vbase, &cur_sheet,
                                    &tri_total, NULL, NULL, NULL, 0u,
-                                   NULL, 0u, NULL);
+                                   NULL, 0u, NULL, NULL, NULL, 0u);
         }
     }
     fclose(obj);
@@ -8735,7 +8776,7 @@ static int command_export_pieces(
         fprintf(obj, "mtllib pieces.mtl\n");
         (void)ext_emit_piece(obj, poly, poly_size, tex, tex_size, off, uv_ptr,
                              th_ptr, 1u, &cur_sheet, &tris, NULL, NULL, NULL,
-                             0u, NULL, 0u, NULL);
+                             0u, NULL, 0u, NULL, NULL, NULL, 0u);
         fclose(obj);
         ++written;
 
@@ -9352,7 +9393,7 @@ static int command_geo_scene(
         if ((size_t)rec + 24u <= poly_size) {
             vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, rec,
                                    uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m,
-                                   NULL, NULL, 0u, NULL, 0u, NULL);
+                                   NULL, NULL, 0u, NULL, 0u, NULL, NULL, NULL, 0u);
             ++resolved;
         } else {
             fprintf(obj, "usemtl marker\n");
@@ -9525,7 +9566,8 @@ static int command_geo_scene(
                         vb = ext_emit_piece(vo, poly, poly_size, tex, tex_size,
                                             rec, uvp, thp, vb, &vsheet, &tr,
                                             variant == 0 ? m : mt,
-                                            vbuf, &vn, vcap, NULL, 0u, NULL);
+                                            vbuf, &vn, vcap, NULL, 0u, NULL,
+                                            NULL, NULL, 0u);
                     }
                     pend[i] = vn;
                 }
@@ -9637,7 +9679,8 @@ static double gf_screen_cx(const uint8_t *poly, size_t poly_size, uint32_t rec,
     size_t tr = 0u;
     double sum = 0.0;
     (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u, 1u,
-                         &sheet, &tr, m, vacc, &vn, vcap, NULL, 0u, NULL);
+                         &sheet, &tr, m, vacc, &vn, vcap, NULL, 0u, NULL,
+                         NULL, NULL, 0u);
     for (e = 0u; e < vn; ++e) {
         double X = (double)vacc[e].x * 600.0;
         double Z = (double)vacc[e].z;
@@ -9776,6 +9819,7 @@ static int command_geo_fighter(
     uint8_t gf_diff[32], gf_amb[32], gf_sscale[32], gf_sctrl[32];
     uint32_t gf_mode = 0u;
     uint32_t used_spec[2] = { 0u, 0u };  /* per sheet, bit tpi set = chrome material used */
+    gf_tile gf_tiles[64]; size_t ngf_tiles = 0u;  /* repeat-UV tiles emitted as standalone images */
     size_t cap_objs = 0u;                /* candidate-array capacity (nobjs, + room for --from-rom) */
     int *is_recovered = NULL;            /* per candidate: 1 = added from ROM (not in the capture) */
     size_t nrec_rom = 0u;                /* count of ROM-recovered objects emitted */
@@ -10035,7 +10079,8 @@ static int command_geo_fighter(
         gs_worldframe(objs[s].matrix, mdec, adi, mf[ncand]);
         memcpy(cand_vmat[ncand], objs[s].matrix, sizeof(cand_vmat[ncand]));
         (void)ext_emit_piece(NULL, pbuf, psize, NULL, 0u, rec, 0u, 0u, 1u,
-                             &sheet, &tr, mf[ncand], vacc, &vn, vcap, NULL, 0u, NULL);
+                             &sheet, &tr, mf[ncand], vacc, &vn, vcap, NULL, 0u, NULL,
+                             NULL, NULL, 0u);
         if (vn == 0u) continue;
         if (!is_rom) ++nram;
         pstart[ncand] = wvn;
@@ -10117,7 +10162,7 @@ static int command_geo_fighter(
                         memcpy(cand_vmat[ncand], mdec, sizeof(mdec));
                         (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u,
                                              1u, &sheet, &tr, mf[ncand], vacc, &vn, vcap,
-                                             NULL, 0u, NULL);
+                                             NULL, 0u, NULL, NULL, NULL, 0u);
                         if (vn == 0u) continue;
                         pstart[ncand] = wvn;
                         for (e = 0u; e < vn && wvn < wvcap; ++e) {
@@ -10348,7 +10393,10 @@ stage_selected:
         vbase = ext_emit_piece(obj, cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                cand_rec[idx], uv_ptr, th_ptr, vbase, &cur_sheet,
                                &tris, m2, NULL, NULL, 0u,
-                               gf_lit ? gf_sctrl : NULL, gf_mode, used_spec);
+                               gf_lit ? gf_sctrl : NULL, gf_mode, used_spec,
+                               stage_mode ? gf_tiles : NULL,
+                               stage_mode ? &ngf_tiles : NULL,
+                               stage_mode ? (sizeof(gf_tiles) / sizeof(gf_tiles[0])) : 0u);
         if (colour)
             ext_colour_sheet_piece(cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                    cand_rec[idx], th_ptr,
@@ -10359,10 +10407,35 @@ stage_selected:
         tris_total += tris;
     }
     if (colour) {
+        size_t t;
         snprintf(path, sizeof(path), "%s/%s_tex0.png", out_dir, base);
         (void)png_write_rgba8(path, 2048u, 1024u, csheet[0], asheet[0]);
         snprintf(path, sizeof(path), "%s/%s_tex1.png", out_dir, base);
         (void)png_write_rgba8(path, 2048u, 1024u, csheet[1], asheet[1]);
+        /* repeat-UV tiles: cut each referenced tile out of the baked atlas as its
+         * own image so a REPEAT-wrapped material tiles it (the polys' UVs are in
+         * tile units). The tile already carries the floor's baked colour + luma. */
+        for (t = 0u; t < ngf_tiles; ++t) {
+            uint32_t tw = gf_tiles[t].w, th2 = gf_tiles[t].h, xx, yy;
+            const uint8_t *cs = csheet[gf_tiles[t].sheet & 1u];
+            const uint8_t *as = asheet[gf_tiles[t].sheet & 1u];
+            uint8_t *trgb = (tw && th2) ? (uint8_t *)malloc((size_t)tw * th2 * 3u) : NULL;
+            uint8_t *tal = (tw && th2) ? (uint8_t *)malloc((size_t)tw * th2) : NULL;
+            if (trgb != NULL && tal != NULL) {
+                for (yy = 0u; yy < th2; ++yy)
+                    for (xx = 0u; xx < tw; ++xx) {
+                        size_t sx = (size_t)gf_tiles[t].x + xx, sy = (size_t)gf_tiles[t].y + yy;
+                        size_t dd = (size_t)yy * tw + xx, ss;
+                        if (sx >= 2048u || sy >= 1024u) { trgb[dd*3u]=trgb[dd*3u+1u]=trgb[dd*3u+2u]=0u; tal[dd]=0u; continue; }
+                        ss = sy * 2048u + sx;
+                        trgb[dd*3u] = cs[ss*3u]; trgb[dd*3u+1u] = cs[ss*3u+1u]; trgb[dd*3u+2u] = cs[ss*3u+2u];
+                        tal[dd] = as[ss];
+                    }
+                snprintf(path, sizeof(path), "%s/%s_tile%zu.png", out_dir, base, t);
+                (void)png_write_rgba8(path, tw, th2, trgb, tal);
+            }
+            free(trgb); free(tal);
+        }
     } else {
         snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
         (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
@@ -10416,6 +10489,15 @@ stage_selected:
                         fprintf(mtl, "map_Kd %s_tex%d.png\nmap_d %s_tex%d.png\n",
                                 base, sh, base, sh);
                     }
+            }
+            /* repeat-UV tiles: standalone images, UVs in tile units -> REPEAT
+             * (the OBJ importer's default wrap for UVs outside [0,1]). */
+            {
+                size_t t;
+                for (t = 0u; t < ngf_tiles; ++t)
+                    fprintf(mtl, "newmtl tile%zu\nillum 1\nd 1.0\n"
+                                 "map_Kd %s_tile%zu.png\nmap_d %s_tile%zu.png\n",
+                            t, base, t, base, t);
             }
         } else {
             fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", base);
@@ -11315,12 +11397,12 @@ static int command_geo_project(
                 vn = 0u;
                 (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
                                      0u, 0u, 1u, &sheet, &tr, mat, vb, &vn,
-                                     vcap, NULL, 0u, NULL);
+                                     vcap, NULL, 0u, NULL, NULL, NULL, 0u);
                 /* raw (identity-posed) vertices, to compare the object's own
                  * vertex scale against its matrix column norms. */
                 (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
                                      0u, 0u, 1u, &sheet2, &tr2, NULL, vb2, &vn2,
-                                     vcap, NULL, 0u, NULL);
+                                     vcap, NULL, 0u, NULL, NULL, NULL, 0u);
                 for (e = 0u; e < vn2; ++e) {
                     double rvx = (double)vb2[e].x;
                     double rvy = (double)vb2[e].y;
