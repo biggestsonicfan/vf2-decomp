@@ -7869,7 +7869,10 @@ static void ext_xform(const float *m, const vf2_model_vertex *in,
  * `eps` world units along its (object-space) normal rotated into world space --
  * used to lift a translucent decal (dragon, ornament) off the coplanar opaque
  * base so a z-buffered viewer draws it on top, as MAME does by rendering
- * translucent polygons over opaque ones. Returns the next running index. */
+ * translucent polygons over opaque ones. When `onrm` is non-NULL the triangle's
+ * winding is also oriented so its geometric normal agrees with `onrm` (the
+ * model's own winding is not consistently outward, which shows as inside-out
+ * faces in a bare OBJ viewer). Returns the next running index. */
 static size_t ext_emit_tri(
     FILE *obj, size_t n,
     const vf2_model_vertex *a, const float ua[2],
@@ -7882,22 +7885,34 @@ static size_t ext_emit_tri(
     vf2_model_vertex ta;
     vf2_model_vertex tb;
     vf2_model_vertex tc;
+    const float *ua2 = ua, *ub2 = ub, *uc2 = uc;
+    float wn[3] = {0.0f, 0.0f, 0.0f}, wlen = 0.0f;
     ext_xform(mtx, a, &ta);
     ext_xform(mtx, b, &tb);
     ext_xform(mtx, c, &tc);
-    if (onrm != NULL && eps != 0.0f) {
-        float wn[3], len;
+    if (onrm != NULL) {
         if (mtx != NULL) {
             wn[0] = onrm[0]*mtx[0] + onrm[1]*mtx[3] + onrm[2]*mtx[6];
             wn[1] = onrm[0]*mtx[1] + onrm[1]*mtx[4] + onrm[2]*mtx[7];
             wn[2] = onrm[0]*mtx[2] + onrm[1]*mtx[5] + onrm[2]*mtx[8];
         } else { wn[0] = onrm[0]; wn[1] = onrm[1]; wn[2] = onrm[2]; }
-        len = (float)sqrt((double)(wn[0]*wn[0] + wn[1]*wn[1] + wn[2]*wn[2]));
-        if (len > 1e-6f) {
-            float s = eps / len;
+        wlen = (float)sqrt((double)(wn[0]*wn[0] + wn[1]*wn[1] + wn[2]*wn[2]));
+        if (wlen > 1e-6f && eps != 0.0f) {
+            float s = eps / wlen;
             ta.x += wn[0]*s; ta.y += wn[1]*s; ta.z += wn[2]*s;
             tb.x += wn[0]*s; tb.y += wn[1]*s; tb.z += wn[2]*s;
             tc.x += wn[0]*s; tc.y += wn[1]*s; tc.z += wn[2]*s;
+        }
+        if (wlen > 1e-6f) {
+            /* orient winding so the triangle faces the same way as the model
+             * normal; swap two corners (vertex + UV together) if it is reversed. */
+            float e1x = tb.x-ta.x, e1y = tb.y-ta.y, e1z = tb.z-ta.z;
+            float e2x = tc.x-ta.x, e2y = tc.y-ta.y, e2z = tc.z-ta.z;
+            float gx = e1y*e2z - e1z*e2y, gy = e1z*e2x - e1x*e2z, gz = e1x*e2y - e1y*e2x;
+            if (gx*wn[0] + gy*wn[1] + gz*wn[2] < 0.0f) {
+                vf2_model_vertex tmp = tb; tb = tc; tc = tmp;
+                ub2 = uc; uc2 = ub;
+            }
         }
     }
     if (obj != NULL) {
@@ -7907,9 +7922,9 @@ static size_t ext_emit_tri(
                 (double)tb.x, (double)tb.y, (double)tb.z);
         fprintf(obj, "v %.6f %.6f %.6f\n",
                 (double)tc.x, (double)tc.y, (double)tc.z);
-        fprintf(obj, "vt %.6f %.6f\n", (double)ua[0], (double)ua[1]);
-        fprintf(obj, "vt %.6f %.6f\n", (double)ub[0], (double)ub[1]);
-        fprintf(obj, "vt %.6f %.6f\n", (double)uc[0], (double)uc[1]);
+        fprintf(obj, "vt %.6f %.6f\n", (double)ua2[0], (double)ua2[1]);
+        fprintf(obj, "vt %.6f %.6f\n", (double)ub2[0], (double)ub2[1]);
+        fprintf(obj, "vt %.6f %.6f\n", (double)uc2[0], (double)uc2[1]);
         fprintf(obj, "f %zu/%zu %zu/%zu %zu/%zu\n", n, n, n + 1u, n + 1u,
                 n + 2u, n + 2u);
     }
@@ -8056,12 +8071,16 @@ static size_t ext_emit_piece(
             *cur_sheet = (int)hd.sheet;
         }
 
-        /* A translucent polygon (renderer bit0) is a decal coplanar with the
-         * opaque base; lift it outward along its normal so a z-buffered viewer
-         * draws it on top (MAME renders translucent over opaque). Tiny (0.003
-         * world units ~ 0.2% of a fighter's height), so no visible displacement. */
-        if (hd.renderer & 1u) { dnrm = pnrm; deps = -0.003f; }
-        else { dnrm = NULL; deps = 0.0f; }
+        /* Always pass the polygon's unit normal so ext_emit_tri can orient each
+         * triangle's winding to agree with it (the model's winding is not
+         * consistently outward -- MAME relies on the explicit normal, so a bare
+         * OBJ shows some faces inside-out, e.g. Lau's fist tops, Akira's nose and
+         * foot tops). A translucent polygon (renderer bit0) is additionally a
+         * decal coplanar with the opaque base, lifted outward (eps) so a
+         * z-buffered viewer draws it on top (MAME renders translucent over
+         * opaque); 0.003 world units ~ 0.2% of a fighter's height. */
+        dnrm = pnrm;
+        deps = (hd.renderer & 1u) ? -0.003f : 0.0f;
 
         vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB, uv[3],
                              mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
