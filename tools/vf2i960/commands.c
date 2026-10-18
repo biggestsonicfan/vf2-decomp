@@ -80,7 +80,7 @@ static void usage(const char *program)
         "  %s geo-walk <ram9.bin> <frame-index> <readstart-hex>\n"
         "  %s geo-scene <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir>\n"
         "  %s geo-fighter <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <akira|lau> <out-dir> [colour-capture-dir] [texparams.txt]\n"
-        "  %s geo-stage <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir> [colour-capture-dir] [texparams.txt]\n"
+        "  %s geo-stage [--from-rom] <ram9.bin> <readstarts.txt> <rom-dir> <tex0> <tex1> <pose-frame> <out-dir> [colour-capture-dir] [texparams.txt]\n"
         "  %s geo-colour <ram9.bin> <readstarts.txt> <rom-dir> <colour-capture-dir> <pose-frame> <out.png> [texparams.txt]\n"
         "  %s geo-texparams <ram9.bin> <readstarts.txt> <out-texparams.txt>\n"
         "  %s geo-project <ram9.bin> <readstarts.txt> <rom-dir> <pose-frame> <out.png> [W H xoff yoff]\n"
@@ -9740,7 +9740,7 @@ static int command_geo_fighter(
     const char *bin_path, const char *txt_path, const char *rom_directory,
     const char *tex0_path, const char *tex1_path, const char *pose_str,
     const char *which, const char *out_dir, const char *colour_dir,
-    const char *texparams_path, int stage_mode
+    const char *texparams_path, int stage_mode, int from_rom
 )
 {
     const size_t frame_bytes = 131072u;
@@ -9776,6 +9776,9 @@ static int command_geo_fighter(
     uint8_t gf_diff[32], gf_amb[32], gf_sscale[32], gf_sctrl[32];
     uint32_t gf_mode = 0u;
     uint32_t used_spec[2] = { 0u, 0u };  /* per sheet, bit tpi set = chrome material used */
+    size_t cap_objs = 0u;                /* candidate-array capacity (nobjs, + room for --from-rom) */
+    int *is_recovered = NULL;            /* per candidate: 1 = added from ROM (not in the capture) */
+    size_t nrec_rom = 0u;                /* count of ROM-recovered objects emitted */
     uint32_t *cand_rec = NULL, *cand_tpa = NULL, *cand_tha = NULL;
     size_t *cand_s = NULL, *pstart = NULL, *pcount = NULL;
     size_t *parent = NULL, *compsz = NULL, *sel = NULL;
@@ -9966,23 +9969,27 @@ static int command_geo_fighter(
         fprintf(stderr, "geo-fighter: no invertible decor matrix\n"); goto done;
     }
 
-    mf = (float (*)[12])malloc(nobjs * sizeof(*mf));
-    cand_vmat = (float (*)[12])malloc(nobjs * sizeof(*cand_vmat));
-    cand_rec = (uint32_t *)malloc(nobjs * sizeof(*cand_rec));
-    cand_tpa = (uint32_t *)malloc(nobjs * sizeof(*cand_tpa));
-    cand_tha = (uint32_t *)malloc(nobjs * sizeof(*cand_tha));
-    cand_s = (size_t *)malloc(nobjs * sizeof(*cand_s));
-    pstart = (size_t *)malloc(nobjs * sizeof(*pstart));
-    pcount = (size_t *)malloc(nobjs * sizeof(*pcount));
-    cand_scx = (double *)malloc(nobjs * sizeof(*cand_scx));
-    sel = (size_t *)malloc(nobjs * sizeof(*sel));
-    cand_pbuf = (const uint8_t **)malloc(nobjs * sizeof(*cand_pbuf));
-    cand_psize = (size_t *)malloc(nobjs * sizeof(*cand_psize));
+    /* --from-rom adds the frustum-culled decor (model-ID range) back as extra
+     * candidates, so the arrays need room beyond the walked object count. */
+    cap_objs = nobjs + (from_rom ? 4096u : 0u);
+    mf = (float (*)[12])malloc(cap_objs * sizeof(*mf));
+    cand_vmat = (float (*)[12])malloc(cap_objs * sizeof(*cand_vmat));
+    cand_rec = (uint32_t *)malloc(cap_objs * sizeof(*cand_rec));
+    cand_tpa = (uint32_t *)malloc(cap_objs * sizeof(*cand_tpa));
+    cand_tha = (uint32_t *)malloc(cap_objs * sizeof(*cand_tha));
+    cand_s = (size_t *)malloc(cap_objs * sizeof(*cand_s));
+    pstart = (size_t *)malloc(cap_objs * sizeof(*pstart));
+    pcount = (size_t *)malloc(cap_objs * sizeof(*pcount));
+    cand_scx = (double *)malloc(cap_objs * sizeof(*cand_scx));
+    sel = (size_t *)malloc(cap_objs * sizeof(*sel));
+    cand_pbuf = (const uint8_t **)malloc(cap_objs * sizeof(*cand_pbuf));
+    cand_psize = (size_t *)malloc(cap_objs * sizeof(*cand_psize));
+    is_recovered = (int *)calloc(cap_objs, sizeof(*is_recovered));
     wvcap = vcap;
     worldv = (float *)malloc(wvcap * 3u * sizeof(*worldv));
     if (mf == NULL || cand_vmat == NULL || cand_rec == NULL ||
         cand_tpa == NULL || cand_tha == NULL || cand_s == NULL || pstart == NULL || pcount == NULL ||
-        cand_scx == NULL || sel == NULL || worldv == NULL ||
+        cand_scx == NULL || sel == NULL || worldv == NULL || is_recovered == NULL ||
         cand_pbuf == NULL || cand_psize == NULL)
         goto done;
 
@@ -10056,6 +10063,80 @@ static int command_geo_fighter(
     }
 
     if (stage_mode) {
+        /* --from-rom: the captured decor is a frustum-culled subset of a
+         * contiguous model-ID range (note stage_model_table_020e0004). Map each
+         * captured record back to its ID via the model table (MAIN_DATA +0xe0004,
+         * 16-byte entries {tpa,tha,oba,obc}), take the ID range the capture spans,
+         * and add every valid ID in it that the capture lacks -- the culled decor.
+         * Recovered objects carry the camera (decor) matrix, so gs_worldframe maps
+         * them into the same camera-removed world frame as the captured decor. */
+        if (from_rom && main_data != NULL) {
+            /* Reverse-map each captured record to its model ID, then group the IDs
+             * into clusters (consecutive gap <= GF_IDGAP). The main decor is one
+             * dense cluster; a handful of far-off captured IDs (shadows/effects
+             * that share the camera matrix) form their own tiny clusters and are
+             * not expanded. For every cluster we fill its [lo,hi] ID range with the
+             * valid IDs the capture lacks -- the frustum-culled decor. */
+            const uint32_t GF_IDGAP = 64u;
+            size_t ncap = ncand, nids = 0u, ci;
+            uint32_t *cap_ids = (uint32_t *)malloc((ncap + 1u) * sizeof(uint32_t));
+            if (cap_ids != NULL) {
+                uint32_t cid;
+                for (i = 0u; i < ncap; ++i) {
+                    for (cid = 0u; cid < 0x2000u; ++cid) {
+                        uint32_t oba = tl_u32(main_data, main_size,
+                                              0xe0004u + cid * 16u + 8u);
+                        if ((oba & 0x800000u) != 0u &&
+                            ((oba & 0x7fffffu) * 4u) == cand_rec[i]) {
+                            cap_ids[nids++] = cid; break;
+                        }
+                    }
+                }
+                /* insertion sort (nids is small) */
+                for (i = 1u; i < nids; ++i) {
+                    uint32_t v = cap_ids[i]; size_t j2 = i;
+                    while (j2 > 0u && cap_ids[j2 - 1u] > v) { cap_ids[j2] = cap_ids[j2 - 1u]; --j2; }
+                    cap_ids[j2] = v;
+                }
+                ci = 0u;
+                while (ci < nids && ncand < cap_objs) {
+                    uint32_t lo = cap_ids[ci], hi = cap_ids[ci], id;
+                    size_t cj = ci + 1u;
+                    while (cj < nids && cap_ids[cj] - hi <= GF_IDGAP) { hi = cap_ids[cj]; ++cj; }
+                    for (id = lo; id <= hi && ncand < cap_objs; ++id) {
+                        uint32_t oba = tl_u32(main_data, main_size, 0xe0004u + id * 16u + 8u);
+                        uint32_t rec, tpa, tha; size_t q, vn = 0u; int seen = 0;
+                        if ((oba & 0x800000u) == 0u) continue;
+                        rec = (oba & 0x7fffffu) * 4u;
+                        if (rec == 0u || (size_t)rec + 24u > poly_size) continue;
+                        for (q = 0u; q < ncand; ++q) if (cand_rec[q] == rec) { seen = 1; break; }
+                        if (seen) continue;
+                        tpa = tl_u32(main_data, main_size, 0xe0004u + id * 16u) & 0x7fffffu;
+                        tha = tl_u32(main_data, main_size, 0xe0004u + id * 16u + 4u) & 0x7fffffu;
+                        gs_worldframe(mdec, mdec, adi, mf[ncand]);
+                        memcpy(cand_vmat[ncand], mdec, sizeof(mdec));
+                        (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u,
+                                             1u, &sheet, &tr, mf[ncand], vacc, &vn, vcap,
+                                             NULL, 0u, NULL);
+                        if (vn == 0u) continue;
+                        pstart[ncand] = wvn;
+                        for (e = 0u; e < vn && wvn < wvcap; ++e) {
+                            worldv[wvn * 3u + 0u] = vacc[e].x;
+                            worldv[wvn * 3u + 1u] = vacc[e].y;
+                            worldv[wvn * 3u + 2u] = vacc[e].z;
+                            ++wvn;
+                        }
+                        pcount[ncand] = wvn - pstart[ncand];
+                        cand_rec[ncand] = rec; cand_tpa[ncand] = tpa; cand_tha[ncand] = tha;
+                        cand_pbuf[ncand] = poly; cand_psize[ncand] = poly_size;
+                        is_recovered[ncand] = 1; ++nrec_rom;
+                        ++ncand;
+                    }
+                    ci = cj;
+                }
+                free(cap_ids);
+            }
+        }
         /* no fighters to separate: every decor object is kept, in its own
          * camera-removed world frame (the same frame in every capture). */
         for (i = 0u; i < ncand; ++i) sel[nsel++] = i;
@@ -10259,7 +10340,11 @@ stage_selected:
         m2[9]  = (float)((double)m2[9]  - off[0]);
         m2[10] = (float)((double)m2[10] - off[1]);
         m2[11] = (float)((double)m2[11] - off[2]);
-        fprintf(obj, "o %s_piece%02zu_rec%06x\n", base, k, (unsigned)cand_rec[idx]);
+        if (from_rom)
+            fprintf(obj, "o %s_%s_rec%06x\n", base,
+                    is_recovered[idx] ? "rom" : "cap", (unsigned)cand_rec[idx]);
+        else
+            fprintf(obj, "o %s_piece%02zu_rec%06x\n", base, k, (unsigned)cand_rec[idx]);
         vbase = ext_emit_piece(obj, cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                cand_rec[idx], uv_ptr, th_ptr, vbase, &cur_sheet,
                                &tris, m2, NULL, NULL, 0u,
@@ -10343,7 +10428,11 @@ stage_selected:
     printf("geo-%s: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png %s)\n",
            stage_mode ? "stage" : "fighter",
            base, pose, out_dir, base, base, colour ? "[colour]" : "[grayscale]");
-    if (stage_mode)
+    if (stage_mode && from_rom)
+        printf("  %zu objects: %zu captured + %zu recovered from ROM id range, "
+               "%zu triangles (o names: _cap_ = captured, _rom_ = ROM-recovered)\n",
+               nsel, nsel - nrec_rom, nrec_rom, tris_total);
+    else if (stage_mode)
         printf("  %zu distinct decor objects (shared-matrix stage set), %zu triangles; "
                "camera removed, world frame kept (merges by record across captures)\n",
                nsel, tris_total);
@@ -10371,7 +10460,7 @@ done:
     free(cand_rec); free(cand_tpa); free(cand_tha); free(cand_s); free(pstart); free(pcount);
     free(cand_scx); free(sel); free(worldv); free(dmat); free(parent);
     free(compsz); free(grp2); free(ram0); free(ram1);
-    free(cand_pbuf); free(cand_psize);
+    free(cand_pbuf); free(cand_psize); free(is_recovered);
     free(main_data); free(poly); free(tex); free(bank[0]); free(bank[1]);
     free(pal); free(cxlat); free(lumacap); free(luma);
     free(csheet[0]); free(csheet[1]);
@@ -12217,14 +12306,19 @@ int main(int argc, char **argv)
         return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
                                    argv[7], argv[8], argv[9],
                                    argc >= 11 ? argv[10] : NULL,
-                                   argc >= 12 ? argv[11] : NULL, 0);
+                                   argc >= 12 ? argv[11] : NULL, 0, 0);
     }
 
-    if (strcmp(argv[1], "geo-stage") == 0 && (argc >= 9 && argc <= 11)) {
-        return command_geo_fighter(argv[2], argv[3], argv[4], argv[5], argv[6],
-                                   argv[7], "stage", argv[8],
-                                   argc >= 10 ? argv[9] : NULL,
-                                   argc >= 11 ? argv[10] : NULL, 1);
+    if (strcmp(argv[1], "geo-stage") == 0) {
+        int fr = (argc >= 3 && strcmp(argv[2], "--from-rom") == 0);
+        int b = fr ? 3 : 2;          /* first positional arg */
+        int n = argc - b;            /* positional arg count (7..9) */
+        if (n >= 7 && n <= 9) {
+            return command_geo_fighter(argv[b], argv[b+1], argv[b+2], argv[b+3],
+                                       argv[b+4], argv[b+5], "stage", argv[b+6],
+                                       n >= 8 ? argv[b+7] : NULL,
+                                       n >= 9 ? argv[b+8] : NULL, 1, fr);
+        }
     }
 
     if (strcmp(argv[1], "geo-colour") == 0 && (argc == 8 || argc == 9)) {
