@@ -37,6 +37,35 @@ So the main decor is a **base + offset cluster** from `entry+0`, not a flat list
 capture's gaps within that cluster are the frustum-culled objects a from-ROM export
 would recover.
 
+## Enumeration traced (v0879 follow-up) [MEASURED]
+
+Callers of the submitter `0x7c60` (found by scanning the ROM for the call encoding
+`0x09000000 | ((0x7c60-addr) & 0xffffff)`): **~140 sites, ~54 of them unrolled within
+the stage renderer** (`0x20084..0x214d4`, plus `0x2e4e4..0x31778`). So the stage's
+objects are submitted by **unrolled code reading per-stage `g13` fields**, not a clean
+descriptor-driven loop/table -- there is no flat "decor ID list" to read.
+
+But the decor IS a **contiguous model-ID range** in the model table, and the capture is
+a **frustum-culled subset** of it. Verified on arcade stage 4 (base `0x86d` at
+descriptor +0): IDs `0x86d..0x8b0+` all resolve to a contiguous record cluster
+(`0x597c14, 0x598140, ...`), and the captured IDs (`0x87d, 0x87f, 0x883, ...`) are a
+subset -- each gap ID (e.g. `0x87e -> 0x599ee0`, sitting between `0x87d` and `0x87f`'s
+records) is **culled decor**, not a different model. So the capture's ~24 decor objects
+sit inside a ~42-wide ID range.
+
+Consequence: the exact range **bounds** (and which stages cull how much) are set by the
+unrolled renderer + per-object camera tests, which would take a full stage-renderer
+trace to pin exactly. What IS clean and validated: model-ID -> record (the table), and
+"decor = a contiguous ID range, capture = culled subset."
+
+**Recommended `--from-rom` (capture-anchored):** from a stage capture, map its decor
+records -> IDs via this table, take the contiguous ID range spanning them, and emit
+every valid ID in it with the capture's camera matrix + colours. Validation is direct:
+the captured IDs must be a subset of the emitted set; the extra ones are the recovered
+culled objects (stage 4: 24 captured -> ~42 in range). This needs no renderer trace and
+reuses the capture that geo-stage already consumes. (A pure descriptor-only --from-rom
+is not feasible without the full unrolled-renderer trace.)
+
 ## Status / next
 
 Model table: done and validated -- the hard part. A reliable `geo-stage --from-rom`
