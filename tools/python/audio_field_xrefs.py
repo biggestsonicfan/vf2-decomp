@@ -50,6 +50,7 @@ class Site:
     displacement: int
     preceding_copy: bool
     immediate_zero: bool
+    zero_via_store_run: bool = False
 
 
 def reconstruct_program(rom_zip: Path) -> bytes:
@@ -79,6 +80,39 @@ def decode_mema(word: int, fields: set[int]
         return None
     mnemonic, width, access = MEMORY_OPS[opcode]
     return mnemonic, access, width, (word >> 14) & 31, (word >> 19) & 31, displacement
+
+
+def zero_via_store_run(program: bytes, pc: int, data_reg: int, base_reg: int) -> bool:
+    """Prove a local zero store via a bounded straight run of stores.
+
+    Requires a literal mov 0,r3 and ONLY intervening r3 stores to the
+    same fighter base, including observed MEMB unindexed displacement
+    stores. Any branch, load, unknown instruction, or register mutation
+    ends proof. Static proof does not imply runtime reachability.
+    """
+    if data_reg != 3 or base_reg != 23 or pc < 4:
+        return False
+    lower = max(0, pc - 0x100)
+    for start in range(lower - lower % 4, pc, 4):
+        if struct.unpack_from("<I", program, start)[0] != 0x5C181E00:
+            continue
+        cursor = start + 4
+        while cursor < pc:
+            word = struct.unpack_from("<I", program, cursor)[0]
+            op, reg, base = word >> 24, (word >> 19) & 31, (word >> 14) & 31
+            if reg != 3 or base != 23 or op not in (0x82, 0x8A, 0x92, 0xCA, 0xC2):
+                break
+            if word & 0x1000:
+                if (word >> 10) & 15 != 13 or cursor + 8 > pc:
+                    break
+                cursor += 8
+            else:
+                if not word & 0x2000:
+                    break
+                cursor += 4
+        if cursor == pc:
+            return True
+    return False
 
 
 def scan(program: bytes, fields: set[int] | None = None) -> list[Site]:
@@ -111,7 +145,9 @@ def scan(program: bytes, fields: set[int] | None = None) -> list[Site]:
              and struct.unpack_from("<I", program, pc - 8)[0] == 0x5C181E00)
         )
         sites.append(Site(pc, mnemonic, access, width, base, reg,
-                          displacement, previous_copy, zero))
+                          displacement, previous_copy, zero,
+                          access == "write" and displacement == 0x624 and
+                          not zero and zero_via_store_run(program, pc, reg, base)))
     return sites
 
 
@@ -127,6 +163,7 @@ def report(sites: list[Site]) -> dict:
             "counts": dict(sorted(counts.items())),
             "immediate_previous_byte_copy_count": sum(s.preceding_copy for s in selected),
             "adjacent_zeroed_short_writer_count": sum(s.immediate_zero for s in selected),
+            "zeroed_via_straight_store_run_count": sum(s.zero_via_store_run for s in selected),
             "sites": [{**asdict(s), "pc": f"0x{s.pc:05x}",
                        "displacement": f"0x{s.displacement:03x}"}
                       for s in selected],
@@ -149,7 +186,8 @@ def main() -> None:
             print(f"{field['offset']}: {field['meaning']}")
             print(f"  aligned candidates: {field['candidate_count']}; "
                   f"direct adjacent byte copies: {field['immediate_previous_byte_copy_count']}; "
-                  f"adjacent-zero shorts: {field['adjacent_zeroed_short_writer_count']}")
+                  f"adjacent-zero shorts: {field['adjacent_zeroed_short_writer_count']}; "
+                  f"bounded zero-propagation: {field['zeroed_via_straight_store_run_count']}")
             print("  " + ", ".join(f"{k}={v}" for k, v in field["counts"].items()))
             print("  writes: " + ", ".join(s["pc"] for s in field["sites"]
                                            if s["access"] == "write"))

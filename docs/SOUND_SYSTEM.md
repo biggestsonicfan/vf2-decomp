@@ -91,8 +91,8 @@ A análise estática da ROM identificou um erro de atribuição do relatório
 v0854: `fighter + 0x1b1` é o **tipo do personagem**, confirmado pelas
 rotinas de jogador, e **não** um identificador independente de evento
 sonoro. O driver i960 em `0x4396c` lê esse campo e em `0x43974` lê
-`fighter + 0x624`. Neste segundo campo, 37 dos 39 candidatos de
-escrita direta têm sequências locais de zero comprováveis; `0x23b44`
+`fighter + 0x624`. Neste segundo campo, 38 dos 39 candidatos de
+escrita direta têm sequências locais de zeragem comprováveis, incluindo `0x14120..0x14190`; `0x23b44`
 faz parte de `fa_coli`/`0x23878` (remapeamento de bits de colisão,
 medido anteriormente em v0283), **não é prova de um evento de áudio**. Isso **não**
 prova que `+0x624` seja o gatilho: só um evento real com trace e

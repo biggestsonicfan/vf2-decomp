@@ -24,8 +24,10 @@ produced the following **candidates** (not reachability claims):
 
 - `0x4396c`: `ldob +0x1b1(g7), r14`, in the sound command path.
 - `0x43974`: `ldos +0x624(g7), r14`, in the same path.
-- `0x14190`: `stos r3,+0x624(g7)`, among a cluster of field stores;
-  not yet classified for value or reachability.
+- `0x14190`: `stos r3,+0x624(g7)` is **a zero store**: the straight
+  store-only run begins at `0x14120` (`mov 0,r3`) and has no intervening
+  mutation of `r3` or control-flow edge. The scanner now checks the
+  entire run, including the two 8-byte MEMB displacement stores.
 - `0x23b44`: `stos g3,+0x624(g7)`, immediately after the
   `call 0x23878` at `0x23b40` inside `fa_coli` (`0x2396c`). The
   earlier **measured** collision/poly-cluster study v0283 already
@@ -35,10 +37,11 @@ produced the following **candidates** (not reachability claims):
 - `0x54ad4`: `stos r3,+0x624(g7)` immediately after a local
   zeroing sequence (reset, not an event trigger).
 
-The static scanner deliberately excludes MEMB/indexed accesses, indirect
-writes, and real machine reachability. Alignment alone can include data.
-The 37 demonstrable zeroing shapes do not prove the other two reachability
-or nonzero behavior. Do not turn this into a 9/10 audibility claim.
+The static scanner's census deliberately excludes MEMB/indexed accesses,
+indirect writes and reachability. The extra straight-run proof admits only
+the two observed *unindexed* MEMB stores between `0x14120` and `0x14190`. Alignment alone can include data.
+The 38 demonstrable zeroing shapes leave only the collision remap
+writer at `0x23b44`; this is not an identified SFX trigger. Do not turn this into a 9/10 audibility claim.
 
 ## Reproduce (without committing ROMs)
 
@@ -48,7 +51,7 @@ python tools/python/audio_field_xrefs.py /path/to/vf2.zip
 python tools/python/audio_field_xrefs.py /path/to/vf2.zip --json > out/audio-field-xrefs.json
 ```
 
-Five ROM-free regression cases cover MEMA decoding/refusals, byte-copy
+Six ROM-free regression cases cover MEMA decoding/refusals, byte-copy
 classification, adjacent zeroing, `LOAD32_WORD` layout, and bad-input
 refusal. The locally supplied VF2 ROM produced the counts above. The
 tool neither emits ROM bytes nor writes extracted files.
@@ -71,3 +74,11 @@ tool neither emits ROM bytes nor writes extracted files.
 This note **supersedes only the v0854 `+0x1b1` sound-ID wording**.
 The independently measured queue, L3, L1/L2, dispatcher and key-on
 work is unchanged.
+
+## v0856 local zero-propagation correction
+
+`0x14120..0x14190` is a straight zero-store run; **38/39 direct
+`+0x624` writers can now be proven to write zero**. The remaining
+`0x23b44` is a measured `fa_coli` bit remap, not an SFX event.
+The provenance tool uses the actual `vf2probe` trace step/PC join;
+no active sound event has been claimed.

@@ -59,6 +59,17 @@ class TestAudioFieldXrefs(unittest.TestCase):
             self.assertEqual(program[0x40000:0x40004], bytes([0x12, 0x22, 0x13, 0x23]))
             self.assertEqual(len(program), 0x80000)
 
+    def test_bounded_zero_store_run(self) -> None:
+        from audio_field_xrefs import zero_via_store_run
+        pack = lambda w: struct.pack("<I", w)
+        clean = (pack(0x5C181E00) + pack(0x921DE198)
+                 + pack(0x8A1DE614) + pack(0x8A1DE624))
+        self.assertTrue(zero_via_store_run(clean, 12, 3, 23))
+        self.assertFalse(zero_via_store_run(clean, 12, 4, 23))
+        branch = (pack(0x5C181E00) + pack(0x09000004)
+                  + pack(0x8A1DE614) + pack(0x8A1DE624))
+        self.assertFalse(zero_via_store_run(branch, 12, 3, 23))
+
     def test_bad_rom_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             zip_path = Path(temp) / "bad.zip"
