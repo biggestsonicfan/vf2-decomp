@@ -9703,7 +9703,8 @@ static int command_geo_fighter(
     uint32_t readstart[GS_MAX_FRAMES];
     size_t nframes = 0u, pose, nobjs = 0u, s;
     vf2_geo_stop stop;
-    int side;                    /* 0 = akira (left), 1 = lau (right) */
+    int side;                    /* 0 = left (P1), 1 = right (P2) */
+    char base[64];               /* `which` without a trailing -l/-r, for filenames */
     float mdec[12];
     double adi[9];
     int have_dec = 0;
@@ -9744,9 +9745,13 @@ static int command_geo_fighter(
      * right-side subject would append "-r". */
     {
         size_t wl = strlen(which);
-        if (wl >= 2u && which[wl - 2u] == '-' && (which[wl - 1u] == 'r' || which[wl - 1u] == 'R')) side = 1;
-        else if (wl >= 2u && which[wl - 2u] == '-' && (which[wl - 1u] == 'l' || which[wl - 1u] == 'L')) side = 0;
+        int suff = (wl >= 2u && which[wl - 2u] == '-' &&
+                    (which[wl-1u]=='l'||which[wl-1u]=='L'||which[wl-1u]=='r'||which[wl-1u]=='R'));
+        if (suff) side = (which[wl-1u]=='r'||which[wl-1u]=='R') ? 1 : 0;
         else side = (strcmp(which, "lau") == 0) ? 1 : 0;
+        if (suff) wl -= 2u;
+        if (wl >= sizeof(base)) wl = sizeof(base) - 1u;
+        memcpy(base, which, wl); base[wl] = '\0';
     }
 
     pose = (size_t)strtoul(pose_str, NULL, 0);
@@ -10096,35 +10101,35 @@ static int command_geo_fighter(
     off[vax] = mn[vax];
 
     /* pass 2: write textured OBJ in the centred world frame */
-    snprintf(path, sizeof(path), "%s/%s.mtl", out_dir, which);
+    snprintf(path, sizeof(path), "%s/%s.mtl", out_dir, base);
     mtl = fopen(path, "wb");
     if (mtl != NULL) {
         if (colour) {
             /* colour sheets are per-fighter (each paints only its own pieces), so
-             * name them <which>_tex0/1.png to coexist in one directory. */
+             * name them <base>_tex0/1.png to coexist in one directory. */
             fprintf(mtl, "# VF2 %s textures (colour: palette+luma+colorxlat+gamma, "
-                         "%s). Local only.\n", which,
+                         "%s). Local only.\n", base,
                     gf_lit ? "representative per-polygon luma" : "full-light albedo");
             /* RGBA atlas: a translucent polygon's cutout texels (0x0f) bake with
              * alpha 0. map_d points at the same PNG so a viewer uses its alpha;
              * set alpha-test blending (illum 1, d 1) so the surface behind the
              * decal shows -- e.g. skin through the eye detail, as in the scene. */
-            fprintf(mtl, "newmtl sheet0\nillum 1\nd 1.0\nmap_Kd %s_tex0.png\nmap_d %s_tex0.png\n", which, which);
-            fprintf(mtl, "newmtl sheet1\nillum 1\nd 1.0\nmap_Kd %s_tex1.png\nmap_d %s_tex1.png\n", which, which);
+            fprintf(mtl, "newmtl sheet0\nillum 1\nd 1.0\nmap_Kd %s_tex0.png\nmap_d %s_tex0.png\n", base, base);
+            fprintf(mtl, "newmtl sheet1\nillum 1\nd 1.0\nmap_Kd %s_tex1.png\nmap_d %s_tex1.png\n", base, base);
         } else {
-            fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", which);
+            fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", base);
             fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
             fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
         }
         fclose(mtl); mtl = NULL;
     }
-    snprintf(path, sizeof(path), "%s/%s.obj", out_dir, which);
+    snprintf(path, sizeof(path), "%s/%s.obj", out_dir, base);
     obj = fopen(path, "wb");
     if (obj == NULL) { fprintf(stderr, "geo-fighter: cannot write %s\n", path); goto done; }
     fprintf(obj, "# VF2 %s, pose frame %zu, camera removed (decor matrix inverse), "
                  "feet-centred. %zu pieces. Local only, never committed.\n",
-            which, pose, nsel);
-    fprintf(obj, "mtllib %s.mtl\n", which);
+            base, pose, nsel);
+    fprintf(obj, "mtllib %s.mtl\n", base);
     for (k = 0u; k < nsel; ++k) {
         size_t idx = sel[k];
         size_t tris = 0u;
@@ -10138,7 +10143,7 @@ static int command_geo_fighter(
         m2[9]  = (float)((double)m2[9]  - off[0]);
         m2[10] = (float)((double)m2[10] - off[1]);
         m2[11] = (float)((double)m2[11] - off[2]);
-        fprintf(obj, "o %s_piece%02zu_rec%06x\n", which, k, (unsigned)cand_rec[idx]);
+        fprintf(obj, "o %s_piece%02zu_rec%06x\n", base, k, (unsigned)cand_rec[idx]);
         vbase = ext_emit_piece(obj, cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                cand_rec[idx], uv_ptr, th_ptr, vbase, &cur_sheet,
                                &tris, m2, NULL, NULL, 0u);
@@ -10152,9 +10157,9 @@ static int command_geo_fighter(
         tris_total += tris;
     }
     if (colour) {
-        snprintf(path, sizeof(path), "%s/%s_tex0.png", out_dir, which);
+        snprintf(path, sizeof(path), "%s/%s_tex0.png", out_dir, base);
         (void)png_write_rgba8(path, 2048u, 1024u, csheet[0], asheet[0]);
-        snprintf(path, sizeof(path), "%s/%s_tex1.png", out_dir, which);
+        snprintf(path, sizeof(path), "%s/%s_tex1.png", out_dir, base);
         (void)png_write_rgba8(path, 2048u, 1024u, csheet[1], asheet[1]);
     } else {
         snprintf(path, sizeof(path), "%s/tex0.png", out_dir);
@@ -10164,11 +10169,11 @@ static int command_geo_fighter(
     }
 
     printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png %s)\n",
-           which, pose, out_dir, which, which, colour ? "[colour]" : "[grayscale]");
+           base, pose, out_dir, base, base, colour ? "[colour]" : "[grayscale]");
     printf("  %zu fighter pieces (%zu decoded from reconstructed polygon RAM), "
            "3D connected-components at joint threshold %.2f; selected %s (%s) = "
            "%zu pieces, %zu triangles\n",
-           ncand, nram, bestT, which, side == 0 ? "left" : "right", nsel,
+           ncand, nram, bestT, base, side == 0 ? "left" : "right", nsel,
            tris_total);
     if (nram_unwritten > 0u)
         printf("  note: %zu RAM piece(s) read an index not uploaded this frame "
