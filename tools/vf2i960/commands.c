@@ -7652,7 +7652,7 @@ static float gc_rdf(const uint8_t *p, size_t n, size_t o)
 static uint32_t gc_poly_luma(const float nv[3], const float va[3], const float *mat,
     const float *light, uint32_t tpi,
     const uint8_t *tp_diffuse, const uint8_t *tp_ambient,
-    const uint8_t *tp_sscale, const uint8_t *tp_sctrl, uint32_t geo_mode)
+    const uint8_t *tp_sscale, const uint8_t *tp_sctrl, uint32_t geo_mode, int twosided)
 {
     double nt[3], dotl, dotp, lumv, spec = 0.0;
     float ptx, pty, ptz;
@@ -7664,7 +7664,15 @@ static uint32_t gc_poly_luma(const float nv[3], const float va[3], const float *
     pty = va[0] * mat[1] + va[1] * mat[4] + va[2] * mat[7] + mat[10];
     ptz = va[0] * mat[2] + va[1] * mat[5] + va[2] * mat[8] + mat[11];
     dotp = nt[0] * (double)ptx + nt[1] * (double)pty + nt[2] * (double)ptz;
-    lumv = (dotl * dotp < 0.0) ? 0.0 : fabs(dotl);
+    /* MAME shadows a front face whose normal points away from the light
+     * (dotl*dotp<0 -> 0). A mirrored translucent decal (the two halves of Lau's
+     * front ornament share one record, mirrored) then has one half lit and the
+     * other shadowed. In-game the decal is drawn translucent OVER the lit base,
+     * so the shadowed half still reads lit; a baked opaque atlas would show it
+     * near-black. For the static OBJ, light such a decal two-sided (|dotl|) so
+     * the mirror halves match. `twosided` is passed only for the atlas bake of a
+     * translucent polygon; the scene render stays MAME-exact. */
+    lumv = (twosided || dotl * dotp >= 0.0) ? fabs(dotl) : 0.0;
     if (((geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u) && tp_sctrl[tpi] != 0u) {
         uint32_t sc = tp_sctrl[tpi];
         spec = (2.0 * dotl) * nt[2] - (double)light[2];
@@ -7780,7 +7788,7 @@ static void ext_colour_sheet_piece(
         untextured = ((hd.renderer & 2u) == 0u);  /* texheader[0] bit 14 clear */
         lumascale = (vmat != NULL)
             ? gc_poly_luma(nv, va, vmat, light, (attr >> 18) & 0x1fu,
-                           tp_diffuse, tp_ambient, tp_sscale, tp_sctrl, geo_mode)
+                           tp_diffuse, tp_ambient, tp_sscale, tp_sctrl, geo_mode, translucent)
             : 0xffu;
         bk = bank[hd.sheet & 1u]; bks = bank_size[hd.sheet & 1u];
         cs = csheet[hd.sheet & 1u]; as = asheet[hd.sheet & 1u];
