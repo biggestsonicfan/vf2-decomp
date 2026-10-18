@@ -85,6 +85,22 @@ posteriores e o código em `master`.
 - [decomp/i960/notes/](../decomp/i960/notes/): notas `audio_*.md` por
   recuperação; preferir as correções mais recentes.
 
+## Correção de proveniência do evento (v0855)
+
+A análise estática da ROM identificou um erro de atribuição do relatório
+v0854: `fighter + 0x1b1` é o **tipo do personagem**, confirmado pelas
+rotinas de jogador, e **não** um identificador independente de evento
+sonoro. O driver i960 em `0x4396c` lê esse campo e em `0x43974` lê
+`fighter + 0x624`. Neste segundo campo, 37 dos 39 candidatos de
+escrita direta têm sequências locais de zero comprováveis; `0x23b44`
+é um dos dois casos restantes que exigem rastreamento. Isso **não**
+prova que `+0x624` seja o gatilho: só um evento real com trace e
+diferencial pode fechar essa lacuna.
+
+Evidência, contagens, ferramenta e cinco testes sem ROM:
+[nota v0855](../decomp/i960/notes/audio_source_frontier_v0855.md) e
+[analisador](../tools/python/audio_field_xrefs.py).
+
 ## Fronteiras abertas prioritárias
 
 1. Capturar **um evento real de gameplay** que chegue ao filer, com
