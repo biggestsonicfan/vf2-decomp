@@ -27,6 +27,9 @@ ENTRY_DEDUP = 0x439AC
 CALL_FILER = 0x18AC0
 ENTRY_FILER = 0x43888
 AFTER_FILER = 0x18AC4
+DEDUP_RET = 0x439F8
+FILER_STORE = 0x43924
+FILER_RET = 0x4394C
 
 
 def signed_target(pc: int, opcode: int) -> int:
@@ -51,6 +54,11 @@ def verify_fighter_delivery_opcodes(rom: bytes) -> dict:
         op = word(rom, pc)
         if op >> 24 != 9 or signed_target(pc, op) != expected:
             raise ValueError(f'changed direct call {pc:#x} -> {expected:#x}')
+    if word(rom, FILER_STORE) != 0x92803903 or word(rom, FILER_STORE + 4) != 0x00504020:
+        raise ValueError(f'changed aligned ring store or MEMB literal at {FILER_STORE:#x}')
+    for pc in (DEDUP_RET, FILER_RET):
+        if word(rom, pc) != 0x0A000000:
+            raise ValueError(f'changed i960 return instruction at {pc:#x}')
     return {'selected_command_load': f'0x{LOAD_CMD:05x}',
             'mov_selected_to_g0': f'0x{MOV_CMD:05x}',
             'dedup_call': f'0x{CALL_DEDUP:05x}',
@@ -170,8 +178,12 @@ def witness_delivery(lines, selections: list[dict], *, max_window=1024,
                 finish('unexpected_after_mov')
             continue
         if phase == 'inside_dedup':
-            if after == CALL_FILER:
+            if ip == DEDUP_RET and after == CALL_FILER:
                 active['phase'] = 'await_filer'
+            elif after == CALL_FILER:
+                finish('unverified_dedup_return')
+            elif not ENTRY_DEDUP <= ip <= DEDUP_RET:
+                finish('left_dedup_without_return')
             continue
         if phase == 'await_filer':
             if ip == CALL_FILER and after == ENTRY_FILER:
@@ -182,15 +194,23 @@ def witness_delivery(lines, selections: list[dict], *, max_window=1024,
                 finish('unexpected_after_dedup')
             continue
         if phase == 'inside_filer':
+            if not ENTRY_FILER <= ip <= FILER_RET:
+                finish('left_filer_without_return')
+                continue
             for write in mem:
-                if write['kind'] == 'queue_entry':
+                if write['kind'] == 'queue_entry' and ip == FILER_STORE:
                     active['ring_writes'].append({
-                        'step': step, 'pc': ip, 'value': f"0x{write['value']:08x}",
+                        'step': step, 'pc': ip, 'address': write['address'],
+                        'value': f"0x{write['value']:08x}",
                         'matches_selection': write['value'] == active['selection']['command']})
                     stats['complete_ring_writes_inside_filer'] += 1
-                else:
+                elif write['kind'] != 'queue_entry':
                     stats['partial_ring_writes_inside_filer'] += 1
-            if after == AFTER_FILER:
+                else:
+                    stats['queue_write_at_unverified_opcode'] += 1
+            if after == AFTER_FILER and ip != FILER_RET:
+                finish('unverified_filer_return')
+            elif after == AFTER_FILER:
                 matched = any(w['matches_selection'] for w in active['ring_writes'])
                 finish('command_delivered_to_ring' if matched else
                        'filer_returned_without_matching_ring_word', matched=matched)

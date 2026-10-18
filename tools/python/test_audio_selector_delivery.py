@@ -10,7 +10,7 @@ from pathlib import Path
 from audio_selector_delivery import (
     verify_fighter_delivery_opcodes, witness_delivery, signed_target,
     LOAD_CMD, MOV_CMD, CALL_DEDUP, ENTRY_DEDUP, CALL_FILER, ENTRY_FILER,
-    AFTER_FILER,
+    AFTER_FILER, DEDUP_RET, FILER_STORE, FILER_RET,
 )
 from audio_selector_provenance import ROUTES
 from audio_field_xrefs import reconstruct_program
@@ -46,21 +46,21 @@ def corridor(*, write_word=0xAD2307, with_write=True, return_filer=True,
     lines.extend([
         step(5, MOV_CMD, CALL_DEDUP),
         step(6, CALL_DEDUP, ENTRY_DEDUP if not broken_call else 0x43000),
-        step(7, ENTRY_DEDUP if not broken_call else 0x43000, 0x439B4),
-        step(8, 0x439B4, CALL_FILER),
+        step(7, ENTRY_DEDUP if not broken_call else 0x43000, DEDUP_RET),
+        step(8, DEDUP_RET, CALL_FILER),
         step(9, CALL_FILER, ENTRY_FILER),
-        step(10, ENTRY_FILER, 0x4388C),
+        step(10, ENTRY_FILER, FILER_STORE),
     ])
     if with_write:
         lines.append(write(11, write_word))
-    lines.append(step(11, 0x4388C, 0x438F8))
+    lines.append(step(11, FILER_STORE, FILER_RET))
     if return_filer:
-        lines.append(step(12, 0x438F8, AFTER_FILER))
+        lines.append(step(12, FILER_RET, AFTER_FILER))
     return lines
 
 
 def fixture_rom():
-    img = bytearray(0x1B100)
+    img = bytearray(0x43A00)
     for char, ptr, cmd, fighter_reg, row_reg in ROUTES.values():
         struct.pack_into('<I', img, char,
                          0x80002000 | (4 << 19) | (fighter_reg << 14) | 0x1B1)
@@ -72,6 +72,10 @@ def fixture_rom():
     struct.pack_into('<I', img, MOV_CMD, 0x5C801605)
     for pc, target in ((CALL_DEDUP, ENTRY_DEDUP), (CALL_FILER, ENTRY_FILER)):
         struct.pack_into('<I', img, pc, 0x09000000 | ((target-pc)&0x00FFFFFC))
+    struct.pack_into('<I', img, FILER_STORE, 0x92803903)
+    struct.pack_into('<I', img, FILER_STORE + 4, 0x00504020)
+    struct.pack_into('<I', img, DEDUP_RET, 0x0A000000)
+    struct.pack_into('<I', img, FILER_RET, 0x0A000000)
     return img
 
 
@@ -96,6 +100,38 @@ class TestSelectorDelivery(unittest.TestCase):
     def test_wrong_rom_call_refused(self):
         image = fixture_rom()
         struct.pack_into('<I', image, CALL_DEDUP, 0x09000000)
+        with self.assertRaises(ValueError):
+            verify_fighter_delivery_opcodes(image)
+
+    def test_reject_write_at_embedded_extension_word(self):
+        lines = corridor()
+        lines[-2] = step(11, 0x4388C, FILER_RET)
+        lines[7] = step(10, ENTRY_FILER, 0x4388C)
+        result = witness_delivery(lines, selection())
+        self.assertNotIn('command_delivered_to_ring', result['counts'])
+        self.assertGreater(result['counts'].get('queue_write_at_unverified_opcode', 0), 0)
+
+    def test_reject_fake_dedup_return(self):
+        lines = corridor()
+        lines[5] = step(8, 0x439B4, CALL_FILER)
+        result = witness_delivery(lines, selection())
+        self.assertNotIn('command_delivered_to_ring', result['counts'])
+
+    def test_reject_fake_filer_return(self):
+        lines = corridor()
+        lines[-1] = step(12, 0x438F8, AFTER_FILER)
+        result = witness_delivery(lines, selection())
+        self.assertNotIn('command_delivered_to_ring', result['counts'])
+
+    def test_reject_wrong_ring_store_opcode(self):
+        image = fixture_rom()
+        struct.pack_into('<I', image, FILER_STORE, 0x92803904)
+        with self.assertRaises(ValueError):
+            verify_fighter_delivery_opcodes(image)
+
+    def test_reject_wrong_dedup_ret_opcode(self):
+        image = fixture_rom()
+        struct.pack_into('<I', image, DEDUP_RET, 0x08000000)
         with self.assertRaises(ValueError):
             verify_fighter_delivery_opcodes(image)
 
