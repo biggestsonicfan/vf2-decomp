@@ -56,3 +56,7 @@ Correlate a real executed selection (profile and column registers at
 then with `0x439ac` → `0x43888` → vector-15 UART →
 68000 L3 → dispatcher → SCSP key-on. Do not stage synthetic audio
 packets and call that a recovered gameplay event.
+
+## v0861 correction: row and column proven by instruction dataflow
+
+The earlier generic names `profile` and `position` are legacy API labels. The original i960 instructions at 0x18a88, 0x10230 and 0x1b060 load an event/row selector from r3 and a fighter-type column from r4 (`fighter + 0x1b1`). The three ROM-anchored instruction and optional trace proofs are in [audio_selector_provenance_v0861.md](audio_selector_provenance_v0861.md). This alone is not a sound-event gameplay trace.
