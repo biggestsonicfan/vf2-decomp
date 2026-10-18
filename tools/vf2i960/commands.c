@@ -7652,7 +7652,8 @@ static float gc_rdf(const uint8_t *p, size_t n, size_t o)
 static uint32_t gc_poly_luma(const float nv[3], const float va[3], const float *mat,
     const float *light, uint32_t tpi,
     const uint8_t *tp_diffuse, const uint8_t *tp_ambient,
-    const uint8_t *tp_sscale, const uint8_t *tp_sctrl, uint32_t geo_mode, int twosided)
+    const uint8_t *tp_sscale, const uint8_t *tp_sctrl, uint32_t geo_mode, int twosided,
+    int no_spec)
 {
     double nt[3], dotl, dotp, lumv, spec = 0.0;
     float ptx, pty, ptz;
@@ -7673,7 +7674,14 @@ static uint32_t gc_poly_luma(const float nv[3], const float va[3], const float *
      * the mirror halves match. `twosided` is passed only for the atlas bake of a
      * translucent polygon; the scene render stays MAME-exact. */
     lumv = (twosided || dotl * dotp >= 0.0) ? fabs(dotl) : 0.0;
-    if (((geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u) && tp_sctrl[tpi] != 0u) {
+    /* `no_spec`: the atlas bake drops the specular term for a strongly-specular
+     * (chrome) material -- a view-dependent highlight cannot be baked on a frame
+     * and then viewed from another angle, so the atlas carries only the matte
+     * diffuse+ambient base and the MTL marks the material metallic for the viewer
+     * to shade live. Materials without specular (tp_sctrl==0, i.e. every one the
+     * other ten fighters use) are unaffected, so their atlases stay byte-identical. */
+    if (!no_spec &&
+        ((geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u) && tp_sctrl[tpi] != 0u) {
         uint32_t sc = tp_sctrl[tpi];
         spec = (2.0 * dotl) * nt[2] - (double)light[2];
         if (spec < 0.0) spec = 0.0;
@@ -7788,7 +7796,8 @@ static void ext_colour_sheet_piece(
         untextured = ((hd.renderer & 2u) == 0u);  /* texheader[0] bit 14 clear */
         lumascale = (vmat != NULL)
             ? gc_poly_luma(nv, va, vmat, light, (attr >> 18) & 0x1fu,
-                           tp_diffuse, tp_ambient, tp_sscale, tp_sctrl, geo_mode, translucent)
+                           tp_diffuse, tp_ambient, tp_sscale, tp_sctrl, geo_mode,
+                           translucent, 1 /* no_spec: never bake specular */)
             : 0xffu;
         bk = bank[hd.sheet & 1u]; bks = bank_size[hd.sheet & 1u];
         cs = csheet[hd.sheet & 1u]; as = asheet[hd.sheet & 1u];
@@ -7951,7 +7960,8 @@ static size_t ext_emit_piece(
     uint32_t rec_byte, uint32_t uv_ptr, uint32_t th_ptr,
     size_t vbase, int *cur_sheet, size_t *tri_count,
     const float *mtx,
-    vf2_model_vertex *vacc, size_t *vacc_n, size_t vacc_cap
+    vf2_model_vertex *vacc, size_t *vacc_n, size_t vacc_cap,
+    const uint8_t *tp_sctrl, uint32_t geo_mode, uint32_t *used_spec
 )
 {
     vf2_model_vertex p0;
@@ -8073,9 +8083,31 @@ static size_t ext_emit_piece(
             uv[3][1] = uv[2][1];
         }
 
-        if (*cur_sheet != (int)hd.sheet) {
-            if (obj != NULL) fprintf(obj, "usemtl sheet%u\n", (unsigned)hd.sheet);
-            *cur_sheet = (int)hd.sheet;
+        /* Material = texture bank (sheet0/1), except a strongly-specular (chrome)
+         * material -- one whose 0x06 spec control is non-zero, which only Dural
+         * uses -- gets its own `sheetN_specM` material so the MTL can mark it
+         * metallic (its specular is viewer-shaded, not baked). tp_sctrl==NULL
+         * (every non-colour caller) keeps the plain sheetN material, byte for byte. */
+        {
+            uint32_t tpi = (attr >> 18) & 0x1fu;
+            int spec_active = (tp_sctrl != NULL &&
+                ((geo_mode & 3u) == 1u || (geo_mode & 3u) == 3u) &&
+                tp_sctrl[tpi] != 0u);
+            int mtl_key = spec_active
+                ? (int)(0x1000u | ((uint32_t)(hd.sheet & 1u) << 5) | tpi)
+                : (int)(hd.sheet & 1u);
+            if (*cur_sheet != mtl_key) {
+                if (obj != NULL) {
+                    if (spec_active)
+                        fprintf(obj, "usemtl sheet%u_spec%u\n",
+                                (unsigned)(hd.sheet & 1u), tpi);
+                    else
+                        fprintf(obj, "usemtl sheet%u\n", (unsigned)(hd.sheet & 1u));
+                }
+                *cur_sheet = mtl_key;
+            }
+            if (spec_active && used_spec != NULL)
+                used_spec[hd.sheet & 1u] |= (1u << tpi);
         }
 
         /* Always pass the polygon's unit normal so ext_emit_poly can orient each
@@ -8335,7 +8367,8 @@ static int command_export_textured(
             vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size,
                                    pieces[i].rec_byte, pieces[i].uv_ptr,
                                    pieces[i].th_ptr, vbase, &cur_sheet,
-                                   &tri_total, NULL, NULL, NULL, 0u);
+                                   &tri_total, NULL, NULL, NULL, 0u,
+                                   NULL, 0u, NULL);
         }
     }
     fclose(obj);
@@ -8700,7 +8733,7 @@ static int command_export_pieces(
         fprintf(obj, "mtllib pieces.mtl\n");
         (void)ext_emit_piece(obj, poly, poly_size, tex, tex_size, off, uv_ptr,
                              th_ptr, 1u, &cur_sheet, &tris, NULL, NULL, NULL,
-                             0u);
+                             0u, NULL, 0u, NULL);
         fclose(obj);
         ++written;
 
@@ -9317,7 +9350,7 @@ static int command_geo_scene(
         if ((size_t)rec + 24u <= poly_size) {
             vbase = ext_emit_piece(obj, poly, poly_size, tex, tex_size, rec,
                                    uv_ptr, th_ptr, vbase, &cur_sheet, &tris, m,
-                                   NULL, NULL, 0u);
+                                   NULL, NULL, 0u, NULL, 0u, NULL);
             ++resolved;
         } else {
             fprintf(obj, "usemtl marker\n");
@@ -9490,7 +9523,7 @@ static int command_geo_scene(
                         vb = ext_emit_piece(vo, poly, poly_size, tex, tex_size,
                                             rec, uvp, thp, vb, &vsheet, &tr,
                                             variant == 0 ? m : mt,
-                                            vbuf, &vn, vcap);
+                                            vbuf, &vn, vcap, NULL, 0u, NULL);
                     }
                     pend[i] = vn;
                 }
@@ -9602,7 +9635,7 @@ static double gf_screen_cx(const uint8_t *poly, size_t poly_size, uint32_t rec,
     size_t tr = 0u;
     double sum = 0.0;
     (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec, 0u, 0u, 1u,
-                         &sheet, &tr, m, vacc, &vn, vcap);
+                         &sheet, &tr, m, vacc, &vn, vcap, NULL, 0u, NULL);
     for (e = 0u; e < vn; ++e) {
         double X = (double)vacc[e].x * 600.0;
         double Z = (double)vacc[e].z;
@@ -9740,6 +9773,7 @@ static int command_geo_fighter(
     float gf_light[3] = { 0.0f, 0.0f, 1.0f };
     uint8_t gf_diff[32], gf_amb[32], gf_sscale[32], gf_sctrl[32];
     uint32_t gf_mode = 0u;
+    uint32_t used_spec[2] = { 0u, 0u };  /* per sheet, bit tpi set = chrome material used */
     uint32_t *cand_rec = NULL, *cand_tpa = NULL, *cand_tha = NULL;
     size_t *cand_s = NULL, *pstart = NULL, *pcount = NULL;
     size_t *parent = NULL, *compsz = NULL, *sel = NULL;
@@ -9952,7 +9986,7 @@ static int command_geo_fighter(
         gs_worldframe(objs[s].matrix, mdec, adi, mf[ncand]);
         memcpy(cand_vmat[ncand], objs[s].matrix, sizeof(cand_vmat[ncand]));
         (void)ext_emit_piece(NULL, pbuf, psize, NULL, 0u, rec, 0u, 0u, 1u,
-                             &sheet, &tr, mf[ncand], vacc, &vn, vcap);
+                             &sheet, &tr, mf[ncand], vacc, &vn, vcap, NULL, 0u, NULL);
         if (vn == 0u) continue;
         if (!is_rom) ++nram;
         pstart[ncand] = wvn;
@@ -10127,29 +10161,10 @@ static int command_geo_fighter(
     off[2] = 0.5 * (mn[2] + mx[2]);
     off[vax] = mn[vax];
 
-    /* pass 2: write textured OBJ in the centred world frame */
-    snprintf(path, sizeof(path), "%s/%s.mtl", out_dir, base);
-    mtl = fopen(path, "wb");
-    if (mtl != NULL) {
-        if (colour) {
-            /* colour sheets are per-fighter (each paints only its own pieces), so
-             * name them <base>_tex0/1.png to coexist in one directory. */
-            fprintf(mtl, "# VF2 %s textures (colour: palette+luma+colorxlat+gamma, "
-                         "%s). Local only.\n", base,
-                    gf_lit ? "representative per-polygon luma" : "full-light albedo");
-            /* RGBA atlas: a translucent polygon's cutout texels (0x0f) bake with
-             * alpha 0. map_d points at the same PNG so a viewer uses its alpha;
-             * set alpha-test blending (illum 1, d 1) so the surface behind the
-             * decal shows -- e.g. skin through the eye detail, as in the scene. */
-            fprintf(mtl, "newmtl sheet0\nillum 1\nd 1.0\nmap_Kd %s_tex0.png\nmap_d %s_tex0.png\n", base, base);
-            fprintf(mtl, "newmtl sheet1\nillum 1\nd 1.0\nmap_Kd %s_tex1.png\nmap_d %s_tex1.png\n", base, base);
-        } else {
-            fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", base);
-            fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
-            fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
-        }
-        fclose(mtl); mtl = NULL;
-    }
+    /* pass 2: write textured OBJ in the centred world frame. The MTL is written
+     * after the mesh (below) so it can declare a metallic material for each
+     * strongly-specular (chrome) material the mesh actually used, collected in
+     * `used_spec` (bit tpi per sheet). */
     snprintf(path, sizeof(path), "%s/%s.obj", out_dir, base);
     obj = fopen(path, "wb");
     if (obj == NULL) { fprintf(stderr, "geo-fighter: cannot write %s\n", path); goto done; }
@@ -10173,7 +10188,8 @@ static int command_geo_fighter(
         fprintf(obj, "o %s_piece%02zu_rec%06x\n", base, k, (unsigned)cand_rec[idx]);
         vbase = ext_emit_piece(obj, cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                cand_rec[idx], uv_ptr, th_ptr, vbase, &cur_sheet,
-                               &tris, m2, NULL, NULL, 0u);
+                               &tris, m2, NULL, NULL, 0u,
+                               gf_lit ? gf_sctrl : NULL, gf_mode, used_spec);
         if (colour)
             ext_colour_sheet_piece(cand_pbuf[idx], cand_psize[idx], tex, tex_size,
                                    cand_rec[idx], th_ptr,
@@ -10193,6 +10209,61 @@ static int command_geo_fighter(
         (void)ext_tex_write_sheet_png(path, bank[0], bank_size[0]);
         snprintf(path, sizeof(path), "%s/tex1.png", out_dir);
         (void)ext_tex_write_sheet_png(path, bank[1], bank_size[1]);
+    }
+
+    /* material library, written after the mesh so the chrome materials reflect
+     * what was actually emitted. The base sheet0/1 lines are unchanged, so a
+     * fighter that uses no chrome material (every one but Dural) gets a
+     * byte-identical MTL. */
+    snprintf(path, sizeof(path), "%s/%s.mtl", out_dir, base);
+    mtl = fopen(path, "wb");
+    if (mtl != NULL) {
+        if (colour) {
+            fprintf(mtl, "# VF2 %s textures (colour: palette+luma+colorxlat+gamma, "
+                         "%s). Local only.\n", base,
+                    gf_lit ? "representative per-polygon luma" : "full-light albedo");
+            /* RGBA atlas: a translucent polygon's cutout texels (0x0f) bake with
+             * alpha 0. map_d points at the same PNG so a viewer uses its alpha;
+             * illum 1, d 1 = alpha-test so the surface behind a decal shows. */
+            fprintf(mtl, "newmtl sheet0\nillum 1\nd 1.0\nmap_Kd %s_tex0.png\nmap_d %s_tex0.png\n", base, base);
+            fprintf(mtl, "newmtl sheet1\nillum 1\nd 1.0\nmap_Kd %s_tex1.png\nmap_d %s_tex1.png\n", base, base);
+            /* A strongly-specular (chrome) material: its atlas holds only the
+             * matte diffuse+ambient base (the view-dependent highlight is not
+             * baked), so mark it metallic for the viewer to shade live. The 0x06
+             * table drives the shininess: spec_ctrl sets the exponent (1/2/4/8
+             * squarings in gc_poly_luma), spec_scale the strength. Blender's OBJ
+             * importer reads Pm/Pr (PBR -> Principled metallic/roughness); Ns/Ks
+             * are the legacy fallback. */
+            {
+                int sh; uint32_t tpi;
+                for (sh = 0; sh < 2; ++sh)
+                    for (tpi = 0u; tpi < 32u; ++tpi) {
+                        uint32_t sc;
+                        double exps, metal, rough, ns;
+                        if ((used_spec[sh] & (1u << tpi)) == 0u) continue;
+                        sc = gf_sctrl[tpi];
+                        exps = 1.0;
+                        if ((sc >> 1) != 0u) exps *= 2.0;
+                        if ((sc >> 2) != 0u) exps *= 2.0;
+                        if (((sc + 1u) >> 3) != 0u) exps *= 2.0;   /* 1,2,4,8 */
+                        metal = (double)gf_sscale[tpi] / 255.0;
+                        rough = 0.5 / exps + 0.05;                 /* sharper -> smoother */
+                        if (rough > 0.9) rough = 0.9;
+                        ns = exps * 100.0; if (ns > 900.0) ns = 900.0;
+                        fprintf(mtl, "newmtl sheet%d_spec%u\n", sh, tpi);
+                        fprintf(mtl, "illum 2\nd 1.0\n");
+                        fprintf(mtl, "Pm %.3f\nPr %.3f\n", metal, rough);
+                        fprintf(mtl, "Ks %.3f %.3f %.3f\nNs %.1f\n", metal, metal, metal, ns);
+                        fprintf(mtl, "map_Kd %s_tex%d.png\nmap_d %s_tex%d.png\n",
+                                base, sh, base, sh);
+                    }
+            }
+        } else {
+            fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", base);
+            fprintf(mtl, "newmtl sheet0\nmap_Kd tex0.png\n");
+            fprintf(mtl, "newmtl sheet1\nmap_Kd tex1.png\n");
+        }
+        fclose(mtl); mtl = NULL;
     }
 
     printf("geo-fighter: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png %s)\n",
@@ -11074,12 +11145,12 @@ static int command_geo_project(
                 vn = 0u;
                 (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
                                      0u, 0u, 1u, &sheet, &tr, mat, vb, &vn,
-                                     vcap);
+                                     vcap, NULL, 0u, NULL);
                 /* raw (identity-posed) vertices, to compare the object's own
                  * vertex scale against its matrix column norms. */
                 (void)ext_emit_piece(NULL, poly, poly_size, NULL, 0u, rec,
                                      0u, 0u, 1u, &sheet2, &tr2, NULL, vb2, &vn2,
-                                     vcap);
+                                     vcap, NULL, 0u, NULL);
                 for (e = 0u; e < vn2; ++e) {
                     double rvx = (double)vb2[e].x;
                     double rvy = (double)vb2[e].y;
