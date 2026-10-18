@@ -9737,9 +9737,17 @@ static int command_geo_fighter(
     vf2_status st;
     int rc = EXIT_FAILURE;
 
-    if (strcmp(which, "akira") == 0) side = 0;       /* left on screen */
-    else if (strcmp(which, "lau") == 0) side = 1;    /* right on screen */
-    else { fprintf(stderr, "geo-fighter: which must be akira|lau\n"); return EXIT_FAILURE; }
+    /* `which` names the fighter and, by screen side, which connected-component
+     * group to keep: P1 is on the left, the opponent on the right. In the
+     * captures so far P1 is the named character (akira, jacky, ...) and the
+     * right-hand fighter is Lau, so lau -> right, anything else -> left. A
+     * right-side subject would append "-r". */
+    {
+        size_t wl = strlen(which);
+        if (wl >= 2u && which[wl - 2u] == '-' && (which[wl - 1u] == 'r' || which[wl - 1u] == 'R')) side = 1;
+        else if (wl >= 2u && which[wl - 2u] == '-' && (which[wl - 1u] == 'l' || which[wl - 1u] == 'L')) side = 0;
+        else side = (strcmp(which, "lau") == 0) ? 1 : 0;
+    }
 
     pose = (size_t)strtoul(pose_str, NULL, 0);
     { size_t ti; for (ti = 0u; ti < 32u; ++ti) { gf_diff[ti] = 255u; gf_amb[ti] = 0u; gf_sscale[ti] = 0u; gf_sctrl[ti] = 0u; } }
@@ -10048,6 +10056,20 @@ static int command_geo_fighter(
         want_grp = (side == 0) ? akira_grp : 1 - akira_grp;
         for (i = 0u; i < ncand; ++i)
             if (grp2[i] == want_grp) sel[nsel++] = i;
+        if (getenv("VF2_CASE_CHECK") != NULL) {
+            size_t ndet = 0u, nun = 0u, ci;
+            for (ci = 0u; ci < ncand; ++ci) {
+                const float *m = cand_vmat[ci];
+                double det = (double)m[0]*((double)m[4]*m[8]-(double)m[5]*m[7])
+                           - (double)m[1]*((double)m[3]*m[8]-(double)m[5]*m[6])
+                           + (double)m[2]*((double)m[3]*m[7]-(double)m[4]*m[6]);
+                if (det < 0.0) { ++ndet;
+                    if (grp2[ci] == want_grp)
+                        fprintf(stderr, "CASE det<0 (reflection) rec=0x%06x det=%+.3f\n", cand_rec[ci], det); }
+                if (grp2[ci] != 0 && grp2[ci] != 1) ++nun;
+            }
+            fprintf(stderr, "CASES: %zu candidates, det<0=%zu, unassigned=%zu\n", ncand, ndet, nun);
+        }
     }
     if (nsel == 0u) { fprintf(stderr, "geo-fighter: no %s pieces at frame %zu\n", which, pose); goto done; }
 
