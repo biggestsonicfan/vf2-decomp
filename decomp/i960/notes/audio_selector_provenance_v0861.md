@@ -1,55 +1,74 @@
-# v0861 — ROM-proven selector index semantics and passive run verification
+# v0861 — Three ROM-proven i960 sound selection routes
 
-**Proven by supported VF2.1 Model 2A i960 ROM, not by guessed game labels.**
+Status: **ROM opcode recovery and passive attestation tooling**;
+not a naturally triggered combat sound, C runtime migration or
+C-vs-68000 differential.
 
-Three original i960 call-site corridors select command words through the
-18 × 11 main_data matrix:
+## Recovered original selection structure
 
-| Corridor | ldob fighter type to r4 | ld pointer table indexed by r3 | ld command at pointer[r4*4] |
-|---|---|---|---|
-| 0x18a88 | 0x18a8c from g7+0x1b1 | 0x18a90 to r3 | 0x18a98 to r5 |
-| 0x10230 | 0x10258 from r7+0x1b1 | 0x1027c to r15 | 0x10284 to r5 |
-| 0x1b060 | 0x1b070 from g7+0x1b1 | 0x1b074 to r15 | 0x1b07c to r5 |
+Three separate i960 routes load the character-type byte at
+`fighter + 0x1b1` into `r4`, look up `table[r3]` from
+`0x0201e44c`, and fetch `row[r4]` into `r5`.
+The indexed loads are checked at the opcode-bit level (MEMA
+fighter byte and MEMB absolute/base-index loads, x4 scale).
 
-This **corrects the earlier generic "profile / position" interpretation**:
-the 18 pointer-table rows are selected by an event/selector value in r3;
-the 11 columns are selected by the fighter's type byte in r4.
-The row's named move/event and the actual fighter-type-to-name mapping are
-not assigned without live observation.
+| Route | fighter-type byte | row pointer | selected command | fighter register |
+| --- | --- | --- | --- | --- |
+| fighter_driver | 0x18a8c | 0x18a90 | 0x18a98 | g7 |
+| round_selector | 0x10258 | 0x1027c | 0x10284 | r7 |
+| state_selector | 0x1b070 | 0x1b074 | 0x1b07c | g7 |
 
-Both MEMB indexed loads use scale=2 (×4): first absolute-index r3,
-then base-index r4. The destination of the first is r3 or r15, and
-the second always returns a command candidate in r5. All nine
-instruction encodings and the absolute extension 0x0201e44c were
-verified against the user's actual i960 program ROM. These are
-static, instruction-level facts; none prove the corridor is reached.
+The first route belongs to the original 0x18a54 dispatcher.
+After the command selection, the same ROM has direct calls at
+0x18ab4 → 0x43888, 0x18abc → 0x439ac, and
+0x18ac0 → 0x43888. This is **static caller evidence**, not
+proof that any branch is taken in gameplay.
 
-## Added
+The matrix from v0860 has 18 profiles x 11 columns with 107
+nonzero slots (98 distinct command words). A ROM-verified
+index relationship does not by itself name a game move or
+prove SCSP key-on.
 
-- `tools/python/audio_selector_provenance.py` rejects different
-  opcode shapes or table bases, and optionally parses *real*
-  `vf2probe --trace --memory-trace` streams.
-- The passive trace matcher observes a character-type read, follows
-  the actual pointer-table bus read, then validates the indexed
-  command fetch against the user's original main_data ROM. It only
-  accepts matching widths, PCs, addresses, register-derived indices,
-  and command value; interrupted/incomplete streams fail closed.
-- A later full aligned 32-bit queue write with an equal word can
-  be marked a **temporal candidate** (limited instruction distance).
-  Equal packet values alone do not prove provenance, gameplay input,
-  UART reception, SCSP key-on, or audible sound.
+## New instrumentation
 
-## Reproduce
+`tools/python/audio_selector_provenance.py` verifies all three
+opcode forms against the user's local VF2 ROM, then optionally
+consumes genuine `vf2probe --trace --memory-trace` JSONL.
+For each observed selection, it requires:
+
+1. one character/type byte read at the original instruction;
+2. a row-pointer read from the known profile table, matching
+   its exact ROM-stored address/value;
+3. a 32-bit command read at row-pointer + type*4, matching the
+   original ROM's command;
+4. continuous step/IP trace (including true branches), no
+   missing instruction or silently mixed invocation;
+5. queue writes, if any, matched by *value and time*, labeled
+   **temporal candidates**, not causal proof.
+
+Null selections are not matched to a zero queue write. The
+tool limits retained samples and candidates, but maintains
+counts of additional verified selections.
+
+Use:
 
 ~~~sh
-VF2_ROM_ZIP=/path/to/vf2.zip python -m unittest discover -s tools/python -p 'test_audio_*.py'
+export VF2_ROM_ZIP=/path/to/vf2.zip
+python -m unittest discover -s tools/python -p 'test_audio_*.py'
 python tools/python/audio_selector_provenance.py /path/to/vf2.zip --json
 python tools/python/audio_selector_provenance.py /path/to/vf2.zip \
-  --trace /path/to/real-precontact.jsonl --json
+  --trace out/real-precontact.jsonl --json
 ~~~
 
-Local: **64/64 Python tests passed**, including the current
-ROM-backed selector and matrix cases. No C suite was re-run, no
-naturally reached pre-contact gameplay sound was captured, and
-no full 68000/SCSP differential was claimed. Preserve all proprietary
-ROMs, snapshots and full trace streams off Git.
+**Validation this slice:** the local full Python audio-tool
+suite, including the ROM-backed cases, passed 67/67.
+There are 17 new selector-tool unit cases (16 ROM-free and
+one ROM-backed). Raw traces and proprietary ROM assets
+were never committed.
+
+## Next evidence gate
+
+A naturally reached pre-contact trace must show a selection
+followed by a queue write for that same word, then vector-15
+UART output, 68000 reception and SCSP key-on. A mere trace
+coincidence cannot substitute for the C-vs-stepper differential.
