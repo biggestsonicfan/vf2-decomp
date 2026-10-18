@@ -9932,12 +9932,34 @@ static int command_geo_fighter(
     scan_done: ;
     }
 
-    /* decor (shared) matrix -> camera; take the first decor-range object */
-    for (s = 0u; s < nobjs; ++s) {
-        uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
-        if (rec >= 0x3c1facu && rec <= 0x3ca730u) {
-            memcpy(mdec, objs[s].matrix, sizeof(mdec));
-            have_dec = 1; break;
+    /* decor (shared) matrix -> camera. Fighter mode: the stone-towers decor is the
+     * ROM-record range 0x3c1fac..0x3ca730 (unchanged). Stage mode: that range is
+     * specific to one arena, so instead find the matrix the MOST non-shadow objects
+     * share -- the decor objects all carry the camera matrix, while each fighter limb
+     * has its own, so the shared one is the camera/decor matrix for ANY stage. */
+    if (stage_mode) {
+        size_t best_s = nobjs, best_cnt = 0u;
+        for (s = 0u; s < nobjs; ++s) {
+            uint32_t rec_s = (objs[s].oba & 0x7fffffu) * 4u;
+            size_t t, cnt = 0u;
+            if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;   /* shadow */
+            if (rec_s == 0x581d50u || rec_s == 0x1a9b54u) continue;      /* bad */
+            for (t = 0u; t < nobjs; ++t) {
+                int kk; double d = 0.0;
+                for (kk = 0; kk < 12; ++kk)
+                    d += fabs((double)objs[s].matrix[kk] - (double)objs[t].matrix[kk]);
+                if (d < 1e-3) ++cnt;
+            }
+            if (cnt > best_cnt) { best_cnt = cnt; best_s = s; }
+        }
+        if (best_s != nobjs) { memcpy(mdec, objs[best_s].matrix, sizeof(mdec)); have_dec = 1; }
+    } else {
+        for (s = 0u; s < nobjs; ++s) {
+            uint32_t rec = (objs[s].oba & 0x7fffffu) * 4u;
+            if (rec >= 0x3c1facu && rec <= 0x3ca730u) {
+                memcpy(mdec, objs[s].matrix, sizeof(mdec));
+                have_dec = 1; break;
+            }
         }
     }
     if (!have_dec || !gs_mat3_inv(mdec, adi)) {
@@ -9981,10 +10003,15 @@ static int command_geo_fighter(
         if (is_rom && (rec == 0x581d50u || rec == 0x1a9b54u)) continue;  /* bad */
         if (gs_flatness(objs[s].matrix) < GS_SHADOW_EPS) continue;       /* shadow */
         if (stage_mode) {
-            /* geo-stage: KEEP only the decor set (ROM records in the shared-matrix
-             * range), the inverse of the fighter filter, and dedup repeats. */
-            size_t q; int seen = 0;
-            if (!(is_rom && rec >= 0x3c1facu && rec <= 0x3ca730u)) continue;
+            /* geo-stage: KEEP the decor set = ROM objects carrying the shared camera
+             * matrix (the fighters' per-limb matrices differ), the inverse of the
+             * fighter filter, deduped by record. Matrix-based so it works on any
+             * stage, not just the stone-towers record range. */
+            size_t q; int seen = 0, kk; double d = 0.0;
+            if (!is_rom) continue;
+            for (kk = 0; kk < 12; ++kk)
+                d += fabs((double)objs[s].matrix[kk] - (double)mdec[kk]);
+            if (d >= 1e-3) continue;   /* not a shared-matrix (decor) object */
             for (q = 0u; q < ncand; ++q) if (cand_rec[q] == rec) { seen = 1; break; }
             if (seen) continue;
             goto emit_cand;
