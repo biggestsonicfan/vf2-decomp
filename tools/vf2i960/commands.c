@@ -7865,13 +7865,17 @@ static void ext_xform(const float *m, const vf2_model_vertex *in,
 
 /* Emit one triangle (3 vertices + 3 UVs in lockstep, so the v and vt index of a
  * corner match). `mtx` (NULL = identity) poses each vertex into world/view
- * space. Returns the next running index. */
+ * space. `onrm`/`eps`: when non-NULL and non-zero, shift the whole triangle by
+ * `eps` world units along its (object-space) normal rotated into world space --
+ * used to lift a translucent decal (dragon, ornament) off the coplanar opaque
+ * base so a z-buffered viewer draws it on top, as MAME does by rendering
+ * translucent polygons over opaque ones. Returns the next running index. */
 static size_t ext_emit_tri(
     FILE *obj, size_t n,
     const vf2_model_vertex *a, const float ua[2],
     const vf2_model_vertex *b, const float ub[2],
     const vf2_model_vertex *c, const float uc[2],
-    const float *mtx,
+    const float *mtx, const float *onrm, float eps,
     vf2_model_vertex *vacc, size_t *vacc_n, size_t vacc_cap
 )
 {
@@ -7881,6 +7885,21 @@ static size_t ext_emit_tri(
     ext_xform(mtx, a, &ta);
     ext_xform(mtx, b, &tb);
     ext_xform(mtx, c, &tc);
+    if (onrm != NULL && eps != 0.0f) {
+        float wn[3], len;
+        if (mtx != NULL) {
+            wn[0] = onrm[0]*mtx[0] + onrm[1]*mtx[3] + onrm[2]*mtx[6];
+            wn[1] = onrm[0]*mtx[1] + onrm[1]*mtx[4] + onrm[2]*mtx[7];
+            wn[2] = onrm[0]*mtx[2] + onrm[1]*mtx[5] + onrm[2]*mtx[8];
+        } else { wn[0] = onrm[0]; wn[1] = onrm[1]; wn[2] = onrm[2]; }
+        len = (float)sqrt((double)(wn[0]*wn[0] + wn[1]*wn[1] + wn[2]*wn[2]));
+        if (len > 1e-6f) {
+            float s = eps / len;
+            ta.x += wn[0]*s; ta.y += wn[1]*s; ta.z += wn[2]*s;
+            tb.x += wn[0]*s; tb.y += wn[1]*s; tb.z += wn[2]*s;
+            tc.x += wn[0]*s; tc.y += wn[1]*s; tc.z += wn[2]*s;
+        }
+    }
     if (obj != NULL) {
         fprintf(obj, "v %.6f %.6f %.6f\n",
                 (double)ta.x, (double)ta.y, (double)ta.z);
@@ -7949,6 +7968,8 @@ static size_t ext_emit_piece(
         uint16_t thw[4];
         vf2_texture_header hd;
         float uv[4][2];
+        float pnrm[3];
+        const float *dnrm; float deps;
         uint32_t vtx;
 
         off += 4u;
@@ -7966,7 +7987,13 @@ static size_t ext_emit_piece(
             break;
         }
         numv = (attr & 1u) ? 4u : 3u;
-        off += 12u; /* skip unit normal (3 floats) */
+        {   /* unit normal (3 floats), kept to lift translucent decals */
+            vf2_model_vertex nvx;
+            if (ext_read_xyz(poly, poly_size, (uint32_t)off, &nvx)) {
+                pnrm[0] = nvx.x; pnrm[1] = nvx.y; pnrm[2] = nvx.z;
+            } else { pnrm[0] = pnrm[1] = pnrm[2] = 0.0f; }
+        }
+        off += 12u;
         if (!ext_read_xyz(poly, poly_size, (uint32_t)off, &vA)) { /* P0(n) */
             break;
         }
@@ -8029,12 +8056,19 @@ static size_t ext_emit_piece(
             *cur_sheet = (int)hd.sheet;
         }
 
+        /* A translucent polygon (renderer bit0) is a decal coplanar with the
+         * opaque base; lift it outward along its normal so a z-buffered viewer
+         * draws it on top (MAME renders translucent over opaque). Tiny (0.003
+         * world units ~ 0.2% of a fighter's height), so no visible displacement. */
+        if (hd.renderer & 1u) { dnrm = pnrm; deps = -0.003f; }
+        else { dnrm = NULL; deps = 0.0f; }
+
         vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &p1, uv[0], &vB, uv[3],
-                             mtx, vacc, vacc_n, vacc_cap);
+                             mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
         *tri_count += 1u;
         if (numv == 4u) {
             vbase = ext_emit_tri(obj, vbase, &p0, uv[1], &vB, uv[3], &vA, uv[2],
-                                 mtx, vacc, vacc_n, vacc_cap);
+                                 mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
             *tri_count += 1u;
         }
 
