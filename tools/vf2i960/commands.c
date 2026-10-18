@@ -7961,6 +7961,13 @@ static size_t ext_emit_piece(
     static int dbg_init = 0;
     static uint32_t dbg_rec = 0xffffffffu;
     int do_dbg;
+    /* Distinct translucent-decal rectangles, in first-seen (draw) order, so a
+     * later decal layered over an earlier one (e.g. Wolf's eye iris over the
+     * war-paint) is lifted further out and wins the z-test instead of fighting
+     * it coplanar. Rank 0 = the first/base translucent layer. */
+    uint32_t seen_rx[32];
+    uint32_t seen_ry[32];
+    int nseen = 0;
 
     if (!dbg_init) {
         const char *e = getenv("VF2_PIECE_DBG");
@@ -8078,9 +8085,29 @@ static size_t ext_emit_piece(
          * foot tops). A translucent polygon (renderer bit0) is additionally a
          * decal coplanar with the opaque base, lifted outward (eps) so a
          * z-buffered viewer draws it on top (MAME renders translucent over
-         * opaque); 0.003 world units ~ 0.2% of a fighter's height. */
+         * opaque); 0.003 world units ~ 0.2% of a fighter's height. Decals can
+         * themselves stack (a second decal over a first, e.g. Wolf's eye iris
+         * over the war-paint): in-game they are painter-ordered, but as coplanar
+         * static faces they z-fight and a mirrored pair can resolve differently
+         * per side (one eye shows the iris, the mirror eye drops to the war-paint
+         * cut-out -> a black eye). Lift each successive translucent layer (a new
+         * texheader rectangle, in draw order) a further 0.0015 out so the later
+         * decal wins the z-test everywhere; 0.0015 ~ 0.1% of a fighter, far below
+         * a visible gap but well clear of z-fighting. */
         dnrm = pnrm;
-        deps = (hd.renderer & 1u) ? -0.003f : 0.0f;
+        deps = 0.0f;
+        if ((hd.renderer & 1u) != 0u) {
+            int layer = nseen;   /* default: new rectangle -> next rank */
+            int si;
+            for (si = 0; si < nseen; ++si) {
+                if (seen_rx[si] == hd.tex_x && seen_ry[si] == hd.tex_y) { layer = si; break; }
+            }
+            if (layer == nseen && nseen < (int)(sizeof(seen_rx) / sizeof(seen_rx[0]))) {
+                seen_rx[nseen] = hd.tex_x; seen_ry[nseen] = hd.tex_y; ++nseen;
+            }
+            if (layer > 8) layer = 8;   /* bound the cumulative lift */
+            deps = -0.003f - 0.0015f * (float)layer;
+        }
 
         /* Link type 0 is a strip restart: MAME culls it (check_culling,
          * model2_v.cpp:254) but still advances the strip (the link update at
