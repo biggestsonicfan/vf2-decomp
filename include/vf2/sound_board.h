@@ -142,6 +142,12 @@ typedef struct vf2_sound_board {
     size_t sample_rom_size;
     uint16_t control;
     vf2_scsp scsp;
+    /* Opt-in only: complete the ROM-verified D92->DF8->ED6
+     * 512-byte upload and KEYON directly inside dispatch_next
+     * when the mapped source, destination and slot pass guards.
+     * Default zero keeps unsupported engine legs fail-closed.
+     * NOT a claim of naturally triggered i960 gameplay SFX. */
+    uint8_t allow_verified_d92_copy;
 } vf2_sound_board;
 
 vf2_status vf2_sound_board_initialize(
