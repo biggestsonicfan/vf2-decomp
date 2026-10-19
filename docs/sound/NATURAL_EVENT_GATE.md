@@ -419,3 +419,112 @@ Regression gates are the ROM-free Python
 arguments, plus original-ROM `vf2_session_uart_probe` witness checks
 when a local boot snapshot is available. If the snapshot is not
 present, the latter test skips rather than fabricating a PC.
+
+
+## v0896 — Actual owner-ROM headless run, input-cycle hunt, independent writer replay
+
+On 2026-10-19, the owner's original VF2.1 archive (all verified
+ROM chip files) was unpacked into a LOCAL temporary directory,
+and the native `vf2i960` GCC executable from GitHub Actions
+`vf2i960-linux` artifact **12224875140** was used to generate
+a real `.vf2snap` from the original game code:
+
+```sh
+vf2i960 native-sixth-dispatch /local/owner/roms out/local-sixth.vf2snap
+```
+
+The runtime reported `Native sixth-dispatch validation: MATCH`,
+`Final CPU and memory state: MATCH`, and saved an ~11 MB
+original-CPU/machine checkpoint. **This snapshot is not a
+verified frame of active fighter-vs-fighter combat.**
+
+The original i960 interpreter was then stepped using the actual
+SDL3 Linux host artifact with dummy SDL video/audio drivers:
+
+```sh
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+vf2_host --rom-dir /local/owner/roms \
+  --snapshot out/local-sixth.vf2snap \
+  --oracle --fast --frames 600 --verified-audio-copy \
+  --audio-evidence-jsonl out/local-sixth-600.jsonl \
+  --audio-pre-event-snapshot out/local-sixth-pre-event.vf2snap
+```
+
+**Measured original-ROM result, exit code zero:**
+
+- 600 original i960 oracle frames, 952,256 interpreted instructions
+  counted since snapshot start.
+- First frame: exactly **9 shadow UART bytes** `ae101f9e0a7fae101f`
+  from **3 queue entries that were already present at the frame
+  boundary**, dispatched=0, refused=3.
+- **0 new original i960 aligned sound-ring writes** across the
+  600 frames, **0 native D92 KEYONs**, **0 nonzero PCM frames**.
+- As required, **no pre-event snapshot** was saved because none of
+  the original frames reached an original sound-ring write.
+
+This is a **measured negative** from this particular start state
+with zero controller inputs, NOT evidence that VF2.1 has no gameplay
+audio nor that a hit sound is missing from the original ROM.
+
+### Deterministic input search (real original game inputs)
+
+The SDL3 host now accepts `--input-cycle` for a comma-separated,
+strictly parsed sequence of ordinary controller masks that repeats
+once per frame. It changes the game input **only**; it never
+injects sound queue words, stages SCSP registers, or manufactures
+fighter collisions. Examples:
+
+```sh
+# Original Model 2A controller mask definitions:
+# COIN=0x100, START=0x80, PUNCH=0x10, KICK=0x20, GUARD=0x40.
+# Brief press then release to avoid permanent held keys.
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+vf2_host --rom-dir /local/owner/roms \
+  --snapshot out/local-sixth.vf2snap \
+  --oracle --fast --frames 600 \
+  --input-cycle "0x100,0,0x80,0,0x10,0,0x20,0" \
+  --audio-evidence-jsonl out/input-hunt.jsonl \
+  --audio-pre-event-snapshot out/input-hunt-pre.vf2snap
+
+python3 tools/python/audio_frame_evidence_report.py \
+  out/input-hunt.jsonl
+```
+
+A positive observation remains only a **queue-writer candidate**.
+The host's pre-event snapshot is captured at the frame start,
+and the exact first writer's IP is captured before the original
+instruction executes.
+
+### Independent original-i960 replay
+
+`vf2_audio_writer_replay` independently reopens the owner ROM and
+the preserved pre-event checkpoint, executes precisely **one**
+original i960 oracle frame with the recorded input mask, and
+captures the original CPU's first aligned ring write with its
+**pre-instruction PC**. It performs no calls to the native sound
+dispatcher, audio renderer, or shadow UART transport:
+
+```sh
+vf2_audio_writer_replay /local/owner/roms \
+  out/input-hunt-pre.vf2snap 0x10 \
+  0x43924 0x00504020 0x00ad2342
+```
+
+The three final values above are **ILLUSTRATIVE, NOT A MEASUREMENT**.
+Use the first writer IP, slot and word from the actual JSONL frame,
+and the exact frame's `input` mask; never substitute guesses.
+The tool returns success only on exact reproduction of all three
+values. No original queue write returns 77 in witness-only mode
+(or failure if an expected witness was supplied), without inventing
+a positive case. Its ROM-free `--selftest` verifies conservative
+callback filtering and integer parsing. The Linux binary is
+published by the GitHub Actions
+`vf2-audio-writer-replay-linux` artifact; users never need to
+commit proprietary files.
+
+**Remaining causality:** the independent first-write replay proves
+only the PC which performed that write and its data. One must still
+trace the call stack/selector to actual fighter collision and
+the **original** vector-15 sound ISR -> 68000 L3 -> SCSP DAC.
+A model PCM frame, even non-silent, cannot independently establish
+original hardware audio.
