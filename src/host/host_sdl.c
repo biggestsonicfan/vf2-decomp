@@ -212,6 +212,7 @@ static void usage(const char *p)
         "          [--frames <n>] [--fullscreen] [--integer]\n"
         "          [--screenshot <file.ppm>] [--digest <n>] [--fast] [--oracle]\n"
         "          [--audio-evidence-jsonl <output.jsonl>] (requires --oracle)\n"
+        "          [--audio-pre-event-snapshot <output.vf2snap>] (requires --oracle)\n"
         "          [--verified-audio-copy] (owner-ROM D92 upload opt-in)\n"
         "       %s --selftest [--frames <n>]\n"
         "Keys: arrows, Z/X/C, Enter, 5=coin, F1=test, F2=service, P2 on IJKL/ASD;\n"
@@ -436,6 +437,10 @@ int main(int argc, char **argv)
     const char *rom_dir = NULL, *snapshot = NULL, *bindings_path = NULL;
     const char *screenshot = NULL;
     const char *audio_evidence_path = NULL;
+    const char *audio_pre_event_path = NULL;
+    vf2_i960_snapshot pre_event;
+    sound_writer_capture writer = {0};
+    int pre_event_written = 0;
     FILE *audio_evidence = NULL;
     uint32_t digest_every = 0u;
     int fast = 0;
@@ -447,6 +452,7 @@ int main(int argc, char **argv)
     vf2_status st;
     char title[96];
 
+    vf2_i960_snapshot_init(&pre_event);
     memset(&h, 0, sizeof(h));
     vf2_host_bindings_defaults(&h.bindings);
     vf2_host_input_init(&h.input, &h.bindings);
@@ -464,6 +470,9 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--audio-evidence-jsonl") == 0 &&
                  i + 1 < argc)
             audio_evidence_path = argv[++i];
+        else if (strcmp(argv[i], "--audio-pre-event-snapshot") == 0 &&
+                 i + 1 < argc)
+            audio_pre_event_path = argv[++i];
         else if (strcmp(argv[i], "--digest") == 0 && i + 1 < argc) digest_every = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--fullscreen") == 0) h.fullscreen = 1;
         else if (strcmp(argv[i], "--integer") == 0) h.integer_scale = 1;
@@ -472,9 +481,10 @@ int main(int argc, char **argv)
     }
     /* Evidence requires ORIGINAL i960 frame stepping; never log
      * recovered-native frames as an original oracle observation. */
-    if (audio_evidence_path != NULL && (!oracle || do_selftest)) {
+    if ((audio_evidence_path != NULL || audio_pre_event_path != NULL) &&
+        (!oracle || do_selftest)) {
         fprintf(stderr,
-                "--audio-evidence-jsonl requires --oracle and a snapshot\n");
+                "audio evidence/snapshot capture requires --oracle and a snapshot\n");
         return EXIT_FAILURE;
     }
     if (!do_selftest && (rom_dir == NULL || snapshot == NULL)) {
@@ -527,6 +537,18 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
     }
+    if (audio_pre_event_path != NULL) {
+        vf2_status obs = vf2_session_set_memory_observer(
+            session, sound_writer_observe, &writer);
+        if (obs != VF2_OK) {
+            fprintf(stderr,
+                    "audio pre-event: original i960 bus observer unavailable\n");
+            if (audio_evidence != NULL) (void)fclose(audio_evidence);
+            vf2_session_close(session);
+            host_close(&h);
+            return EXIT_FAILURE;
+        }
+    }
     if (vf2_session_audio_status(session) != VF2_OK) {
         fprintf(stderr, "note: audio unavailable (%s); running silent\n",
                 vf2_status_string(vf2_session_audio_status(session)));
@@ -546,6 +568,17 @@ int main(int argc, char **argv)
                 vf2_status pump_status;
                 vf2_status render_status;
                 h.step_once = 0;
+                writer.observed_writes = 0u;
+                writer.first_address = 0u;
+                writer.first_command = 0u;
+                if (audio_pre_event_path != NULL && !pre_event_written &&
+                    vf2_session_capture_oracle_snapshot(
+                        session, &pre_event) != VF2_OK) {
+                    fprintf(stderr,
+                            "audio pre-event: oracle checkpoint capture failed\n");
+                    rc = EXIT_FAILURE;
+                    break;
+                }
                 if (audio_evidence != NULL &&
                     vf2_session_read_work_ram(session, UINT32_C(0x00504001),
                                              &queue_before, 1u) != VF2_OK) {
@@ -553,14 +586,39 @@ int main(int argc, char **argv)
                     rc = EXIT_FAILURE;
                     break;
                 }
+                writer.original_frame_active =
+                    audio_pre_event_path != NULL && !pre_event_written;
                 st = oracle
                     ? vf2_session_step_oracle(session, input)
                     : vf2_session_step(session, input);
+                writer.original_frame_active = 0;
                 if (st != VF2_OK) {
                     fprintf(stderr, "frame %u failed: %s\n", (unsigned)frame,
                             vf2_status_string(st));
                     rc = EXIT_FAILURE;
                     break;
+                }
+                if (audio_pre_event_path != NULL && !pre_event_written &&
+                    writer.observed_writes > 0u) {
+                    vf2_status snapshot_status =
+                        vf2_i960_snapshot_write_file(
+                            &pre_event, audio_pre_event_path);
+                    if (snapshot_status != VF2_OK) {
+                        fprintf(stderr,
+                                "audio pre-event: snapshot write failed (%s)\n",
+                                vf2_status_string(snapshot_status));
+                        rc = EXIT_FAILURE;
+                        break;
+                    }
+                    pre_event_written = 1;
+                    fprintf(stderr,
+                            "audio pre-event: saved original pre-frame %u "
+                            "at %s; original queue writes=%u first_slot=%08x "
+                            "first_word=%08x (not a fighter-hit proof)\n",
+                            (unsigned)frame, audio_pre_event_path,
+                            (unsigned)writer.observed_writes,
+                            (unsigned)writer.first_address,
+                            (unsigned)writer.first_command);
                 }
                 if (audio_evidence != NULL &&
                     vf2_session_read_work_ram(session, UINT32_C(0x00504001),
@@ -641,6 +699,15 @@ int main(int argc, char **argv)
         fprintf(stderr, "screenshot: cannot write %s\n", screenshot);
         rc = EXIT_FAILURE;
     }
+    if (audio_pre_event_path != NULL) {
+        (void)vf2_session_set_memory_observer(session, NULL, NULL);
+        if (!pre_event_written) {
+            fprintf(stderr,
+                    "audio pre-event: no original i960 aligned sound-ring "
+                    "writes observed; no snapshot file created\n");
+        }
+    }
+    vf2_i960_snapshot_destroy(&pre_event);
     if (audio_evidence != NULL && fclose(audio_evidence) != 0) {
         fprintf(stderr, "audio evidence: failed to close output\n");
         rc = EXIT_FAILURE;
