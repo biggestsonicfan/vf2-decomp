@@ -12,6 +12,14 @@ static uint16_t read_be16(const uint8_t *data)
     return (uint16_t)(((uint16_t)data[0] << 8u) | data[1]);
 }
 
+static uint32_t read_be32(const uint8_t *data)
+{
+    return ((uint32_t)data[0] << 24u) |
+           ((uint32_t)data[1] << 16u) |
+           ((uint32_t)data[2] << 8u) |
+           (uint32_t)data[3];
+}
+
 static void write_be16(uint8_t *data, uint16_t value)
 {
     data[0] = (uint8_t)(value >> 8u);
