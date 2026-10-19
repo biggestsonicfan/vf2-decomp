@@ -459,6 +459,15 @@ vf2_status vf2_session_pump_audio(
             report->drain_status = st;
             break;
         }
+        /* Record only bytes the sound-board receiver actually
+         * accepted. The shadow transport is NOT original 68000 IRQ
+         * timing, and adjacent bytes can cross frame boundaries. */
+        if (report->observed_uart_count <
+            VF2_SESSION_AUDIO_UART_SAMPLE_CAP) {
+            report->observed_uart[report->observed_uart_count++] = emitted;
+        } else {
+            ++report->observed_uart_truncated;
+        }
         ++report->bytes_moved;
     }
     report->entries_filed =
@@ -501,6 +510,11 @@ vf2_status vf2_session_pump_audio(
             ++report->entries_dispatched;
         } else {
             ++report->entries_refused;
+        }
+        if (st == VF2_OK &&
+            dispatch.handler_address == UINT32_C(0x0ed6) &&
+            dispatch.handled) {
+            ++report->d92_keyons_retired;
         }
         if (!dispatch.handled) {
             cursor = (uint16_t)(((uint16_t)(board->sound_ram[VF2_SOUND_COMMAND_CURSOR] << 8u) |
