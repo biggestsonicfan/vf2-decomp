@@ -1222,6 +1222,12 @@ if(VF2_BUILD_TESTS)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         )
         add_test(
+            NAME vf2_python_audio_frame_evidence
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tools/python/test_audio_frame_evidence_report.py
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        )
+        add_test(
             NAME vf2_python_audio_l3_packet_replay
             COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_SOURCE_DIR}/tools/python/test_audio_l3_packet_replay.py
