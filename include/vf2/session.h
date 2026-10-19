@@ -117,6 +117,15 @@ vf2_status vf2_session_set_verified_d92_copy(
     int enabled
 );
 
+/* Opt-in to the owner-ROM-verified frame-342 9E0A7F allocator FAC,
+ * 512-byte CB2 MOVEM and D72 KEYON C path. Default OFF and
+ * strictly preflighted in the sound board. Does not fabricate any
+ * i960 game/command event or imply fighter-hit causality. */
+vf2_status vf2_session_set_verified_90_allocator(
+    vf2_session *session,
+    int enabled
+);
+
 /* One pump report: bytes drained from the i960 sound queue through
  * the UART slot and filed on the board, ring entries assembled,
  * and their dispatch outcomes. `dispatched` reached the 0xcb2
@@ -150,6 +159,9 @@ typedef struct vf2_session_audio_pump_report {
     /* Native dispatcher retired the guarded D92->ED6 sample-upload
      * and KEYON path in this pump call. This is model-level evidence. */
     uint32_t d92_keyons_retired;
+    /* Original i960 frame-342 9E0A7F native C branch completed
+     * through the legal MOVEM copy and D72 KEYON. */
+    uint32_t keyon_90_retired;
     uint32_t entries_filed;
     uint32_t entries_dispatched;
     uint32_t entries_refused;
