@@ -420,6 +420,21 @@ vf2_status vf2_session_set_verified_d92_copy(
     return VF2_OK;
 }
 
+vf2_status vf2_session_set_verified_90_allocator(
+    vf2_session *s,
+    int enabled
+)
+{
+    if (s == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (!s->audio_ready || s->game.sound == NULL) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    s->game.sound->allow_verified_90_allocator = enabled != 0 ? 1u : 0u;
+    return VF2_OK;
+}
+
 /* i960 sound-queue cells (v0746/v0825-8f: 16-entry ring at
  * 0x504020 stride 4, count/rcur/wcur, staged word, byte index)
  * and the Model 2A UART slot the drainer sends through. */
@@ -555,6 +570,12 @@ vf2_status vf2_session_pump_audio(
             dispatch.handler_address == UINT32_C(0x0ed6) &&
             dispatch.handled) {
             ++report->d92_keyons_retired;
+        }
+        if (st == VF2_OK &&
+            dispatch.handler_address == UINT32_C(0x0d90) &&
+            dispatch.handled && dispatch.command == UINT8_C(0x9e) &&
+            dispatch.payload == UINT8_C(0x0a)) {
+            ++report->keyon_90_retired;
         }
         if (!dispatch.handled) {
             cursor = (uint16_t)(((uint16_t)(board->sound_ram[VF2_SOUND_COMMAND_CURSOR] << 8u) |
