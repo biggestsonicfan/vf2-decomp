@@ -625,6 +625,13 @@ if(VF2_BUILD_TESTS)
     add_test(NAME vf2_m68k_90_ad_followup
              COMMAND vf2_m68k_90_ad_followup_tests)
 
+    # Independent original 68000 CPU execution to the 0xfac
+    # free-voice transition and first instruction of 0xa8c.
+    add_executable(vf2_m68k_90_to_voice_tests
+                   tests/m68k/test_90_to_voice.c)
+    target_link_libraries(vf2_m68k_90_to_voice_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_90_to_voice_tests)
+
     add_executable(vf2_m68k_snapshot_tests tests/m68k/test_snapshot.c)
     target_link_libraries(vf2_m68k_snapshot_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_snapshot_tests)
@@ -1089,6 +1096,8 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_l3_real_selections
                  COMMAND vf2_m68k_l3_selection_tests "${VF2_ROM_DIR}")
+        add_test(NAME vf2_m68k_90_to_voice
+                 COMMAND vf2_m68k_90_to_voice_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_snapshot_differential COMMAND vf2_m68k_snapshot_tests "${VF2_ROM_DIR}")
         # (v0823: the Loop-B WILL_FAIL is removed -- the probe is
         # re-pinned under the +2 base and green. The +4-era comment
