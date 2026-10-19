@@ -281,3 +281,72 @@ model KEYON plus nonzero PCM alone does **not** prove a natural hit.
 No user ROM, snapshot, raw trace, PCM audio buffer or WAV is
 committed. The JSONL itself should remain local; generated output
 goes to a caller-specified path, not the project tree by default.
+
+
+## v0894 — Preserve the frame BEFORE an original i960 queue write
+
+The previous v0893 frame-level evidence JSONL is useful only when its
+*starting snapshot is available*. It does not save that state, and an
+event can be gone by the time somebody tries to reproduce it. The
+SDL3 oracle host now has an **opt-in original CPU/machine checkpoint**
+saved at the beginning of the first frame in which the **original
+interpreter itself** performs an aligned 32-bit bus write to
+`0x00504020..0x0050405F` (the 16-entry sound-command ring).
+
+```sh
+# ROM, starting snapshot, per-frame evidence and output stay local.
+mkdir -p out
+vf2_host --rom-dir /local/vf2-roms \\
+  --snapshot /local/starting.vf2snap \\
+  --oracle --fast --frames 900 --verified-audio-copy \\
+  --audio-evidence-jsonl out/audio-frames.jsonl \\
+  --audio-pre-event-snapshot out/pre-event.vf2snap
+
+# The snapshot is written ONCE, and only if the original i960
+# really wrote a full aligned sound-ring word during an oracle frame.
+# No write => explicit diagnostic and NO new snapshot file.
+python tools/python/audio_frame_evidence_report.py out/audio-frames.jsonl
+```
+
+**What the snapshot contains:** the exact i960 CPU registers plus the
+Model 2A machine RAM/IO state **at the start of that frame**, from
+`vf2_i960_snapshot_capture`; this is the same proven `.vf2snap`
+serializer already used by the developer tools. It is captured
+*before* the original frame advances, then retained only if the
+sound writer is observed. The memory observer is **active exclusively
+during original interpreter stepping**, not during the later
+shadow UART sound pump. Saving does not stage a ring write or change
+the CPU/machine being stepped.
+
+**Important limitations:** `.vf2snap` does not serialize the
+separate SCSP sound-board runtime. When replayed it restores the
+original i960 CPU and Model 2A memory, while the sound board is
+initialized afresh. It is therefore a checkpoint for tracing the
+**i960 producer**, not a time-accurate entire dual-CPU audio
+savestate. The observed 32-bit bus write is original interpreter
+activity, but the bus observer **does not record the writer's PC**;
+and even that write may be menu/music/setup rather than a hit.
+
+Per-frame JSONL adds `original_i960_ring_writes`,
+`original_i960_first_ring_slot` and
+`original_i960_first_ring_word`, plus
+`original_i960_writer_pc_proven=false`. The analyzer:
+- validates aligned ring-slot addresses, integers and false PC claims;
+- preserves exact first-word evidence and total write-frame count;
+- marks `original_i960_ring_write_observed` separately from
+  UART delivery, D92 KEYON, natural-hit semantics, and hardware audio.
+
+**Next real proof:** replay the saved `pre-event.vf2snap` under an
+instruction-PC+memory tracer, follow the exact ring word from
+its authentic writer (expected `0x43924`, to be verified, NOT
+assumed) through the original vector-15 ISR, and correlate to the
+actual fighter event. No natural combat SFX is certified by this
+instrumentation alone.
+
+The mode requires `--oracle`; it refuses native/recovered sessions.
+It writes one checkpoint only; additional events remain visible in
+JSONL but do not overwrite the first replay point. Tests include
+`vf2_host` fail-closed checkpoint requests and a ROM-backed
+two-checkpoint determinism check (skips when owner snapshot absent).
+`vf2_python_audio_frame_evidence` checks forged addresses and
+unsupported IP/hit claims without proprietary ROMs.
