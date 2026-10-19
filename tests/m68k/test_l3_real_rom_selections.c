@@ -105,23 +105,38 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
     const uint32_t active = VF2_SOUND_DESCRIPTOR_BASE +
                             UINT32_C(3) * VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
     uint8_t *ram = board.sound_ram;
+    const uint8_t *packets = command == UINT32_C(0x00ad2342) ?
+                            (const uint8_t *)"\xbb\x21\x06\x9b\x42\x78" :
+                            (const uint8_t *)"\xba\x21\x07\x9a\x01\x7f";
+    size_t i;
 
     memcpy(step_ram, ram, sizeof(step_ram));
     memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
     memset(&tick, 0, sizeof(tick));
     cstatus = vf2_sound_board_maintain_streams(&board, &tick);
-    if (cstatus != VF2_ERROR_UNSUPPORTED ||
-        tick.refused_stage != 2u || tick.refused_record != 3u ||
-        tick.timers_expired != 1u ||
-        memcmp(ram, step_ram, sizeof(step_ram)) != 0 ||
-        memcmp(&board.scsp, &step_scsp, sizeof(step_scsp)) != 0) {
-        fprintf(stderr,
-                "L2 %08x: C preflight unexpected status=%d stage=%u rec=%u\n",
-                (unsigned)command, (int)cstatus,
-                (unsigned)tick.refused_stage, (unsigned)tick.refused_record);
+    if (cstatus != VF2_OK || tick.packets_emitted != 2u ||
+        tick.bytes_consumed != 10u || tick.refused_stage != 0u ||
+        ram[VF2_SOUND_COMMAND_COUNT] != 2u ||
+        ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != 8u ||
+        ram[active] != 0u || ram[active + 1u] != packets[3] ||
+        ram[active + 2u] != 0u || ram[active + 3u] != 0u) {
+        fprintf(stderr, "L2 %08x: native B/90 expansion did not complete\n",
+                (unsigned)command);
         return 0;
     }
+    for (i = 0u; i < 6u; ++i) {
+        size_t at = VF2_SOUND_COMMAND_RING_BASE + (i / 3u) * 4u + (i % 3u);
+        if (ram[at] != packets[i]) {
+            fprintf(stderr, "L2 %08x: packet byte[%u] got %02x expected %02x\n",
+                    (unsigned)command, (unsigned)i,
+                    (unsigned)ram[at], (unsigned)packets[i]);
+            return 0;
+        }
+    }
 
+    /* Independent reference prestate: the ROM worker starts at 0x1f7c.
+     * Stop BEFORE RTS at 0x2198 after FF 2F termination. No C-only
+     * SCSP L2 timer pokes are falsely compared to this worker subset. */
     memset(&bus, 0, sizeof(bus));
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -133,26 +148,23 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
     regs.a[2] = active;
     regs.a[6] = UINT32_C(0x1000);
     regs.a[7] = UINT32_C(0x7f00);
-    sstatus = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f92),
-                           0, 32u, &steps);
-
-    if (sstatus != VF2_OK || regs.pc != UINT32_C(0x1f92) ||
-        steps != 4u ||
-        step_ram[active + 2u] != 0u || step_ram[active + 3u] != 0u ||
-        ram[active + 2u] != 0u || ram[active + 3u] != 1u) {
+    sstatus = vf2_m68k_run(&bus, &regs, UINT32_C(0x2198),
+                           0, 300u, &steps);
+    if (sstatus != VF2_OK || regs.pc != UINT32_C(0x2198) ||
+        step_ram[VF2_SOUND_COMMAND_COUNT] != 2u ||
+        step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != 8u ||
+        memcmp(ram + active, step_ram + active,
+               VF2_SOUND_STREAM_DESCRIPTOR_BYTES) != 0 ||
+        memcmp(ram + VF2_SOUND_COMMAND_RING_BASE,
+               step_ram + VF2_SOUND_COMMAND_RING_BASE, 8u) != 0) {
         fprintf(stderr,
-                "L2 %08x: S status=%d pc=%05x steps=%u "
-                "countdown C=%02x%02x S=%02x%02x\n",
-                (unsigned)command, (int)sstatus,
-                (unsigned)regs.pc, (unsigned)steps,
-                (unsigned)ram[active + 2u], (unsigned)ram[active + 3u],
-                (unsigned)step_ram[active + 2u],
-                (unsigned)step_ram[active + 3u]);
+                "L2 %08x: ROM differential NOT proven: S=%d PC=%05x steps=%u\n",
+                (unsigned)command, (int)sstatus, (unsigned)regs.pc,
+                (unsigned)steps);
         return 0;
     }
-    fprintf(stderr,
-            "BOUNDARY L2 %08x: C preflight held record 3; "
-            "S decremented to zero and reached 0x1f92\n",
+    fprintf(stderr, "MATCH AD L2 %08x: B and 90 command packets; "
+                    "68000 0x2198 and C ring/descriptor agree\n",
             (unsigned)command);
     return 1;
 }

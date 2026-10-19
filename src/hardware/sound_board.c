@@ -1,5 +1,6 @@
 #include "vf2/sound_board.h"
 #include "sound_a0_descriptor.h"
+#include "sound_l2_ad.h"
 
 #include <string.h>
 
@@ -746,6 +747,9 @@ vf2_status vf2_sound_board_maintain_streams(
 {
     uint8_t *records = NULL;
     size_t index = 0u;
+    size_t ad_index = SIZE_MAX;
+    uint8_t ad_packets[6] = {0u};
+    uint16_t ad_cursor = 0u;
 
     if (board == NULL || report == NULL) {
         return VF2_ERROR_INVALID_ARGUMENT;
@@ -769,21 +773,69 @@ vf2_status vf2_sound_board_maintain_streams(
         for (index = 0u; index < 8u; ++index) {
             uint8_t *record = records + index * 0x20u;
             if ((record[0] & 0x80u) != 0u && read_be16(record + 2u) == 1u) {
-                report->timers_expired = 1u;
-                report->refused_stage = 2u;
-                report->refused_record = (uint8_t)index;
-                return VF2_ERROR_UNSUPPORTED;
+                /* Original A0 12-byte streams: B handler at 0x1ffc,
+                 * default 90 at 0x2080, FF 2F terminator 0x2192.
+                 * Do not admit arbitrary worker bodies or more than
+                 * one pending handoff per bounded tick. */
+                uint32_t next = read_be32(record + 4u);
+                uint8_t candidate[6] = {0u};
+                ad_cursor = (uint16_t)(read_be16(board->sound_ram +
+                          VF2_SOUND_COMMAND_WRITE_CURSOR) & 0x0fffu);
+                if (index >= 1u && index <= 6u && ad_index == SIZE_MAX &&
+                    (ad_cursor & 3u) == 0u &&
+                    board->sound_ram[VF2_SOUND_COMMAND_COUNT] <= 253u &&
+                    vf2_sound_l2_ad_expand(board->audio_rom,
+                          board->audio_rom_size, next, candidate)) {
+                    memcpy(ad_packets, candidate, sizeof(ad_packets));
+                    ad_index = index;
+                } else {
+                    report->timers_expired = 1u;
+                    report->refused_stage = 2u;
+                    report->refused_record = (uint8_t)index;
+                    return VF2_ERROR_UNSUPPORTED;
+                }
             }
         }
-        /* Measured body: countdown decrements only. */
+        /* Measured body: ordinary countdowns, plus the bounded
+         * 68000 B/90 two-packet AD stream expansion when admitted. */
         if (records[0x0cu] != 0u) {
             records[0x0du] = (uint8_t)(records[0x0du] - 1u);
         }
         for (index = 0u; index < 8u; ++index) {
             uint8_t *record = records + index * 0x20u;
             if ((record[0] & 0x80u) != 0u) {
-                write_be16(record + 2u,
-                           (uint16_t)(read_be16(record + 2u) - 1u));
+                if (index == ad_index) {
+                    size_t packet = 0u;
+                    uint8_t *ring = board->sound_ram + VF2_SOUND_COMMAND_RING_BASE;
+                    for (packet = 0u; packet < 2u; ++packet) {
+                        uint16_t at = (uint16_t)((ad_cursor +
+                                                   (uint16_t)(4u * packet)) &
+                                                  0x0fffu);
+                        /* ROM MOVE.B stores 3 bytes; the fourth stays
+                         * untouched until the 4-byte cursor advances. */
+                        ring[at] = ad_packets[packet * 3u];
+                        ring[at + 1u] = ad_packets[packet * 3u + 1u];
+                        ring[at + 2u] = ad_packets[packet * 3u + 2u];
+                    }
+                    write_be16(board->sound_ram +
+                               VF2_SOUND_COMMAND_WRITE_CURSOR,
+                               (uint16_t)((ad_cursor + 8u) & 0x0fffu));
+                    board->sound_ram[VF2_SOUND_COMMAND_COUNT] =
+                        (uint8_t)(board->sound_ram[VF2_SOUND_COMMAND_COUNT] + 2u);
+                    /* 0x1f9c B then 90, 0xff/0x2f ends the stream:
+                     * 0x2192 clears status, but +1 retains last class. */
+                    record[0] = 0u;
+                    record[1] = ad_packets[3u];
+                    write_be16(record + 2u, 0u);
+                    report->timers_expired = 1u;
+                    report->packets_emitted = 2u;
+                    report->bytes_consumed = 10u;
+                    report->write_cursor_after =
+                        (uint16_t)((ad_cursor + 8u) & 0x0fffu);
+                } else {
+                    write_be16(record + 2u,
+                               (uint16_t)(read_be16(record + 2u) - 1u));
+                }
             }
         }
         report->descriptors_scanned = 8u;
