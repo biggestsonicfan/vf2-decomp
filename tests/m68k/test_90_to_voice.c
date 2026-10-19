@@ -189,6 +189,30 @@ static int run_case(const uint8_t *rom, size_t rom_size,
                        (unsigned)step_scsp.slot_active[0],
                        (unsigned)step_scsp.registers[0],
                        (unsigned)step_ram[0x2000u]);
+                if (step_scsp.slot_active[0] != 0u) {
+                    static int16_t left[4096], right[4096];
+                    size_t sample;
+                    unsigned peak = 0u;
+                    size_t nonzero = 0u;
+                    vf2_status render_status =
+                        vf2_scsp_render(&step_scsp, left, right, 4096u);
+                    if (render_status == VF2_OK) {
+                        for (sample = 0u; sample < 4096u; ++sample) {
+                            int l = (int)left[sample];
+                            int r = (int)right[sample];
+                            unsigned la = (unsigned)(l < 0 ? -l : l);
+                            unsigned ra = (unsigned)(r < 0 ? -r : r);
+                            if (la > peak) peak = la;
+                            if (ra > peak) peak = ra;
+                            if (l != 0 || r != 0) ++nonzero;
+                        }
+                    }
+                    printf("A0 90 %02x SCSP model PCM after real 68000 "
+                           "keyon: render_status=%d peak=%u "
+                           "nonzero_stereo_frames=%u/4096\n",
+                           (unsigned)cmd, (int)render_status,
+                           peak, (unsigned)nonzero);
+                }
             }
         }
     }
