@@ -188,6 +188,22 @@ vf2_status vf2_session_step_oracle(vf2_session *s, uint32_t input)
     }
 }
 
+vf2_status vf2_session_capture_oracle_snapshot(
+    vf2_session *s,
+    vf2_i960_snapshot *destination
+)
+{
+    if (s == NULL || destination == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    /* A native frame can leave the interpreter's CPU/machine in a
+     * hybrid state not valid as an original oracle checkpoint. */
+    if (!s->machine_ready || s->stepped_native) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    return vf2_i960_snapshot_capture(destination, &s->cpu, &s->machine);
+}
+
 vf2_status vf2_session_step_lifted(
     vf2_session *s, uint32_t input,
     const vf2_lift_entry *table, size_t count
