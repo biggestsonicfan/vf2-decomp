@@ -534,11 +534,12 @@ vf2_status vf2_sound_board_copy_engine_page_512(
  * A3=0x2000, A5=0x100000. Checked inputs represent a preceding
  * fully mapped 512-byte sample-page transfer, not arbitrary
  * newly invented game-state transitions. */
-vf2_status vf2_sound_board_finalize_engine_copy_d72(
+static vf2_status sound_board_finalize_engine_copy_tail(
     vf2_sound_board *board,
     size_t voice_index,
     uint32_t sample_end,
-    uint32_t destination_end
+    uint32_t destination_end,
+    uint8_t stream_flag
 )
 {
     const uint32_t stream_base = UINT32_C(0x2000);
@@ -578,8 +579,34 @@ vf2_status vf2_sound_board_finalize_engine_copy_d72(
     if (vf2_scsp_write_u8(&board->scsp, channel_offset, key) != VF2_OK) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    board->sound_ram[stream] = UINT8_C(0x80);
+    board->sound_ram[stream] = stream_flag;
     return VF2_OK;
+}
+
+/* Exact original 0xD72..0xD90 seven-instruction tail; stream=0x80. */
+vf2_status vf2_sound_board_finalize_engine_copy_d72(
+    vf2_sound_board *board,
+    size_t voice_index,
+    uint32_t sample_end,
+    uint32_t destination_end
+)
+{
+    return sound_board_finalize_engine_copy_tail(
+        board, voice_index, sample_end, destination_end, UINT8_C(0x80));
+}
+
+/* Exact original 0xEB8..0xED6 seven-instruction tail; stream=0x81.
+ * The alternate path has a separately recovered 16x MOVEM upload
+ * at 0xDF8..0xEB8, sharing copy_engine_page_512 unchanged. */
+vf2_status vf2_sound_board_finalize_engine_copy_eb8(
+    vf2_sound_board *board,
+    size_t voice_index,
+    uint32_t sample_end,
+    uint32_t destination_end
+)
+{
+    return sound_board_finalize_engine_copy_tail(
+        board, voice_index, sample_end, destination_end, UINT8_C(0x81));
 }
 
 vf2_status vf2_sound_board_read_u8(
