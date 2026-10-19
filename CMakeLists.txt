@@ -609,6 +609,13 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_m68k_l2_ad_tests)
     add_test(NAME vf2_m68k_l2_ad_native COMMAND vf2_m68k_l2_ad_tests)
 
+    add_executable(vf2_m68k_l2_ad_integration_tests
+                   tests/m68k/test_l2_ad_integration.c)
+    target_link_libraries(vf2_m68k_l2_ad_integration_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_l2_ad_integration_tests)
+    add_test(NAME vf2_m68k_l2_ad_integration
+             COMMAND vf2_m68k_l2_ad_integration_tests)
+
     add_executable(vf2_m68k_snapshot_tests tests/m68k/test_snapshot.c)
     target_link_libraries(vf2_m68k_snapshot_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_snapshot_tests)
