@@ -42,6 +42,18 @@ class TestFrameEvidence(unittest.TestCase):
         self.assertEqual(result["candidates"], [])
         self.assertEqual(result["counts"]["frames_with_uart"], 1)
 
+    def test_verified_90_keyon_is_distinct_not_fighter_hit(self):
+        record = frame(d92=0, uart="9e0a7f", nonzero=2)
+        record["keyon_90_retired"] = 1
+        result = audit(record)
+        self.assertEqual(
+            result["counts"]["frames_with_verified_90_keyon"], 1)
+        self.assertEqual(result["counts"]["frames_with_d92_keyon"], 0)
+        self.assertFalse(result["gates"]["natural_fighter_hit_proven"])
+        record["d92_keyons_retired"] = 1
+        with self.assertRaisesRegex(ValueError, "dispatcher accounting"):
+            audit(record)
+
     def test_pcm_without_queue_does_not_imply_audio_event(self):
         f = frame(before=0, after=0, uart="", d92=0)
         f["entries_filed"] = f["entries_dispatched"] = 0
