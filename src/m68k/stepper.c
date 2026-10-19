@@ -1495,9 +1495,16 @@ static vf2_status step_movem(
         regs->a[reg] = address;
         return VF2_OK;
     }
-    status = ea_param_addr(bus, regs, mode, reg, pc, off, 0u, &address);
-    if (status != VF2_OK) {
-        return status;
+    if (mode == 2u) {
+        /* (An) is a base address, without an extension word or
+         * implicit update of An. ea_param_addr intentionally handles
+         * extension-bearing modes only. */
+        address = regs->a[reg];
+    } else {
+        status = ea_param_addr(bus, regs, mode, reg, pc, off, 0u, &address);
+        if (status != VF2_OK) {
+            return status;
+        }
     }
     if (ea_is_program(mode, reg)) {
         return VF2_ERROR_UNSUPPORTED;
