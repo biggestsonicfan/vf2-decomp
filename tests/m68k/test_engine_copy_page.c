@@ -401,10 +401,41 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
     CHECK(be32(reference_ram + stream + 2u) == source);
     CHECK(be32(reference_ram + stream + 6u) == destination);
     if (before == failed) {
-        printf("MATCH original dispatch D92->DF8->ED6 "
-               "entry_steps=334 copy_tail_steps=55 "
-               "sample=%08x dest=%08x flag=81\n",
-               (unsigned)source, (unsigned)destination);
+        /* Model-only PCM regression: render the separately recovered
+         * C SCSP state and the original-68000-programmed SCSP state
+         * with the SAME deterministic software renderer. Equality
+         * is not hardware DAC fidelity or natural gameplay proof. */
+        static int16_t cleft[4096], cright[4096];
+        static int16_t sleft[4096], sright[4096];
+        vf2_status sc = vf2_scsp_render(&board.scsp, cleft, cright, 4096u);
+        vf2_status ss = vf2_scsp_render(&reference_scsp, sleft, sright,
+                                        4096u);
+        size_t frame;
+        size_t nonzero = 0u;
+        unsigned peak = 0u;
+        CHECK(sc == VF2_OK);
+        CHECK(ss == VF2_OK);
+        if (sc == VF2_OK && ss == VF2_OK) {
+            CHECK(memcmp(cleft, sleft, sizeof(cleft)) == 0);
+            CHECK(memcmp(cright, sright, sizeof(cright)) == 0);
+            for (frame = 0u; frame < 4096u; ++frame) {
+                int32_t a = cleft[frame];
+                int32_t b = cright[frame];
+                unsigned aa = (unsigned)(a < 0 ? -a : a);
+                unsigned bb = (unsigned)(b < 0 ? -b : b);
+                if (aa > peak) peak = aa;
+                if (bb > peak) peak = bb;
+                if (a != 0 || b != 0) ++nonzero;
+            }
+        }
+        if (before == failed) {
+            printf("MATCH original dispatch D92->DF8->ED6 "
+                   "entry_steps=334 copy_tail_steps=55 "
+                   "sample=%08x dest=%08x flag=81 "
+                   "model_pcm_peak=%u nonzero_frames=%u/4096\n",
+                   (unsigned)source, (unsigned)destination,
+                   peak, (unsigned)nonzero);
+        }
     }
 }
 
