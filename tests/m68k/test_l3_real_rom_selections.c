@@ -459,6 +459,7 @@ int main(int argc, char **argv)
     size_t i = 0u;
     int valid = 1;
     int l3_only = 0;
+    int l3_matrix = 0;
     uint32_t l3_packet = 0u;
 
     /*
@@ -469,12 +470,14 @@ int main(int argc, char **argv)
      * Keep the two original A0/L2 ROM-table tests unchanged by default.
      */
     if (argc != 2 && !(argc == 4 &&
-                       strcmp(argv[2], "--l3-packet") == 0)) {
+                       strcmp(argv[2], "--l3-packet") == 0) &&
+        !(argc == 3 && strcmp(argv[2], "--matrix-l3") == 0)) {
         fprintf(stderr,
-                "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits>]\n",
+                "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits> | --matrix-l3]\n",
                 argv[0]);
         return 2;
     }
+    l3_matrix = argc == 3;
     if (argc == 4) {
         const char *hex = argv[3];
         size_t j;
@@ -513,7 +516,66 @@ int main(int argc, char **argv)
     }
     sample_bank = samples;
     sample_bank_size = samples_size;
-    if (l3_only) {
+    if (l3_matrix) {
+        /*
+         * The 18x11 original ROM table contains 107 occupied cells and
+         * 98 distinct AD23/AD24 commands in the supported VF2.1 set.
+         * A ROM-table cell is not evidence of a naturally triggered SFX.
+         * Replay all distinct commands through isolated L3 C/68000 only.
+         */
+        uint32_t seen[18u * 11u] = {0u};
+        size_t unique_count = 0u;
+        size_t occupied_count = 0u;
+        size_t passed_count = 0u;
+        uint32_t profile;
+        for (profile = 1u; profile <= 18u; ++profile) {
+            uint32_t column;
+            for (column = 0u; column < 11u; ++column) {
+                uint32_t command = 0u;
+                size_t entry;
+                if (!table_command(data, data_size, profile,
+                                   column, &command)) {
+                    /* Valid empty cell is harmless. A nonempty foreign
+                     * command family must never be skipped silently. */
+                    if (command != 0u) {
+                        fprintf(stderr,
+                                "matrix: unsupported ROM command %08x at %u,%u\n",
+                                (unsigned)command,
+                                (unsigned)profile, (unsigned)column);
+                        valid = 0;
+                    }
+                    continue;
+                }
+                ++occupied_count;
+                for (entry = 0u; entry < unique_count; ++entry) {
+                    if (seen[entry] == command) {
+                        break;
+                    }
+                }
+                if (entry != unique_count) {
+                    continue;
+                }
+                seen[unique_count++] = command;
+                if (check_one(command, audio, audio_size, 1)) {
+                    ++passed_count;
+                } else {
+                    valid = 0;
+                    fprintf(stderr, "matrix: L3 mismatch command %08x from %u,%u\n",
+                            (unsigned)command,
+                            (unsigned)profile, (unsigned)column);
+                }
+            }
+        }
+        printf("ROM sound-matrix L3: %u occupied, %u unique, %u passed\n",
+               (unsigned)occupied_count, (unsigned)unique_count,
+               (unsigned)passed_count);
+        if (occupied_count != 107u || unique_count != 98u ||
+            passed_count != unique_count) {
+            fprintf(stderr,
+                    "matrix: expected 107 occupied/98 unique with all L3 matches\n");
+            valid = 0;
+        }
+    } else if (l3_only) {
         valid = check_one(l3_packet, audio, audio_size, 1);
     } else {
         for (i = 0u; i < sizeof(legs) / sizeof(legs[0]); ++i) {
