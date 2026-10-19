@@ -86,6 +86,17 @@ jobs:
           name: vf2-iac-copy-tests-linux
           path: build/vf2_iac_reinitialize_tests
           if-no-files-found: error
+      - name: Publish sound CPU differential test binaries (no ROM)
+        if: matrix.compiler == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2-m68k-sound-differential-linux
+          path: |
+            build/vf2_m68k_90_to_voice_tests
+            build/vf2_m68k_l3_selection_tests
+            build/vf2_m68k_90_ad_followup_tests
+            build/vf2_m68k_cdispatch_tests
+          if-no-files-found: error
 
   sanitizers:
     name: clang ASan and UBSan
