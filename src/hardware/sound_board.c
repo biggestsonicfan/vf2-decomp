@@ -2569,6 +2569,7 @@ static vf2_status sound_board_dispatch_a0(
     uint32_t index = (uint32_t)payload & 0x7fu;
     uint32_t row_base = 0u;
     uint16_t max = 0u;
+    uint8_t *ram = board->sound_ram;
 
     report->handler_address = UINT32_C(0x00001e74);
     report->channel = (uint8_t)(command & 0x0fu);
