@@ -187,6 +187,31 @@ The ROM-backed CTest name
 ROM-free CI does not distribute proprietary assets.
 `vf2_m68k_original_cx_short_command` pins the 2-byte framing.
 
+## Further original-ROM caller evidence (static, not dynamic hit causality)
+
+The original i960 ROM's xref/disassembly at the sound queue
+producer entry `0x43888` exposes two call sites:
+
+```asm
+0003ae60  90812014  ld       0x00000014(r4), g0
+0003ae64  32042008  cmpobe   0, g0, 0x0003ae6c
+0003ae68  09008a20  call     0x00043888
+0003ae6c  90812018  ld       0x00000018(r4), g0
+0003ae70  32042008  cmpobe   0, g0, 0x0003ae78
+0003ae74  09008a14  call     0x00043888
+00043924  92803903  st       g0, 0x00504020[r3*4]
+```
+
+Thus these two visible callers load a nonzero sound-command value
+from fields `r4+0x14` or `r4+0x18` before invoking the original
+queue filer. The filer itself applies conditional command filtering
+at `0x43888..`, so the caller's field cannot be declared equal
+to the final queue word without dynamic evidence. This is a
+**concrete next trace target**, not a proof of which caller produced
+frame 342 nor that these fields are fighter collision data.
+Collect actual `r4`, the calling PC and the source field under
+an original instruction trace before making causal claims.
+
 ## Still not proven
 
 - Origin of the 5 commands in actual fighter-hit / collision code:
