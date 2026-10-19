@@ -46,6 +46,17 @@ vf2_status vf2_session_capture_oracle_snapshot(
     vf2_i960_snapshot *destination
 );
 
+/* Read the ORIGINAL i960 instruction's PC only *inside* a Model 2A
+ * memory observer callback invoked by vf2_session_step_oracle.
+ * Captured immediately BEFORE vf2_i960_step executes, not from
+ * mutable poststep cpu.ip. No PC is exposed outside the active step
+ * or after a native/recovered step. Enables exact producer-write
+ * correlation without changing the memory observer ABI. */
+vf2_status vf2_session_current_oracle_instruction_ip(
+    const vf2_session *session,
+    uint32_t *instruction_ip
+);
+
 /* Like vf2_session_step_oracle, but dispatches each instruction through the
  * lifted>interpreter tiers of the recovered>lifted>interpreter registry, using
  * the caller-supplied lifted table (the generated vf2_lift_table /
