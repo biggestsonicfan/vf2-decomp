@@ -599,6 +599,15 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_m68k_l3_selection_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_l3_selection_tests)
 
+    # Original Motorola 68000 0xCB2..0xD72: 16 MOVEM triplets,
+    # 48 native instructions / 512 bytes per sample page.
+    add_executable(vf2_m68k_engine_copy_page_tests
+                   tests/m68k/test_engine_copy_page.c)
+    target_link_libraries(vf2_m68k_engine_copy_page_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_engine_copy_page_tests)
+    add_test(NAME vf2_m68k_engine_copy_page_rom_free
+             COMMAND vf2_m68k_engine_copy_page_tests)
+
     # ROM-free, directly executable native validation of the
     # original 0x1f04 descriptor-clear/write free-slot contract.
     add_executable(vf2_m68k_a0_descriptor_tests tests/m68k/test_a0_descriptor_native.c)
@@ -1096,6 +1105,8 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_l3_real_selections
                  COMMAND vf2_m68k_l3_selection_tests "${VF2_ROM_DIR}")
+        add_test(NAME vf2_m68k_engine_copy_page_differential
+                 COMMAND vf2_m68k_engine_copy_page_tests "${VF2_ROM_DIR}")
         # v0884: ROM-owned 18x11 sound selections -> 98 isolated L3
         # C-vs-original-68000 packet differentials. Never run in ROM-free CI.
         add_test(NAME vf2_m68k_l3_sound_matrix_differential
