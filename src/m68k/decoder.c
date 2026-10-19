@@ -1293,12 +1293,11 @@ vf2_status vf2_m68k_decode(
             const unsigned address_register = (unsigned)(opcode & 7u);
             const unsigned mode = (unsigned)((opcode >> 3u) & 7u);
             const unsigned submode = (unsigned)(opcode & 7u);
-            /* Motorola ea rules, mirroring step_movem: reg->mem takes
-               predecrement/control dests only ((An) is illegal, seen
-               live at 0x23fa as 0x48d2 on the desc[1]!=0 walk arm);
-               mem->reg takes (An)+/(An)/control sources. */
+            /* Motorola PRM MOVEM: (An) is a legal control-alterable
+               register->memory target, including original 0x48d2.
+               (An)+ is NOT legal in that direction; -(An) is. */
             const int legal = to_memory
-                ? (mode == 4u || mode == 5u || mode == 6u ||
+                ? (mode == 2u || mode == 4u || mode == 5u || mode == 6u ||
                    (mode == 7u && (submode == 0u || submode == 1u)))
                 : (mode == 2u || mode == 3u || mode == 5u || mode == 6u ||
                    (mode == 7u && submode <= 3u));
@@ -1307,10 +1306,17 @@ vf2_status vf2_m68k_decode(
                 (void)snprintf(instruction->text, sizeof(instruction->text),
                                ".word $%04x", (unsigned)opcode);
             } else if (to_memory) {
-                (void)snprintf(instruction->text, sizeof(instruction->text),
-                               "movem.%c $%04x,-(a%u)",
-                               (opcode & UINT16_C(0x0040)) != 0u ? 'l' : 'w',
-                               (unsigned)mask, address_register);
+                if (mode == 2u) {
+                    (void)snprintf(instruction->text, sizeof(instruction->text),
+                                   "movem.%c $%04x,(a%u)",
+                                   (opcode & UINT16_C(0x0040)) != 0u ? 'l' : 'w',
+                                   (unsigned)mask, address_register);
+                } else {
+                    (void)snprintf(instruction->text, sizeof(instruction->text),
+                                   "movem.%c $%04x,-(a%u)",
+                                   (opcode & UINT16_C(0x0040)) != 0u ? 'l' : 'w',
+                                   (unsigned)mask, address_register);
+                }
             } else {
                 (void)snprintf(instruction->text, sizeof(instruction->text),
                                "movem.%c (a%u)+,$%04x",

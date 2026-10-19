@@ -84,6 +84,38 @@ int main(void)
     EXPECT_TRUE(regs.a[7] == 32508u);
     EXPECT_TRUE(bus.event_count == 0u);
 
+    /* MOVEM.L D0-D7,(A2) is LEGAL on MC68000. Regression for
+     * original sound CPU ROM 0xCB6/0x23FA instruction 48 D2 00 FF.
+     * Check full 8-longword order, unchanged A2, and fail-closed
+     * out-of-bounds control destination. */
+    {
+        static const uint8_t movem_direct[] = { 0x48, 0xd2, 0x00, 0xff };
+        size_t k;
+        uint32_t val;
+        make_bus(&bus, &scsp, ram, movem_direct, sizeof(movem_direct));
+        vf2_m68k_regs_reset(&regs);
+        regs.a[2] = UINT32_C(0x2000);
+        for (k = 0u; k < 8u; ++k) {
+            regs.d[k] = UINT32_C(0x12340000) | (uint32_t)(k * 0x101u);
+        }
+        status = vf2_m68k_run(&bus, &regs, 4u, 0, 1u, &done);
+        EXPECT_TRUE(status == VF2_OK);
+        EXPECT_TRUE(regs.pc == 4u);
+        EXPECT_TRUE(regs.a[2] == UINT32_C(0x2000));
+        EXPECT_TRUE(done == 1u);
+        for (k = 0u; k < 8u; ++k) {
+            size_t offset = 0x2000u + k * 4u;
+            val = regs.d[k];
+            EXPECT_TRUE(ram[offset] == (uint8_t)(val >> 24u));
+            EXPECT_TRUE(ram[offset + 1u] == (uint8_t)(val >> 16u));
+            EXPECT_TRUE(ram[offset + 2u] == (uint8_t)(val >> 8u));
+            EXPECT_TRUE(ram[offset + 3u] == (uint8_t)val);
+        }
+        regs.pc = 0u;
+        regs.a[2] = UINT32_C(32768u - 4u);
+        status = vf2_m68k_run(&bus, &regs, 4u, 0, 1u, &done);
+        EXPECT_TRUE(status != VF2_OK);
+    }
     /* Fail closed on an unimplemented opcode. */
     make_bus(&bus, &scsp, ram, bad_program, sizeof(bad_program));
     vf2_m68k_regs_reset(&regs);

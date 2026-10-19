@@ -1471,7 +1471,11 @@ static vf2_status step_movem(
         }
         return VF2_OK;
     }
-    if (mode != 4u && mode != 5u && mode != 6u &&
+    /* Motorola M68000 PRM, MOVEM register->memory: (An) is a
+     * legal CONTROL ALTERABLE destination. Postincrement remains
+     * prohibited. The old exclusion of mode 2 falsely declared
+     * original ROM 0x48D2 to be an illegal instruction. */
+    if (mode != 2u && mode != 4u && mode != 5u && mode != 6u &&
         !(mode == 7u && (reg == 0u || reg == 1u))) {
         return VF2_ERROR_UNSUPPORTED;
     }
@@ -1498,7 +1502,9 @@ static vf2_status step_movem(
     if (ea_is_program(mode, reg)) {
         return VF2_ERROR_UNSUPPORTED;
     }
-    for (bit = 15; bit >= 0; --bit) {
+    /* Control modes store D0..D7, then A0..A7, in ascending
+     * address order. Reverse order applies ONLY to -(An). */
+    for (bit = 0; bit < 16; ++bit) {
         if ((mask & (uint16_t)((uint16_t)1u << (unsigned)bit)) == 0u) {
             continue;
         }
