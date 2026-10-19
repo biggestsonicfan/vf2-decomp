@@ -214,10 +214,44 @@ static void usage(const char *p)
         "          [--audio-evidence-jsonl <output.jsonl>] (requires --oracle)\n"
         "          [--audio-pre-event-snapshot <output.vf2snap>] (requires --oracle)\n"
         "          [--verified-audio-copy] (owner-ROM D92 upload opt-in)\n"
+        "          [--input-cycle <mask,mask,...>] (repeat deterministic controller inputs)\n"
         "       %s --selftest [--frames <n>]\n"
         "Keys: arrows, Z/X/C, Enter, 5=coin, F1=test, F2=service, P2 on IJKL/ASD;\n"
         "      P pause, N step, F10 integer scale, F11 fullscreen, Esc quit.\n",
         p, p);
+}
+
+/* Deterministic HEADLESS gameplay input, never synthetic audio packets.
+ * Each comma-separated mask applies to one frame; the pattern repeats.
+ * Strict decimal/0x integer parsing rejects truncation, blanks and
+ * invalid characters. The masks are ordinary game-controller bits. */
+enum { VF2_HOST_INPUT_CYCLE_CAP = 64u };
+
+static int parse_input_cycle(
+    const char *text,
+    uint32_t *values,
+    size_t *count
+)
+{
+    const char *cursor = text;
+    size_t n = 0u;
+    if (cursor == NULL || *cursor == '\0' || values == NULL ||
+        count == NULL) return 0;
+    for (;;) {
+        char *end = NULL;
+        unsigned long long value;
+        if (*cursor == '-' || *cursor == ',' ||
+            n == VF2_HOST_INPUT_CYCLE_CAP) return 0;
+        value = strtoull(cursor, &end, 0);
+        if (end == cursor || value > UINT32_MAX ||
+            (*end != ',' && *end != '\0')) return 0;
+        values[n++] = (uint32_t)value;
+        if (*end == '\0') break;
+        if (end[1] == '\0') return 0;
+        cursor = end + 1;
+    }
+    *count = n;
+    return 1;
 }
 
 static int load_bindings(host *h, const char *path)
@@ -267,6 +301,22 @@ static int selftest(host *h, uint32_t frames)
     static uint32_t pixels[VF2_SESSION_WIDTH * VF2_SESSION_HEIGHT];
     int16_t l[AUDIO_FRAMES_PER_VIDEO_FRAME], r[AUDIO_FRAMES_PER_VIDEO_FRAME];
     int failures = 0;
+    {
+        uint32_t masks[VF2_HOST_INPUT_CYCLE_CAP] = {0u};
+        size_t n = 0u;
+        if (!parse_input_cycle("0x100,0,0x80,0x10", masks, &n) ||
+            n != 4u || masks[0] != 0x100u ||
+            masks[1] != 0u || masks[2] != 0x80u ||
+            masks[3] != 0x10u ||
+            parse_input_cycle("0x100,", masks, &n) ||
+            parse_input_cycle("0,,1", masks, &n) ||
+            parse_input_cycle("0x100garbage", masks, &n) ||
+            parse_input_cycle("4294967296", masks, &n) ||
+            parse_input_cycle("-1", masks, &n)) {
+            fprintf(stderr, "selftest: deterministic input-cycle parser failed\n");
+            ++failures;
+        }
+    }
 
     for (uint32_t f = 0u; f < frames; ++f) {
         if (f == 2u) inject_key(SDL_SCANCODE_Z, 1);
@@ -458,6 +508,9 @@ int main(int argc, char **argv)
     const char *screenshot = NULL;
     const char *audio_evidence_path = NULL;
     const char *audio_pre_event_path = NULL;
+    const char *input_cycle_text = NULL;
+    uint32_t input_cycle[VF2_HOST_INPUT_CYCLE_CAP] = {0u};
+    size_t input_cycle_count = 0u;
     vf2_i960_snapshot pre_event;
     sound_writer_capture writer = {0};
     int pre_event_written = 0;
@@ -493,6 +546,9 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--audio-pre-event-snapshot") == 0 &&
                  i + 1 < argc)
             audio_pre_event_path = argv[++i];
+        else if (strcmp(argv[i], "--input-cycle") == 0 &&
+                 i + 1 < argc)
+            input_cycle_text = argv[++i];
         else if (strcmp(argv[i], "--digest") == 0 && i + 1 < argc) digest_every = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--fullscreen") == 0) h.fullscreen = 1;
         else if (strcmp(argv[i], "--integer") == 0) h.integer_scale = 1;
@@ -509,6 +565,12 @@ int main(int argc, char **argv)
     }
     if (!do_selftest && (rom_dir == NULL || snapshot == NULL)) {
         usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+    if (input_cycle_text != NULL &&
+        !parse_input_cycle(input_cycle_text, input_cycle,
+                           &input_cycle_count)) {
+        fprintf(stderr, "invalid --input-cycle (expected comma-separated uint32 masks, max 64)\n");
         return EXIT_FAILURE;
     }
     if (bindings_path != NULL && !load_bindings(&h, bindings_path)) return EXIT_FAILURE;
@@ -585,7 +647,9 @@ int main(int argc, char **argv)
             pump(&h);
             if (!h.paused || h.step_once) {
                 vf2_session_audio_pump_report audio_pump;
-                uint32_t input = vf2_host_input_mask(&h.input);
+                uint32_t input = input_cycle_count != 0u
+                    ? input_cycle[frame % input_cycle_count]
+                    : vf2_host_input_mask(&h.input);
                 uint8_t queue_before = 0u, queue_after = 0u;
                 vf2_status pump_status;
                 vf2_status render_status;
