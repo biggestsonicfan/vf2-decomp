@@ -201,3 +201,83 @@ ROM-free unit gate:
 python tools/python/test_audio_rom_matrix_l3.py -v
 ctest --test-dir build -R vf2_python_audio_rom_matrix_l3 --output-on-failure
 ```
+
+## v0893 — Frame-progressing original i960 session audio evidence (opt-in)
+
+This is a passive **frame-level hunt**, not an original instruction-PC
+trace and **not** proof of a genuine fighter-hit sound. It supplements
+the existing ROM-anchored `vf2probe --trace --memory-trace` chain
+without weakening its acceptance criteria.
+
+The SDL3 host now offers an explicit evidence output, only with
+original i960 **oracle** frame execution:
+
+```sh
+# Use a valid, real pre-contact gameplay snapshot; do not inject
+# sound-ring commands or synthetic collision state.
+mkdir -p out
+vf2_host --rom-dir /local/owner/vf2 \
+  --snapshot /local/owner/precontact.vf2snap \
+  --oracle --fast --frames 900 \
+  --verified-audio-copy \
+  --audio-evidence-jsonl out/precontact-audio-frames.jsonl
+
+python tools/python/audio_frame_evidence_report.py \
+  out/precontact-audio-frames.jsonl
+```
+
+The optional `--verified-audio-copy` switch only enables the
+previously validated native C `D92->DF8->ED6` sound-engine branch.
+The tool **never injects** a command, forces an IRQ, or edits a
+snapshot. If none is observed, a valid capture is simply silent.
+
+One record is written for **each completed oracle frame**, after the
+normal shadow-i960 sound pump and SCSP software render. Fields include:
+
+- Frame index and raw input mask.
+- i960 sound-queue **count immediately before and after the
+  original oracle frame**, prior to pump service. Queue growth is
+  a *temporal candidate*, not causal proof of a hit or specific PC.
+- Exact UART bytes that the pump's **shadow** i960 drainer forwarded
+  and that the modeled L3 receiver accepted, in order, retained
+  **un-grouped as hex** because partial packets can cross frames.
+  `uart_count`, `bytes_moved` and `uart_truncated` make any
+  loss of the retained byte sample detectable.
+- Sound-ring entries filed/dispatched/refused, number of guarded
+  `D92->ED6` completions and drain/stream/voice status.
+- Stereo SCSP **model** nonzero-frame count and PCM peak for the
+  current frame, not original arcade DAC measurements.
+
+The `origin` string is deliberately
+`oracle_frame_shadow_uart_pump`. Original i960 game code stepped
+the frame, **but UART transfer is performed by the shadow drainer,
+not a captured original vector-15 ISR instruction trace**. The
+record explicitly sets `natural_fighter_hit_proven`,
+`original_uart_irq_proven` and `hardware_pcm_proven` to false.
+
+The companion analyzer:
+
+```sh
+python tools/python/test_audio_frame_evidence_report.py -v
+ctest --test-dir build \
+  -R vf2_python_audio_frame_evidence --output-on-failure
+```
+
+validates monotonically contiguous frame indices, transport byte
+accounting, queue/dispatcher/PCM fields, unsupported truth claims
+and the real-frame provenance marker. It reports candidate frames
+when queue count **increased** during the oracle frame and
+shadow UART bytes were forwarded. A preexisting queue or continued
+PCM sound is not promoted into a newly authored game event.
+
+**Crucial next gate:** use a promising candidate's original frame
+state to capture original i960 PC+memory trace proving selector,
+queue writer `0x43924`, and true vector-15 UART ISR/byte staging.
+Then carry the *exact packet* through original 68000 L3 and native
+C / SCSP differential. The independent existing strict selectors
+and UART transport gates remain authoritative; even an observed
+model KEYON plus nonzero PCM alone does **not** prove a natural hit.
+
+No user ROM, snapshot, raw trace, PCM audio buffer or WAV is
+committed. The JSONL itself should remain local; generated output
+goes to a caller-specified path, not the project tree by default.
