@@ -10507,6 +10507,37 @@ stage_selected:
         fclose(mtl); mtl = NULL;
     }
 
+    /* verify every map_Kd/map_d the MTL names resolves to a file that exists, so a
+     * missing tile/atlas PNG fails loudly here instead of showing up magenta in a
+     * viewer. */
+    {
+        char line2[1024]; FILE *mv;
+        size_t nmiss = 0u;
+        snprintf(path, sizeof(path), "%s/%s.mtl", out_dir, base);
+        mv = fopen(path, "rb");
+        if (mv != NULL) {
+            while (fgets(line2, (int)sizeof(line2), mv) != NULL) {
+                char ref[512]; FILE *tf;
+                if (sscanf(line2, " map_Kd %511s", ref) == 1 ||
+                    sscanf(line2, " map_d %511s", ref) == 1) {
+                    snprintf(path, sizeof(path), "%s/%s", out_dir, ref);
+                    tf = fopen(path, "rb");
+                    if (tf == NULL) {
+                        fprintf(stderr, "geo-%s: MTL references missing file %s\n",
+                                stage_mode ? "stage" : "fighter", ref);
+                        ++nmiss;
+                    } else fclose(tf);
+                }
+            }
+            fclose(mv);
+        }
+        if (nmiss > 0u) {
+            fprintf(stderr, "geo-%s: %zu MTL texture reference(s) have no file\n",
+                    stage_mode ? "stage" : "fighter", nmiss);
+            rc = EXIT_FAILURE; goto done;
+        }
+    }
+
     printf("geo-%s: %s frame %zu -> %s/%s.obj (+ %s.mtl, tex0/1.png %s)\n",
            stage_mode ? "stage" : "fighter",
            base, pose, out_dir, base, base, colour ? "[colour]" : "[grayscale]");

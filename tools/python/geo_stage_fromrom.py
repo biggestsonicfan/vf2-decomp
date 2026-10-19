@@ -19,7 +19,24 @@ Usage: python geo_stage_fromrom.py <in_dir> <out_dir> [--include-flagged]
 """
 import sys
 import os
+import glob
 import shutil
+
+
+def verify_mtl(out_dir):
+    """Every map_Kd/map_d in the MTL must point to a file that exists. Returns the
+    list of missing (material-line, referenced-path); empty = OK."""
+    mtl = os.path.join(out_dir, "stage.mtl")
+    missing = []
+    if not os.path.exists(mtl):
+        return [("(no stage.mtl)", mtl)]
+    for line in open(mtl, encoding="utf-8"):
+        p = line.split()
+        if p and p[0] in ("map_Kd", "map_d"):
+            ref = p[-1]
+            if not os.path.exists(os.path.join(out_dir, ref)):
+                missing.append((line.strip(), ref))
+    return missing
 
 
 def parse(path):
@@ -96,7 +113,10 @@ def main():
     kept_rom = rom if include else [o for o in rom if not o["flag"]]
 
     os.makedirs(out_dir, exist_ok=True)
-    for f in ("stage.mtl", "stage_tex0.png", "stage_tex1.png"):
+    # copy the MTL, the atlas sheets, and every standalone repeat-tile image
+    copy = ["stage.mtl", "stage_tex0.png", "stage_tex1.png"]
+    copy += [os.path.basename(p) for p in glob.glob(os.path.join(in_dir, "stage_tile*.png"))]
+    for f in copy:
         src = os.path.join(in_dir, f)
         if os.path.exists(src):
             shutil.copy(src, os.path.join(out_dir, f))
@@ -123,6 +143,14 @@ def main():
           % (len(cap) + len(kept_rom), len(cap), len(rom), len(flagged), len(kept_rom)))
     for o in flagged:
         print("    flag %s %s" % (o["name"], o["flag"]))
+
+    missing = verify_mtl(out_dir)
+    if missing:
+        sys.stderr.write("ERROR: %s has %d MTL texture reference(s) with no file:\n"
+                         % (out_dir, len(missing)))
+        for ml, ref in missing:
+            sys.stderr.write("  %s -> %s (MISSING)\n" % (ml, ref))
+        sys.exit(2)
 
 
 if __name__ == "__main__":
