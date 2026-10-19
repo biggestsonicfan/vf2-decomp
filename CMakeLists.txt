@@ -1096,6 +1096,11 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_l3_real_selections
                  COMMAND vf2_m68k_l3_selection_tests "${VF2_ROM_DIR}")
+        # v0884: ROM-owned 18x11 sound selections -> 98 isolated L3
+        # C-vs-original-68000 packet differentials. Never run in ROM-free CI.
+        add_test(NAME vf2_m68k_l3_sound_matrix_differential
+                 COMMAND vf2_m68k_l3_selection_tests
+                         "${VF2_ROM_DIR}" --matrix-l3)
         add_test(NAME vf2_m68k_90_to_voice
                  COMMAND vf2_m68k_90_to_voice_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_snapshot_differential COMMAND vf2_m68k_snapshot_tests "${VF2_ROM_DIR}")
