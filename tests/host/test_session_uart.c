@@ -188,6 +188,23 @@ int main(int argc, char **argv)
     fprintf(stderr, "uart-hunt: audio_status=%d\n",
             (int)vf2_session_audio_status(session));
     CHECK(vf2_session_audio_status(session) == VF2_OK);
+    /* Capture the live original i960 state without advancing it.
+     * Two identical checkpoints before stepping must be equal;
+     * this test runs only with a user-local ROM and snapshot. */
+    {
+        vf2_i960_snapshot before;
+        vf2_i960_snapshot again;
+        vf2_i960_snapshot_diff diff;
+        vf2_i960_snapshot_init(&before);
+        vf2_i960_snapshot_init(&again);
+        memset(&diff, 0, sizeof(diff));
+        CHECK(vf2_session_capture_oracle_snapshot(session, &before) == VF2_OK);
+        CHECK(vf2_session_capture_oracle_snapshot(session, &again) == VF2_OK);
+        CHECK(vf2_i960_snapshot_compare(&before, &again, &diff) == VF2_OK);
+        CHECK(diff.equal);
+        vf2_i960_snapshot_destroy(&before);
+        vf2_i960_snapshot_destroy(&again);
+    }
     CHECK(vf2_session_set_memory_observer(
               session, uart_observe, &capture) == VF2_OK);
     for (frame = 0u; frame < budget; ++frame) {
