@@ -301,10 +301,23 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
     voice[1] = 0x20u;
     voice[2] = 0x5au;
     voice[9] = 0xffu;
+    /* Original 0xD9C MOVEA.L 0x0C(A1),A2: copied destination
+     * comes from the VOICE's +0x0C longword. The earlier test
+     * left this zero, correctly blocking unmapped RAM access. */
+    voice[0x0cu] = 0x00u;
+    voice[0x0du] = 0x01u;
+    voice[0x0eu] = 0x00u;
+    voice[0x0fu] = 0x00u;
     /* Setup-authored voice select 0x0140 => d3=0x1900.
-     * 0x6904 is the unmodified table field for the sample ROM
-     * source; choose the measured AD23 address, not a PCM stub.
-     * Gate 0x690C takes the D92 arm. */
+     * Original 0xC68 loads D5 from table+0; 0xC74 MOVEA.L
+     * D5,A0 gives the sample-ROM copy source. The other
+     * table+4 field is independently staged for stream sample
+     * metadata. These are deliberately constructed inputs,
+     * not gameplay-derived event evidence. */
+    ram[0x6900u] = 0x00u;
+    ram[0x6901u] = 0xe6u;
+    ram[0x6902u] = 0x31u;
+    ram[0x6903u] = 0xb2u;
     ram[0x6904u] = 0x00u;
     ram[0x6905u] = 0xe6u;
     ram[0x6906u] = 0x31u;
