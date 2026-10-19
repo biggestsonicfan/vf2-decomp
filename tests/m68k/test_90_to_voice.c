@@ -29,7 +29,8 @@ static uint32_t be32(const uint8_t *p)
 
 static int run_case(const uint8_t *rom, size_t rom_size,
                     uint8_t cmd, uint8_t payload, uint8_t second,
-                    uint8_t mode, uint16_t word, uint8_t loopb)
+                    uint8_t mode, uint16_t word, uint8_t loopb,
+                    int probe_engine)
 {
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
@@ -130,6 +131,21 @@ static int run_case(const uint8_t *rom, size_t rom_size,
     }
     printf("A0 90 %02x: original 0xfac->0xa8c, first voice +2=0x40; C held at 0xfac\n",
            (unsigned)cmd);
+    if (probe_engine) {
+        /* Optional RESEARCH PROBE: original CPU only. Report its
+         * next reached frontier, without promoting unobserved
+         * engine, key-on or audible events into recovered C. */
+        s = vf2_m68k_run(&bus, &regs, UINT32_C(0xc68),
+                         0, 50000u, &steps);
+        printf("A0 90 %02x optional original engine probe: status=%d pc=0x%05x "
+               "steps=%u voice0+2=%02x voice0+3=%02x "
+               "SCSP[0]=%02x SCSP[0x0b]=%02x\n",
+               (unsigned)cmd, (int)s, (unsigned)regs.pc, (unsigned)steps,
+               (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u],
+               (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 3u],
+               (unsigned)step_scsp.registers[0],
+               (unsigned)step_scsp.registers[0x0bu]);
+    }
     return 1;
 }
 
@@ -139,10 +155,13 @@ int main(int argc, char **argv)
     uint8_t *samples = NULL;
     size_t size = 0u, samples_size = 0u;
     int ok;
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s /path/to/original/vf2/ROMs\n", argv[0]);
+    int probe_engine;
+    if ((argc != 2 && argc != 3) ||
+        (argc == 3 && strcmp(argv[2], "--probe-engine") != 0)) {
+        fprintf(stderr, "usage: %s /path/to/original/vf2/ROMs [--probe-engine]\n", argv[0]);
         return 2;
     }
+    probe_engine = argc == 3;
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &rom, &size) != VF2_OK ||
         vf2_romset_build_region(argv[1], VF2_REGION_SAMPLES,
@@ -156,9 +175,9 @@ int main(int argc, char **argv)
     sample_bank = samples;
     sample_bank_size = samples_size;
     ok = run_case(rom, size, 0x9bu, 0x42u, 0x78u,
-                  0xfdu, 0x0242u, 0xd6u);
+                  0xfdu, 0x0242u, 0xd6u, probe_engine);
     ok = run_case(rom, size, 0x9au, 0x01u, 0x7fu,
-                  0xffu, 0x0261u, 0x81u) && ok;
+                  0xffu, 0x0261u, 0x81u, probe_engine) && ok;
     free(rom);
     free(samples);
     return ok ? 0 : 1;
