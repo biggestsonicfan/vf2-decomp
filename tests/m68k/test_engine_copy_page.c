@@ -86,6 +86,41 @@ static void test_rom_free(void)
         &board, &s, &d) == VF2_ERROR_UNSUPPORTED);
 }
 
+/* ROM-free d72 tail: pointer files, SCSP KEYON and channel flag.
+ * Inputs are an independently completed valid page-transfer fixture. */
+static void test_rom_free_tail(void)
+{
+    static uint8_t sample[1024];
+    uint8_t snapshot[16];
+    uint8_t key;
+    uint32_t stream = UINT32_C(0x2000);
+    memset(&board, 0, sizeof(board));
+    board.sample_rom = sample;
+    board.sample_rom_size = sizeof(sample);
+    board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE] = 0u;
+    board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 1u] = 0u;
+    CHECK(vf2_sound_board_finalize_engine_copy_d72(
+        &board, 0u, UINT32_C(0x800200), UINT32_C(0x10200)) == VF2_OK);
+    CHECK(board.sound_ram[stream] == 0x80u);
+    CHECK(be32(board.sound_ram + stream + 2u) == UINT32_C(0x800200));
+    CHECK(be32(board.sound_ram + stream + 6u) == UINT32_C(0x10200));
+    CHECK(vf2_scsp_read_u8(&board.scsp, 0u, &key) == VF2_OK);
+    CHECK((key & 0x18u) == 0x18u);
+    memcpy(snapshot, board.sound_ram + stream, sizeof(snapshot));
+    board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 1u] = 1u;
+    CHECK(vf2_sound_board_finalize_engine_copy_d72(
+        &board, 0u, UINT32_C(0x800200), UINT32_C(0x10200)) ==
+          VF2_ERROR_UNSUPPORTED);
+    CHECK(memcmp(snapshot, board.sound_ram + stream, sizeof(snapshot)) == 0);
+    CHECK(vf2_sound_board_finalize_engine_copy_d72(
+        NULL, 0u, UINT32_C(0x800200), UINT32_C(0x10200)) ==
+          VF2_ERROR_INVALID_ARGUMENT);
+    CHECK(vf2_sound_board_finalize_engine_copy_d72(
+        &board, VF2_SOUND_VOICE_COUNT,
+        UINT32_C(0x800200), UINT32_C(0x10200)) ==
+          VF2_ERROR_INVALID_ARGUMENT);
+}
+
 static void test_rom_case(const uint8_t *rom, size_t rom_size,
                           const uint8_t *samples, size_t sample_size,
                           uint16_t selection, uint32_t expected_source)
@@ -110,6 +145,10 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
         ++failed;
         return;
     }
+    /* The synthetic isolated tail is pinned to physical SCSP slot zero.
+     * Do not conflate this fixture with a live game selection. */
+    board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE] = 0u;
+    board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 1u] = 0u;
     memcpy(reference_ram, board.sound_ram, sizeof(reference_ram));
     memcpy(&reference_scsp, &board.scsp, sizeof(reference_scsp));
     memset(&bus, 0, sizeof(bus));
@@ -157,9 +196,33 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
             CHECK(regs.d[index] == be32(samples + relative));
         }
     }
+    /* Continue from the same original state: the ROM tail at
+     * 0xD72..0xD90 performs seven more instructions before RTS.
+     * Compare whole RAM + SCSP with the separately recovered C tail. */
+    regs.a[1] = VF2_SOUND_VOICE_TABLE_BASE;
+    regs.a[3] = UINT32_C(0x2000);
+    regs.a[5] = VF2_SCSP_CPU_BASE;
+    status = vf2_sound_board_finalize_engine_copy_d72(
+        &board, 0u, source, destination);
+    CHECK(status == VF2_OK);
+    if (status != VF2_OK) {
+        return;
+    }
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x0d90),
+                          0, 8u, &steps);
+    CHECK(status == VF2_OK);
+    CHECK(regs.pc == UINT32_C(0x0d90));
+    CHECK(steps == 7u);
+    CHECK(memcmp(board.sound_ram, reference_ram,
+                 VF2_SOUND_RAM_BYTES) == 0);
+    CHECK(memcmp(&board.scsp, &reference_scsp,
+                 sizeof(reference_scsp)) == 0);
+    CHECK(reference_ram[UINT32_C(0x2000)] == 0x80u);
+    CHECK(be32(reference_ram + UINT32_C(0x2002)) == source);
+    CHECK(be32(reference_ram + UINT32_C(0x2006)) == destination);
     if (status == VF2_OK) {
-        printf("MATCH 68000/C MOVEM 0xcb2..0xd72 select=%04x "
-               "source=%08x bytes=512 instructions=48\n",
+        printf("MATCH 68000/C 0xcb2..0xd90 select=%04x "
+               "source=%08x bytes=512 instructions=55\n",
                (unsigned)selection, (unsigned)expected_source);
     }
 }
@@ -173,6 +236,15 @@ static int test_owner_rom(const char *directory)
         0x4cu, 0xd8u, 0x00u, 0xffu,
         0x48u, 0xd2u, 0x00u, 0xffu,
         0xd4u, 0xfcu, 0x00u, 0x20u
+    };
+    static const uint8_t tail[] = {
+        0x38u, 0x29u, 0x00u, 0x00u,
+        0x27u, 0x88u, 0x40u, 0x02u,
+        0x27u, 0x8au, 0x40u, 0x06u,
+        0x1au, 0x35u, 0x40u, 0x00u,
+        0x00u, 0x05u, 0x00u, 0x18u,
+        0x1bu, 0x85u, 0x40u, 0x00u,
+        0x17u, 0xbcu, 0x00u, 0x80u, 0x40u, 0x00u
     };
     size_t i;
     if (vf2_romset_build_region(directory, VF2_REGION_AUDIOCPU,
@@ -199,6 +271,14 @@ static int test_owner_rom(const char *directory)
             return 0;
         }
     }
+    if (rom_size < UINT32_C(0x0d72) + sizeof(tail) ||
+        memcmp(rom + UINT32_C(0x0d72), tail, sizeof(tail)) != 0) {
+        fprintf(stderr, "copy: 0xD72..0xD90 original ROM tail changed\n");
+        ++failed;
+        free(rom);
+        free(samples);
+        return 0;
+    }
     test_rom_case(rom, rom_size, samples, sample_size,
                   UINT16_C(0x0242), UINT32_C(0x00e631b2));
     test_rom_case(rom, rom_size, samples, sample_size,
@@ -215,11 +295,12 @@ int main(int argc, char **argv)
         return 2;
     }
     test_rom_free();
+    test_rom_free_tail();
     if (argc == 2 && !test_owner_rom(argv[1])) {
         return 2;
     }
     if (failed == 0u) {
-        puts("MOVEM 0xcb2..0xd72: bounded page-copy tests PASS");
+        puts("MOVEM+KEYON 0xcb2..0xd90: bounded copy/tail tests PASS");
     }
     return failed == 0u ? 0 : 1;
 }
