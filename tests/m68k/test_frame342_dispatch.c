@@ -126,8 +126,37 @@ static void isolate_command(size_t command,
     regs.a[5] = VF2_SCSP_CPU_BASE;
     regs.a[6] = UINT32_C(0x1000);
     regs.a[7] = UINT32_C(0x7f00);
-    s = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
-                      0, 20000u, &steps);
+    if (cls == UINT8_C(0x9e)) {
+        uint32_t presteps = 0u;
+        vf2_status pre = vf2_m68k_run(
+            &bus, &regs, UINT32_C(0x0fac), 0, 20000u, &presteps);
+        printf("FRAME342_PRE_FAC status=%d pc=%05x steps=%u "
+               "d4=%08x a1=%08x a2=%08x a3=%08x "
+               "voice0_status=%02x voice0_slot=%02x%02x "
+               "table_select=%02x%02x scsp_active=%u\n",
+               (int)pre, (unsigned)regs.pc, (unsigned)presteps,
+               (unsigned)regs.d[4], (unsigned)regs.a[1],
+               (unsigned)regs.a[2], (unsigned)regs.a[3],
+               (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u],
+               (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 0u],
+               (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 1u],
+               (unsigned)step_ram[VF2_SOUND_LOOKUP_WORD],
+               (unsigned)step_ram[VF2_SOUND_LOOKUP_WORD + 1u],
+               active_slots(&step_scsp));
+        if (pre != VF2_OK) {
+            s = pre;
+        } else {
+            uint32_t tail_steps = 0u;
+            s = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                              0, 20000u, &tail_steps);
+            printf("FRAME342_FAC_TO_EXIT status=%d steps=%u\n",
+                   (int)s, (unsigned)tail_steps);
+            steps = presteps + tail_steps;
+        }
+    } else {
+        s = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                          0, 20000u, &steps);
+    }
     scsp_s = active_slots(&step_scsp);
 
     for (i = 0; i < VF2_SOUND_RAM_BYTES; ++i) {
