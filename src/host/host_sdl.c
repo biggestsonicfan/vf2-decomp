@@ -216,6 +216,7 @@ static void usage(const char *p)
         "          [--audio-pre-event-pc <original-i960-pc>] (checkpoint only on PC match)\n"
         "          [--audio-pre-event-word <u32>] (checkpoint only on matching command)\n"
         "          [--verified-audio-copy] (owner-ROM D92 upload opt-in)\n"
+        "          [--verified-audio-90] (owner-ROM frame342 9E KEYON opt-in)\n"
         "          [--input-cycle <mask,mask,...>] (repeat deterministic controller inputs)\n"
         "       %s --selftest [--frames <n>]\n"
         "Keys: arrows, Z/X/C, Enter, 5=coin, F1=test, F2=service, P2 on IJKL/ASD;\n"
@@ -512,7 +513,8 @@ static int write_audio_evidence_frame(
                 "\",\"uart_count\":%u,\"uart_truncated\":%u,"
                 "\"bytes_moved\":%u,\"entries_filed\":%u,"
                 "\"entries_dispatched\":%u,\"entries_refused\":%u,"
-                "\"d92_keyons_retired\":%u,\"pump_status\":%d,"
+                "\"d92_keyons_retired\":%u,\"keyon_90_retired\":%u,"
+                "\"pump_status\":%d,"
                 "\"drain_status\":%d,\"stream_status\":%d,"
                 "\"voice_status\":%d,\"render_status\":%d,"
                 "\"pcm_frames\":%u,\"pcm_nonzero_frames\":%u,"
@@ -526,6 +528,7 @@ static int write_audio_evidence_frame(
                 (unsigned)pump_report->entries_dispatched,
                 (unsigned)pump_report->entries_refused,
                 (unsigned)pump_report->d92_keyons_retired,
+                (unsigned)pump_report->keyon_90_retired,
                 (int)pump_status, (int)pump_report->drain_status,
                 (int)pump_report->stream_status,
                 (int)pump_report->voice_status, (int)render_status,
@@ -556,6 +559,7 @@ int main(int argc, char **argv)
     int fast = 0;
     int oracle = 0;
     int verified_audio_copy = 0;
+    int verified_audio_90 = 0;
     uint32_t frame_limit = 0u;
     int do_selftest = 0, rc = 0;
     vf2_session *session = NULL;
@@ -577,6 +581,8 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--oracle") == 0) oracle = 1;
         else if (strcmp(argv[i], "--verified-audio-copy") == 0)
             verified_audio_copy = 1;
+        else if (strcmp(argv[i], "--verified-audio-90") == 0)
+            verified_audio_90 = 1;
         else if (strcmp(argv[i], "--audio-evidence-jsonl") == 0 &&
                  i + 1 < argc)
             audio_evidence_path = argv[++i];
@@ -676,6 +682,20 @@ int main(int argc, char **argv)
             fprintf(stderr,
                     "verified-audio-copy enabled: guarded D92->ED6 "
                     "only; no synthetic hit packets\n");
+        }
+    }
+    if (verified_audio_90) {
+        vf2_status audio_optin =
+            vf2_session_set_verified_90_allocator(session, 1);
+        if (audio_optin != VF2_OK) {
+            fprintf(stderr,
+                    "verified-audio-90 unavailable (%s); "
+                    "keeping unverified routes disabled\n",
+                    vf2_status_string(audio_optin));
+        } else {
+            fprintf(stderr,
+                    "verified-audio-90 enabled: original frame342 "
+                    "9E0A7F FAC->CB2->D90 only; no injected event\n");
         }
     }
     if (audio_evidence_path != NULL) {
@@ -798,13 +818,14 @@ int main(int argc, char **argv)
                     audio_pump.bytes_moved != 0u) {
                     fprintf(stderr,
                             "frame %u: audio pump bytes=%u filed=%u "
-                            "dispatched=%u refused=%u d92=%u\n",
+                            "dispatched=%u refused=%u d92=%u keyon90=%u\n",
                             (unsigned)frame,
                             (unsigned)audio_pump.bytes_moved,
                             (unsigned)audio_pump.entries_filed,
                             (unsigned)audio_pump.entries_dispatched,
                             (unsigned)audio_pump.entries_refused,
-                            (unsigned)audio_pump.d92_keyons_retired);
+                            (unsigned)audio_pump.d92_keyons_retired,
+                            (unsigned)audio_pump.keyon_90_retired);
                 }
                 render_status = vf2_session_render_audio(
                     session, left, right, AUDIO_FRAMES_PER_VIDEO_FRAME);
