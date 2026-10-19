@@ -22,6 +22,8 @@ import os
 import glob
 import shutil
 
+from geo_stage_depthbias import depth_bias
+
 
 def verify_mtl(out_dir):
     """Every map_Kd/map_d in the MTL must point to a file that exists. Returns the
@@ -143,6 +145,11 @@ def main():
           % (len(cap) + len(kept_rom), len(cap), len(rom), len(flagged), len(kept_rom)))
     for o in flagged:
         print("    flag %s %s" % (o["name"], o["flag"]))
+
+    # painter-order depth-bias: push coplanar faces of earlier-drawn / recovered objects
+    # behind so a float-z-buffer viewer doesn't z-fight them (recovered always behind cap).
+    nb, nf = depth_bias(os.path.join(out_dir, "stage.obj"))
+    print("  depth-bias: nudged %d / %d faces" % (nb, nf))
 
     missing = verify_mtl(out_dir)
     if missing:
