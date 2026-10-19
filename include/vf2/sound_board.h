@@ -152,6 +152,19 @@ vf2_status vf2_sound_board_initialize(
     size_t sample_rom_size
 );
 
+/* Recovered ORIGINAL 68000 sample upload at 0xCB2..0xD72 only.
+ * Exactly 16 MOVEM.L (A0)+,D0-D7 / MOVEM.L D0-D7,(A2) /
+ * ADDA.W #32,A2 triplets = 512 bytes, 48 original instructions.
+ * Bounds/alignment and attached sample ROM are checked before writing.
+ * Inputs/outputs are emulated A0 and A2 bus addresses; their pointers
+ * advance by 512 only on success. The following engine body at 0xD72
+ * and live playback are NOT recovered or admitted by this API. */
+vf2_status vf2_sound_board_copy_engine_page_512(
+    vf2_sound_board *board,
+    uint32_t *source,
+    uint32_t *destination
+);
+
 vf2_status vf2_sound_board_read_u8(
     vf2_sound_board *board,
     uint32_t address,
