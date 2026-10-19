@@ -3271,6 +3271,21 @@ vf2_status vf2_sound_board_dispatch_next(
                 *report = local;
                 return status;
             }
+            /* Verified original frame-342 9E0A7F completes a real
+             * MOVEM+KEYON tail at D90. The original 68000 returns
+             * directly to the drain retirement at this terminal
+             * point; it does NOT descend into another matching
+             * descriptor's FAC allocator. Continuing the generic
+             * C loop incorrectly files three more lookup bytes
+             * and refuses an already completed sound packet.
+             * This stop is narrowly scoped to the explicitly
+             * admitted and fully completed D90 path. */
+            if (board->allow_verified_90_allocator != 0u &&
+                local.command == UINT8_C(0x9e) &&
+                local.payload == UINT8_C(0x0a) &&
+                local.handler_address == UINT32_C(0x00000d90)) {
+                break;
+            }
         } else if (local.command_class != 0x80u &&
                    local.command_class != 0xa0u &&
                    local.command_class != 0xb0u &&
