@@ -34,6 +34,12 @@ struct vf2_session {
      * session CPU, which is only a verified operation on interpreter-driven
      * state, so it fails closed here (v0853). */
     int stepped_native;
+    /* Nonzero ONLY during one original vf2_i960_step in the oracle.
+     * The memory observer may ask which ORIGINAL instruction caused
+     * the currently observed bus access, without guessing cpu.ip
+     * after branches or interrupt entry. */
+    int oracle_instruction_active;
+    uint32_t oracle_instruction_ip;
     /* cpu.executed_instructions carried by the start snapshot (boot to the
      * cold dispatch).  Instruction counts are reported relative to this so the
      * split reflects only what this session ran.  interpreted starts at 0: it
@@ -182,10 +188,28 @@ vf2_status vf2_session_step_oracle(vf2_session *s, uint32_t input)
         if (wait_report.interrupt_injected) {
             return VF2_OK;
         }
+        s->oracle_instruction_ip = s->cpu.ip;
+        s->oracle_instruction_active = 1;
         st = vf2_i960_step(&s->cpu, &s->machine, NULL);
+        s->oracle_instruction_active = 0;
         if (st != VF2_OK) return st;
         if (++steps >= per_frame_budget) return VF2_ERROR_UNSUPPORTED;
     }
+}
+
+vf2_status vf2_session_current_oracle_instruction_ip(
+    const vf2_session *s,
+    uint32_t *instruction_ip
+)
+{
+    if (s == NULL || instruction_ip == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (!s->oracle_instruction_active || s->stepped_native) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    *instruction_ip = s->oracle_instruction_ip;
+    return VF2_OK;
 }
 
 vf2_status vf2_session_capture_oracle_snapshot(
