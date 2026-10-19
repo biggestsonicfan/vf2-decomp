@@ -1141,6 +1141,16 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_l3_real_selections
                  COMMAND vf2_m68k_l3_selection_tests "${VF2_ROM_DIR}")
+        # v0898: exact fifteen original i960 vector-15 bytes from
+        # owner-ROM headless frame 342 (input 0x20). Cx file after
+        # TWO bytes and ignore F8; no invented 3-byte boundaries.
+        add_test(NAME vf2_m68k_original_frame342_uart_stream
+                 COMMAND vf2_m68k_l3_selection_tests
+                         "${VF2_ROM_DIR}" --uart-stream
+                         9e0a7fcd74f8ca7ef8cb7ff8ad2100)
+        add_test(NAME vf2_m68k_original_cx_short_command
+                 COMMAND vf2_m68k_l3_selection_tests
+                         "${VF2_ROM_DIR}" --l3-packet cd74f8)
         add_test(NAME vf2_m68k_engine_copy_page_differential
                  COMMAND vf2_m68k_engine_copy_page_tests "${VF2_ROM_DIR}")
         # v0884: ROM-owned 18x11 sound selections -> 98 isolated L3
