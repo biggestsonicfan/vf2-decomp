@@ -58,6 +58,12 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         original_writes = 0
         writer_pc_proven = False
         first_pc = 0
+        if ("original_i960_ring_writes" not in event and
+            ("original_i960_first_ring_slot" in event or
+             "original_i960_first_ring_word" in event or
+             "original_i960_first_writer_pc" in event or
+             "original_i960_writer_pc_proven" in event)):
+            raise ValueError(f"line {line_number}: original i960 evidence without writes")
         if "original_i960_ring_writes" in event:
             original_writes = _integer(event, "original_i960_ring_writes")
             first_slot = _integer(event, "original_i960_first_ring_slot")
