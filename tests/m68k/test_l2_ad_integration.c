@@ -96,7 +96,7 @@ static void verify_positive(uint32_t record, int ad24, uint8_t embedded)
     CHECK(ring[10] == (uint8_t)(ad24 || embedded >= 0x44u ? 0x7fu : 0x78u));
     CHECK(ring[11] == 0xccu);
     CHECK(desc[0] == 0u); /* FF/2F terminator releases the descriptor. */
-    CHECK(desc[1] == (uint8_t)(ad24 ? 0x9au : 0x9bu));
+    CHECK(desc[1] == 0xffu);
     CHECK(desc[2] == 0u && desc[3] == 0u);
     CHECK(board.scsp.registers[0x418u] == 0u);
     CHECK(board.scsp.registers[0x419u] == 0xceu);

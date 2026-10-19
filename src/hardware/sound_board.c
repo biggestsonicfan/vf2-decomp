@@ -830,10 +830,13 @@ vf2_status vf2_sound_board_maintain_streams(
                                (uint16_t)((ad_cursor + 8u) & 0x0fffu));
                     board->sound_ram[VF2_SOUND_COMMAND_COUNT] =
                         (uint8_t)(board->sound_ram[VF2_SOUND_COMMAND_COUNT] + 2u);
-                    /* 0x1f9c B then 90, 0xff/0x2f ends the stream:
-                     * 0x2192 clears status, but +1 retains last class. */
+                    /* 0x1f9c files EVERY negative stream class
+                     * byte into descriptor[+1], including 0xff.
+                     * The terminating ff 2f therefore leaves 0xff
+                     * in +1 after 0x2192 clears status. Measured
+                     * against the original 68000 at 0x2198. */
                     record[0] = 0u;
-                    record[1] = ad_packets[3u];
+                    record[1] = UINT8_C(0xff);
                     write_be16(record + 2u, 0u);
                     report->timers_expired = 1u;
                     report->packets_emitted = 2u;

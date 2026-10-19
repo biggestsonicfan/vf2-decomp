@@ -127,7 +127,7 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
         ram[VF2_SOUND_COMMAND_COUNT] != 2u ||
         ram[VF2_SOUND_COMMAND_WRITE_CURSOR] != (uint8_t)(after >> 8u) ||
         ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != (uint8_t)after ||
-        ram[active] != 0u || ram[active + 1u] != packets[3] ||
+        ram[active] != 0u || ram[active + 1u] != 0xffu ||
         ram[active + 2u] != 0u || ram[active + 3u] != 0u) {
         fprintf(stderr, "L2 %08x: native B/90 expansion did not complete\n",
                 (unsigned)command);
