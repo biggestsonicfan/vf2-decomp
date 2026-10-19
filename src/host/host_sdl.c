@@ -317,10 +317,13 @@ static int selftest(host *h, uint32_t frames)
  * i960 PRODUCER-BUS witness, but it does not identify writer IP
  * or prove the selected command was a fighter's hit. */
 typedef struct sound_writer_capture {
+    vf2_session *session;
     int original_frame_active;
     uint32_t observed_writes;
     uint32_t first_address;
     uint32_t first_command;
+    uint32_t first_writer_pc;
+    int first_writer_pc_proven;
 } sound_writer_capture;
 
 static void sound_writer_observe(
@@ -340,6 +343,12 @@ static void sound_writer_observe(
     }
     data = (const uint8_t *)access->data;
     if (w->observed_writes == 0u) {
+        uint32_t instruction_ip = 0u;
+        w->first_writer_pc_proven =
+            vf2_session_current_oracle_instruction_ip(
+                w->session, &instruction_ip) == VF2_OK;
+        w->first_writer_pc =
+            w->first_writer_pc_proven ? instruction_ip : 0u;
         w->first_address = access->address;
         w->first_command = (uint32_t)data[0] |
             ((uint32_t)data[1] << 8u) |
@@ -396,13 +405,16 @@ static int write_audio_evidence_frame(
                 "\"original_i960_ring_writes\":%u,"
                 "\"original_i960_first_ring_slot\":%u,"
                 "\"original_i960_first_ring_word\":%u,"
-                "\"original_i960_writer_pc_proven\":false,"
+                "\"original_i960_first_writer_pc\":%u,"
+                "\"original_i960_writer_pc_proven\":%s,"
                 "\"uart_forwarded_hex\":\"",
                 (unsigned)frame, (unsigned)input,
                 (unsigned)queue_before, (unsigned)queue_after,
                 (unsigned)writer->observed_writes,
                 (unsigned)writer->first_address,
-                (unsigned)writer->first_command) < 0) {
+                (unsigned)writer->first_command,
+                (unsigned)writer->first_writer_pc,
+                writer->first_writer_pc_proven ? "true" : "false") < 0) {
         return 0;
     }
     for (i = 0u; i < pump_report->observed_uart_count; ++i) {
@@ -546,7 +558,9 @@ int main(int argc, char **argv)
         }
     }
     if (audio_pre_event_path != NULL || audio_evidence != NULL) {
-        vf2_status obs = vf2_session_set_memory_observer(
+        vf2_status obs;
+        writer.session = session;
+        obs = vf2_session_set_memory_observer(
             session, sound_writer_observe, &writer);
         if (obs != VF2_OK) {
             fprintf(stderr,
@@ -579,6 +593,8 @@ int main(int argc, char **argv)
                 writer.observed_writes = 0u;
                 writer.first_address = 0u;
                 writer.first_command = 0u;
+                writer.first_writer_pc = 0u;
+                writer.first_writer_pc_proven = 0;
                 if (audio_pre_event_path != NULL && !pre_event_written &&
                     vf2_session_capture_oracle_snapshot(
                         session, &pre_event) != VF2_OK) {
@@ -622,11 +638,14 @@ int main(int argc, char **argv)
                     fprintf(stderr,
                             "audio pre-event: saved original pre-frame %u "
                             "at %s; original queue writes=%u first_slot=%08x "
-                            "first_word=%08x (not a fighter-hit proof)\n",
+                            "first_word=%08x writer_pc=%08x pc_valid=%d "
+                            "(not a fighter-hit proof)\n",
                             (unsigned)frame, audio_pre_event_path,
                             (unsigned)writer.observed_writes,
                             (unsigned)writer.first_address,
-                            (unsigned)writer.first_command);
+                            (unsigned)writer.first_command,
+                            (unsigned)writer.first_writer_pc,
+                            writer.first_writer_pc_proven);
                 }
                 if (audio_evidence != NULL &&
                     vf2_session_read_work_ram(session, UINT32_C(0x00504001),
