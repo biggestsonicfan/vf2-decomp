@@ -28,7 +28,9 @@ class TestAudioRomMatrixL3(unittest.TestCase):
             return SimpleNamespace(returncode=0,stdout='ROM sound-matrix L3: 107 occupied, 98 unique, 98 passed\n',stderr='')
         r=execute_matrix(Path('vf2_m68k_l3_selection_tests'),Path('roms/vf2'),runner=runner)
         self.assertTrue(r['rom_matrix_verified'])
-        self.assertEqual(calls[0][0],['vf2_m68k_l3_selection_tests','roms/vf2','--matrix-l3'])
+        self.assertEqual(calls[0][0],
+                         [str(Path('vf2_m68k_l3_selection_tests')),
+                          str(Path('roms') / 'vf2'), '--matrix-l3'])
         self.assertEqual(calls[0][1]['timeout'],600.0)
 
     def test_timeout_refused(self):
