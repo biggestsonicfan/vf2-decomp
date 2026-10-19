@@ -92,7 +92,7 @@ static void test_rom_free_tail(void)
 {
     static uint8_t sample[1024];
     uint8_t snapshot[16];
-    uint8_t key;
+    uint8_t key = 0u;
     uint32_t stream = UINT32_C(0x2000);
     memset(&board, 0, sizeof(board));
     board.sample_rom = sample;
@@ -134,6 +134,7 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
     uint32_t destination = UINT32_C(0x10000);
     size_t index;
     vf2_status status;
+    unsigned failures_before = failed;
 
     CHECK(vf2_sound_board_initialize(&board, rom, rom_size,
                                      samples, sample_size) == VF2_OK);
@@ -220,7 +221,7 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
     CHECK(reference_ram[UINT32_C(0x2000)] == 0x80u);
     CHECK(be32(reference_ram + UINT32_C(0x2002)) == source);
     CHECK(be32(reference_ram + UINT32_C(0x2006)) == destination);
-    if (status == VF2_OK) {
+    if (status == VF2_OK && failed == failures_before) {
         printf("MATCH 68000/C 0xcb2..0xd90 select=%04x "
                "source=%08x bytes=512 instructions=55\n",
                (unsigned)selection, (unsigned)expected_source);
