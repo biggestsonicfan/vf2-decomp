@@ -184,6 +184,21 @@ int main(int argc, char **argv)
         CHECK(preport.bytes_moved == 9u);
         CHECK(preport.drain_ticks == 9u);
         CHECK(preport.entries_filed == 3u);
+        /* All 9 bytes are the accepted shadow-drainer UART stream.
+         * This exact FIFO order was independently established by the
+         * original i960 vector-15 ISR (v0853). No game-hit claim. */
+        {
+            static const uint8_t expected_uart[9] = {
+                0xaeu, 0x10u, 0x1fu,
+                0x9eu, 0x0au, 0x7fu,
+                0xaeu, 0x10u, 0x1fu
+            };
+            CHECK(preport.observed_uart_count == sizeof(expected_uart));
+            CHECK(preport.observed_uart_truncated == 0u);
+            CHECK(memcmp(preport.observed_uart, expected_uart,
+                         sizeof(expected_uart)) == 0);
+            CHECK(preport.d92_keyons_retired == 0u);
+        }
         /* Init-state board: the 90-class entry misses (no staged
          * voice, $152e door) and both a0 entries refuse by design,
          * so 0 dispatched / 3 refused. The admitted 90 shape is
@@ -259,6 +274,9 @@ int main(int argc, char **argv)
         CHECK(sreport.bytes_moved == 6u);
         CHECK(sreport.drain_ticks == 6u);
         CHECK(sreport.entries_filed == 2u);
+        CHECK(sreport.observed_uart_count == 6u);
+        CHECK(sreport.observed_uart_truncated == 0u);
+        CHECK(sreport.d92_keyons_retired == 0u);
         /* One OK consume (0xbe) + one refusal (0x9e): exactly one
          * cursor advance per entry, so the second entry must still
          * be the one dispatched at +4. */
