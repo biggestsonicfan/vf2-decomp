@@ -93,3 +93,24 @@ hardware PCM oracle are not closed. The recovered-C production
 dispatcher still returns UNSUPPORTED at the established `0xDF8`
 boundary; this test uses an explicit, guarded continuation and
 does not silently widen that production contract.
+
+## v0891b — PCM extension executed on the original owner ROM
+
+The opt-in SCSP-model PCM extension was compiled and run using
+the GitHub Actions GCC sound test binary built from
+[commit 55feed2](https://github.com/celsowm/vf2-decomp/commit/55feed2ec23e24a477c54bda48ecfd6ab4ee8994),
+workflow [CI #2131](https://github.com/celsowm/vf2-decomp/actions/runs/39319928420),
+and the original owner VF2.1 ROM and sample chips, retained locally.
+
+```text
+MATCH original dispatch D92->DF8->ED6 entry_steps=334 copy_tail_steps=55 sample=00e633b2 dest=00010200 flag=81 model_pcm_peak=2029 nonzero_frames=3949/4096
+MOVEM+KEYON: two original 55-instruction copy/tail paths PASS
+```
+
+**Exit code: 0.** PCM left/right sample buffers matched exactly
+between the recovered C programming path and the original 68000
+programming path when rendered using the **same** deterministic
+SCSP software model. This demonstrates non-silent *modeled* output
+for a staged D92 input, not measured Saturn/Model 2 silicon or
+natural combat audio, and does not include runtime SCSP DSP fidelity.
+No WAV, ROM, sample buffer or trace was committed.
