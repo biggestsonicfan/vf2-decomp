@@ -1212,6 +1212,12 @@ if(VF2_BUILD_TESTS)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         )
         add_test(
+            NAME vf2_python_audio_rom_matrix_l3
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tools/python/test_audio_rom_matrix_l3.py
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        )
+        add_test(
             NAME vf2_python_factory_frontier
             COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_SOURCE_DIR}/tools/python/test_frontier.py
