@@ -211,6 +211,7 @@ static void usage(const char *p)
         "Usage: %s --rom-dir <dir> --snapshot <file> [--bindings <ini>]\n"
         "          [--frames <n>] [--fullscreen] [--integer]\n"
         "          [--screenshot <file.ppm>] [--digest <n>] [--fast] [--oracle]\n"
+        "          [--verified-audio-copy] (owner-ROM D92 upload opt-in)\n"
         "       %s --selftest [--frames <n>]\n"
         "Keys: arrows, Z/X/C, Enter, 5=coin, F1=test, F2=service, P2 on IJKL/ASD;\n"
         "      P pause, N step, F10 integer scale, F11 fullscreen, Esc quit.\n",
@@ -316,6 +317,7 @@ int main(int argc, char **argv)
     uint32_t digest_every = 0u;
     int fast = 0;
     int oracle = 0;
+    int verified_audio_copy = 0;
     uint32_t frame_limit = 0u;
     int do_selftest = 0, rc = 0;
     vf2_session *session = NULL;
@@ -334,6 +336,8 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) screenshot = argv[++i];
         else if (strcmp(argv[i], "--fast") == 0) fast = 1;
         else if (strcmp(argv[i], "--oracle") == 0) oracle = 1;
+        else if (strcmp(argv[i], "--verified-audio-copy") == 0)
+            verified_audio_copy = 1;
         else if (strcmp(argv[i], "--digest") == 0 && i + 1 < argc) digest_every = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--fullscreen") == 0) h.fullscreen = 1;
         else if (strcmp(argv[i], "--integer") == 0) h.integer_scale = 1;
@@ -366,6 +370,20 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    if (verified_audio_copy) {
+        vf2_status audio_optin =
+            vf2_session_set_verified_d92_copy(session, 1);
+        if (audio_optin != VF2_OK) {
+            fprintf(stderr,
+                    "verified-audio-copy unavailable (%s); keeping "
+                    "all unrecovered routes disabled\n",
+                    vf2_status_string(audio_optin));
+        } else {
+            fprintf(stderr,
+                    "verified-audio-copy enabled: guarded D92->ED6 "
+                    "only; no synthetic hit packets\n");
+        }
+    }
     if (vf2_session_audio_status(session) != VF2_OK) {
         fprintf(stderr, "note: audio unavailable (%s); running silent\n",
                 vf2_status_string(vf2_session_audio_status(session)));
