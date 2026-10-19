@@ -56,15 +56,28 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         before = _integer(event, "queue_before_step", 255)
         after = _integer(event, "queue_after_step", 255)
         original_writes = 0
+        writer_pc_proven = False
+        first_pc = 0
         if "original_i960_ring_writes" in event:
             original_writes = _integer(event, "original_i960_ring_writes")
             first_slot = _integer(event, "original_i960_first_ring_slot")
             first_word = _integer(event, "original_i960_first_ring_word", 0xFFFFFFFF)
-            if (event.get("original_i960_writer_pc_proven") is not False or
-                    (original_writes == 0 and (first_slot != 0 or first_word != 0)) or
+            writer_pc_proven = event.get("original_i960_writer_pc_proven")
+            if not isinstance(writer_pc_proven, bool):
+                raise ValueError(f"line {line_number}: invalid original i960 PC claim")
+            first_pc = _integer(
+                event, "original_i960_first_writer_pc", 0xFFFFFFFF
+            ) if "original_i960_first_writer_pc" in event else 0
+            if ((original_writes == 0 and
+                 (first_slot != 0 or first_word != 0 or
+                  first_pc != 0 or writer_pc_proven)) or
                     (original_writes > 0 and
                      (not 0x00504020 <= first_slot < 0x00504060 or
-                      first_slot % 4 != 0))):
+                      first_slot % 4 != 0)) or
+                    (writer_pc_proven and
+                     (original_writes == 0 or first_pc == 0 or
+                      first_pc % 4 != 0)) or
+                    (not writer_pc_proven and first_pc != 0)):
                 raise ValueError(f"line {line_number}: invalid original i960 queue writer")
         forwarded = _integer(event, "bytes_moved", CAP)
         captured = _integer(event, "uart_count", CAP)
@@ -99,6 +112,7 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         observed_bytes += captured
         count["frames_with_uart"] += int(captured > 0)
         count["frames_with_original_i960_ring_writer"] += int(original_writes > 0)
+        count["frames_with_original_i960_writer_pc"] += int(writer_pc_proven)
         if original_writes > 0 and len(original_writers) < max_candidates:
             original_writers.append({
                 "frame": frame,
@@ -106,8 +120,12 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
                 "ring_writes": original_writes,
                 "first_slot": f"0x{first_slot:08x}",
                 "first_command": f"0x{first_word:08x}",
+                "original_instruction_ip": (
+                    f"0x{first_pc:08x}" if writer_pc_proven else None
+                ),
                 "uart_forwarded_hex": hexed,
-                "scope": "original i960 bus WRITE, NOT original writer PC or fighting hit",
+                "scope": ("original i960 bus WRITE and pre-step instruction PC; "
+                          "neither original ISR timing nor fighter hit proven"),
             })
         count["frames_with_d92_keyon"] += int(keyons > 0)
         count["frames_with_nonzero_pcm"] += int(nonzero > 0)
@@ -141,15 +159,17 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
             "original_i960_ring_write_observed":
                 bool(count["frames_with_original_i960_ring_writer"]),
             "frame_local_queue_to_shadow_uart_candidate": bool(count["temporal_queue_growth_uart_candidates"]),
-            "original_producer_pc_verified": False,
+            "original_producer_pc_verified":
+                bool(count["frames_with_original_i960_writer_pc"]),
             "original_isr_to_m68k_link_verified": False,
             "natural_fighter_hit_proven": False,
             "hardware_audio_verified": False,
         },
-        "next": ("Run original i960 memory+PC trace from a captured pre-event frame "
-                 "and correlate actual selector/queue writer PCs with the "
-                 "independently captured vector-15 ISR. PCM on its own "
-                 "does not prove a hit."),
+        "next": ("Replay the captured pre-event snapshot, verify the recorded "
+                 "original i960 instruction IP and queue word with an "
+                 "independent oracle trace; then correlate vector-15 UART "
+                 "and original 68000 L3. Neither the write nor PCM "
+                 "establishes a natural fighter hit."),
     }
 
 
