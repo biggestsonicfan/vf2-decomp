@@ -118,3 +118,63 @@ stream (not isolated test-packet approximations), SCSP register and
 PCM differential for this particular natural stream, hardware DSP
 timing and arcade DAC output. The joystick's `KICK` input alone is
 not evidence of fighter contact.
+
+
+## v0897b — Complete 15-byte original Motorola 68000 L3 stream differential
+
+Following the exact original-i960/vector-15 UART measurement above,
+the entire **15-byte** observed stream was fed, **one byte at a
+time**, into two independently initialized receivers:
+
+- **Original VF2.1 MC68000 ROM** (`epr-17574.30`) executing the
+  recovered L3 entry via the original CPU interpreter.
+- Recovered-C L3 receiver `vf2_sound_board_file_uart_byte`.
+
+The native `vf2_m68k_l3_selection_tests` binary came from the GCC
+GitHub Actions artifact `vf2-m68k-sound-differential-linux`
+**12226930253** for
+[CI #2194](https://github.com/celsowm/vf2-decomp/actions/runs/39335000906).
+Using the locally held **original** audio ROM and sample banks,
+the actual command was:
+
+```sh
+vf2_m68k_l3_selection_tests /local/owner/vf2-roms \
+    --uart-stream 9e0a7fcd74f8ca7ef8cb7ff8ad2100
+```
+
+**Actual exit code 0, actual output:**
+
+```text
+MATCH C/68000 original UART stream bytes=15 ring_count=5 write_cursor=0014
+```
+
+The test compares complete sound RAM and modeled SCSP state
+after **every single byte** against the original 68000, including
+the number/location of original hardware-poke writes at the L3
+file boundary. This explicitly uses true original packet framing:
+`Cx` commands are two bytes long, and redundant `F8` control
+bytes must not be reclassified as the third byte of a synthetic
+three-byte packet. Five genuine L3 files are observed, matching the
+five original i960 sound-ring commands of this frame.
+
+**Evidence chain now reproduced with local owner ROM:**
+
+```text
+original i960 writer (IP 00043924; frame 342) — PASS
+   | five genuine original sound-ring writes
+   v
+original i960 vector-15 ISR — PASS (16 services)
+   | 15 original MMIO UART bytes
+   v
+original 68000 L3 receiver — PASS (isolated byte-exact replay)
+   | 5 filed sound ring entries; cursor 0x0014
+   =
+recovered C 68000 L3 receiver — PASS (all 15 byte checkpoints)
+```
+
+This is **not** an assertion of simultaneous original dual-CPU
+IRQ scheduling. The 68000 portion was run as an isolated byte
+replay, not as a time-accurate serial-bus emulation connecting two
+live CPUs. No fighter-collision origin, original 68000 L2/L1
+timer ordering, D92/CB2 KEYON for these five commands, or
+true SCSP DAC/DSP sound output has been established.
