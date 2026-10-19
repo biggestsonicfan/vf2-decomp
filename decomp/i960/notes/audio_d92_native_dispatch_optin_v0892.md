@@ -86,11 +86,19 @@ using the identical deterministic software PCM renderer. Prior
 v0891 test-only normalized C continuation remains a separate
 control/oracle.
 
-Important: the original 68000 is stopped **before its RTS at
-0xED6**, while native C has already retired the ring entry.
-Do not call the full original and C ring bookkeeping equal at
-this asymmetric checkpoint. Nor does model PCM equality prove
-arcade hardware/DSP fidelity.
+Initially the reference stopped before the original RTS at
+`0xED6`, while native C had already retired the command. An
+additional **real-ROM runtime measurement** now continues the
+original 68000 for **85 instructions** to the actual drain exit at
+`0x265C`: command count becomes **0**, read cursor becomes
+`0x0004`, and both match the native C dispatcher. That yields
+**334 + 55 + 85 = 474 original instructions** in one staged
+continuous trace. These are not 474 individually translated
+C instructions.
+
+The 512-byte copy, voice/stream state, and modeled SCSP/PCM also
+agree at the corresponding differential boundaries. This is
+NOT time-accurate external UART/IRQ or real SCSP DSP/DAC parity.
 
 To run against the original ROM:
 
@@ -104,10 +112,37 @@ No owner ROM, snapshot or WAV is committed.
 
 - A frame-progressing gameplay snapshot that naturally produces a
   fighting sound command, proven from the i960 input/state change.
-- C/68000 ring-timing equivalence through RTS and later interrupts
-  (the existing pump is a shadow-i960 transport model).
+- Full live-session i960/UART/68000 interrupt timing and later
+  asynchronous interrupts (the current pump is a shadow-i960
+  transport model); the staged original 68000 RTS and drain
+  retirement itself **is** now verified.
 - Full coverage of alternate sound engine arms, voice maintenance
   and hardware SCSP DSP/PCM timing.
 
 The opt-in is a measured **engine dispatch recovery milestone**,
 not a claim that gameplay hit sounds are now complete.
+
+## Verified original-ROM runtime result
+
+The native GCC differential executable from GitHub Actions
+[CI #2142](https://github.com/celsowm/vf2-decomp/actions/runs/39323281063),
+commit [a077d33b](https://github.com/celsowm/vf2-decomp/commit/a077d33b7122f91cb746f5bae9a88dd2564a2546),
+was run against the owner's **original VF2.1 ROM and sample chips**.
+It returned **exit code 0** and confirmed:
+
+```text
+MATCH original D92 KEYON ring retirement steps=85 count=0 cursor=0004
+MATCH original dispatch D92->DF8->ED6 entry_steps=334 copy_tail_steps=55 sample=00e633b2 dest=00010200 flag=81 model_pcm_peak=2029 nonzero_frames=3949/4096
+MOVEM+KEYON: two original 55-instruction copy/tail paths PASS
+```
+
+The four independent 55-instruction upload/KEYON differentials
+remained green. The 98-command original-ROM L3 matrix and the
+larger C dispatch regression suite were separately rerun with
+the GCC binary and both returned **exit code 0** (98/98 L3).
+No ROM bytes, proprietary sound samples, sound buffers or WAVs
+were committed.
+
+**Pending:** first naturally produced combat sound packet proven
+through the i960-to-SCSP live session, with passive traces and
+an independently checked audio reference.
