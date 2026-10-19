@@ -148,6 +148,12 @@ typedef struct vf2_sound_board {
      * Default zero keeps unsupported engine legs fail-closed.
      * NOT a claim of naturally triggered i960 gameplay SFX. */
     uint8_t allow_verified_d92_copy;
+    /* Explicit opt-in ONLY for the owner-ROM-differentiated, frame-342
+     * original 9E 0A 7F dispatch through allocator FAC -> A8C
+     * with an idle slot-0 voice and full owner audio/sample bank.
+     * Default OFF preserves historical FAC refusal, including
+     * allocator arrivals with unverified D4/SCSP addressing. */
+    uint8_t allow_verified_90_allocator;
 } vf2_sound_board;
 
 vf2_status vf2_sound_board_initialize(
