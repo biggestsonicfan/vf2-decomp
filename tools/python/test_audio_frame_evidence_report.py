@@ -82,6 +82,13 @@ class TestFrameEvidence(unittest.TestCase):
         self.assertFalse(result["gates"]["natural_fighter_hit_proven"])
         self.assertFalse(result["gates"]["original_isr_to_m68k_link_verified"])
 
+    def test_orphan_writer_pc_claim_rejected(self):
+        record = frame()
+        record["original_i960_first_writer_pc"] = 0x00043924
+        record["original_i960_writer_pc_proven"] = True
+        with self.assertRaisesRegex(ValueError, "without writes"):
+            audit(record)
+
     def test_forged_or_misaligned_writer_pc_refused(self):
         record = frame()
         record.update({
