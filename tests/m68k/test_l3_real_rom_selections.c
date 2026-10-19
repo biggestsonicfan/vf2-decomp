@@ -88,59 +88,71 @@ static uint32_t read_be32(const uint8_t *source)
  * two authentic ROM command selectors, with one controlled descriptor
  * matching channel 0xd. The interpreter stops BEFORE the unknown body.
  */
+/* Real-ROM A0 record allocation: C runs the complete SOUND dispatch,
+ * while the original 68000 stepper stops BEFORE the 0x1f02 RTS.
+ * Compare only descriptor state at this common semantic boundary;
+ * ring counters differ because C has already completed its drain.
+ */
 static int check_a0_join(uint32_t command, const uint8_t *rom,
                          size_t rom_size)
 {
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
     vf2_sound_dispatch_report report;
-    vf2_status native_status = VF2_OK;
-    vf2_status oracle_status = VF2_OK;
+    vf2_status cstatus, sstatus;
     uint32_t steps = 0u;
-    uint32_t row = 0u;
-    uint32_t record = 0u;
+    uint32_t row, record;
     uint32_t expected_row = command == UINT32_C(0x00ad2342)
                             ? UINT32_C(0x60959c) : UINT32_C(0x60979e);
     uint32_t expected_record = command == UINT32_C(0x00ad2342)
                                ? UINT32_C(0x60b4fe) : UINT32_C(0x60b7f2);
-    uint32_t index = (command >> 8u) & UINT32_C(0x7f);
+    uint32_t row_index = (command >> 8u) & UINT32_C(0x7f);
     uint32_t selector = command & UINT32_C(0xff);
-    size_t row_offset = 0u;
+    uint8_t *ram = board.sound_ram;
+    uint8_t *target = ram + VF2_SOUND_DESCRIPTOR_BASE +
+                      3u * VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
+    uint32_t expected_postinc;
+    size_t i;
 
     if ((command != UINT32_C(0x00ad2342) &&
          command != UINT32_C(0x00ad2401)) ||
-        0x8e12u + (size_t)index * 4u + 4u > rom_size) {
+        0x8e12u + (size_t)row_index * 4u + 4u > rom_size) {
         return 0;
     }
-    row = read_be32(rom + 0x8e12u + (size_t)index * 4u);
+    row = read_be32(rom + 0x8e12u + (size_t)row_index * 4u);
     if (row < VF2_SOUND_AUDIO_ROM_BASE ||
-        row >= VF2_SOUND_AUDIO_ROM_BASE + rom_size) {
+        (size_t)(row - VF2_SOUND_AUDIO_ROM_BASE) + 2u +
+        4u * ((size_t)selector + 1u) > rom_size) {
         return 0;
     }
-    row_offset = (size_t)(row - VF2_SOUND_AUDIO_ROM_BASE);
-    if (row_offset + 2u + 4u * ((size_t)selector + 1u) > rom_size) {
-        return 0;
-    }
-    record = read_be32(rom + row_offset + 2u + (size_t)selector * 4u);
+    record = read_be32(rom + (size_t)(row - VF2_SOUND_AUDIO_ROM_BASE) +
+                       2u + (size_t)selector * 4u);
     if (row != expected_row || record != expected_record ||
-        rom[row_offset] != 0u || rom[row_offset + 1u] != 0x7fu) {
-        fprintf(stderr, "A0 %08x: incorrect ROM row/max/record\n",
-                (unsigned)command);
+        rom[(size_t)(record - VF2_SOUND_AUDIO_ROM_BASE)] != 0x8fu) {
+        fprintf(stderr, "A0 ROM row or selected record invalid\n");
         return 0;
     }
+    expected_postinc = record + 1u;
 
-    /* Manufacture only the SOUND-BOARD descriptor match, not an
-     * imaginary i960 combat event. L3 reception happened separately. */
-    memset(board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE, 0,
+    /* Pristine copy; only slot 2 is free among six candidates,
+     * with deliberate nonzero contents to verify the 0x1f04 clear. */
+    memset(ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE, 0,
            VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
            VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
-    board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE] = 0x80u;
-    board.sound_ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x0du;
-    memcpy(step_ram, board.sound_ram, sizeof(step_ram));
-    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE] = 0x80u;
+    ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x0du;
+    for (i = 0u; i < 6u; ++i) {
+        ram[VF2_SOUND_DESCRIPTOR_BASE +
+            (i+1u) * VF2_SOUND_STREAM_DESCRIPTOR_BYTES] = 0x80u;
+    }
+    memset(target, 0x5a, VF2_SOUND_STREAM_DESCRIPTOR_BYTES);
+    target[0] = 0u;
 
+    memcpy(step_ram, ram, VF2_SOUND_RAM_BYTES);
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
     memset(&report, 0, sizeof(report));
-    native_status = vf2_sound_board_dispatch_next(&board, &report);
+    cstatus = vf2_sound_board_dispatch_next(&board, &report);
+
     memset(&bus, 0, sizeof(bus));
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -153,32 +165,31 @@ static int check_a0_join(uint32_t command, const uint8_t *rom,
     regs.a[6] = UINT32_C(0x1000);
     regs.a[7] = UINT32_C(0x7f00);
     regs.pc = UINT32_C(0x7a6);
-    oracle_status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1e98),
-                                  0, L3_STEP_LIMIT, &steps);
+    sstatus = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f02), 0,
+                           L3_STEP_LIMIT, &steps);
 
-    if (native_status != VF2_ERROR_UNSUPPORTED ||
-        report.handler_address != UINT32_C(0x1e98) ||
-        report.handled != 0 ||
-        oracle_status != VF2_OK || regs.pc != UINT32_C(0x1e98) ||
-        board.sound_ram[VF2_SOUND_COMMAND_COUNT] != 1u ||
+    if (cstatus != VF2_OK || report.handler_address != UINT32_C(0x1f02) ||
+        report.handled != 1 || ram[VF2_SOUND_COMMAND_COUNT] != 0u ||
+        sstatus != VF2_OK || regs.pc != UINT32_C(0x1f02) ||
         step_ram[VF2_SOUND_COMMAND_COUNT] != 1u ||
-        board.sound_ram[VF2_SOUND_CURRENT_COMMAND] != 0xadu ||
-        step_ram[VF2_SOUND_CURRENT_COMMAND] != 0xadu ||
-        memcmp(&board.scsp, &step_scsp, sizeof(step_scsp)) != 0) {
+        memcmp(target, step_ram + (size_t)(target-ram),
+               VF2_SOUND_STREAM_DESCRIPTOR_BYTES) != 0 ||
+        memcmp(&board.scsp, &step_scsp, sizeof(step_scsp)) != 0 ||
+        target[0] != 0x80u || target[2] != 0u || target[3] != 1u ||
+        read_be32(target + 4u) != expected_postinc) {
         fprintf(stderr,
-                "A0 %08x: C status=%d handler=%05x handled=%d S status=%d "
-                "pc=%05x steps=%u count(C/S)=%u/%u\n",
-                (unsigned)command, (int)native_status,
+                "A0 %08x: C=%d handler=%05x handled=%d; "
+                "stepper=%d pc=%05x steps=%u; slot2=%02x ptr=%08x\n",
+                (unsigned)command, (int)cstatus,
                 (unsigned)report.handler_address, report.handled,
-                (int)oracle_status, (unsigned)regs.pc, (unsigned)steps,
-                (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
-                (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT]);
+                (int)sstatus, (unsigned)regs.pc, (unsigned)steps,
+                (unsigned)target[0], (unsigned)read_be32(target+4u));
         return 0;
     }
     fprintf(stderr,
-            "BOUNDARY A0 %08x: row=%08x record=%08x S pc=0x1e98; "
-            "C refuses unsupported, packet held\n",
-            (unsigned)command, (unsigned)row, (unsigned)record);
+            "MATCH A0 %08x: stepper 0x1f02, slot2 initialized "
+            "ptr=%08x / clear32, C consumed ring\n",
+            (unsigned)command, (unsigned)expected_postinc);
     return 1;
 }
 

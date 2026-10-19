@@ -599,6 +599,12 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_m68k_l3_selection_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_l3_selection_tests)
 
+    # ROM-free, directly executable native validation of the
+    # original 0x1f04 descriptor-clear/write free-slot contract.
+    add_executable(vf2_m68k_a0_descriptor_tests tests/m68k/test_a0_descriptor_native.c)
+    vf2_set_project_warnings(vf2_m68k_a0_descriptor_tests)
+    add_test(NAME vf2_m68k_a0_descriptor_native COMMAND vf2_m68k_a0_descriptor_tests)
+
     add_executable(vf2_m68k_snapshot_tests tests/m68k/test_snapshot.c)
     target_link_libraries(vf2_m68k_snapshot_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_snapshot_tests)

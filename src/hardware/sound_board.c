@@ -1,4 +1,5 @@
 #include "vf2/sound_board.h"
+#include "sound_a0_descriptor.h"
 
 #include <string.h>
 
@@ -2604,6 +2605,43 @@ static vf2_status sound_board_dispatch_a0(
      * non-pristine history). Residue-wild by measurement:
      * refuse at the join, packet held. */
     report->handler_address = UINT32_C(0x00001e98);
+    /* The two ROM-confirmed AD23/AD24 families select records
+     * whose first byte is 0x8f. At 0x1e9e..0x1ea4, bit7 branches
+     * into the six-slot search at 0x1ed4. Recover only the FIRST
+     * vacant descriptor case: 0x1f04 zeros 32 bytes, and
+     * 0x1ef2..0x1f02 installs A2 (record+1), word 1, and bit7.
+     * Exhaustion currently falls through to a seventh address on
+     * the original ROM; do not emulate that unbounded side effect. */
+    if (command == UINT8_C(0xad) &&
+        (payload == UINT8_C(0x23) || payload == UINT8_C(0x24))) {
+        uint32_t record = 0u;
+        uint8_t header = 0u;
+        uint8_t *bank = ram + VF2_SOUND_DESCRIPTOR_BASE +
+                        VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
+        size_t remaining = VF2_SOUND_RAM_BYTES -
+                           (VF2_SOUND_DESCRIPTOR_BASE +
+                            VF2_SOUND_STREAM_DESCRIPTOR_BYTES);
+        int selected = -1;
+
+        if (read_audio_be32(board, row_base + UINT32_C(2) +
+                            (uint32_t)ring_byte2 * UINT32_C(4),
+                            &record) != VF2_OK ||
+            record < VF2_SOUND_AUDIO_ROM_BASE ||
+            record == UINT32_MAX ||
+            read_audio_byte_absolute(board, record, &header) != VF2_OK ||
+            (header & UINT8_C(0x80)) == 0u) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        selected = vf2_sound_a0_descriptor_init(bank, remaining, record + 1u);
+        if (selected < 0) {
+            /* Still refuse the original unmeasured all-busy path. */
+            report->handler_address = UINT32_C(0x00001eee);
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        ++report->descriptors_updated;
+        report->handler_address = UINT32_C(0x00001f02);
+        return VF2_OK;
+    }
     return VF2_ERROR_UNSUPPORTED;
 }
 
