@@ -109,6 +109,12 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
                             (const uint8_t *)"\xbb\x21\x06\x9b\x42\x78" :
                             (const uint8_t *)"\xba\x21\x07\x9a\x01\x7f";
     size_t i;
+    /* The three incoming L3 bytes already advanced this sound
+     * board's write cursor by four. Never assume ring offset zero. */
+    const uint16_t before = (uint16_t)(
+        ((uint16_t)ram[VF2_SOUND_COMMAND_WRITE_CURSOR] << 8u) |
+        ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]);
+    const uint16_t after = (uint16_t)((before + 8u) & 0x0fffu);
 
     memcpy(step_ram, ram, sizeof(step_ram));
     memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
@@ -117,7 +123,8 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
     if (cstatus != VF2_OK || tick.packets_emitted != 2u ||
         tick.bytes_consumed != 10u || tick.refused_stage != 0u ||
         ram[VF2_SOUND_COMMAND_COUNT] != 2u ||
-        ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != 8u ||
+        ram[VF2_SOUND_COMMAND_WRITE_CURSOR] != (uint8_t)(after >> 8u) ||
+        ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != (uint8_t)after ||
         ram[active] != 0u || ram[active + 1u] != packets[3] ||
         ram[active + 2u] != 0u || ram[active + 3u] != 0u) {
         fprintf(stderr, "L2 %08x: native B/90 expansion did not complete\n",
@@ -125,7 +132,9 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
         return 0;
     }
     for (i = 0u; i < 6u; ++i) {
-        size_t at = VF2_SOUND_COMMAND_RING_BASE + (i / 3u) * 4u + (i % 3u);
+        size_t at = VF2_SOUND_COMMAND_RING_BASE +
+                    ((before + (uint16_t)((i / 3u) * 4u) +
+                      (uint16_t)(i % 3u)) & 0x0fffu);
         if (ram[at] != packets[i]) {
             fprintf(stderr, "L2 %08x: packet byte[%u] got %02x expected %02x\n",
                     (unsigned)command, (unsigned)i,
@@ -152,11 +161,12 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
                            0, 300u, &steps);
     if (sstatus != VF2_OK || regs.pc != UINT32_C(0x2198) ||
         step_ram[VF2_SOUND_COMMAND_COUNT] != 2u ||
-        step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != 8u ||
+        step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR] != (uint8_t)(after >> 8u) ||
+        step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != (uint8_t)after ||
         memcmp(ram + active, step_ram + active,
                VF2_SOUND_STREAM_DESCRIPTOR_BYTES) != 0 ||
         memcmp(ram + VF2_SOUND_COMMAND_RING_BASE,
-               step_ram + VF2_SOUND_COMMAND_RING_BASE, 8u) != 0) {
+               step_ram + VF2_SOUND_COMMAND_RING_BASE, 0x1000u) != 0) {
         fprintf(stderr,
                 "L2 %08x: ROM differential NOT proven: S=%d PC=%05x steps=%u\n",
                 (unsigned)command, (int)sstatus, (unsigned)regs.pc,
