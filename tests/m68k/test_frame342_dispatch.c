@@ -91,6 +91,11 @@ static void isolate_command(size_t command,
     memcpy(&board.scsp, &filed_scsp, sizeof(filed_scsp));
     memcpy(step_ram, filed_ram, sizeof(step_ram));
     memcpy(&step_scsp, &filed_scsp, sizeof(step_scsp));
+    /* The two independently stepped SCSPs MUST read their own RAM
+     * images. A shallow SCSP struct copy otherwise leaves the
+     * oracle's sample-RAM pointer attached to the C board. */
+    CHECK(vf2_scsp_attach_sample_ram(
+        &step_scsp, step_ram, sizeof(step_ram)) == VF2_OK);
     /* C dispatch_NEXT does not advance a refused entry itself.
      * Isolating each event with count=1 avoids introducing
      * unverified previous-command game effects. */
