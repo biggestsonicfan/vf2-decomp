@@ -1879,9 +1879,11 @@ static vf2_status sound_board_run_sample_tail(
  * word(voice+0x0c) (KEYON program); stream[slot+0x0a] long =
  * d5 - 0x200; stream[slot+0x01] = 0x10; stream[slot+0x1a] =
  * d2rate and stream[slot+0x1c] = d2rate + 0xeba (16-bit exact).
- * Refuses at the 0xcb2 copy loop (dead-on-silicon: movem.l
- * d0-d7,(a2) faults -- vector 4 to the 0x4fe blink -- so no live
- * path steps it; the stepper faults at 0xcb6): handler 0xcb2.
+ * Refuses at the 0xcb2 copy engine because the full continuation is
+ * not recovered. MOVEM.L D0-D7,(A2) is LEGAL on MC68000 (v0880);
+ * the first 16 copy triplets at 0xcb2..0xd72 are separately recovered
+ * and tested by copy_engine_page_512, but dispatch_next must still
+ * fail closed instead of inventing the rest of playback.
  * The bit31-taken branch runs sound_board_run_engine_keyon_ed8
  * (v0825 E1c) instead of refusing. */
 static vf2_status sound_board_run_engine_keyon_ed8(
@@ -1976,9 +1978,10 @@ static vf2_status sound_board_run_engine_keyon_ed8(
  * pair (+0x16 keeps its top byte, low 24 = d0 low 24; +0x12
  * keeps its top byte, low 24 = d1 low 24); the rate pair
  * +0x1a/+0x1c (d2 + 0xeba 16-bit wrap exact);
- * stream[slot+0x01] = 0x10. Refuses at the 0xdf8 copy loop
- * (the same illegal-ea movem shape as 0xcb2, same silicon
- * fate -- vector 4 to the 0x4fe blink): handler 0xdf8. */
+ * stream[slot+0x01] = 0x10. Refuses at the unrecovered 0xdf8
+ * copy loop. The old illegal-EA MOVEM explanation was disproved
+ * for 0xcb6; do not infer an illegal instruction here without an
+ * independent original-ROM opcode/EA verification. */
 static vf2_status sound_board_run_engine_key_d92(
     vf2_sound_board *board,
     uint8_t *voice,
