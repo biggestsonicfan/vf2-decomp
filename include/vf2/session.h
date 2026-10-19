@@ -85,6 +85,16 @@ vf2_status vf2_session_render_audio(
  * Without it vf2_session_render_audio returns silence. */
 vf2_status vf2_session_audio_status(const vf2_session *session);
 
+/* Explicit opt-in for the owner-ROM-verified D92->DF8->ED6 SCSP
+ * upload/KEYON route inside the regular session audio pump.
+ * Disabled by default. Enabling does not manufacture game events;
+ * original i960/UART packets still must be genuinely present.
+ * Unsupported/invalid ROM or channel states remain fail-closed. */
+vf2_status vf2_session_set_verified_d92_copy(
+    vf2_session *session,
+    int enabled
+);
+
 /* One pump report: bytes drained from the i960 sound queue through
  * the UART slot and filed on the board, ring entries assembled,
  * and their dispatch outcomes. `dispatched` reached the 0xcb2
