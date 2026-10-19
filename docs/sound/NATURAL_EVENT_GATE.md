@@ -75,19 +75,19 @@ machine, never in Git.
 
 ## v0883 — Observed UART packet -> original Motorola 68000 L3 receiver
 
-The ROM-backed C test \`vf2_m68k_l3_selection_tests\` previously ran only
+The ROM-backed C test `vf2_m68k_l3_selection_tests` previously ran only
 the two ROM-table A0/L2 known selectors. It now also accepts an **opt-in**
 three-byte payload and runs the identical strict **byte-by-byte C vs
 original 68000 L3** differential already used by those two defaults:
 
-\`\`\`sh
+```sh
 # Tested packet format: exactly six hexadecimal characters, no 0x prefix.
 # For example only; this packet was NOT captured from natural gameplay.
 build/vf2_m68k_l3_selection_tests roms/vf2 --l3-packet AD2342
-\`\`\`
+```
 
-The command runs \`vf2_sound_board_file_uart_byte\` against original
-68000 code at \`0x52E..0x5EA\`, compares the entire sound RAM (excluding
+The command runs `vf2_sound_board_file_uart_byte` against original
+68000 code at `0x52E..0x5EA`, compares the entire sound RAM (excluding
 the documented stepper-only JSR return stack spill) and SCSP register
 state after **each byte**, and asserts ring count and final hardware poke.
 An invalid, wrong-length or nonhex packet exits before ROM loading.
@@ -96,7 +96,7 @@ Default runs still do the original A0/L2 checks.
 To replay **only packets with a verified i960 selector-to-UART witness**
 from a locally generated gate JSON:
 
-\`\`\`sh
+```sh
 python tools/python/audio_natural_sound_gate.py \
   /path/to/vf2.zip out/real-precontact.jsonl --json \
   > out/local-audio-gate.json
@@ -110,7 +110,7 @@ python tools/python/audio_l3_packet_replay.py \
 python tools/python/audio_l3_packet_replay.py \
   out/local-audio-gate.json build/Debug/vf2_m68k_l3_selection_tests.exe \
   --rom-directory roms/vf2
-\`\`\`
+```
 
 The opt-in utility extracts a user-provided ZIP only into an automatically
 removed temporary directory, validates file names/count/size, invokes the
@@ -129,7 +129,7 @@ is still required before promoting an end-to-end claim.
 
 ROM-free regressions:
 
-\`\`\`sh
+```sh
 python tools/python/test_audio_l3_packet_replay.py -v
 ctest --test-dir build -R vf2_python_audio_l3_packet_replay --output-on-failure
-\`\`\`
+```
