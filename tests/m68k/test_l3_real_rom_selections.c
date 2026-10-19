@@ -18,6 +18,8 @@ enum { L3_STEP_LIMIT = 20000u };
 static vf2_sound_board board;
 static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
 static vf2_scsp step_scsp;
+static const uint8_t *sample_bank;
+static size_t sample_bank_size;
 
 static uint32_t le32(const uint8_t *bytes)
 {
@@ -151,6 +153,8 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
     bus.ram_size = sizeof(step_ram);
     bus.rom = rom;
     bus.rom_size = rom_size;
+    bus.sample_rom = sample_bank;
+    bus.sample_rom_size = sample_bank_size;
     bus.scsp = &step_scsp;
     vf2_m68k_regs_reset(&regs);
     regs.pc = UINT32_C(0x1f7c);
@@ -251,6 +255,8 @@ static int check_a0_join(uint32_t command, const uint8_t *rom,
     bus.ram_size = sizeof(step_ram);
     bus.rom = rom;
     bus.rom_size = rom_size;
+    bus.sample_rom = sample_bank;
+    bus.sample_rom_size = sample_bank_size;
     bus.scsp = &step_scsp;
     vf2_m68k_regs_reset(&regs);
     regs.a[4] = UINT32_C(0x2506);
@@ -298,7 +304,8 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size)
     uint32_t steps = 0u;
     size_t i = 0u;
 
-    if (vf2_sound_board_initialize(&board, rom, rom_size, NULL, 0u) !=
+    if (vf2_sound_board_initialize(&board, rom, rom_size,
+                                    sample_bank, sample_bank_size) !=
         VF2_OK) {
         fprintf(stderr, "L3 initialization failed\n");
         return 0;
@@ -310,6 +317,8 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size)
     bus.ram_size = sizeof(step_ram);
     bus.rom = rom;
     bus.rom_size = rom_size;
+    bus.sample_rom = sample_bank;
+    bus.sample_rom_size = sample_bank_size;
     bus.scsp = &step_scsp;
 
     for (i = 0u; i < 3u; ++i) {
@@ -381,7 +390,8 @@ int main(int argc, char **argv)
     };
     uint8_t *audio = NULL;
     uint8_t *data = NULL;
-    size_t audio_size = 0u, data_size = 0u;
+    uint8_t *samples = NULL;
+    size_t audio_size = 0u, data_size = 0u, samples_size = 0u;
     size_t i = 0u;
     int valid = 1;
 
@@ -393,12 +403,17 @@ int main(int argc, char **argv)
                                 &audio, &audio_size) != VF2_OK ||
         vf2_romset_build_region(argv[1], VF2_REGION_MAIN_DATA,
                                 &data, &data_size) != VF2_OK ||
-        audio == NULL || data == NULL) {
+        vf2_romset_build_region(argv[1], VF2_REGION_SAMPLES,
+                                &samples, &samples_size) != VF2_OK ||
+        audio == NULL || data == NULL || samples == NULL) {
         fprintf(stderr, "cannot load verified sound/main-data regions\n");
         free(audio);
         free(data);
+        free(samples);
         return 2;
     }
+    sample_bank = samples;
+    sample_bank_size = samples_size;
     for (i = 0u; i < sizeof(legs) / sizeof(legs[0]); ++i) {
         uint32_t command = 0u;
         if (!table_command(data, data_size, legs[i].profile,
@@ -413,5 +428,6 @@ int main(int argc, char **argv)
     }
     free(audio);
     free(data);
+    free(samples);
     return valid ? 0 : 1;
 }
