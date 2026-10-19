@@ -5,7 +5,8 @@ import struct
 from pathlib import Path
 from audio_a0_rows import (
     AUDIO_BASE, AUDIO_SIZE, A0_ROWS, MAIN_BASE, MAIN_SIZE, SELECTOR_TABLE,
-    InvalidRom, resolve_command, inspect, read_pieces, verify_record_banks
+    InvalidRom, resolve_command, inspect, read_pieces, verify_record_banks,
+    inspect_record_payloads
 )
 
 
@@ -93,6 +94,50 @@ class TestAudioA0Rows(unittest.TestCase):
         with self.assertRaises(InvalidRom):
             verify_record_banks(audio)
 
+    def _payload_fixture(self):
+        _, audio = fixture()
+        struct.pack_into('>I', audio, A0_ROWS-AUDIO_BASE+0x24*4, 0x609900)
+        struct.pack_into('>H', audio, 0x609900-AUDIO_BASE, 0x7f)
+        for family, base in ((0x23, 0x60b1e6), (0x24, 0x60b7e6)):
+            row = 0x609500 if family == 0x23 else 0x609900
+            for index in range(128):
+                address = base + index*12
+                struct.pack_into('>I', audio, row-AUDIO_BASE+2+4*index, address)
+                word0 = 0x8fbb if family == 0x23 else 0x8fba
+                word1 = 0x2106 if family == 0x23 else 0x2107
+                word2 = 0x009b if family == 0x23 else 0x009a
+                tail = (0x78 if index < 68 else 0x7f) if family == 0x23 else 0x7f
+                struct.pack_into('>6H', audio, address-AUDIO_BASE,
+                                 word0, word1, word2, (index<<8)|tail,
+                                 0xff, 0x2f00)
+        return audio
+
+    def test_complete_six_word_pattern(self):
+        data = inspect_record_payloads(self._payload_fixture())
+        self.assertEqual(data['index_aliases'], [])
+        self.assertEqual(data['patterns']['0x00ad23']['index_byte_matches'], 128)
+        self.assertEqual(data['patterns']['0x00ad23']['low_byte_spans'],
+                         [{'from':0,'through':67,'value':0x78},
+                          {'from':68,'through':127,'value':0x7f}])
+        self.assertEqual(data['patterns']['0x00ad24']['constant_word_columns']['0'], '0x8fba')
+
+    def test_detects_internal_index_alias_without_rewriting(self):
+        audio = self._payload_fixture()
+        ptr = 0x60b7e6+124*12
+        struct.pack_into('>H', audio, ptr-AUDIO_BASE+6, 0x707f)
+        data = inspect_record_payloads(audio)
+        self.assertEqual(data['index_aliases'],
+                         [{'family':'0x00ad24','selector':124,
+                           'embedded_index':112,'record':ptr}])
+
+    def test_detects_extra_tail_transition(self):
+        audio=self._payload_fixture()
+        ptr=0x60b1e6+25*12
+        struct.pack_into('>H',audio,ptr-AUDIO_BASE+6,0x1966)
+        spans=inspect_record_payloads(audio)['patterns']['0x00ad23']['low_byte_spans']
+        self.assertEqual(len(spans),4)
+        self.assertEqual(spans[1],{'from':25,'through':25,'value':0x66})
+
     @unittest.skipUnless(os.environ.get('VF2_ROM_ZIP'),'requires user-local supported VF2 ROM zip')
     def test_real_rom_complete_census(self):
         main,audio=read_pieces(Path(os.environ['VF2_ROM_ZIP']))
@@ -109,6 +154,17 @@ class TestAudioA0Rows(unittest.TestCase):
         self.assertEqual((choices[(9,0)]['row'],choices[(9,0)]['record']),
                          (0x60979e,0x60b7f2))
         self.assertEqual(result['families'], {'0x00ad23':64,'0x00ad24':43})
+        patterns=inspect_record_payloads(audio)
+        self.assertEqual(patterns['index_aliases'],
+                         [{'family':'0x00ad24','selector':124,
+                           'embedded_index':112,'record':0x60bdb6}])
+        self.assertEqual(patterns['patterns']['0x00ad23']['low_byte_spans'],
+                         [{'from':0,'through':67,'value':0x78},
+                          {'from':68,'through':127,'value':0x7f}])
+        self.assertEqual(patterns['patterns']['0x00ad24']['index_byte_matches'],127)
+        self.assertEqual(patterns['patterns']['0x00ad24']['constant_word_columns'],
+                         {'0':'0x8fba','1':'0x2107','2':'0x009a',
+                          '4':'0x00ff','5':'0x2f00'})
 
 
 if __name__ == '__main__':

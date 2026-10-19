@@ -139,6 +139,57 @@ def verify_record_banks(audio: bytes) -> dict:
             'contiguous': True, 'banks': banks}
 
 
+def inspect_record_payloads(audio: bytes) -> dict:
+    """Enumerate all 256 six-word A0 records without naming their fields.
+
+    Index byte is a structural correlation, *not* established MIDI/SFX
+    semantics. Report aliases and transitions; do not auto-correct ROM.
+    """
+    verify_record_banks(audio)
+    patterns = {}
+    aliases = []
+    for family in FAMILIES:
+        row_address = read32(audio, A0_ROWS + (family & 0x7f) * 4,
+                             AUDIO_BASE, '>')
+        records = []
+        for selector in range(128):
+            pointer = read32(audio, row_address + 2 + selector * 4,
+                             AUDIO_BASE, '>')
+            start = pointer - AUDIO_BASE
+            words = struct.unpack_from('>6H', audio, start)
+            records.append(words)
+            embedded = (words[3] >> 8) & 0xff
+            if embedded != selector:
+                aliases.append({'family': f'0x{family:06x}',
+                                'selector': selector, 'embedded_index': embedded,
+                                'record': pointer})
+        constant_columns = {
+            str(col): f'0x{records[0][col]:04x}'
+            for col in range(6)
+            if all(r[col] == records[0][col] for r in records)
+        }
+        spans = []
+        for index, words in enumerate(records):
+            tail = words[3] & 0xff
+            if not spans or spans[-1]['value'] != tail:
+                spans.append({'from': index, 'through': index,
+                              'value': tail})
+            else:
+                spans[-1]['through'] = index
+        patterns[f'0x{family:06x}'] = {
+            'constant_word_columns': constant_columns,
+            'index_byte_matches': sum((r[3] >> 8) == i
+                                      for i, r in enumerate(records)),
+            'low_byte_spans': spans,
+            'records': len(records),
+        }
+    return {
+        'patterns': patterns,
+        'index_aliases': aliases,
+        'scope': 'static six-word record pattern; no field semantics proved',
+    }
+
+
 def main_cli() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('rom', type=Path)
@@ -149,6 +200,7 @@ def main_cli() -> None:
     main, audio = read_pieces(args.rom)
     info = inspect(main, audio)
     info['record_banks'] = verify_record_banks(audio)
+    info['payload_patterns'] = inspect_record_payloads(audio)
     data = {key: value for key, value in info.items() if key != 'entries'}
     if args.profile is not None or args.column is not None:
         if args.profile is None or args.column is None:
