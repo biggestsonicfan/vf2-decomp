@@ -365,6 +365,21 @@ vf2_status vf2_session_audio_status(const vf2_session *s)
     return s != NULL ? s->audio_status : VF2_ERROR_INVALID_ARGUMENT;
 }
 
+vf2_status vf2_session_set_verified_d92_copy(
+    vf2_session *s,
+    int enabled
+)
+{
+    if (s == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (!s->audio_ready || s->game.sound == NULL) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    s->game.sound->allow_verified_d92_copy = enabled != 0 ? 1u : 0u;
+    return VF2_OK;
+}
+
 /* i960 sound-queue cells (v0746/v0825-8f: 16-entry ring at
  * 0x504020 stride 4, count/rcur/wcur, staged word, byte index)
  * and the Model 2A UART slot the drainer sends through. */
