@@ -114,8 +114,20 @@ vf2_status vf2_session_set_verified_d92_copy(
  * VF2_OK when the tick completed; a tick refusal (unmeasured
  * live stream record) is reported without failing the frame,
  * the same way a drain refusal is. */
+/* Captures exact byte values accepted by the modeled sound-board L3
+ * receiver, in emission order, for the 48-tick shadow-i960 pump.
+ * The bytes alone are NOT proof of a ROM vector-15 ISR PC, original
+ * 68000 interrupt timing, or natural fighter-hit provenance. */
+enum { VF2_SESSION_AUDIO_UART_SAMPLE_CAP = 48u };
+
 typedef struct vf2_session_audio_pump_report {
     uint32_t bytes_moved;
+    uint32_t observed_uart_count;
+    uint8_t observed_uart[VF2_SESSION_AUDIO_UART_SAMPLE_CAP];
+    uint32_t observed_uart_truncated;
+    /* Native dispatcher retired the guarded D92->ED6 sample-upload
+     * and KEYON path in this pump call. This is model-level evidence. */
+    uint32_t d92_keyons_retired;
     uint32_t entries_filed;
     uint32_t entries_dispatched;
     uint32_t entries_refused;
