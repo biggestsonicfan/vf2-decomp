@@ -145,6 +145,31 @@ static int run_case(const uint8_t *rom, size_t rom_size,
                (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 3u],
                (unsigned)step_scsp.registers[0],
                (unsigned)step_scsp.registers[0x0bu]);
+        if (s == VF2_OK && regs.pc == UINT32_C(0xc68)) {
+            const size_t at = VF2_SOUND_VOICE_TABLE_BASE;
+            uint16_t select = (uint16_t)(((uint16_t)step_ram[at + 6u] << 8u) |
+                                         step_ram[at + 7u]);
+            uint32_t table = UINT32_C(0x5000) +
+                ((uint32_t)(select & UINT16_C(0x07ff)) * UINT32_C(20));
+            uint32_t t0 = be32(step_ram + table);
+            uint32_t t12 = be32(step_ram + table + 12u);
+            uint32_t target = (t0 & UINT32_C(0x80000000)) != 0u ?
+                              UINT32_C(0xf10) :
+                              (t12 != 0u ? UINT32_C(0xdf8) : UINT32_C(0xcb2));
+            printf("A0 90 %02x original table: select=%04x entry=%05x "
+                   "gate[0]=%08x gate[12]=%08x next_stop=%05x\n",
+                   (unsigned)cmd, (unsigned)select, (unsigned)table,
+                   (unsigned)t0, (unsigned)t12, (unsigned)target);
+            s = vf2_m68k_run(&bus, &regs, target, 0, 20000u, &steps);
+            printf("A0 90 %02x engine continuation: status=%d pc=%05x "
+                   "steps=%u SCSP slot0[0]=%02x slot0[1]=%02x "
+                   "sound stream[0x2000]=%02x\n",
+                   (unsigned)cmd, (int)s, (unsigned)regs.pc,
+                   (unsigned)steps,
+                   (unsigned)step_scsp.registers[0],
+                   (unsigned)step_scsp.registers[1],
+                   (unsigned)step_ram[0x2000u]);
+        }
     }
     return 1;
 }
