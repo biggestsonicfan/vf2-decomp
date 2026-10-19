@@ -310,6 +310,46 @@ static int selftest(host *h, uint32_t frames)
     return failures == 0 ? 0 : 1;
 }
 
+/* This observer is active ONLY during vf2_session_step_oracle,
+ * never during the subsequent shadow UART pump. A successful 4-byte
+ * write to an aligned original sound-queue slot is a strong original
+ * i960 PRODUCER-BUS witness, but it does not identify writer IP
+ * or prove the selected command was a fighter's hit. */
+typedef struct sound_writer_capture {
+    int original_frame_active;
+    uint32_t observed_writes;
+    uint32_t first_address;
+    uint32_t first_command;
+} sound_writer_capture;
+
+static void sound_writer_observe(
+    const vf2_model2a_memory_access *access,
+    void *context
+)
+{
+    sound_writer_capture *w = (sound_writer_capture *)context;
+    const uint8_t *data;
+    if (w == NULL || !w->original_frame_active || access == NULL ||
+        access->kind != VF2_MODEL2A_MEMORY_WRITE ||
+        access->size != 4u || access->data == NULL ||
+        access->address < UINT32_C(0x00504020) ||
+        access->address >= UINT32_C(0x00504060) ||
+        (access->address & UINT32_C(3)) != 0u) {
+        return;
+    }
+    data = (const uint8_t *)access->data;
+    if (w->observed_writes == 0u) {
+        w->first_address = access->address;
+        w->first_command = (uint32_t)data[0] |
+            ((uint32_t)data[1] << 8u) |
+            ((uint32_t)data[2] << 16u) |
+            ((uint32_t)data[3] << 24u);
+    }
+    if (w->observed_writes < UINT32_MAX) {
+        ++w->observed_writes;
+    }
+}
+
 /* Optional frame-level evidence: these are real oracle-session frame
  * observations, but the UART forwarding path remains a SHADOW i960
  * transport and cannot establish the original ISR PC nor fight-hit
