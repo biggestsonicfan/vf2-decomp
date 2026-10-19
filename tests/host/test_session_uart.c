@@ -61,6 +61,11 @@ typedef struct uart_hit {
 } uart_hit;
 
 typedef struct uart_capture {
+    vf2_session *session;
+    int original_oracle_active;
+    uint32_t original_ring_writes;
+    uint32_t original_ring_bad_pc;
+    uint32_t first_original_ring_pc;
     uart_hit hits[MAX_HITS];
     uint32_t hit_count;
     uint32_t write_count;
@@ -105,6 +110,22 @@ static void uart_observe(
     }
     if (capture->observed < UINT64_MAX) {
         ++capture->observed;
+    }
+    if (capture->original_oracle_active &&
+        access->kind == VF2_MODEL2A_MEMORY_WRITE &&
+        access->size == 4u && access->data != NULL &&
+        access->address >= UINT32_C(0x00504020) &&
+        access->address < UINT32_C(0x00504060) &&
+        (access->address & UINT32_C(3)) == 0u) {
+        uint32_t ip = 0u;
+        vf2_status pc_status = vf2_session_current_oracle_instruction_ip(
+            capture->session, &ip);
+        if (pc_status != VF2_OK || (ip & UINT32_C(3)) != 0u) {
+            ++capture->original_ring_bad_pc;
+        } else if (capture->original_ring_writes == 0u) {
+            capture->first_original_ring_pc = ip;
+        }
+        ++capture->original_ring_writes;
     }
     if (!in_watched_window(access->address)) {
         return;
@@ -188,6 +209,13 @@ int main(int argc, char **argv)
     fprintf(stderr, "uart-hunt: audio_status=%d\n",
             (int)vf2_session_audio_status(session));
     CHECK(vf2_session_audio_status(session) == VF2_OK);
+    {
+        uint32_t ip = 0u;
+        CHECK(vf2_session_current_oracle_instruction_ip(session, &ip) ==
+              VF2_ERROR_UNSUPPORTED);
+        CHECK(vf2_session_current_oracle_instruction_ip(
+                  session, NULL) == VF2_ERROR_INVALID_ARGUMENT);
+    }
     /* Capture the live original i960 state without advancing it.
      * Two identical checkpoints before stepping must be equal;
      * this test runs only with a user-local ROM and snapshot. */
@@ -205,6 +233,7 @@ int main(int argc, char **argv)
         vf2_i960_snapshot_destroy(&before);
         vf2_i960_snapshot_destroy(&again);
     }
+    capture.session = session;
     CHECK(vf2_session_set_memory_observer(
               session, uart_observe, &capture) == VF2_OK);
     for (frame = 0u; frame < budget; ++frame) {
@@ -229,7 +258,9 @@ int main(int argc, char **argv)
 
         /* Stamp the current frame for hits recorded during it. */
         capture.frame = frame;
+        capture.original_oracle_active = 1;
         status = vf2_session_step_oracle(session, input);
+        capture.original_oracle_active = 0;
         if (status != VF2_OK) {
             fprintf(stderr, "uart-hunt: frame %u step failed: %d\n",
                     (unsigned)frame, (int)status);
@@ -280,6 +311,15 @@ int main(int argc, char **argv)
                 (unsigned long long)capture.observed,
                 (unsigned)capture.write_count,
                 (unsigned)input);
+    }
+    /* A genuine i960 queue write can be attributed to the executing
+     * instruction IP; none is required by the default boot snapshot. */
+    CHECK(capture.original_ring_bad_pc == 0u);
+    if (capture.original_ring_writes != 0u) {
+        fprintf(stderr,
+                "uart-hunt: original i960 ring writes=%u first_pc=0x%08x\n",
+                (unsigned)capture.original_ring_writes,
+                (unsigned)capture.first_original_ring_pc);
     }
     /* Detach: leave no instrumentation behind. */
     CHECK(vf2_session_set_memory_observer(session, NULL, NULL) == VF2_OK);
