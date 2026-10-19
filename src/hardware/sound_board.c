@@ -2243,6 +2243,54 @@ static vf2_status sound_board_run_engine_key(
     write_be16(ram + stream + 0x1cu,
                (uint16_t)(rate + UINT16_C(0x0eba)));
     report->handler_address = UINT32_C(0x00000cb2);
+    /* Frame-342 original ROM: the exact 9E 0A 7F allocator leg
+     * reaches legal MOVEM copy 0xCB2..0xD72 after FAC->A8C.
+     * Original 0xC74 loaded A0 from $5000[D3]+4; 0xC7C
+     * loaded A2 from voice+0x0C. Both original subroutines
+     * are now recovered as isolated differential C routines.
+     * Compose ONLY for that verified command with slot 0;
+     * other 90-class allocator cases retain the CB2 refusal.
+     * Preflight both 512-byte regions BEFORE any page transfer. */
+    if (board->allow_verified_90_allocator != 0u &&
+        report->command == UINT8_C(0x9e) &&
+        report->payload == UINT8_C(0x0a) &&
+        slot == 0u &&
+        voice == ram + VF2_SOUND_VOICE_TABLE_BASE &&
+        board->sample_rom != NULL &&
+        board->scsp.sample_rom == board->sample_rom) {
+        uint16_t read_cursor = (uint16_t)(
+            read_be16(ram + VF2_SOUND_COMMAND_CURSOR) & UINT16_C(0x0fff));
+        if (read_cursor <= UINT16_C(0x0ffd) &&
+            ram[VF2_SOUND_COMMAND_RING_BASE + read_cursor] ==
+                UINT8_C(0x9e) &&
+            ram[VF2_SOUND_COMMAND_RING_BASE + read_cursor + 1u] ==
+                UINT8_C(0x0a) &&
+            ram[VF2_SOUND_COMMAND_RING_BASE + read_cursor + 2u] ==
+                UINT8_C(0x7f)) {
+            uint32_t source = read_be32(ram + table + 4u);
+            uint32_t destination = read_be32(voice + 0x0cu);
+            vf2_status status;
+            if (source < VF2_SOUND_SAMPLE_ROM_BASE ||
+                destination > VF2_SOUND_RAM_BYTES - UINT32_C(512) ||
+                ((source | destination) & UINT32_C(1)) != 0u ||
+                (uint64_t)(source - VF2_SOUND_SAMPLE_ROM_BASE) +
+                    UINT64_C(512) > board->sample_rom_size) {
+                return VF2_ERROR_UNSUPPORTED;
+            }
+            status = vf2_sound_board_copy_engine_page_512(
+                board, &source, &destination);
+            if (status != VF2_OK) {
+                return status;
+            }
+            status = vf2_sound_board_finalize_engine_copy_d72(
+                board, 0u, source, destination);
+            if (status != VF2_OK) {
+                return status;
+            }
+            report->handler_address = UINT32_C(0x00000d90);
+            return VF2_OK;
+        }
+    }
     return VF2_ERROR_UNSUPPORTED;
 }
 
