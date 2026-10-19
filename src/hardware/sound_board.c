@@ -3226,10 +3226,14 @@ vf2_status vf2_sound_board_dispatch_next(
                 return status;
             }
         } else if (local.command_class == 0xc0u) {
-            /* ROM 0x1e5c (primer skipped): d2 = command. bset #7 for
-               command >= 0x70, always true for c0-class (the bcs arm
-               is unreachable by routing). */
-            descriptor[2] = (uint8_t)(local.command | 0x80u);
+            /* Original ROM 0x1e5c receives the payload through
+               the switch's D2 primer; the observed real frame-342
+               Cx packets prove descriptor[2] = (payload | 0x80),
+               NOT (command | 0x80). Three independent original
+               MC68000 cases: CD 74 -> F4, CA 7E -> FE,
+               CB 7F -> FF. The old code confused the command
+               class selector with D2's preserved payload byte. */
+            descriptor[2] = (uint8_t)(local.payload | 0x80u);
             local.handler_address = UINT32_C(0x00001e5c);
             if (sound_board_clear_c0_voices(
                     board, (uint8_t)(local.command & 0x0fu), &local
