@@ -354,7 +354,8 @@ static int check_a0_join(uint32_t command, const uint8_t *rom,
     return check_l2_handoff(command, rom, rom_size);
 }
 
-static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size)
+static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
+                     int l3_only)
 {
     const uint8_t bytes[3] = {
         (uint8_t)(command >> 16u),
@@ -433,10 +434,11 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size)
                 (unsigned)command);
         return 0;
     }
-    if (!check_a0_join(command, rom, rom_size)) {
+    if (!l3_only && !check_a0_join(command, rom, rom_size)) {
         return 0;
     }
-    fprintf(stderr, "MATCH C/68000 L3 %08x: %02x %02x %02x, ring count 1\n",
+    fprintf(stderr, "MATCH C/68000 L3%s %08x: %02x %02x %02x, ring count 1\n",
+            l3_only ? " (isolated packet fixture)" : "",
             (unsigned)command, (unsigned)bytes[0],
             (unsigned)bytes[1], (unsigned)bytes[2]);
     return 1;
@@ -456,10 +458,45 @@ int main(int argc, char **argv)
     size_t audio_size = 0u, data_size = 0u, samples_size = 0u;
     size_t i = 0u;
     int valid = 1;
+    int l3_only = 0;
+    uint32_t l3_packet = 0u;
 
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <vf2-rom-directory>\n", argv[0]);
+    /*
+     * Opt-in 24-bit UART packet replay. Caller-supplied bytes can come
+     * from a verified local i960 trace, but this test only proves the
+     * isolated 68000 L3 receiver agrees with the recovered C receiver.
+     * It does NOT prove a natural event, timing, dispatcher or KEYON.
+     * Keep the two original A0/L2 ROM-table tests unchanged by default.
+     */
+    if (argc != 2 && !(argc == 4 &&
+                       strcmp(argv[2], "--l3-packet") == 0)) {
+        fprintf(stderr,
+                "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits>]\n",
+                argv[0]);
         return 2;
+    }
+    if (argc == 4) {
+        const char *hex = argv[3];
+        size_t j;
+        l3_only = 1;
+        if (hex == NULL || strlen(hex) != 6u) {
+            fprintf(stderr, "--l3-packet requires exactly six hex digits\n");
+            return 2;
+        }
+        for (j = 0u; j < 6u; ++j) {
+            unsigned digit;
+            if (hex[j] >= '0' && hex[j] <= '9') {
+                digit = (unsigned)(hex[j] - '0');
+            } else if (hex[j] >= 'a' && hex[j] <= 'f') {
+                digit = 10u + (unsigned)(hex[j] - 'a');
+            } else if (hex[j] >= 'A' && hex[j] <= 'F') {
+                digit = 10u + (unsigned)(hex[j] - 'A');
+            } else {
+                fprintf(stderr, "--l3-packet has a non-hex digit\n");
+                return 2;
+            }
+            l3_packet = (l3_packet << 4u) | (uint32_t)digit;
+        }
     }
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &audio, &audio_size) != VF2_OK ||
@@ -476,16 +513,20 @@ int main(int argc, char **argv)
     }
     sample_bank = samples;
     sample_bank_size = samples_size;
-    for (i = 0u; i < sizeof(legs) / sizeof(legs[0]); ++i) {
-        uint32_t command = 0u;
-        if (!table_command(data, data_size, legs[i].profile,
-                           legs[i].column, &command) ||
-            command != legs[i].expected ||
-            !check_one(command, audio, audio_size)) {
-            fprintf(stderr, "FAIL: profile %u column %u, got %08x\n",
-                    (unsigned)legs[i].profile,
-                    (unsigned)legs[i].column, (unsigned)command);
-            valid = 0;
+    if (l3_only) {
+        valid = check_one(l3_packet, audio, audio_size, 1);
+    } else {
+        for (i = 0u; i < sizeof(legs) / sizeof(legs[0]); ++i) {
+            uint32_t command = 0u;
+            if (!table_command(data, data_size, legs[i].profile,
+                               legs[i].column, &command) ||
+                command != legs[i].expected ||
+                !check_one(command, audio, audio_size, 0)) {
+                fprintf(stderr, "FAIL: profile %u column %u, got %08x\n",
+                        (unsigned)legs[i].profile,
+                        (unsigned)legs[i].column, (unsigned)command);
+                valid = 0;
+            }
         }
     }
     free(audio);
