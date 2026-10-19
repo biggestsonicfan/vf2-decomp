@@ -133,3 +133,41 @@ ROM-free regressions:
 python tools/python/test_audio_l3_packet_replay.py -v
 ctest --test-dir build -R vf2_python_audio_l3_packet_replay --output-on-failure
 ```
+
+
+## v0884 — 98 original sound-command selections, isolated L3 differential
+
+The supported original VF2.1 main-data ROM's **18 profiles x 11 columns**
+contain 107 populated cells, 91 empty cells, and **98 distinct command
+words**. The two observed table families are AD23 (64 populated cells) and
+AD24 (43 populated cells). These are *ROM table entries*, not measurements
+of naturally triggered hit sounds.
+
+In addition to the existing two full A0/L2 sample tests and the opt-in
+single `--l3-packet` test, the ROM-backed
+`vf2_m68k_l3_selection_tests` has an **opt-in matrix mode**:
+
+```sh
+# After a strict C17 build using the owner's verified ROM directory:
+build/vf2_m68k_l3_selection_tests /path/to/vf2 --matrix-l3
+
+# Native Windows/MSVC:
+build\Debug\vf2_m68k_l3_selection_tests.exe roms\vf2 --matrix-l3
+```
+
+The matrix enumerates the actual 18x11 sound-command table, refuses
+unexpected nonempty foreign command families, deduplicates command words
+and tests each unique command against the *original Motorola 68000 L3*
+receiver and recovered C after each byte. For the supported set the
+completion gate requires **107 occupied, 98 unique, all 98 L3
+differentials matching**. If any mismatch occurs the binary exits nonzero
+and prints the exact command and profile/column.
+
+This is **not** 98 proven hit sounds. L3 receives exactly three bytes in a
+controlled, separately ROM-initialized sound-board fixture for each
+selection. Natural event provenance, contemporaneous IRQ timing, full
+AD-family dispatcher-to-SCSP behavior and original hardware DAC fidelity
+are still open. The suite cannot be certified as passing until the user
+ROM is actually exercised with the compiled binary; a successful
+ROM-independent GitHub CI build alone does not make this ROM-backed
+matrix green.
