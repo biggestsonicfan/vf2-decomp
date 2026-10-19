@@ -82,6 +82,21 @@ def route(rom: bytes, packet: int) -> dict:
     }
 
 
+def voice_author_branch(rom: bytes) -> dict:
+    """Static ROM proof: 0xfac BRA.w enters 0xa8c's voice flag store."""
+    opcode = get(rom, AUDIO_BASE+0xfac, 4)
+    writer = get(rom, AUDIO_BASE+0xa8c, 6)
+    if opcode[:2] != b"\x60\x00":
+        raise InvalidRom('original free-voice branch opcode changed')
+    disp = int.from_bytes(opcode[2:], 'big', signed=True)
+    target = 0xfae + disp
+    if target != 0xa8c or writer != bytes.fromhex('13 7c 00 40 00 02'):
+        raise InvalidRom('original free-slot target or first voice flag store changed')
+    return {'free_voice_pc': '0x0fac', 'voice_author_pc': '0x0a8c',
+            'first_write': 'move.b #0x40, 2(a1)',
+            'scope': 'original ROM branch/opcode proof, not actual CPU execution'}
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('rom',type=Path)

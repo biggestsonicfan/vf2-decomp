@@ -3,7 +3,7 @@ import os
 import unittest
 from pathlib import Path
 from audio_a0_rows import AUDIO_BASE, InvalidRom, read_pieces
-from audio_90_boot_route import COMMANDS, boot_descriptors, route
+from audio_90_boot_route import COMMANDS, boot_descriptors, route, voice_author_branch
 
 
 def fixture():
@@ -57,9 +57,22 @@ class TestBoot90Route(unittest.TestCase):
     def test_non_followup_packet_rejected(self):
         with self.assertRaises(InvalidRom):route(fixture(),0x9b427f)
 
+    def test_valid_voice_author_branch_fixture(self):
+        image=fixture()
+        image[0xfac:0xfb0]=bytes.fromhex('60 00 fa de')
+        image[0xa8c:0xa92]=bytes.fromhex('13 7c 00 40 00 02')
+        self.assertEqual(voice_author_branch(image)['voice_author_pc'],'0x0a8c')
+
+    def test_corrupted_voice_author_branch_refused(self):
+        image=fixture()
+        image[0xfac:0xfb0]=bytes.fromhex('60 00 fa dc')
+        image[0xa8c:0xa92]=bytes.fromhex('13 7c 00 40 00 02')
+        with self.assertRaises(InvalidRom):voice_author_branch(image)
+
     @unittest.skipUnless(os.environ.get('VF2_ROM_ZIP'),'requires user-owned ROM zip')
     def test_original_rom_golden(self):
         _,data=read_pieces(Path(os.environ['VF2_ROM_ZIP']))
+        self.assertEqual(voice_author_branch(data)['voice_author_pc'],'0x0a8c')
         a=route(data,0x9b4278);b=route(data,0x9a017f)
         self.assertEqual((a['boot_descriptor'],a['boot_descriptor_mode'],a['selected_mode'],
                           a['row_base'],a['table_entry'],a['lookup_word'],a['lookup_word_alt'],a['loopb_lookup_byte']),
