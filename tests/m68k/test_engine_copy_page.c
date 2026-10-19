@@ -112,6 +112,19 @@ static void test_rom_free_tail(void)
         &board, 0u, UINT32_C(0x800200), UINT32_C(0x10200)) ==
           VF2_ERROR_UNSUPPORTED);
     CHECK(memcmp(snapshot, board.sound_ram + stream, sizeof(snapshot)) == 0);
+    /* Alternate 0xEB8 tail must preserve the exact same guarded
+     * state transition with 0x81, not accidentally retain 0x80. */
+    board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 1u] = 0u;
+    CHECK(vf2_sound_board_finalize_engine_copy_eb8(
+        &board, 0u, UINT32_C(0x800200), UINT32_C(0x10200)) == VF2_OK);
+    CHECK(board.sound_ram[stream] == 0x81u);
+    CHECK(be32(board.sound_ram + stream + 2u) == UINT32_C(0x800200));
+    CHECK(be32(board.sound_ram + stream + 6u) == UINT32_C(0x10200));
+    board.sound_ram[VF2_SOUND_VOICE_TABLE_BASE + 1u] = 1u;
+    CHECK(vf2_sound_board_finalize_engine_copy_eb8(
+        &board, 0u, UINT32_C(0x800200), UINT32_C(0x10200)) ==
+          VF2_ERROR_UNSUPPORTED);
+    CHECK(board.sound_ram[stream] == 0x81u);
     CHECK(vf2_sound_board_finalize_engine_copy_d72(
         NULL, 0u, UINT32_C(0x800200), UINT32_C(0x10200)) ==
           VF2_ERROR_INVALID_ARGUMENT);
@@ -123,7 +136,9 @@ static void test_rom_free_tail(void)
 
 static void test_rom_case(const uint8_t *rom, size_t rom_size,
                           const uint8_t *samples, size_t sample_size,
-                          uint16_t selection, uint32_t expected_source)
+                          uint16_t selection, uint32_t expected_source,
+                          uint32_t copy_start, uint32_t copy_end,
+                          uint32_t tail_end, uint8_t stream_flag)
 {
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
@@ -161,7 +176,7 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
     bus.sample_rom_size = sample_size;
     bus.scsp = &reference_scsp;
     vf2_m68k_regs_reset(&regs);
-    regs.pc = UINT32_C(0x0cb2);
+    regs.pc = copy_start;
     regs.a[0] = source;
     regs.a[2] = destination;
     regs.a[7] = UINT32_C(0x7f00);
@@ -173,10 +188,10 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
         return;
     }
 
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x0d72),
+    status = vf2_m68k_run(&bus, &regs, copy_end,
                           0, 49u, &steps);
     CHECK(status == VF2_OK);
-    CHECK(regs.pc == UINT32_C(0x0d72));
+    CHECK(regs.pc == copy_end);
     CHECK(steps == 48u);
     CHECK(regs.a[0] == source);
     CHECK(regs.a[2] == destination);
@@ -197,34 +212,38 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
             CHECK(regs.d[index] == be32(samples + relative));
         }
     }
-    /* Continue from the same original state: the ROM tail at
-     * 0xD72..0xD90 performs seven more instructions before RTS.
-     * Compare whole RAM + SCSP with the separately recovered C tail. */
+    /* Continue from the original ROM-aligned tail: 0xD72..0xD90
+     * or 0xEB8..0xED6, exactly 7 steps ending before RTS. */
     regs.a[1] = VF2_SOUND_VOICE_TABLE_BASE;
     regs.a[3] = UINT32_C(0x2000);
     regs.a[5] = VF2_SCSP_CPU_BASE;
-    status = vf2_sound_board_finalize_engine_copy_d72(
-        &board, 0u, source, destination);
+    status = stream_flag == UINT8_C(0x80) ?
+        vf2_sound_board_finalize_engine_copy_d72(
+            &board, 0u, source, destination) :
+        vf2_sound_board_finalize_engine_copy_eb8(
+            &board, 0u, source, destination);
     CHECK(status == VF2_OK);
     if (status != VF2_OK) {
         return;
     }
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x0d90),
+    status = vf2_m68k_run(&bus, &regs, tail_end,
                           0, 8u, &steps);
     CHECK(status == VF2_OK);
-    CHECK(regs.pc == UINT32_C(0x0d90));
+    CHECK(regs.pc == tail_end);
     CHECK(steps == 7u);
     CHECK(memcmp(board.sound_ram, reference_ram,
                  VF2_SOUND_RAM_BYTES) == 0);
     CHECK(memcmp(&board.scsp, &reference_scsp,
                  sizeof(reference_scsp)) == 0);
-    CHECK(reference_ram[UINT32_C(0x2000)] == 0x80u);
+    CHECK(reference_ram[UINT32_C(0x2000)] == stream_flag);
     CHECK(be32(reference_ram + UINT32_C(0x2002)) == source);
     CHECK(be32(reference_ram + UINT32_C(0x2006)) == destination);
     if (status == VF2_OK && failed == failures_before) {
-        printf("MATCH 68000/C 0xcb2..0xd90 select=%04x "
-               "source=%08x bytes=512 instructions=55\n",
-               (unsigned)selection, (unsigned)expected_source);
+        printf("MATCH 68000/C %05x..%05x select=%04x "
+               "source=%08x bytes=512 instructions=55 flag=%02x\n",
+               (unsigned)copy_start, (unsigned)tail_end,
+               (unsigned)selection, (unsigned)expected_source,
+               (unsigned)stream_flag);
     }
 }
 
@@ -280,10 +299,49 @@ static int test_owner_rom(const char *directory)
         free(samples);
         return 0;
     }
+    /* Independent original-ROM identity guard for the alternate
+     * 0xDF8..0xEB8 page and 0xEB8..0xED6 tail. The final 0x81
+     * channel flag is the only differing byte from 0xD72's tail. */
+    for (i = 0u; i < 16u; ++i) {
+        size_t address = UINT32_C(0x0df8) + i * sizeof(group);
+        if (rom_size < address + sizeof(group) ||
+            memcmp(rom + address, group, sizeof(group)) != 0) {
+            fprintf(stderr, "copy: alternate MOVEM mismatch group %u\n",
+                    (unsigned)i);
+            ++failed;
+            free(rom);
+            free(samples);
+            return 0;
+        }
+    }
+    if (rom_size < UINT32_C(0x0eb8) + sizeof(tail) ||
+        memcmp(rom + UINT32_C(0x0eb8), tail,
+               sizeof(tail) - 3u) != 0 ||
+        rom[UINT32_C(0x0eb8) + sizeof(tail) - 3u] != 0x81u ||
+        memcmp(rom + UINT32_C(0x0eb8) + sizeof(tail) - 2u,
+               tail + sizeof(tail) - 2u, 2u) != 0) {
+        fprintf(stderr, "copy: 0xEB8..0xED6 original tail mismatch\n");
+        ++failed;
+        free(rom);
+        free(samples);
+        return 0;
+    }
     test_rom_case(rom, rom_size, samples, sample_size,
-                  UINT16_C(0x0242), UINT32_C(0x00e631b2));
+                  UINT16_C(0x0242), UINT32_C(0x00e631b2),
+                  UINT32_C(0x0cb2), UINT32_C(0x0d72),
+                  UINT32_C(0x0d90), UINT8_C(0x80));
     test_rom_case(rom, rom_size, samples, sample_size,
-                  UINT16_C(0x0261), UINT32_C(0x00f04a72));
+                  UINT16_C(0x0261), UINT32_C(0x00f04a72),
+                  UINT32_C(0x0cb2), UINT32_C(0x0d72),
+                  UINT32_C(0x0d90), UINT8_C(0x80));
+    test_rom_case(rom, rom_size, samples, sample_size,
+                  UINT16_C(0x0242), UINT32_C(0x00e631b2),
+                  UINT32_C(0x0df8), UINT32_C(0x0eb8),
+                  UINT32_C(0x0ed6), UINT8_C(0x81));
+    test_rom_case(rom, rom_size, samples, sample_size,
+                  UINT16_C(0x0261), UINT32_C(0x00f04a72),
+                  UINT32_C(0x0df8), UINT32_C(0x0eb8),
+                  UINT32_C(0x0ed6), UINT8_C(0x81));
     free(rom);
     free(samples);
     return 1;
@@ -301,7 +359,7 @@ int main(int argc, char **argv)
         return 2;
     }
     if (failed == 0u) {
-        puts("MOVEM+KEYON 0xcb2..0xd90: bounded copy/tail tests PASS");
+        puts("MOVEM+KEYON: two original 55-instruction copy/tail paths PASS");
     }
     return failed == 0u ? 0 : 1;
 }
