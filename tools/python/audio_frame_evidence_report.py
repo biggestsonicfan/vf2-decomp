@@ -119,7 +119,10 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         dispatched = _integer(event, "entries_dispatched", 255)
         refused = _integer(event, "entries_refused", 255)
         keyons = _integer(event, "d92_keyons_retired", 255)
-        if dispatched + refused != filed or keyons > dispatched:
+        keyons_90 = (_integer(event, "keyon_90_retired", 255)
+                     if "keyon_90_retired" in event else 0)
+        if (dispatched + refused != filed or keyons > dispatched or
+                keyons_90 > dispatched or keyons + keyons_90 > dispatched):
             raise ValueError(f"line {line_number}: dispatcher accounting mismatch")
         pcm_frames = _integer(event, "pcm_frames")
         nonzero = _integer(event, "pcm_nonzero_frames")
@@ -166,6 +169,7 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
                 "scope": "original i960 selected queue write, not a fighter-hit cause",
             })
         count["frames_with_d92_keyon"] += int(keyons > 0)
+        count["frames_with_verified_90_keyon"] += int(keyons_90 > 0)
         count["frames_with_nonzero_pcm"] += int(nonzero > 0)
         count["frames_with_i960_queue_growth"] += int(after > before)
         count["frames_with_truncation"] += int(truncated > 0)
