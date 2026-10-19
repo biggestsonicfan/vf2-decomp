@@ -103,8 +103,11 @@ def analyze_rom_and_trace(rom: Path, trace: Path, *, max_packets: int = 64) -> d
     from audio_uart_transport import (observe_transport, upstream_writes,
                                       verify_uart_opcodes)
     from audio_gate_causality import analyze as analyze_gate
+    from audio_selector_delivery import verify_fighter_delivery_opcodes
 
-    proof = verify_uart_opcodes(reconstruct_program(rom))
+    program = reconstruct_program(rom)
+    proof = verify_uart_opcodes(program)
+    upstream_opcode_proof = verify_fighter_delivery_opcodes(program)
     selected = upstream_writes(trace, rom)
     with trace.open(encoding='utf-8', errors='replace') as stream:
         transport = observe_transport(stream, selected_writes=selected,
@@ -113,6 +116,7 @@ def analyze_rom_and_trace(rom: Path, trace: Path, *, max_packets: int = 64) -> d
         gate = analyze_gate(stream)
     result = evaluate_transport(transport, max_packets=max_packets)
     result['original_rom_opcode_anchors'] = proof['verified_rom_words']
+    result['selector_opcode_proof'] = upstream_opcode_proof
     result['independent_gate_observation_counts'] = gate['counts']
     result['transport_diagnostics'] = transport['counts']
     result['warning'] = ('Gate-0x50028 observation is separate evidence; it '
