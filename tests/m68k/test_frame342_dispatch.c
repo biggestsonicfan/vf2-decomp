@@ -28,6 +28,8 @@ static vf2_scsp step_scsp;
 static uint8_t filed_ram[VF2_SOUND_RAM_BYTES];
 static vf2_scsp filed_scsp;
 static int failures;
+static int16_t frame342_c_left[4096], frame342_c_right[4096];
+static int16_t frame342_s_left[4096], frame342_s_right[4096];
 
 #define CHECK(c) do { if (!(c)) { \
     fprintf(stderr, "FAIL:%u: %s\n", (unsigned)__LINE__, #c); \
@@ -272,6 +274,42 @@ static void isolate_command(size_t command,
         CHECK(memcmp(board.scsp.slot_active, step_scsp.slot_active,
                      VF2_SCSP_SLOT_COUNT) == 0);
         CHECK(board.sound_ram[UINT32_C(0x2000)] == UINT8_C(0x80));
+        /* Both states were independently programmed by C and the
+         * ORIGINAL 68000. Render the same 4096-frame software SCSP
+         * model from each and compare every stereo PCM sample.
+         * This is not hardware DAC/DSP accuracy. */
+        {
+            size_t frame;
+            size_t nonzero = 0u;
+            unsigned peak = 0u;
+            vf2_status cs = vf2_scsp_render(
+                &board.scsp, frame342_c_left, frame342_c_right, 4096u);
+            vf2_status ss = vf2_scsp_render(
+                &step_scsp, frame342_s_left, frame342_s_right, 4096u);
+            CHECK(cs == VF2_OK);
+            CHECK(ss == VF2_OK);
+            if (cs == VF2_OK && ss == VF2_OK) {
+                CHECK(memcmp(frame342_c_left, frame342_s_left,
+                             sizeof(frame342_c_left)) == 0);
+                CHECK(memcmp(frame342_c_right, frame342_s_right,
+                             sizeof(frame342_c_right)) == 0);
+                for (frame = 0u; frame < 4096u; ++frame) {
+                    int32_t a = frame342_c_left[frame];
+                    int32_t b = frame342_c_right[frame];
+                    unsigned pa = (unsigned)(a < 0 ? -a : a);
+                    unsigned pb = (unsigned)(b < 0 ? -b : b);
+                    if (a != 0 || b != 0) ++nonzero;
+                    if (pa > peak) peak = pa;
+                    if (pb > peak) peak = pb;
+                }
+            }
+            printf("FRAME342_9E_PCM status_c=%d status_s=%d "
+                   "matched_stereo_samples=%u nonzero_frames=%u/4096 "
+                   "peak=%u model_only=1\n",
+                   (int)cs, (int)ss,
+                   (unsigned)(cs == VF2_OK && ss == VF2_OK),
+                   (unsigned)nonzero, peak);
+        }
     }
     if (command >= 1u && command <= 3u) {
         size_t descriptor = VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
