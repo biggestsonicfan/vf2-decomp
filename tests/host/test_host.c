@@ -112,6 +112,11 @@ static void test_session_fail_closed(void)
         vf2_i960_snapshot_init(&checkpoint);
         CHECK(vf2_session_capture_oracle_snapshot(NULL, &checkpoint) ==
               VF2_ERROR_INVALID_ARGUMENT);
+        {
+            uint32_t pc = 0u;
+            CHECK(vf2_session_current_oracle_instruction_ip(NULL, &pc) ==
+                  VF2_ERROR_INVALID_ARGUMENT);
+        }
         vf2_i960_snapshot_destroy(&checkpoint);
     }
     CHECK(vf2_session_pixels(NULL) == NULL);
