@@ -227,6 +227,27 @@ static void isolate_command(size_t command,
                (unsigned)step_ram[first_diff]);
     }
     putchar('\n');
+    if (command == 0u) {
+        size_t differences = 0u;
+        size_t first_other = VF2_SOUND_RAM_BYTES;
+        for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
+            if (i == VF2_SOUND_COMMAND_COUNT ||
+                (i >= VF2_SOUND_COMMAND_CURSOR &&
+                 i <= VF2_SOUND_COMMAND_CURSOR + 1u) ||
+                (i >= 0x7e00u && i < 0x8000u)) {
+                continue;
+            }
+            if (board.sound_ram[i] != step_ram[i]) {
+                if (first_other == VF2_SOUND_RAM_BYTES) first_other = i;
+                ++differences;
+            }
+        }
+        printf("FRAME342_9E_PARITY RAM_diff_except_epilogue=%u"
+               " first=%05x SCSP_C=%u SCSP_S=%u\n",
+               (unsigned)differences, (unsigned)first_other,
+               scsp_c, scsp_s);
+        CHECK(differences == 0u);
+    }
     /* These assertions capture the invariant that *no modeled
      * SCSP slot can activate without its required KEYON. Any
      * difference with the original is reported, not falsely treated
