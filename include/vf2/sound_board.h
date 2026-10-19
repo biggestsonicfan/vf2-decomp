@@ -165,6 +165,19 @@ vf2_status vf2_sound_board_copy_engine_page_512(
     uint32_t *destination
 );
 
+/* Original 68000 tail at 0xD72..0xD90 (seven instructions).
+ * Writes the post-copy A0/A2 pointers to the channel stream,
+ * sets SCSP KEYON bits (read/OR/write), and sets stream+0 = 0x80.
+ * Only for a previously validated 512-byte sample-page copy.
+ * A1 is identified by a valid voice index; A3=0x2000, A5=SCSP base.
+ * No dispatcher, RTS, game trigger or audio PCM is implied. */
+vf2_status vf2_sound_board_finalize_engine_copy_d72(
+    vf2_sound_board *board,
+    size_t voice_index,
+    uint32_t sample_end,
+    uint32_t destination_end
+);
+
 vf2_status vf2_sound_board_read_u8(
     vf2_sound_board *board,
     uint32_t address,
