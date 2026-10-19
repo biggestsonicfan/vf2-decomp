@@ -2060,9 +2060,12 @@ vf2_status vf2_m68k_run(
                 flags_logic(regs, size, 0u);
             }
         } else if (((opcode & UINT16_C(0xffc0)) == UINT16_C(0x48c0) &&
-                    ((opcode >> 3u) & 7u) == 4u) ||
+                    (((opcode >> 3u) & 7u) == 2u ||
+                     ((opcode >> 3u) & 7u) == 4u)) ||
                    ((opcode & UINT16_C(0xffc0)) == UINT16_C(0x4cc0) &&
                     ((opcode >> 3u) & 7u) == 3u)) {
+            /* MC68000 MOVEM reg->(An) is legal, not just -(An).
+             * Preserve tight dispatch: 0x48C0 mode0 is EXT.L. */
             status = step_movem(regs, bus, opcode, pc, &off);
         } else {
             status = VF2_ERROR_UNSUPPORTED;
