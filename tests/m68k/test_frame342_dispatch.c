@@ -282,6 +282,49 @@ static void isolate_command(size_t command,
             size_t frame;
             size_t nonzero = 0u;
             unsigned peak = 0u;
+            /* Pre-render SCSP state and backing sample pointers are
+             * required for a meaningful stereo differential: identical
+             * registers alone are insufficient if the original
+             * interpreter's sample writes went to its own RAM image.
+             * Do NOT normalize or copy model state just to pass. */
+            {
+                uint32_t start_c = ((uint32_t)(board.scsp.registers[1u] &
+                     0x0fu) << 16u) |
+                    ((uint32_t)board.scsp.registers[2u] << 8u) |
+                    board.scsp.registers[3u];
+                uint32_t start_s = ((uint32_t)(step_scsp.registers[1u] &
+                     0x0fu) << 16u) |
+                    ((uint32_t)step_scsp.registers[2u] << 8u) |
+                    step_scsp.registers[3u];
+                printf("FRAME342_SCSP_PRE C_start=%06x S_start=%06x "
+                       "C_sample_ram=%d S_sample_ram=%d "
+                       "C_addr=%08x S_addr=%08x C_step=%08x S_step=%08x "
+                       "C_env=%d S_env=%d C_state=%u S_state=%u "
+                       "C_backward=%u S_backward=%u\n",
+                       (unsigned)start_c,(unsigned)start_s,
+                       board.scsp.sample_ram == board.sound_ram,
+                       step_scsp.sample_ram == step_ram,
+                       (unsigned)board.scsp.slot_address[0],
+                       (unsigned)step_scsp.slot_address[0],
+                       (unsigned)board.scsp.slot_step[0],
+                       (unsigned)step_scsp.slot_step[0],
+                       (int)board.scsp.slot_envelope[0],
+                       (int)step_scsp.slot_envelope[0],
+                       (unsigned)board.scsp.slot_envelope_state[0],
+                       (unsigned)step_scsp.slot_envelope_state[0],
+                       (unsigned)board.scsp.slot_backward[0],
+                       (unsigned)step_scsp.slot_backward[0]);
+                if (start_c < VF2_SOUND_RAM_BYTES - 8u &&
+                    start_s < VF2_SOUND_RAM_BYTES - 8u) {
+                    size_t k;
+                    for (k = 0u; k < 8u; ++k) {
+                        printf("FRAME342_START_SAMPLE offset=%u C=%02x S=%02x\n",
+                               (unsigned)k,
+                               (unsigned)board.sound_ram[start_c + k],
+                               (unsigned)step_ram[start_s + k]);
+                    }
+                }
+            }
             vf2_status cs = vf2_scsp_render(
                 &board.scsp, frame342_c_left, frame342_c_right, 4096u);
             vf2_status ss = vf2_scsp_render(
