@@ -7968,6 +7968,7 @@ static const float ext_up_normal[3] = { 0.0f, 1.0f, 0.0f };
  * every path (including the repeat-tile path) drops link-0 polys. emitted must be 0. */
 static unsigned long ext_link0_seen = 0ul;
 static unsigned long ext_link0_emitted = 0ul;
+static unsigned long ext_mirror_polys = 0ul;   /* stage polys whose texheader mirror bit flipped the UVs */
 
 static size_t ext_emit_piece(
     FILE *obj,
@@ -8087,6 +8088,17 @@ static size_t ext_emit_piece(
                 uint16_t pu = tl_u16(tex, tex_size, uv_ptr + vtx * 2u + 1u);
                 tu4[vtx] = vf2_texture_uv_texels(pu);
                 tv4[vtx] = vf2_texture_uv_texels(pv);
+                /* Texheader mirror bits (th0 bit 8/9): the hardware samples the tile
+                 * flipped on that axis, so a stage sign stored backwards reads correctly
+                 * (the arena banners "棋逢对手"/"决斗胜负"). The atlas bakes the texels
+                 * un-flipped, so flip the UV within the tile to match. Only applied for
+                 * stage decor (tiles != NULL); fighters pass NULL, so their OBJs stay
+                 * byte-identical. */
+                if (tiles != NULL && (hd.mirror_x || hd.mirror_y)) {
+                    if (hd.mirror_x) tu4[vtx] = wq - tu4[vtx];
+                    if (hd.mirror_y) tv4[vtx] = hq - tv4[vtx];
+                    if (vtx == 0u) ++ext_mirror_polys;
+                }
                 if (vtx == 0u || tu4[vtx] < minu) minu = tu4[vtx];
                 if (vtx == 0u || tv4[vtx] < minv) minv = tv4[vtx];
             }
@@ -8100,11 +8112,18 @@ static size_t ext_emit_piece(
              * (floor paving especially). The atlas holds one copy of the tile, so
              * the wrapped UVs run off it into blank atlas -> a grey floor. Mark it
              * so it is emitted against a standalone repeat-wrapped tile image with
-             * UVs in tile units instead (tiled[]), not baked into the atlas. */
+             * UVs in tile units instead (tiled[]), not baked into the atlas.
+             * A TRANSLUCENT polygon is never tiled: a sign/decal with a big texture
+             * spread over several tile cells, or whose UVs reach a little past one
+             * cell, is a single decal, not a repeated motif -- tiling it wrapped the
+             * texture and stamped the sign several times across the wall (the "three
+             * 对手 bands"). Only opaque repeated motifs (floor paving, brick walls)
+             * take the tile path; decals stay on the atlas and keep their decal lift. */
             {
                 float mxu = tu4[0], mxv = tv4[0]; uint32_t z;
+                int tl_translu = (int)(hd.renderer & 1u);
                 for (z = 1u; z < numv; ++z) { if (tu4[z] > mxu) mxu = tu4[z]; if (tv4[z] > mxv) mxv = tv4[z]; }
-                poly_tiled = (tiles != NULL && ntiles != NULL &&
+                poly_tiled = (tiles != NULL && ntiles != NULL && !tl_translu &&
                               ((wq > 0.0f && (mxu - minu) > 1.5f * wq) ||
                                (hq > 0.0f && (mxv - minv) > 1.5f * hq)));
                 if (poly_tiled) {
@@ -9860,6 +9879,7 @@ static int command_geo_fighter(
     uint32_t gf_mode = 0u;
     uint32_t used_spec[2] = { 0u, 0u };  /* per sheet, bit tpi set = chrome material used */
     gf_tile gf_tiles[64]; size_t ngf_tiles = 0u;  /* repeat-UV tiles emitted as standalone images */
+    int gf_tile_hasalpha[64];                      /* per tile: 1 if it has a transparent texel */
     size_t cap_objs = 0u;                /* candidate-array capacity (nobjs, + room for --from-rom) */
     int *is_recovered = NULL;            /* per candidate: 1 = added from ROM (not in the capture) */
     size_t nrec_rom = 0u;                /* count of ROM-recovered objects emitted */
@@ -10412,7 +10432,7 @@ stage_selected:
                  "feet-centred. %zu pieces. Local only, never committed.\n",
             base, pose, nsel);
     fprintf(obj, "mtllib %s.mtl\n", base);
-    ext_link0_seen = 0ul; ext_link0_emitted = 0ul;
+    ext_link0_seen = 0ul; ext_link0_emitted = 0ul; ext_mirror_polys = 0ul;
     for (k = 0u; k < nsel; ++k) {
         size_t idx = sel[k];
         size_t tris = 0u;
@@ -10448,8 +10468,8 @@ stage_selected:
         tris_total += tris;
     }
     if (stage_mode)
-        fprintf(stderr, "  link-0 polys: seen=%lu emitted=%lu (must be 0)\n",
-                ext_link0_seen, ext_link0_emitted);
+        fprintf(stderr, "  link-0 polys: seen=%lu emitted=%lu (must be 0); mirrored UV polys: %lu\n",
+                ext_link0_seen, ext_link0_emitted, ext_mirror_polys);
     if (colour) {
         size_t t;
         snprintf(path, sizeof(path), "%s/%s_tex0.png", out_dir, base);
@@ -10465,15 +10485,17 @@ stage_selected:
             const uint8_t *as = asheet[gf_tiles[t].sheet & 1u];
             uint8_t *trgb = (tw && th2) ? (uint8_t *)malloc((size_t)tw * th2 * 3u) : NULL;
             uint8_t *tal = (tw && th2) ? (uint8_t *)malloc((size_t)tw * th2) : NULL;
+            gf_tile_hasalpha[t] = 0;
             if (trgb != NULL && tal != NULL) {
                 for (yy = 0u; yy < th2; ++yy)
                     for (xx = 0u; xx < tw; ++xx) {
                         size_t sx = (size_t)gf_tiles[t].x + xx, sy = (size_t)gf_tiles[t].y + yy;
                         size_t dd = (size_t)yy * tw + xx, ss;
-                        if (sx >= 2048u || sy >= 1024u) { trgb[dd*3u]=trgb[dd*3u+1u]=trgb[dd*3u+2u]=0u; tal[dd]=0u; continue; }
+                        if (sx >= 2048u || sy >= 1024u) { trgb[dd*3u]=trgb[dd*3u+1u]=trgb[dd*3u+2u]=0u; tal[dd]=0u; gf_tile_hasalpha[t]=1; continue; }
                         ss = sy * 2048u + sx;
                         trgb[dd*3u] = cs[ss*3u]; trgb[dd*3u+1u] = cs[ss*3u+1u]; trgb[dd*3u+2u] = cs[ss*3u+2u];
                         tal[dd] = as[ss];
+                        if (as[ss] < 255u) gf_tile_hasalpha[t] = 1;
                     }
                 snprintf(path, sizeof(path), "%s/%s_tile%zu.png", out_dir, base, t);
                 (void)png_write_rgba8(path, tw, th2, trgb, tal);
@@ -10535,13 +10557,20 @@ stage_selected:
                     }
             }
             /* repeat-UV tiles: standalone images, UVs in tile units -> REPEAT
-             * (the OBJ importer's default wrap for UVs outside [0,1]). */
+             * (the OBJ importer's default wrap for UVs outside [0,1]). map_d is
+             * emitted ONLY for a tile that actually has transparent texels: Blender's
+             * OBJ importer feeds a map_d image's COLOUR (not its alpha) into the
+             * material's dissolve, so a map_d on an opaque but dark tile (the stone
+             * arena slab tile3) makes it ~30% opaque and the viewport shows through it.
+             * An opaque tile gets map_Kd only and stays solid. */
             {
                 size_t t;
-                for (t = 0u; t < ngf_tiles; ++t)
-                    fprintf(mtl, "newmtl tile%zu\nillum 1\nd 1.0\n"
-                                 "map_Kd %s_tile%zu.png\nmap_d %s_tile%zu.png\n",
-                            t, base, t, base, t);
+                for (t = 0u; t < ngf_tiles; ++t) {
+                    fprintf(mtl, "newmtl tile%zu\nillum 1\nd 1.0\nmap_Kd %s_tile%zu.png\n",
+                            t, base, t);
+                    if (gf_tile_hasalpha[t])
+                        fprintf(mtl, "map_d %s_tile%zu.png\n", base, t);
+                }
             }
         } else {
             fprintf(mtl, "# VF2 %s textures (grayscale luma index). Local only.\n", base);

@@ -25,10 +25,15 @@ import sys
 import math
 
 EPS = 0.06          # world-units nudge per painter layer (invisible, > float-z epsilon)
-NEAR_PARALLEL = 0.985
-PLANE_GAP = 0.6     # max distance between the two parallel planes to call them coplanar
 NQ = 0.05           # normal-direction quantum for the plane bucket key
-DQ = 0.75           # plane-offset quantum for the plane bucket key
+DQ = 0.75           # plane-offset quantum for the coarse coplanar bucket
+TIE = 0.0015        # faces within this depth are a z-fighting tie; beyond it one is in
+                    # front (a lifted translucent decal, deps >= 0.003, is never a tie
+                    # with its base, so it is never pushed behind -- "recule l'opaque").
+GAP = 0.5           # two coplanar faces conflict when their in-plane boxes are within this
+                    # gap (touching/abutting -> a seam z-fight, or overlapping). Faces far
+                    # apart on the same plane (the central slab vs wall-base trim) are left
+                    # alone, so the slab keeps its height instead of being sunk.
 
 
 def _face_normal(vs):
@@ -68,8 +73,16 @@ def depth_bias(path):
             if n is None:
                 continue
             d = -(n[0] * vs[0][0] + n[1] * vs[0][1] + n[2] * vs[0][2])
+            cen = (sum(v[0] for v in vs) / len(vs),
+                   sum(v[1] for v in vs) / len(vs),
+                   sum(v[2] for v in vs) / len(vs))
+            pos = n[0] * cen[0] + n[1] * cen[1] + n[2] * cen[2]   # along outward normal
+            dom = max(range(3), key=lambda k: abs(n[k]))          # plane-normal axis
+            ax = [k for k in range(3) if k != dom]                # the two in-plane axes
+            bb = (min(v[ax[0]] for v in vs), max(v[ax[0]] for v in vs),
+                  min(v[ax[1]] for v in vs), max(v[ax[1]] for v in vs))
             faces.append({"idx": idx, "obj": cur_obj, "kind": cur_kind,
-                          "n": n, "d": d})
+                          "n": n, "d": d, "pos": pos, "bb": bb})
 
     # bucket faces by quantised plane (orient normal to a canonical hemisphere for the key)
     buckets = {}
@@ -84,28 +97,50 @@ def depth_bias(path):
                round(f["d"] * s / DQ))
         buckets.setdefault(key, []).append(f)
 
+    def fronter(a, b):
+        """Is object a in front of object b? Captured in front of recovered; among the
+        same kind, the later-drawn (higher index) in front (MAME painter order)."""
+        return (akind[a], a) > (akind[b], b)
+
+    def overlap2d(ba, bb):   # in-plane boxes touch/overlap (gap below GAP in both axes)
+        return (min(ba[1], bb[1]) - max(ba[0], bb[0]) > -GAP and
+                min(ba[3], bb[3]) - max(ba[2], bb[2]) > -GAP)
+
+    akind = {}
+    for f in faces:
+        akind.setdefault(f["obj"], 1 if f["kind"] == "cap" else 0)
+
     off = [(0.0, 0.0, 0.0)] * len(verts)
     nudged = 0
     for key, grp in buckets.items():
-        objs = set(f["obj"] for f in grp)
-        if len(objs) < 2:
-            continue                      # single object's own coplanar faces: leave as drawn
-        # front-ness per object: captured in front of recovered; later draw order in front.
-        def frontness(o):
-            kind = next(f["kind"] for f in grp if f["obj"] == o)
-            return (1 if kind == "cap" else 0, o)
-        order = sorted(objs, key=frontness, reverse=True)   # order[0] = front-most
-        layer = {o: i for i, o in enumerate(order)}          # 0 = front (no nudge)
+        # Within a coarse coplanar bucket, only faces at the SAME depth (within TIE) and
+        # that actually OVERLAP in-plane z-fight. A face is pushed back one layer per
+        # distinct front-er object whose face overlaps it here; the front-most overlapping
+        # face stays put. A face with no front-er overlapper is never moved -- so the
+        # central stone slab (no floor piece drawn later sits on top of it) keeps its
+        # height, two floor tiles that merely abut (no area overlap) are left tiling, and
+        # a lifted decal (a higher depth level than its wall) always stays in front.
+        levels = {}
         for f in grp:
-            L = layer[f["obj"]]
-            if L == 0:
+            levels.setdefault(round(f["pos"] / TIE), []).append(f)
+        for lv, lgrp in levels.items():
+            if len(set(f["obj"] for f in lgrp)) < 2:
                 continue
-            n = f["n"]                    # push back along this face's own outward normal
-            dx, dy, dz = -EPS * L * n[0], -EPS * L * n[1], -EPS * L * n[2]
-            for i in f["idx"]:
-                ox, oy, oz = off[i]
-                off[i] = (ox + dx, oy + dy, oz + dz)
-            nudged += 1
+            for f in lgrp:
+                front_objs = set()
+                for g in lgrp:
+                    if g["obj"] != f["obj"] and fronter(g["obj"], f["obj"]) \
+                            and overlap2d(f["bb"], g["bb"]):
+                        front_objs.add(g["obj"])
+                L = len(front_objs)
+                if L == 0:
+                    continue
+                n = f["n"]                # push back along this face's own outward normal
+                dx, dy, dz = -EPS * L * n[0], -EPS * L * n[1], -EPS * L * n[2]
+                for i in f["idx"]:
+                    ox, oy, oz = off[i]
+                    off[i] = (ox + dx, oy + dy, oz + dz)
+                nudged += 1
 
     # rewrite the v lines that moved
     for k, (dx, dy, dz) in enumerate(off):
