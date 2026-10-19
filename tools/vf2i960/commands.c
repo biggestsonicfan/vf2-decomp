@@ -7959,6 +7959,10 @@ static size_t ext_emit_poly(
  * repeat-wrapped image rather than baked into the atlas (see the tiled-poly path). */
 typedef struct gf_tile { uint16_t sheet, x, y, w, h; } gf_tile;
 
+/* Up (+Y): the orientation a floor tile's winding is flipped to when its model
+ * normal points down. */
+static const float ext_up_normal[3] = { 0.0f, 1.0f, 0.0f };
+
 static size_t ext_emit_piece(
     FILE *obj,
     const uint8_t *poly, size_t poly_size,
@@ -8170,6 +8174,17 @@ static size_t ext_emit_piece(
          * decal wins the z-test everywhere; 0.0015 ~ 0.1% of a fighter, far below
          * a visible gap but well clear of z-fighting. */
         dnrm = pnrm;
+        /* A repeated-tile floor (poly_tiled) whose model normal is near-vertical but
+         * points DOWN (VF2's normals are not consistently outward) orients its OBJ
+         * winding downward and shows the view background from above in a backface-
+         * culling viewer (the central arena slab a9bea0). Floors face up: flip such a
+         * tile's normal to +Y so the winding faces up. Walls (horizontal normal) and
+         * fighters (never tiled) are untouched. */
+        if (poly_tiled) {
+            float nm = (float)sqrt((double)(pnrm[0]*pnrm[0] + pnrm[1]*pnrm[1] + pnrm[2]*pnrm[2]));
+            if (nm > 1e-6f && pnrm[1] < 0.0f && -pnrm[1] > 0.9f * nm)
+                dnrm = ext_up_normal;
+        }
         deps = 0.0f;
         if ((hd.renderer & 1u) != 0u) {
             int layer = nseen;   /* default: new rectangle -> next rank */
