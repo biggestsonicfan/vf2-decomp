@@ -213,6 +213,7 @@ static void usage(const char *p)
         "          [--screenshot <file.ppm>] [--digest <n>] [--fast] [--oracle]\n"
         "          [--audio-evidence-jsonl <output.jsonl>] (requires --oracle)\n"
         "          [--audio-pre-event-snapshot <output.vf2snap>] (requires --oracle)\n"
+        "          [--audio-pre-event-pc <original-i960-pc>] (checkpoint only on PC match)\n"
         "          [--verified-audio-copy] (owner-ROM D92 upload opt-in)\n"
         "          [--input-cycle <mask,mask,...>] (repeat deterministic controller inputs)\n"
         "       %s --selftest [--frames <n>]\n"
@@ -374,6 +375,11 @@ typedef struct sound_writer_capture {
     uint32_t first_command;
     uint32_t first_writer_pc;
     int first_writer_pc_proven;
+    int filter_by_pc;
+    uint32_t requested_writer_pc;
+    int matched_pre_event;
+    uint32_t matched_slot;
+    uint32_t matched_word;
 } sound_writer_capture;
 
 static void sound_writer_observe(
@@ -404,6 +410,23 @@ static void sound_writer_observe(
             ((uint32_t)data[1] << 8u) |
             ((uint32_t)data[2] << 16u) |
             ((uint32_t)data[3] << 24u);
+    }
+    if (!w->matched_pre_event) {
+        uint32_t ip = 0u;
+        if (!w->filter_by_pc) {
+            w->matched_pre_event = 1;
+        } else if (vf2_session_current_oracle_instruction_ip(
+                       w->session, &ip) == VF2_OK &&
+                   ip == w->requested_writer_pc) {
+            w->matched_pre_event = 1;
+        }
+        if (w->matched_pre_event) {
+            w->matched_slot = access->address;
+            w->matched_word = (uint32_t)data[0] |
+                ((uint32_t)data[1] << 8u) |
+                ((uint32_t)data[2] << 16u) |
+                ((uint32_t)data[3] << 24u);
+        }
     }
     if (w->observed_writes < UINT32_MAX) {
         ++w->observed_writes;
@@ -509,6 +532,7 @@ int main(int argc, char **argv)
     const char *audio_evidence_path = NULL;
     const char *audio_pre_event_path = NULL;
     const char *input_cycle_text = NULL;
+    const char *pre_event_pc_text = NULL;
     uint32_t input_cycle[VF2_HOST_INPUT_CYCLE_CAP] = {0u};
     size_t input_cycle_count = 0u;
     vf2_i960_snapshot pre_event;
@@ -549,6 +573,9 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--input-cycle") == 0 &&
                  i + 1 < argc)
             input_cycle_text = argv[++i];
+        else if (strcmp(argv[i], "--audio-pre-event-pc") == 0 &&
+                 i + 1 < argc)
+            pre_event_pc_text = argv[++i];
         else if (strcmp(argv[i], "--digest") == 0 && i + 1 < argc) digest_every = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--fullscreen") == 0) h.fullscreen = 1;
         else if (strcmp(argv[i], "--integer") == 0) h.integer_scale = 1;
@@ -566,6 +593,19 @@ int main(int argc, char **argv)
     if (!do_selftest && (rom_dir == NULL || snapshot == NULL)) {
         usage(argv[0]);
         return EXIT_FAILURE;
+    }
+    if (pre_event_pc_text != NULL) {
+        uint32_t masks[VF2_HOST_INPUT_CYCLE_CAP] = {0u};
+        size_t n = 0u;
+        if (audio_pre_event_path == NULL ||
+            !parse_input_cycle(pre_event_pc_text, masks, &n) ||
+            n != 1u || masks[0] == 0u || (masks[0] & 3u) != 0u) {
+            fprintf(stderr, "--audio-pre-event-pc requires a nonzero aligned "
+                            "original i960 instruction IP and snapshot path\n");
+            return EXIT_FAILURE;
+        }
+        writer.filter_by_pc = 1;
+        writer.requested_writer_pc = masks[0];
     }
     if (input_cycle_text != NULL &&
         !parse_input_cycle(input_cycle_text, input_cycle,
@@ -659,6 +699,9 @@ int main(int argc, char **argv)
                 writer.first_command = 0u;
                 writer.first_writer_pc = 0u;
                 writer.first_writer_pc_proven = 0;
+                writer.matched_pre_event = 0;
+                writer.matched_slot = 0u;
+                writer.matched_word = 0u;
                 if (audio_pre_event_path != NULL && !pre_event_written &&
                     vf2_session_capture_oracle_snapshot(
                         session, &pre_event) != VF2_OK) {
@@ -687,7 +730,7 @@ int main(int argc, char **argv)
                     break;
                 }
                 if (audio_pre_event_path != NULL && !pre_event_written &&
-                    writer.observed_writes > 0u) {
+                    writer.matched_pre_event) {
                     vf2_status snapshot_status =
                         vf2_i960_snapshot_write_file(
                             &pre_event, audio_pre_event_path);
@@ -702,14 +745,15 @@ int main(int argc, char **argv)
                     fprintf(stderr,
                             "audio pre-event: saved original pre-frame %u "
                             "at %s; original queue writes=%u first_slot=%08x "
-                            "first_word=%08x writer_pc=%08x pc_valid=%d "
+                            "selected_word=%08x selected_writer_pc=%08x "
                             "(not a fighter-hit proof)\n",
                             (unsigned)frame, audio_pre_event_path,
                             (unsigned)writer.observed_writes,
-                            (unsigned)writer.first_address,
-                            (unsigned)writer.first_command,
-                            (unsigned)writer.first_writer_pc,
-                            writer.first_writer_pc_proven);
+                            (unsigned)writer.matched_slot,
+                            (unsigned)writer.matched_word,
+                            (unsigned)(writer.filter_by_pc
+                                ? writer.requested_writer_pc
+                                : writer.first_writer_pc));
                 }
                 if (audio_evidence != NULL &&
                     vf2_session_read_work_ram(session, UINT32_C(0x00504001),
