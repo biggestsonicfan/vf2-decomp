@@ -2392,8 +2392,9 @@ static void test_low_author_drain(
  * Two-phase S: drain -> 0xfac arrival (67 steps, d4 printed
  * and pinned -- the verdict fact), then continue: the stepper
  * has NO address-error model, so it sails past the odd word
- * store at 0x103e and parks at the 0xcb6 dead loop (114 steps,
- * pinned). Real silicon takes vector 2 -> 0x6004d8 (moveq #7,
+ * store at 0x103e. We now stop BEFORE the LEGAL MOVEM at
+ * 0xcb6 (114 steps, pinned), not at a nonexistent illegal-MOVEM
+ * fault. Real silicon takes vector 2 -> 0x6004d8 (moveq #7,
  * bra 0x4fe blink): the odd-index path blinks, dead. Even
  * indices would program slot-by-index garbage -- modeled by
  * neither side, refused by design. C-side is the 90-low proof
