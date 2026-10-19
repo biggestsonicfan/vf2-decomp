@@ -2245,8 +2245,10 @@ static vf2_status sound_board_run_engine_key(
     report->handler_address = UINT32_C(0x00000cb2);
     /* Frame-342 original ROM: the exact 9E 0A 7F allocator leg
      * reaches legal MOVEM copy 0xCB2..0xD72 after FAC->A8C.
-     * Original 0xC74 loaded A0 from $5000[D3]+4; 0xC7C
-     * loaded A2 from voice+0x0C. Both original subroutines
+     * Original 0xC68 loads D5 from $5000[D3]+0; 0xC74
+     * MOVEA.L D5,A0 preserves that source, then 0xC76
+     * reloads D5 from table+4. A2 comes from voice+0x0C
+     * at original 0xC7C. Both original subroutines
      * are now recovered as isolated differential C routines.
      * Compose ONLY for that verified command with slot 0;
      * other 90-class allocator cases retain the CB2 refusal.
@@ -2267,7 +2269,7 @@ static vf2_status sound_board_run_engine_key(
                 UINT8_C(0x0a) &&
             ram[VF2_SOUND_COMMAND_RING_BASE + read_cursor + 2u] ==
                 UINT8_C(0x7f)) {
-            uint32_t source = read_be32(ram + table + 4u);
+            uint32_t source = read_be32(ram + table);
             uint32_t destination = read_be32(voice + 0x0cu);
             vf2_status status;
             if (source < VF2_SOUND_SAMPLE_ROM_BASE ||
