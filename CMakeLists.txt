@@ -469,6 +469,15 @@ if(VF2_BUILD_TESTS)
     vf2_set_project_warnings(vf2_host_tests)
     add_test(NAME vf2_host COMMAND vf2_host_tests)
 
+    # Independent frame-exact original i960 sound-ring producer replay.
+    # --selftest is ROM-free; the production CLI requires the owner's
+    # pre-event snapshot and never creates synthetic game commands.
+    add_executable(vf2_audio_writer_replay tests/host/audio_writer_replay.c)
+    target_link_libraries(vf2_audio_writer_replay PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_audio_writer_replay)
+    add_test(NAME vf2_audio_writer_replay_rom_free
+             COMMAND vf2_audio_writer_replay --selftest)
+
     # Oracle-frame UART hunt driver (v0825 8d): steps real frames through
     # the interpreter oracle with a passive bus observer on the Model 2A
     # serial port (0x009c0000). Needs the gitignored sixth-fresh snapshot;
