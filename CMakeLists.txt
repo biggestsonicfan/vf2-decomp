@@ -635,6 +635,14 @@ if(VF2_BUILD_TESTS)
     target_link_libraries(vf2_m68k_l3_selection_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_l3_selection_tests)
 
+    # Isolated diagnostic of five authentic frame-342 L3 commands:
+    # native C dispatch + original Motorola 68000 checkpoints.
+    # Requires the owner's original audio ROM and samples to execute.
+    add_executable(vf2_m68k_frame342_dispatch_tests
+                   tests/m68k/test_frame342_dispatch.c)
+    target_link_libraries(vf2_m68k_frame342_dispatch_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_frame342_dispatch_tests)
+
     # Original Motorola 68000 0xCB2..0xD72: 16 MOVEM triplets,
     # 48 native instructions / 512 bytes per sample page.
     add_executable(vf2_m68k_engine_copy_page_tests
@@ -1141,6 +1149,8 @@ if(VF2_BUILD_TESTS)
         add_test(NAME vf2_m68k_cdispatch_probe COMMAND vf2_m68k_cdispatch_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_l3_real_selections
                  COMMAND vf2_m68k_l3_selection_tests "${VF2_ROM_DIR}")
+        add_test(NAME vf2_m68k_frame342_dispatch_owner_rom
+                 COMMAND vf2_m68k_frame342_dispatch_tests "${VF2_ROM_DIR}")
         # v0898: exact fifteen original i960 vector-15 bytes from
         # owner-ROM headless frame 342 (input 0x20). Cx file after
         # TWO bytes and ignore F8; no invented 3-byte boundaries.
