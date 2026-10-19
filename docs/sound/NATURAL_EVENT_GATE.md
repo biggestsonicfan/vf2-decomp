@@ -171,3 +171,33 @@ are still open. The suite cannot be certified as passing until the user
 ROM is actually exercised with the compiled binary; a successful
 ROM-independent GitHub CI build alone does not make this ROM-backed
 matrix green.
+
+### Run the 98-command matrix directly from the original owner's ZIP
+
+Instead of permanently extracting the ROM files, use the temporary ZIP
+runner (all files are deleted after the process terminates):
+
+```sh
+python tools/python/audio_rom_matrix_l3.py \
+  build/vf2_m68k_l3_selection_tests \
+  --rom-zip /path/to/owner/vf2.zip
+
+# Windows/MSVC binary:
+python tools/python/audio_rom_matrix_l3.py \
+  build/Debug/vf2_m68k_l3_selection_tests.exe \
+  --rom-zip C:/path/to/vf2.zip
+```
+
+A zero exit code **and** an exact `107 occupied, 98 unique, 98 passed`
+summary from the C executable are required. The wrapper rejects missing,
+partial, truncated or contradictory evidence, and reports negative status
+on process failures or timeouts. This still tests the **isolated original
+ROM L3 receiver against recovered C**, not naturally occurring fighter
+sound or hardware-level PCM equality.
+
+ROM-free unit gate:
+
+```sh
+python tools/python/test_audio_rom_matrix_l3.py -v
+ctest --test-dir build -R vf2_python_audio_rom_matrix_l3 --output-on-failure
+```
