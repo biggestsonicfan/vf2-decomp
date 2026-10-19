@@ -112,7 +112,7 @@ int main(void)
             EXPECT_TRUE(ram[offset + 3u] == (uint8_t)val);
         }
         regs.pc = 0u;
-        regs.a[2] = UINT32_C(32768u - 4u);
+        regs.a[2] = (UINT32_C(32768) - UINT32_C(4));
         status = vf2_m68k_run(&bus, &regs, 4u, 0, 1u, &done);
         EXPECT_TRUE(status != VF2_OK);
     }
