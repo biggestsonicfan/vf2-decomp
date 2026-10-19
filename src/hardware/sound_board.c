@@ -526,6 +526,62 @@ vf2_status vf2_sound_board_copy_engine_page_512(
     return VF2_OK;
 }
 
+/* ROM 0xD72..0xD90: 7 instructions, stop BEFORE RTS at 0xD90.
+ *   move.w (a1),d4; move.l a0,2(a3,d4.w)
+ *   move.l a2,6(a3,d4.w); move.b (a5,d4.w),d5
+ *   ori.b #0x18,d5; move.b d5,(a5,d4.w)
+ *   move.b #0x80,(a3,d4.w).
+ * A3=0x2000, A5=0x100000. Checked inputs represent a preceding
+ * fully mapped 512-byte sample-page transfer, not arbitrary
+ * newly invented game-state transitions. */
+vf2_status vf2_sound_board_finalize_engine_copy_d72(
+    vf2_sound_board *board,
+    size_t voice_index,
+    uint32_t sample_end,
+    uint32_t destination_end
+)
+{
+    const uint32_t stream_base = UINT32_C(0x2000);
+    size_t voice;
+    uint16_t channel_offset;
+    uint32_t stream;
+    uint8_t key;
+    if (board == NULL || voice_index >= VF2_SOUND_VOICE_COUNT) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    voice = VF2_SOUND_VOICE_TABLE_BASE +
+            voice_index * VF2_SOUND_VOICE_BYTES;
+    channel_offset = (uint16_t)(((uint16_t)board->sound_ram[voice] << 8u) |
+                                board->sound_ram[voice + 1u]);
+    /* The MC68000 index is a SIGNED D4.W. Only mapped 32 SCSP
+     * channel offsets are admitted by this explicitly bounded API. */
+    if ((channel_offset % VF2_SCSP_SLOT_BYTES) != 0u ||
+        channel_offset / VF2_SCSP_SLOT_BYTES >= VF2_SCSP_SLOT_COUNT ||
+        sample_end < VF2_SOUND_SAMPLE_ROM_BASE + UINT32_C(512) ||
+        board->sample_rom == NULL ||
+        (uint64_t)sample_end - VF2_SOUND_SAMPLE_ROM_BASE >
+            board->sample_rom_size ||
+        destination_end < UINT32_C(512) ||
+        destination_end > VF2_SOUND_RAM_BYTES ||
+        ((sample_end | destination_end) & UINT32_C(1)) != 0u) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    stream = stream_base + (uint32_t)channel_offset;
+    if (stream > VF2_SOUND_RAM_BYTES - 10u ||
+        vf2_scsp_read_u8(&board->scsp, channel_offset, &key) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* 68000 MOVE.L is big-endian; only after all guards pass. */
+    write_be32(board->sound_ram + stream + 2u, sample_end);
+    write_be32(board->sound_ram + stream + 6u, destination_end);
+    key = (uint8_t)(key | UINT8_C(0x18));
+    if (vf2_scsp_write_u8(&board->scsp, channel_offset, key) != VF2_OK) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    board->sound_ram[stream] = UINT8_C(0x80);
+    return VF2_OK;
+}
+
 vf2_status vf2_sound_board_read_u8(
     vf2_sound_board *board,
     uint32_t address,
