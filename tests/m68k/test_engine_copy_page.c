@@ -261,6 +261,9 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
 static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
                                    const uint8_t *samples, size_t sample_size)
 {
+    static vf2_sound_board enabled;
+    static vf2_sound_board no_sample;
+    vf2_sound_dispatch_report enabled_report;
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
     vf2_sound_dispatch_report report;
@@ -326,6 +329,13 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
     ram[0x690du] = 0x11u;
     ram[0x690eu] = 0x22u;
     ram[0x690fu] = 0x33u;
+    /* Preserve the original synthetic starting snapshot twice:
+     * default dispatcher must still refuse, while an explicitly
+     * opted-in dispatcher must finish and consume on its own. */
+    memcpy(&enabled, &board, sizeof(enabled));
+    enabled.allow_verified_d92_copy = 1u;
+    memcpy(&no_sample, &enabled, sizeof(no_sample));
+    no_sample.sample_rom = NULL;
     memcpy(reference_ram, ram, VF2_SOUND_RAM_BYTES);
     memcpy(&reference_scsp, &board.scsp, sizeof(reference_scsp));
     memset(&bus, 0, sizeof(bus));
@@ -348,6 +358,29 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
     CHECK(cstatus == VF2_ERROR_UNSUPPORTED);
     CHECK(report.handler_address == UINT32_C(0x0df8));
     CHECK(ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+    /* Missing sample ROM never silently retires the sound packet,
+     * even when opt-in was requested. The invalid case does not
+     * touch the 512-byte target. */
+    {
+        vf2_sound_dispatch_report rejected = {0};
+        vf2_status bad = vf2_sound_board_dispatch_next(
+            &no_sample, &rejected);
+        CHECK(bad == VF2_ERROR_UNSUPPORTED);
+        CHECK(rejected.handler_address == UINT32_C(0x0df8));
+        CHECK(no_sample.sound_ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+        CHECK(memcmp(no_sample.sound_ram + UINT32_C(0x10000),
+                     ram + UINT32_C(0x10000), 512u) == 0);
+    }
+    /* This is the actual integrated path under test: no manual
+     * call to copy_page or finalize is made on 'enabled'. */
+    memset(&enabled_report, 0, sizeof(enabled_report));
+    cstatus = vf2_sound_board_dispatch_next(&enabled, &enabled_report);
+    CHECK(cstatus == VF2_OK);
+    CHECK(enabled_report.handler_address == UINT32_C(0x0ed6));
+    CHECK(enabled_report.handled == 1);
+    CHECK(enabled.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    CHECK(enabled_report.cursor_before == 0u);
+    CHECK(enabled_report.cursor_after == 4u);
     status = vf2_m68k_run(&bus, &regs, UINT32_C(0x0df8),
                           0, 20000u, &steps);
     if (status != VF2_OK || regs.pc != UINT32_C(0x0df8)) {
@@ -400,6 +433,21 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
     CHECK(reference_ram[stream] == 0x81u);
     CHECK(be32(reference_ram + stream + 2u) == source);
     CHECK(be32(reference_ram + stream + 6u) == destination);
+    /* The opted-in *single-call* dispatcher must agree with the
+     * original stepper's completed stream/voice/SCSP/copy window.
+     * The original reference stops BEFORE the RTS at ED6, while
+     * the native dispatcher has already retired the packet. Do
+     * NOT compare ring cursor/count until original RTS+drain is
+     * modeled independently. */
+    CHECK(memcmp(enabled.sound_ram + UINT32_C(0x10000),
+                 reference_ram + UINT32_C(0x10000), 512u) == 0);
+    CHECK(memcmp(enabled.sound_ram + stream,
+                 reference_ram + stream, 32u) == 0);
+    CHECK(memcmp(enabled.sound_ram + VF2_SOUND_VOICE_TABLE_BASE,
+                 reference_ram + VF2_SOUND_VOICE_TABLE_BASE,
+                 VF2_SOUND_VOICE_BYTES) == 0);
+    CHECK(memcmp(&enabled.scsp, &reference_scsp,
+                 sizeof(reference_scsp)) == 0);
     if (before == failed) {
         /* Model-only PCM regression: render the separately recovered
          * C SCSP state and the original-68000-programmed SCSP state
