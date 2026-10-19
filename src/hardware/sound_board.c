@@ -485,6 +485,47 @@ vf2_status vf2_sound_board_initialize(
     return sound_board_sample_upload(board, UINT32_C(0x608df0), 0, 0u);
 }
 
+/* ROM 0xCB2..0xD72: 16 unrolled triples (48 instructions total).
+ * Per triple: MOVEM.L (A0)+,D0-D7 reads 32 consecutive sample bytes;
+ * MOVEM.L D0-D7,(A2) writes the same 32 bytes to sound RAM;
+ * ADDA.W #32,A2 advances the destination. The two regions cannot
+ * overlap for this proven sample-ROM -> sound-RAM corridor.
+ * Preserve the unmodeled post-0xD72 frontier in dispatch_next. */
+vf2_status vf2_sound_board_copy_engine_page_512(
+    vf2_sound_board *board,
+    uint32_t *source,
+    uint32_t *destination
+)
+{
+    uint32_t sample_offset;
+    size_t i;
+    enum { COPY_BYTES = 512u, MOVEM_BLOCK_BYTES = 32u };
+    if (board == NULL || source == NULL || destination == NULL) {
+        return VF2_ERROR_INVALID_ARGUMENT;
+    }
+    if (((*source | *destination) & UINT32_C(1)) != 0u ||
+        *source < VF2_SOUND_SAMPLE_ROM_BASE ||
+        *destination > VF2_SOUND_RAM_BYTES ||
+        board->sample_rom == NULL) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    sample_offset = *source - VF2_SOUND_SAMPLE_ROM_BASE;
+    if ((uint64_t)sample_offset + COPY_BYTES > board->sample_rom_size ||
+        (uint64_t)*destination + COPY_BYTES > VF2_SOUND_RAM_BYTES) {
+        return VF2_ERROR_UNSUPPORTED;
+    }
+    /* The original destination A2 does not postincrement on MOVEM.
+     * The explicit ADDA.W #32 supplies every 32-byte increment. */
+    for (i = 0u; i < COPY_BYTES; i += MOVEM_BLOCK_BYTES) {
+        memcpy(board->sound_ram + *destination + i,
+               board->sample_rom + sample_offset + i,
+               MOVEM_BLOCK_BYTES);
+    }
+    *source += COPY_BYTES;
+    *destination += COPY_BYTES;
+    return VF2_OK;
+}
+
 vf2_status vf2_sound_board_read_u8(
     vf2_sound_board *board,
     uint32_t address,
