@@ -2134,6 +2134,51 @@ static vf2_status sound_board_run_engine_key_d92(
                (uint16_t)(rate + UINT16_C(0x0eba)));
     ram[stream + 0x01u] = 0x10u;
     report->handler_address = UINT32_C(0x00000df8);
+    /* The original 68000 now executes 16 MOVEM triplets at DF8,
+     * followed by the EB8 seven-instruction KEYON tail and RTS at
+     * ED6. Both exact fragments passed independent owner-ROM
+     * differentials (v0889/v0890). The opt-in path completes
+     * ONLY this measured arm; all other engine refusals stay.
+     * A0 comes from table+0 (C74), A2 from voice+0x0c (D9C).
+     * Preflight ALL addresses, slot and sample attachment before
+     * writing the first sample byte. Invalid state holds packet
+     * and preserves the old fail-closed 0xDF8 frontier. */
+    if (board->allow_verified_d92_copy != 0u) {
+        uint32_t source = read_be32(ram + table);
+        uint32_t destination = read_be32(voice + 0x0cu);
+        uint32_t slot_offset = (uint32_t)read_be16(voice);
+        size_t voice_offset = (size_t)(voice - (ram +
+                                                   VF2_SOUND_VOICE_TABLE_BASE));
+        size_t voice_index = voice_offset / VF2_SOUND_VOICE_BYTES;
+        vf2_status status;
+        if (board->sample_rom == NULL ||
+            board->scsp.sample_rom != board->sample_rom ||
+            board->scsp.sample_rom_size < board->sample_rom_size ||
+            voice_offset % VF2_SOUND_VOICE_BYTES != 0u ||
+            voice_index >= VF2_SOUND_VOICE_COUNT ||
+            slot_offset != (uint32_t)slot ||
+            slot_offset % VF2_SCSP_SLOT_BYTES != 0u ||
+            slot_offset >= VF2_SCSP_SLOT_COUNT * VF2_SCSP_SLOT_BYTES ||
+            source < VF2_SOUND_SAMPLE_ROM_BASE ||
+            ((source | destination) & UINT32_C(1)) != 0u ||
+            (uint64_t)(source - VF2_SOUND_SAMPLE_ROM_BASE) +
+                UINT64_C(512) > board->sample_rom_size ||
+            destination > VF2_SOUND_RAM_BYTES - UINT32_C(512)) {
+            return VF2_ERROR_UNSUPPORTED;
+        }
+        status = vf2_sound_board_copy_engine_page_512(
+            board, &source, &destination);
+        if (status != VF2_OK) {
+            return status;
+        }
+        status = vf2_sound_board_finalize_engine_copy_eb8(
+            board, voice_index, source, destination);
+        if (status != VF2_OK) {
+            return status;
+        }
+        report->handler_address = UINT32_C(0x00000ed6);
+        return VF2_OK;
+    }
     return VF2_ERROR_UNSUPPORTED;
 }
 
