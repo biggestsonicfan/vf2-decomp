@@ -63,6 +63,53 @@ class TestFrameEvidence(unittest.TestCase):
         self.assertEqual(result["original_i960_ring_writers"][0]["first_command"],
                          "0x00ad2342")
 
+    def test_true_original_writer_pc_no_hit_proof(self):
+        record = frame()
+        record.update({
+            "original_i960_ring_writes": 1,
+            "original_i960_first_ring_slot": 0x00504020,
+            "original_i960_first_ring_word": 0x00AD2342,
+            "original_i960_first_writer_pc": 0x00043924,
+            "original_i960_writer_pc_proven": True,
+        })
+        result = audit(record)
+        self.assertTrue(result["gates"]["original_producer_pc_verified"])
+        self.assertEqual(result["counts"]["frames_with_original_i960_writer_pc"], 1)
+        self.assertEqual(
+            result["original_i960_ring_writers"][0]["original_instruction_ip"],
+            "0x00043924"
+        )
+        self.assertFalse(result["gates"]["natural_fighter_hit_proven"])
+        self.assertFalse(result["gates"]["original_isr_to_m68k_link_verified"])
+
+    def test_forged_or_misaligned_writer_pc_refused(self):
+        record = frame()
+        record.update({
+            "original_i960_ring_writes": 1,
+            "original_i960_first_ring_slot": 0x00504020,
+            "original_i960_first_ring_word": 0x00AD2342,
+            "original_i960_first_writer_pc": 0x00043925,
+            "original_i960_writer_pc_proven": True,
+        })
+        with self.assertRaisesRegex(ValueError, "invalid original"):
+            audit(record)
+        record["original_i960_first_writer_pc"] = 0x00043924
+        record["original_i960_writer_pc_proven"] = False
+        with self.assertRaisesRegex(ValueError, "invalid original"):
+            audit(record)
+
+    def test_true_writer_pc_requires_real_write(self):
+        record = frame()
+        record.update({
+            "original_i960_ring_writes": 0,
+            "original_i960_first_ring_slot": 0,
+            "original_i960_first_ring_word": 0,
+            "original_i960_first_writer_pc": 0x00043924,
+            "original_i960_writer_pc_proven": True,
+        })
+        with self.assertRaisesRegex(ValueError, "invalid original"):
+            audit(record)
+
     def test_wrong_i960_slot_and_claim_refused(self):
         record = frame()
         record.update({
