@@ -99,6 +99,13 @@ int main(void)
             regs.d[k] = UINT32_C(0x12340000) | (uint32_t)(k * 0x101u);
         }
         status = vf2_m68k_run(&bus, &regs, 4u, 0, 1u, &done);
+        fprintf(stderr,
+                "MOVEM diag: status=%d pc=%05x steps=%u a2=%05x "
+                "D0=%08x dest=%02x%02x%02x%02x\n",
+                (int)status, (unsigned)regs.pc, (unsigned)done,
+                (unsigned)regs.a[2], (unsigned)regs.d[0],
+                (unsigned)ram[0x2000], (unsigned)ram[0x2001],
+                (unsigned)ram[0x2002], (unsigned)ram[0x2003]);
         EXPECT_TRUE(status == VF2_OK);
         EXPECT_TRUE(regs.pc == 4u);
         EXPECT_TRUE(regs.a[2] == UINT32_C(0x2000));
