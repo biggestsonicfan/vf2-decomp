@@ -2557,6 +2557,38 @@ static vf2_status sound_board_run_allocator_0f12(
             ram[UINT32_C(0x251a) + 2u] = (uint8_t)(next >> 8u);
             ram[UINT32_C(0x251a) + 3u] = (uint8_t)next;
             report->handler_address = UINT32_C(0x00000fac);
+            /* Verified natural frame-342 9E 0A 7F:
+             * the ORIGINAL 68000 arrives at 0xFAC with D4=0,
+             * A1=0x2800 and a free, even slot-0 voice. ROM
+             * BRA.W at FAC enters the already recovered A8C
+             * setup author, which reaches the SCSP KEYON path.
+             * Do NOT generalize to allocator arrivals with
+             * unknown D4 residue, odd slots, other commands,
+             * or missing full audio/sample bank. Default-off
+             * preserves the established fail-closed behavior. */
+            if (board->allow_verified_90_allocator != 0u &&
+                report->command == UINT8_C(0x9e) &&
+                report->payload == UINT8_C(0x0a) &&
+                record == VF2_SOUND_VOICE_TABLE_BASE &&
+                read_be16(ram + record) == 0u &&
+                board->audio_rom != NULL &&
+                board->audio_rom_size >= UINT32_C(0x80000) &&
+                board->sample_rom != NULL &&
+                board->sample_rom_size >= UINT32_C(0x800000) &&
+                board->scsp.sample_rom == board->sample_rom &&
+                (read_be16(ram + VF2_SOUND_COMMAND_CURSOR) &
+                    UINT16_C(0x0fff)) <= UINT16_C(0x0ffd)) {
+                uint16_t ring_cursor = (uint16_t)(
+                    read_be16(ram + VF2_SOUND_COMMAND_CURSOR) &
+                    UINT16_C(0x0fff));
+                uint8_t *ring = ram + VF2_SOUND_COMMAND_RING_BASE;
+                if (ring[ring_cursor] == UINT8_C(0x9e) &&
+                    ring[ring_cursor + 1u] == UINT8_C(0x0a) &&
+                    ring[ring_cursor + 2u] == UINT8_C(0x7f)) {
+                    return sound_board_setup_author_at(
+                        board, descriptor, ram + record, report);
+                }
+            }
             return VF2_ERROR_UNSUPPORTED;
         }
     }
