@@ -96,6 +96,7 @@ jobs:
             build/vf2_m68k_l3_selection_tests
             build/vf2_m68k_90_ad_followup_tests
             build/vf2_m68k_cdispatch_tests
+            build/vf2_m68k_engine_copy_page_tests
           if-no-files-found: error
 
   sanitizers:
