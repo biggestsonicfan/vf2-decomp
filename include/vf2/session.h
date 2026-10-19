@@ -10,6 +10,7 @@
 
 #include "vf2/lift/runtime.h"
 #include "vf2/model2a.h"
+#include "vf2/i960/snapshot.h"
 #include "vf2/status.h"
 
 #define VF2_SESSION_WIDTH 496u
@@ -34,6 +35,16 @@ vf2_status vf2_session_step(vf2_session *session, uint32_t input);
  * runtime reproduces the oracle.  A session mixes the two steppers at its
  * peril; run one session per mode. */
 vf2_status vf2_session_step_oracle(vf2_session *session, uint32_t input);
+
+/* Passive checkpoint of the CURRENT original i960 CPU and Model 2A
+ * machine state. Reuse the same initialized snapshot across frames.
+ * Requires a session that has NOT executed the recovered native
+ * stepper; caller may write it using vf2_i960_snapshot_write_file.
+ * Does NOT capture the separate SCSP sound-board state. */
+vf2_status vf2_session_capture_oracle_snapshot(
+    vf2_session *session,
+    vf2_i960_snapshot *destination
+);
 
 /* Like vf2_session_step_oracle, but dispatches each instruction through the
  * lifted>interpreter tiers of the recovered>lifted>interpreter registry, using
