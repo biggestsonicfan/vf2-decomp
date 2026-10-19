@@ -288,9 +288,37 @@ static void isolate_command(size_t command,
                 &step_scsp, frame342_s_left, frame342_s_right, 4096u);
             CHECK(cs == VF2_OK);
             CHECK(ss == VF2_OK);
+            printf("FRAME342_SCSP_POST PCM_SLOT0 "
+                   "C_addr=%08x S_addr=%08x "
+                   "C_step=%08x S_step=%08x "
+                   "C_env=%d S_env=%d "
+                   "C_state=%u S_state=%u "
+                   "C_backward=%u S_backward=%u\n",
+                   (unsigned)board.scsp.slot_address[0],
+                   (unsigned)step_scsp.slot_address[0],
+                   (unsigned)board.scsp.slot_step[0],
+                   (unsigned)step_scsp.slot_step[0],
+                   (int)board.scsp.slot_envelope[0],
+                   (int)step_scsp.slot_envelope[0],
+                   (unsigned)board.scsp.slot_envelope_state[0],
+                   (unsigned)step_scsp.slot_envelope_state[0],
+                   (unsigned)board.scsp.slot_backward[0],
+                   (unsigned)step_scsp.slot_backward[0]);
             if (cs == VF2_OK && ss == VF2_OK) {
                 CHECK(memcmp(frame342_c_left, frame342_s_left,
                              sizeof(frame342_c_left)) == 0);
+                for (frame = 0u; frame < 4096u; ++frame) {
+                    if (frame342_c_right[frame] != frame342_s_right[frame]) {
+                        printf("FRAME342_PCM_RIGHT_FIRST_DIFF sample=%u C=%d S=%d "
+                               "C_left=%d S_left=%d\n",
+                               (unsigned)frame,
+                               (int)frame342_c_right[frame],
+                               (int)frame342_s_right[frame],
+                               (int)frame342_c_left[frame],
+                               (int)frame342_s_left[frame]);
+                        break;
+                    }
+                }
                 CHECK(memcmp(frame342_c_right, frame342_s_right,
                              sizeof(frame342_c_right)) == 0);
                 for (frame = 0u; frame < 4096u; ++frame) {
