@@ -448,6 +448,33 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
                  VF2_SOUND_VOICE_BYTES) == 0);
     CHECK(memcmp(&enabled.scsp, &reference_scsp,
                  sizeof(reference_scsp)) == 0);
+    /* The original reference is now at ED6 before its RTS,
+     * unlike the C dispatcher which has already retired the ring
+     * entry. Run the exact original post-KEYON epilogue and pin
+     * the count and read cursor; do not assume full RAM parity
+     * across other not-yet-recovered drain bookkeeping. */
+    if (before == failed) {
+        uint32_t retire_steps = 0u;
+        vf2_status retired = vf2_m68k_run(
+            &bus, &regs, UINT32_C(0x265c),
+            0, 20000u, &retire_steps);
+        CHECK(retired == VF2_OK);
+        CHECK(regs.pc == UINT32_C(0x265c));
+        CHECK(reference_ram[VF2_SOUND_COMMAND_COUNT] ==
+              enabled.sound_ram[VF2_SOUND_COMMAND_COUNT]);
+        CHECK(reference_ram[VF2_SOUND_COMMAND_CURSOR] ==
+              enabled.sound_ram[VF2_SOUND_COMMAND_CURSOR]);
+        CHECK(reference_ram[VF2_SOUND_COMMAND_CURSOR + 1u] ==
+              enabled.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u]);
+        if (retired == VF2_OK) {
+            printf("MATCH original D92 KEYON ring retirement "
+                   "steps=%u count=%u cursor=%02x%02x\\n",
+                   (unsigned)retire_steps,
+                   (unsigned)reference_ram[VF2_SOUND_COMMAND_COUNT],
+                   (unsigned)reference_ram[VF2_SOUND_COMMAND_CURSOR],
+                   (unsigned)reference_ram[VF2_SOUND_COMMAND_CURSOR+1u]);
+        }
+    }
     if (before == failed) {
         /* Model-only PCM regression: render the separately recovered
          * C SCSP state and the original-68000-programmed SCSP state
