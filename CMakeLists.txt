@@ -488,6 +488,23 @@ if(VF2_BUILD_TESTS)
     add_test(NAME vf2_audio_isr_replay_rom_free
              COMMAND vf2_audio_isr_replay --selftest)
 
+    # Optional PRIVATE owner-ROM evidence: do not check snapshots or
+    # ROMs into Git. The filename passed here must be the genuine
+    # pre-frame-342 checkpoint captured from the original i960.
+    set(VF2_AUDIO_ISR_FRAME342_SNAPSHOT "" CACHE FILEPATH
+        "Private original VF2.1 i960 pre-frame-342 snapshot for vector-15 differential")
+    if(VF2_AUDIO_ISR_FRAME342_SNAPSHOT AND
+       EXISTS "${VF2_AUDIO_ISR_FRAME342_SNAPSHOT}" AND
+       VF2_ROM_DIR AND EXISTS "${VF2_ROM_DIR}")
+        add_test(NAME vf2_audio_isr_frame342_owner_rom
+                 COMMAND vf2_audio_isr_replay
+                    "${VF2_ROM_DIR}"
+                    "${VF2_AUDIO_ISR_FRAME342_SNAPSHOT}"
+                    0x20 0x43924 0x00504024 0x009e0a7f)
+        set_tests_properties(vf2_audio_isr_frame342_owner_rom
+                             PROPERTIES TIMEOUT 900)
+    endif()
+
     # Oracle-frame UART hunt driver (v0825 8d): steps real frames through
     # the interpreter oracle with a passive bus observer on the Model 2A
     # serial port (0x009c0000). Needs the gitignored sixth-fresh snapshot;
