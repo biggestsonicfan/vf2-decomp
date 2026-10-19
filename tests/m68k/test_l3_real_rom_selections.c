@@ -366,6 +366,13 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
     vf2_m68k_regs regs;
     uint32_t steps = 0u;
     size_t i = 0u;
+    /* The original UART receiver treats C0..DF as TWO-byte
+     * commands: byte 2 files the ring; an F0..FE byte 3 is
+     * ignored. AD/9E commands file only after byte 3. */
+    const int short_form = bytes[0] >= 0xc0u &&
+        bytes[0] < 0xe0u && bytes[1] < 0x80u &&
+        bytes[2] >= 0xf0u && bytes[2] < 0xffu;
+    const size_t file_index = short_form ? 1u : 2u;
 
     if (vf2_sound_board_initialize(&board, rom, rom_size,
                                     sample_bank, sample_bank_size) !=
@@ -408,14 +415,16 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
                     (unsigned)steps);
             return 0;
         }
-        /* The receiver only assembles the ring after all three bytes. */
-        if (ram[VF2_SOUND_COMMAND_COUNT] != (uint8_t)(i == 2u) ||
-            bus.event_count != (size_t)(i == 2u)) {
+        /* Original 68000 files CD74 / CA7E / CB7F at byte 2;
+         * F8 is an ignored trailer, not a third payload byte. */
+        if (ram[VF2_SOUND_COMMAND_COUNT] !=
+                (uint8_t)(i >= file_index) ||
+            bus.event_count != (size_t)(i == file_index)) {
             fprintf(stderr, "L3 %08x byte %u: early/late ring file or poke\n",
                     (unsigned)command, (unsigned)i);
             return 0;
         }
-        if (i == 2u &&
+        if (i == file_index &&
             (bus.events[0].address != UINT32_C(0x400001) ||
              bus.events[0].is_write == 0u)) {
             fprintf(stderr, "L3 %08x: missing final hardware poke\n",
@@ -425,7 +434,8 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
     }
     if (board.sound_ram[VF2_SOUND_COMMAND_RING_BASE] != bytes[0] ||
         board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 1u] != bytes[1] ||
-        board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 2u] != bytes[2] ||
+        board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 2u] !=
+        (short_form ? 0u : bytes[2]) ||
         board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + 3u] != 0u ||
         board.sound_ram[VF2_SOUND_COMMAND_WRITE_CURSOR] != 0u ||
         board.sound_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u] != 4u ||
