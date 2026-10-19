@@ -108,6 +108,25 @@ static void isolate_command(size_t command,
 
     scsp_before = active_slots(&board.scsp);
     cls = board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor];
+    board.allow_verified_90_allocator = 0u;
+    /* Preserve the old FAC refusal as the mandatory default;
+     * then retry this one exact owner-ROM original command with
+     * the explicit 9E/slot0 opt-in. The reference 68000 is always
+     * run from the same untouched prestate. */
+    if (command == 0u) {
+        vf2_sound_dispatch_report refused = {0};
+        vf2_status refusal = vf2_sound_board_dispatch_next(
+            &board, &refused);
+        CHECK(refusal == VF2_ERROR_UNSUPPORTED);
+        CHECK(refused.handler_address == UINT32_C(0x0fac));
+        CHECK(active_slots(&board.scsp) == 0u);
+        memcpy(board.sound_ram, filed_ram, sizeof(filed_ram));
+        memcpy(&board.scsp, &filed_scsp, sizeof(filed_scsp));
+        board.sound_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+        board.sound_ram[VF2_SOUND_COMMAND_CURSOR] = 0u;
+        board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = 0u;
+        board.allow_verified_90_allocator = 1u;
+    }
     memset(&report, 0, sizeof(report));
     c = vf2_sound_board_dispatch_next(&board, &report);
     scsp_c = active_slots(&board.scsp);
@@ -197,6 +216,24 @@ static void isolate_command(size_t command,
     CHECK(scsp_s <= VF2_SCSP_SLOT_COUNT);
     CHECK(report.command == cls);
     CHECK(report.cursor_before == cursor);
+    if (command == 0u) {
+        CHECK(s == VF2_OK);
+        CHECK(c == VF2_OK);
+        CHECK(report.handled == 1);
+        CHECK(scsp_s == 1u);
+        CHECK(scsp_c == scsp_s);
+        CHECK(memcmp(board.scsp.registers, step_scsp.registers,
+                     VF2_SCSP_REGISTER_BYTES) == 0);
+        CHECK(memcmp(board.scsp.slot_active, step_scsp.slot_active,
+                     VF2_SCSP_SLOT_COUNT) == 0);
+        CHECK(board.sound_ram[UINT32_C(0x2000)] == UINT8_C(0x80));
+    }
+    if (command >= 1u && command <= 3u) {
+        size_t descriptor = VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
+            (size_t)(cls & UINT8_C(0x0f)) *
+            VF2_SOUND_COMMAND_DESCRIPTOR_BYTES + 2u;
+        CHECK(board.sound_ram[descriptor] == step_ram[descriptor]);
+    }
 }
 
 int main(int argc, char **argv)
