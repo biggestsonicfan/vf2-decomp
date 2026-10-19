@@ -350,3 +350,72 @@ JSONL but do not overwrite the first replay point. Tests include
 two-checkpoint determinism check (skips when owner snapshot absent).
 `vf2_python_audio_frame_evidence` checks forged addresses and
 unsupported IP/hit claims without proprietary ROMs.
+
+
+## v0895 — Exact instruction-PC witness for original i960 sound-ring writes
+
+The previous frame-capture hook (v0894) could prove an original
+`0x00504020..0x0050405F` bus write, but not the particular instruction
+that performed it. The session now retains an **active-oracle-step
+instruction IP**, snapshotted immediately **before**
+`vf2_i960_step` executes and visible only to a Model 2A memory
+observer *during that execution*. This matters for branch or ISR
+instructions where `cpu.ip` is changed before a post-step observer
+would inspect it.
+
+The new read-only API is:
+
+```c
+vf2_status vf2_session_current_oracle_instruction_ip(
+    const vf2_session *session, uint32_t *instruction_ip);
+```
+
+- Outside the active original i960 instruction, this returns
+  `VF2_ERROR_UNSUPPORTED`, not a stale or guessed PC.
+- NULL arguments are refused. Native/recovered sessions cannot
+  report this original-instruction witness.
+- During one aligned original i960 4-byte sound-ring bus write,
+  `vf2_host` records the address, original 32-bit word, and exact
+  pre-instruction IP. The existing pre-frame `.vf2snap` is still
+  captured before the original frame and only persisted after
+  observing the first write.
+- The JSONL now has `original_i960_first_writer_pc` and
+  `original_i960_writer_pc_proven`. When the observer actually
+  obtains the original instruction's PC, the boolean is true; if
+  not, the address is zero and the flag stays false. The analysis
+  validates flag/PC alignment, writes and slot coherence.
+  It separately counts `frames_with_original_i960_writer_pc`.
+
+Sample output is **illustrative only**, not a captured real hit:
+
+```json
+{
+  "original_i960_ring_writes": 1,
+  "original_i960_first_ring_slot": 5267488,
+  "original_i960_first_ring_word": 11346754,
+  "original_i960_first_writer_pc": 276772,
+  "original_i960_writer_pc_proven": true,
+  "natural_fighter_hit_proven": false
+}
+```
+
+The actual writer PC **must be taken from the recorded frame**,
+not a guessed `0x43924`. The JSONL is locally generated evidence,
+not authenticated/cryptographically attested; replay a captured
+`.vf2snap` under an independent original-PC instruction trace to
+confirm the writer before elevating conclusions.
+
+This proves only the writing *instruction* for the first ring word.
+It does not on its own establish that the i960 sound was triggered
+by a fighter collision, that the original vector-15 ISR transmitted
+this exact word, that a real 68000 interrupt reached the L3
+receiver, or that modeled PCM matches Model 2 SCSP DSP output.
+The separately recovered D92 C branch remains explicitly
+opt-in. No original ROM, original snapshot, or generated trace is
+added to Git.
+
+Regression gates are the ROM-free Python
+`vf2_python_audio_frame_evidence` CTest and `vf2_host` invalid
+arguments, plus original-ROM `vf2_session_uart_probe` witness checks
+when a local boot snapshot is available. If the snapshot is not
+present, the latter test skips rather than fabricating a PC.
