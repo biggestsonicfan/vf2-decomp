@@ -616,6 +616,15 @@ if(VF2_BUILD_TESTS)
     add_test(NAME vf2_m68k_l2_ad_integration
              COMMAND vf2_m68k_l2_ad_integration_tests)
 
+    # Verify the second packet produced by the AD23/AD24 worker:
+    # original 90 HIGH data lookup, Loop-B field writes and hold.
+    add_executable(vf2_m68k_90_ad_followup_tests
+                   tests/m68k/test_90_ad_followup.c)
+    target_link_libraries(vf2_m68k_90_ad_followup_tests PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_90_ad_followup_tests)
+    add_test(NAME vf2_m68k_90_ad_followup
+             COMMAND vf2_m68k_90_ad_followup_tests)
+
     add_executable(vf2_m68k_snapshot_tests tests/m68k/test_snapshot.c)
     target_link_libraries(vf2_m68k_snapshot_tests PRIVATE vf2_core)
     vf2_set_project_warnings(vf2_m68k_snapshot_tests)
