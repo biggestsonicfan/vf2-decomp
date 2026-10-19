@@ -163,6 +163,42 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
     regs.a[7] = UINT32_C(0x7f00);
     sstatus = vf2_m68k_run(&bus, &regs, UINT32_C(0x2198),
                            0, 300u, &steps);
+    fprintf(stderr,
+            "L2 %08x detailed: count C/S %u/%u cursor C/S %04x/%04x "
+            "flags C/S %02x/%02x latch C/S %02x/%02x "
+            "countdown C/S %02x%02x/%02x%02x\n",
+            (unsigned)command,
+            (unsigned)ram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)after,
+            (unsigned)(((uint16_t)step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR] << 8u) |
+                       step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]),
+            (unsigned)ram[active], (unsigned)step_ram[active],
+            (unsigned)ram[active+1u], (unsigned)step_ram[active+1u],
+            (unsigned)ram[active+2u], (unsigned)ram[active+3u],
+            (unsigned)step_ram[active+2u], (unsigned)step_ram[active+3u]);
+    {
+        size_t ix;
+        for (ix = 0u; ix < VF2_SOUND_STREAM_DESCRIPTOR_BYTES; ++ix) {
+            if (ram[active+ix] != step_ram[active+ix]) {
+                fprintf(stderr,"L2 first descriptor diff +%02x C=%02x S=%02x\n",
+                        (unsigned)ix,
+                        (unsigned)ram[active+ix],
+                        (unsigned)step_ram[active+ix]);
+                break;
+            }
+        }
+        for (ix = 0u; ix < 0x1000u; ++ix) {
+            if (ram[VF2_SOUND_COMMAND_RING_BASE+ix] !=
+                step_ram[VF2_SOUND_COMMAND_RING_BASE+ix]) {
+                fprintf(stderr,"L2 first ring diff +%03x C=%02x S=%02x\n",
+                        (unsigned)ix,
+                        (unsigned)ram[VF2_SOUND_COMMAND_RING_BASE+ix],
+                        (unsigned)step_ram[VF2_SOUND_COMMAND_RING_BASE+ix]);
+                break;
+            }
+        }
+    }
     if (sstatus != VF2_OK || regs.pc != UINT32_C(0x2198) ||
         step_ram[VF2_SOUND_COMMAND_COUNT] != 2u ||
         step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR] != (uint8_t)(after >> 8u) ||
