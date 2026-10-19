@@ -480,6 +480,10 @@ static int write_audio_evidence_frame(
                 "\"original_i960_first_ring_word\":%u,"
                 "\"original_i960_first_writer_pc\":%u,"
                 "\"original_i960_writer_pc_proven\":%s,"
+                "\"original_i960_target_writer_observed\":%s,"
+                "\"original_i960_target_writer_pc\":%u,"
+                "\"original_i960_target_slot\":%u,"
+                "\"original_i960_target_word\":%u,"
                 "\"uart_forwarded_hex\":\"",
                 (unsigned)frame, (unsigned)input,
                 (unsigned)queue_before, (unsigned)queue_after,
@@ -487,7 +491,15 @@ static int write_audio_evidence_frame(
                 (unsigned)writer->first_address,
                 (unsigned)writer->first_command,
                 (unsigned)writer->first_writer_pc,
-                writer->first_writer_pc_proven ? "true" : "false") < 0) {
+                writer->first_writer_pc_proven ? "true" : "false",
+                writer->matched_pre_event ? "true" : "false",
+                (unsigned)(writer->matched_pre_event
+                    ? writer->filter_by_pc
+                        ? writer->requested_writer_pc
+                        : writer->first_writer_pc
+                    : 0u),
+                (unsigned)writer->matched_slot,
+                (unsigned)writer->matched_word) < 0) {
         return 0;
     }
     for (i = 0u; i < pump_report->observed_uart_count; ++i) {
