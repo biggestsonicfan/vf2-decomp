@@ -65,6 +65,13 @@ jobs:
           name: vf2i960-linux
           path: build/vf2i960
           if-no-files-found: error
+      - name: Publish original-i960 audio writer replay tool
+        if: matrix.compiler == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vf2-audio-writer-replay-linux
+          path: build/vf2_audio_writer_replay
+          if-no-files-found: error
       - name: Publish vf2cycles differential binary
         if: matrix.compiler == 'gcc'
         uses: actions/upload-artifact@v4
