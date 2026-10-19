@@ -454,6 +454,91 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
     return 1;
 }
 
+/* Replay an EXACT UART byte stream without invented fixed three-byte
+ * packet boundaries. The ORIGINAL 68000 L3 distinguishes 2-byte Cx
+ * commands, ignored F0-FE bytes and 3-byte AD/9E commands. Compare
+ * C-vs-original memory/SCSP state and actual hardware-poke count at
+ * every individual byte. This remains an isolated 68000 L3 fixture;
+ * source-of-frame and hardware interrupt timing are separate oracles. */
+static int check_uart_stream(
+    const uint8_t *bytes,
+    size_t length,
+    const uint8_t *rom,
+    size_t rom_size
+)
+{
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    size_t i;
+    uint32_t steps = 0u;
+    if (bytes == NULL || length == 0u ||
+        vf2_sound_board_initialize(&board, rom, rom_size,
+                                    sample_bank, sample_bank_size) !=
+            VF2_OK) {
+        fprintf(stderr, "L3 UART stream initialization failed\n");
+        return 0;
+    }
+    memcpy(step_ram, board.sound_ram, sizeof(step_ram));
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&bus, 0, sizeof(bus));
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = rom;
+    bus.rom_size = rom_size;
+    bus.sample_rom = sample_bank;
+    bus.sample_rom_size = sample_bank_size;
+    bus.scsp = &step_scsp;
+
+    for (i = 0u; i < length; ++i) {
+        vf2_status c_status, s_status;
+        uint8_t before = board.sound_ram[VF2_SOUND_COMMAND_COUNT];
+        uint8_t after;
+        uint8_t newly_filed;
+        size_t event_index;
+        c_status = vf2_sound_board_file_uart_byte(&board, bytes[i]);
+        vf2_m68k_regs_reset(&regs);
+        regs.d[0] = bytes[i];
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        regs.pc = UINT32_C(0x52e);
+        bus.event_count = 0u;
+        s_status = vf2_m68k_run(&bus, &regs, UINT32_C(0x5ea),
+                                0, L3_STEP_LIMIT, &steps);
+        after = board.sound_ram[VF2_SOUND_COMMAND_COUNT];
+        newly_filed = (uint8_t)(after - before);
+        if (c_status != VF2_OK || s_status != VF2_OK ||
+            regs.pc != UINT32_C(0x5ea) ||
+            !compare_ram(board.sound_ram, step_ram, i) ||
+            memcmp(&board.scsp, &step_scsp, sizeof(step_scsp)) != 0 ||
+            bus.event_count != (size_t)newly_filed) {
+            fprintf(stderr,
+                    "L3 UART stream byte %u/%u = %02x differs:"
+                    " C=%d S=%d pc=%05x count=%u->%u events=%u\n",
+                    (unsigned)i, (unsigned)length, (unsigned)bytes[i],
+                    (int)c_status, (int)s_status, (unsigned)regs.pc,
+                    (unsigned)before, (unsigned)after,
+                    (unsigned)bus.event_count);
+            return 0;
+        }
+        for (event_index = 0u; event_index < bus.event_count; ++event_index) {
+            if (bus.events[event_index].address != UINT32_C(0x400001) ||
+                bus.events[event_index].is_write == 0u) {
+                fprintf(stderr, "L3 UART stream unexpected hardware poke"
+                        " at byte %u\n", (unsigned)i);
+                return 0;
+            }
+        }
+    }
+    fprintf(stderr,
+            "MATCH C/68000 original UART stream bytes=%u ring_count=%u"
+            " write_cursor=%02x%02x\n",
+            (unsigned)length,
+            (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
+            (unsigned)board.sound_ram[VF2_SOUND_COMMAND_WRITE_CURSOR],
+            (unsigned)board.sound_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     static const struct {
@@ -470,6 +555,9 @@ int main(int argc, char **argv)
     int valid = 1;
     int l3_only = 0;
     int l3_matrix = 0;
+    int l3_stream = 0;
+    uint8_t stream_bytes[64] = {0u};
+    size_t stream_length = 0u;
     uint32_t l3_packet = 0u;
 
     /*
@@ -480,23 +568,30 @@ int main(int argc, char **argv)
      * Keep the two original A0/L2 ROM-table tests unchanged by default.
      */
     if (argc != 2 && !(argc == 4 &&
-                       strcmp(argv[2], "--l3-packet") == 0) &&
+                       (strcmp(argv[2], "--l3-packet") == 0 ||
+                        strcmp(argv[2], "--uart-stream") == 0)) &&
         !(argc == 3 && strcmp(argv[2], "--matrix-l3") == 0)) {
         fprintf(stderr,
-                "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits> | --matrix-l3]\n",
+                "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits> "
+                "| --uart-stream <even-hex-digits> | --matrix-l3]\n",
                 argv[0]);
         return 2;
     }
     l3_matrix = argc == 3;
+    l3_stream = argc == 4 &&
+        strcmp(argv[2], "--uart-stream") == 0;
     if (argc == 4) {
         const char *hex = argv[3];
-        size_t j;
-        l3_only = 1;
-        if (hex == NULL || strlen(hex) != 6u) {
-            fprintf(stderr, "--l3-packet requires exactly six hex digits\n");
+        size_t j, length = hex != NULL ? strlen(hex) : 0u;
+        l3_only = !l3_stream;
+        if (length == 0u || (length & 1u) != 0u ||
+            length > sizeof(stream_bytes) * 2u ||
+            (!l3_stream && length != 6u)) {
+            fprintf(stderr, "UART input requires an even 2..128 hex digits "
+                            "(--l3-packet exactly six)\n");
             return 2;
         }
-        for (j = 0u; j < 6u; ++j) {
+        for (j = 0u; j < length; ++j) {
             unsigned digit;
             if (hex[j] >= '0' && hex[j] <= '9') {
                 digit = (unsigned)(hex[j] - '0');
@@ -505,11 +600,20 @@ int main(int argc, char **argv)
             } else if (hex[j] >= 'A' && hex[j] <= 'F') {
                 digit = 10u + (unsigned)(hex[j] - 'A');
             } else {
-                fprintf(stderr, "--l3-packet has a non-hex digit\n");
+                fprintf(stderr, "UART input has a non-hex digit\n");
                 return 2;
             }
-            l3_packet = (l3_packet << 4u) | (uint32_t)digit;
+            if (l3_stream) {
+                if ((j & 1u) == 0u) {
+                    stream_bytes[j / 2u] = (uint8_t)(digit << 4u);
+                } else {
+                    stream_bytes[j / 2u] |= (uint8_t)digit;
+                }
+            } else {
+                l3_packet = (l3_packet << 4u) | (uint32_t)digit;
+            }
         }
+        stream_length = length / 2u;
     }
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &audio, &audio_size) != VF2_OK ||
@@ -587,6 +691,9 @@ int main(int argc, char **argv)
         }
     } else if (l3_only) {
         valid = check_one(l3_packet, audio, audio_size, 1);
+    } else if (l3_stream) {
+        valid = check_uart_stream(
+            stream_bytes, stream_length, audio, audio_size);
     } else {
         for (i = 0u; i < sizeof(legs) / sizeof(legs[0]); ++i) {
             uint32_t command = 0u;
