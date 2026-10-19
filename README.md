@@ -233,6 +233,7 @@ Start here:
 - [`docs/SOUND_SYSTEM.md`](docs/SOUND_SYSTEM.md) — technical sound-system guide (Model 2A / 68000 / SCSP), evidence map and audio reverse-engineering runbook.
 - [`docs/sound/OPCODE_ATLAS.md`](docs/sound/OPCODE_ATLAS.md) — 68000/i960 opcode-level audit and architectural effects.
 - [`docs/sound/OPCODE_TRACE.md`](docs/sound/OPCODE_TRACE.md) — local raw disassembly and differential trace workflow.
+- [`docs/sound/NATURAL_EVENT_GATE.md`](docs/sound/NATURAL_EVENT_GATE.md) — strict i960 selector-to-UART evidence gate; gameplay/68000/SCSP proof still open.
 - [`docs/DECOMP_GUIDE.md`](docs/DECOMP_GUIDE.md) — recovery workflow and conventions.
 - [`docs/I960_ANALYSIS.md`](docs/I960_ANALYSIS.md) — i960 analysis tooling.
 - [`docs/EXECUTION.md`](docs/EXECUTION.md) — execution model.
