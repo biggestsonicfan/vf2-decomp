@@ -478,6 +478,16 @@ if(VF2_BUILD_TESTS)
     add_test(NAME vf2_audio_writer_replay_rom_free
              COMMAND vf2_audio_writer_replay --selftest)
 
+    # Owner-ROM differential: original vector-15 sound ISR versus
+    # the established shadow sound drainer, from the SAME authentic
+    # pre-event checkpoint and controller input. ROM-free selftest
+    # is mandatory in CI; the owner invokes the real case manually.
+    add_executable(vf2_audio_isr_replay tests/host/test_audio_isr_replay.c)
+    target_link_libraries(vf2_audio_isr_replay PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_audio_isr_replay)
+    add_test(NAME vf2_audio_isr_replay_rom_free
+             COMMAND vf2_audio_isr_replay --selftest)
+
     # Oracle-frame UART hunt driver (v0825 8d): steps real frames through
     # the interpreter oracle with a passive bus observer on the Model 2A
     # serial port (0x009c0000). Needs the gitignored sixth-fresh snapshot;
