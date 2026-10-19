@@ -468,7 +468,7 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
               enabled.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u]);
         if (retired == VF2_OK) {
             printf("MATCH original D92 KEYON ring retirement "
-                   "steps=%u count=%u cursor=%02x%02x\\n",
+                   "steps=%u count=%u cursor=%02x%02x\n",
                    (unsigned)retire_steps,
                    (unsigned)reference_ram[VF2_SOUND_COMMAND_COUNT],
                    (unsigned)reference_ram[VF2_SOUND_COMMAND_CURSOR],
