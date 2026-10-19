@@ -362,6 +362,7 @@ static int write_audio_evidence_frame(
     uint32_t input,
     uint8_t queue_before,
     uint8_t queue_after,
+    const sound_writer_capture *writer,
     const vf2_session_audio_pump_report *pump_report,
     vf2_status pump_status,
     vf2_status render_status,
@@ -373,7 +374,7 @@ static int write_audio_evidence_frame(
     size_t i;
     size_t nonzero = 0u;
     unsigned peak = 0u;
-    if (out == NULL || pump_report == NULL ||
+    if (out == NULL || writer == NULL || pump_report == NULL ||
         pump_report->observed_uart_count >
             VF2_SESSION_AUDIO_UART_SAMPLE_CAP) {
         return 0;
@@ -392,9 +393,16 @@ static int write_audio_evidence_frame(
                 "{\"type\":\"vf2_audio_frame\",\"frame\":%u,\"input\":%u,"
                 "\"origin\":\"oracle_frame_shadow_uart_pump\","
                 "\"queue_before_step\":%u,\"queue_after_step\":%u,"
+                "\"original_i960_ring_writes\":%u,"
+                "\"original_i960_first_ring_slot\":%u,"
+                "\"original_i960_first_ring_word\":%u,"
+                "\"original_i960_writer_pc_proven\":false,"
                 "\"uart_forwarded_hex\":\"",
                 (unsigned)frame, (unsigned)input,
-                (unsigned)queue_before, (unsigned)queue_after) < 0) {
+                (unsigned)queue_before, (unsigned)queue_after,
+                (unsigned)writer->observed_writes,
+                (unsigned)writer->first_address,
+                (unsigned)writer->first_command) < 0) {
         return 0;
     }
     for (i = 0u; i < pump_report->observed_uart_count; ++i) {
@@ -537,7 +545,7 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
     }
-    if (audio_pre_event_path != NULL) {
+    if (audio_pre_event_path != NULL || audio_evidence != NULL) {
         vf2_status obs = vf2_session_set_memory_observer(
             session, sound_writer_observe, &writer);
         if (obs != VF2_OK) {
@@ -587,7 +595,7 @@ int main(int argc, char **argv)
                     break;
                 }
                 writer.original_frame_active =
-                    audio_pre_event_path != NULL && !pre_event_written;
+                    audio_pre_event_path != NULL || audio_evidence != NULL;
                 st = oracle
                     ? vf2_session_step_oracle(session, input)
                     : vf2_session_step(session, input);
@@ -652,7 +660,7 @@ int main(int argc, char **argv)
                 if (audio_evidence != NULL &&
                     !write_audio_evidence_frame(
                         audio_evidence, frame, input, queue_before,
-                        queue_after, &audio_pump, pump_status,
+                        queue_after, &writer, &audio_pump, pump_status,
                         render_status, left, right,
                         AUDIO_FRAMES_PER_VIDEO_FRAME)) {
                     fprintf(stderr,
@@ -699,8 +707,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "screenshot: cannot write %s\n", screenshot);
         rc = EXIT_FAILURE;
     }
-    if (audio_pre_event_path != NULL) {
+    if (audio_pre_event_path != NULL || audio_evidence != NULL) {
         (void)vf2_session_set_memory_observer(session, NULL, NULL);
+    }
+    if (audio_pre_event_path != NULL) {
         if (!pre_event_written) {
             fprintf(stderr,
                     "audio pre-event: no original i960 aligned sound-ring "
