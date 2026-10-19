@@ -169,6 +169,27 @@ static int run_case(const uint8_t *rom, size_t rom_size,
                    (unsigned)step_scsp.registers[0],
                    (unsigned)step_scsp.registers[1],
                    (unsigned)step_ram[0x2000u]);
+            if (s == VF2_OK && regs.pc == UINT32_C(0xcb2)) {
+                uint32_t extra = 0u;
+                /* 0x48D2 is legal MOVEM reg->(An) per Motorola PRM.
+                 * Probe its ORIGINAL bus address instead of assuming
+                 * an illegal instruction at PC=0xCB6. */
+                printf("A0 90 %02x before copy: A0=%08x A2=%08x "
+                       "D0=%08x D7=%08x\n",
+                       (unsigned)cmd, (unsigned)regs.a[0],
+                       (unsigned)regs.a[2], (unsigned)regs.d[0],
+                       (unsigned)regs.d[7]);
+                s = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff),
+                                 0, 1200u, &extra);
+                printf("A0 90 %02x post-copy: status=%d pc=%05x "
+                       "steps=%u A2=%08x SCSP-active0=%u "
+                       "SCSP[0]=%02x stream[0x2000]=%02x\n",
+                       (unsigned)cmd, (int)s, (unsigned)regs.pc,
+                       (unsigned)extra, (unsigned)regs.a[2],
+                       (unsigned)step_scsp.slot_active[0],
+                       (unsigned)step_scsp.registers[0],
+                       (unsigned)step_ram[0x2000u]);
+            }
         }
     }
     return 1;
