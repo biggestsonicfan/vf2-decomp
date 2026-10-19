@@ -88,6 +88,75 @@ static uint32_t read_be32(const uint8_t *source)
  * two authentic ROM command selectors, with one controlled descriptor
  * matching channel 0xd. The interpreter stops BEFORE the unknown body.
  */
+/* Immediately after A0 initialized one real-ROM sound descriptor,
+ * L2 is the next blocker: count +2 is 1, which the recovered C
+ * stream worker intentionally refuses BEFORE mutation. Independently
+ * step the original 68000 countdown instructions to PC 0x1f92,
+ * where the still-unrecovered worker consumes the record stream.
+ */
+static int check_l2_handoff(uint32_t command, const uint8_t *rom,
+                            size_t rom_size)
+{
+    vf2_sound_stream_maintenance_report tick;
+    vf2_status cstatus, sstatus;
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    uint32_t steps = 0u;
+    const uint32_t active = VF2_SOUND_DESCRIPTOR_BASE +
+                            UINT32_C(3) * VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
+    uint8_t *ram = board.sound_ram;
+
+    memcpy(step_ram, ram, sizeof(step_ram));
+    memcpy(&step_scsp, &board.scsp, sizeof(step_scsp));
+    memset(&tick, 0, sizeof(tick));
+    cstatus = vf2_sound_board_maintain_streams(&board, &tick);
+    if (cstatus != VF2_ERROR_UNSUPPORTED ||
+        tick.refused_stage != 2u || tick.refused_record != 3u ||
+        tick.timers_expired != 1u ||
+        memcmp(ram, step_ram, sizeof(step_ram)) != 0 ||
+        memcmp(&board.scsp, &step_scsp, sizeof(step_scsp)) != 0) {
+        fprintf(stderr,
+                "L2 %08x: C preflight unexpected status=%d stage=%u rec=%u\n",
+                (unsigned)command, (int)cstatus,
+                (unsigned)tick.refused_stage, (unsigned)tick.refused_record);
+        return 0;
+    }
+
+    memset(&bus, 0, sizeof(bus));
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = rom;
+    bus.rom_size = rom_size;
+    bus.scsp = &step_scsp;
+    vf2_m68k_regs_reset(&regs);
+    regs.pc = UINT32_C(0x1f7c);
+    regs.a[2] = active;
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    sstatus = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f92),
+                           0, 32u, &steps);
+
+    if (sstatus != VF2_OK || regs.pc != UINT32_C(0x1f92) ||
+        steps != 4u ||
+        step_ram[active + 2u] != 0u || step_ram[active + 3u] != 0u ||
+        ram[active + 2u] != 0u || ram[active + 3u] != 1u) {
+        fprintf(stderr,
+                "L2 %08x: S status=%d pc=%05x steps=%u "
+                "countdown C=%02x%02x S=%02x%02x\n",
+                (unsigned)command, (int)sstatus,
+                (unsigned)regs.pc, (unsigned)steps,
+                (unsigned)ram[active + 2u], (unsigned)ram[active + 3u],
+                (unsigned)step_ram[active + 2u],
+                (unsigned)step_ram[active + 3u]);
+        return 0;
+    }
+    fprintf(stderr,
+            "BOUNDARY L2 %08x: C preflight held record 3; "
+            "S decremented to zero and reached 0x1f92\n",
+            (unsigned)command);
+    return 1;
+}
+
 /* Real-ROM A0 record allocation: C runs the complete SOUND dispatch,
  * while the original 68000 stepper stops BEFORE the 0x1f02 RTS.
  * Compare only descriptor state at this common semantic boundary;
@@ -141,6 +210,8 @@ static int check_a0_join(uint32_t command, const uint8_t *rom,
            VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
     ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE] = 0x80u;
     ram[VF2_SOUND_COMMAND_DESCRIPTOR_BASE + 1u] = 0x0du;
+    memset(ram + VF2_SOUND_DESCRIPTOR_BASE, 0,
+           8u * VF2_SOUND_STREAM_DESCRIPTOR_BYTES);
     for (i = 0u; i < 6u; ++i) {
         ram[VF2_SOUND_DESCRIPTOR_BASE +
             (i+1u) * VF2_SOUND_STREAM_DESCRIPTOR_BYTES] = 0x80u;
@@ -190,7 +261,7 @@ static int check_a0_join(uint32_t command, const uint8_t *rom,
             "MATCH A0 %08x: stepper 0x1f02, slot2 initialized "
             "ptr=%08x / clear32, C consumed ring\n",
             (unsigned)command, (unsigned)expected_postinc);
-    return 1;
+    return check_l2_handoff(command, rom, rom_size);
 }
 
 static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size)
