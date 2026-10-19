@@ -165,12 +165,31 @@ static void isolate_command(size_t command,
         if (pre != VF2_OK) {
             s = pre;
         } else {
-            uint32_t tail_steps = 0u;
-            s = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
-                              0, 20000u, &tail_steps);
-            printf("FRAME342_FAC_TO_EXIT status=%d steps=%u\n",
-                   (int)s, (unsigned)tail_steps);
-            steps = presteps + tail_steps;
+            uint32_t to_copy = 0u, tail_steps = 0u;
+            vf2_status reached = vf2_m68k_run(
+                &bus, &regs, UINT32_C(0x0cb2),
+                0, 20000u, &to_copy);
+            printf("FRAME342_FAC_TO_CB2 status=%d pc=%05x steps=%u "
+                   "a0=%08x a1=%08x a2=%08x a3=%08x "
+                   "d5=%08x voice_sample=%02x%02x%02x%02x\n",
+                   (int)reached, (unsigned)regs.pc, (unsigned)to_copy,
+                   (unsigned)regs.a[0], (unsigned)regs.a[1],
+                   (unsigned)regs.a[2], (unsigned)regs.a[3],
+                   (unsigned)regs.d[5],
+                   (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 12u],
+                   (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 13u],
+                   (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 14u],
+                   (unsigned)step_ram[VF2_SOUND_VOICE_TABLE_BASE + 15u]);
+            if (reached == VF2_OK) {
+                s = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                                  0, 20000u, &tail_steps);
+                steps = presteps + to_copy + tail_steps;
+                printf("FRAME342_CB2_TO_EXIT status=%d steps=%u\n",
+                       (int)s, (unsigned)tail_steps);
+            } else {
+                s = reached;
+                steps = presteps + to_copy;
+            }
         }
     } else {
         s = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
