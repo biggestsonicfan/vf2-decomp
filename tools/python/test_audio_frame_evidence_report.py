@@ -89,6 +89,46 @@ class TestFrameEvidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "without writes"):
             audit(record)
 
+    def test_later_pc_target_after_startup_zeroing(self):
+        record = frame(index=0, before=0, after=1, uart="ae101f")
+        record.update({
+            "original_i960_ring_writes": 17,
+            "original_i960_first_ring_slot": 0x00504020,
+            "original_i960_first_ring_word": 0,
+            "original_i960_first_writer_pc": 0x100,
+            "original_i960_writer_pc_proven": True,
+            "original_i960_target_writer_observed": True,
+            "original_i960_target_writer_pc": 0x43924,
+            "original_i960_target_slot": 0x00504020,
+            "original_i960_target_word": 0x00AE101F,
+        })
+        result = audit(record)
+        self.assertEqual(result["counts"]["frames_with_selected_i960_writer"], 1)
+        self.assertEqual(result["original_i960_selected_writers"][0]["pc"],
+                         "0x00043924")
+        self.assertEqual(result["original_i960_selected_writers"][0]["word"],
+                         "0x00ae101f")
+        self.assertFalse(result["gates"]["natural_fighter_hit_proven"])
+
+    def test_invalid_selected_producer_rejected(self):
+        record = frame()
+        record.update({
+            "original_i960_ring_writes": 1,
+            "original_i960_first_ring_slot": 0x00504020,
+            "original_i960_first_ring_word": 0,
+            "original_i960_writer_pc_proven": False,
+            "original_i960_target_writer_observed": True,
+            "original_i960_target_writer_pc": 0x43924,
+            "original_i960_target_slot": 0x00504021,
+            "original_i960_target_word": 0xAE101F,
+        })
+        with self.assertRaisesRegex(ValueError, "invalid selected"):
+            audit(record)
+        record["original_i960_target_slot"] = 0x00504020
+        record["original_i960_target_writer_observed"] = False
+        with self.assertRaisesRegex(ValueError, "unobserved target"):
+            audit(record)
+
     def test_forged_or_misaligned_writer_pc_refused(self):
         record = frame()
         record.update({
