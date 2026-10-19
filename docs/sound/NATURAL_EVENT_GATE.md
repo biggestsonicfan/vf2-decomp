@@ -391,7 +391,7 @@ Sample output is **illustrative only**, not a captured real hit:
 ```json
 {
   "original_i960_ring_writes": 1,
-  "original_i960_first_ring_slot": 5267488,
+  "original_i960_first_ring_slot": 5259296,
   "original_i960_first_ring_word": 11346754,
   "original_i960_first_writer_pc": 276772,
   "original_i960_writer_pc_proven": true,
