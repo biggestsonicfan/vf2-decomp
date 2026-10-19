@@ -178,6 +178,17 @@ vf2_status vf2_sound_board_finalize_engine_copy_d72(
     uint32_t destination_end
 );
 
+/* Alternate original 68000 engine tail 0xEB8..0xED6 (7 instructions).
+ * Same pointer/SCSP KEYON writes as 0xD72..0xD90, but stream+0=0x81.
+ * The caller must have completed and validated the 512-byte page at
+ * 0xDF8..0xEB8. No dispatcher or live-event semantics are implied. */
+vf2_status vf2_sound_board_finalize_engine_copy_eb8(
+    vf2_sound_board *board,
+    size_t voice_index,
+    uint32_t sample_end,
+    uint32_t destination_end
+);
+
 vf2_status vf2_sound_board_read_u8(
     vf2_sound_board *board,
     uint32_t address,
