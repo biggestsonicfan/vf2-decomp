@@ -98,7 +98,7 @@ int main(void)
         for (k = 0u; k < 8u; ++k) {
             regs.d[k] = UINT32_C(0x12340000) | (uint32_t)(k * 0x101u);
         }
-        status = vf2_m68k_run(&bus, &regs, 4u, 0, 1u, &done);
+        status = vf2_m68k_run(&bus, &regs, 4u, 0, 2u, &done);
         fprintf(stderr,
                 "MOVEM diag: status=%d pc=%05x steps=%u a2=%05x "
                 "D0=%08x dest=%02x%02x%02x%02x\n",
