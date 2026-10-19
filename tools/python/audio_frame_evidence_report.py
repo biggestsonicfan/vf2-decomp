@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Audit oracle-frame sound evidence without claiming a natural combat hit.
+
+Reads newline-delimited observations from vf2_host --audio-evidence-jsonl.
+A valid report can identify promising *frames* for the independent original
+i960 opcode/selector trace. It cannot attest event provenance or true
+68000 IRQ/DSP/audio timing; a JSONL file is not cryptographic evidence.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from collections import Counter
+from pathlib import Path
+
+HEX = re.compile(r"[0-9a-fA-F]*\Z")
+CAP = 48
+
+
+def _integer(event: dict, name: str, maximum: int | None = None) -> int:
+    value = event.get(name)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{name}: expected non-negative integer")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name}: value exceeds maximum {maximum}")
+    return value
+
+
+def audit_observations(lines, *, max_candidates: int = 64) -> dict:
+    if not isinstance(max_candidates, int) or max_candidates < 0:
+        raise ValueError("max_candidates must be nonnegative")
+    frames = 0
+    last_frame = -1
+    count = Counter()
+    candidates = []
+    observed_bytes = 0
+    for line_number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"line {line_number}: invalid JSON") from exc
+        if not isinstance(event, dict) or event.get("type") != "vf2_audio_frame":
+            raise ValueError(f"line {line_number}: unsupported record")
+        if event.get("origin") != "oracle_frame_shadow_uart_pump":
+            raise ValueError(f"line {line_number}: not an original i960 oracle frame")
+        frame = _integer(event, "frame")
+        if frame != last_frame + 1:
+            raise ValueError(f"line {line_number}: discontinuous frame number")
+        last_frame = frame
+        frames += 1
+        _integer(event, "input", 0xFFFFFFFF)
+        before = _integer(event, "queue_before_step", 255)
+        after = _integer(event, "queue_after_step", 255)
+        forwarded = _integer(event, "bytes_moved", CAP)
+        captured = _integer(event, "uart_count", CAP)
+        truncated = _integer(event, "uart_truncated")
+        hexed = event.get("uart_forwarded_hex")
+        if (not isinstance(hexed, str) or len(hexed) != 2 * captured
+                or HEX.fullmatch(hexed) is None):
+            raise ValueError(f"line {line_number}: UART bytes invalid")
+        if captured + truncated != forwarded:
+            raise ValueError(f"line {line_number}: captured bytes disagree with transport")
+        filed = _integer(event, "entries_filed", 255)
+        dispatched = _integer(event, "entries_dispatched", 255)
+        refused = _integer(event, "entries_refused", 255)
+        keyons = _integer(event, "d92_keyons_retired", 255)
+        if dispatched + refused != filed or keyons > dispatched:
+            raise ValueError(f"line {line_number}: dispatcher accounting mismatch")
+        pcm_frames = _integer(event, "pcm_frames")
+        nonzero = _integer(event, "pcm_nonzero_frames")
+        peak = _integer(event, "pcm_peak", 32768)
+        if nonzero > pcm_frames or (pcm_frames == 0 and peak != 0):
+            raise ValueError(f"line {line_number}: impossible PCM summary")
+        for attr in ("pump_status", "drain_status", "stream_status",
+                     "voice_status", "render_status"):
+            if not isinstance(event.get(attr), int) or isinstance(event[attr], bool):
+                raise ValueError(f"line {line_number}: status {attr} not integer")
+        # These explicit false assertions are deliberately never promoted by
+        # this parser; a witness requires an independently captured PC trace.
+        for claim in ("natural_fighter_hit_proven", "original_uart_irq_proven",
+                      "hardware_pcm_proven"):
+            if event.get(claim) is not False:
+                raise ValueError(f"line {line_number}: unsupported truth claim {claim}")
+        observed_bytes += captured
+        count["frames_with_uart"] += int(captured > 0)
+        count["frames_with_d92_keyon"] += int(keyons > 0)
+        count["frames_with_nonzero_pcm"] += int(nonzero > 0)
+        count["frames_with_i960_queue_growth"] += int(after > before)
+        count["frames_with_truncation"] += int(truncated > 0)
+        if after > before and forwarded > 0:
+            count["temporal_queue_growth_uart_candidates"] += 1
+            if len(candidates) < max_candidates:
+                candidates.append({
+                    "frame": frame,
+                    "input": event["input"],
+                    "queue_before": before,
+                    "queue_after": after,
+                    "uart_forwarded_hex": hexed,
+                    "d92_keyons_retired": keyons,
+                    "pcm_nonzero_frames": nonzero,
+                    "reason": "queue growth and shadow UART in same frame; NOT cause of hit",
+                })
+    return {
+        "status": "passive_oracle_frame_candidates_only",
+        "total_frames": frames,
+        "uart_bytes_observed": observed_bytes,
+        "counts": dict(sorted(count.items())),
+        "candidates": candidates,
+        "candidates_truncated": count["temporal_queue_growth_uart_candidates"] > len(candidates),
+        "gates": {
+            "frame_progression_observed": frames > 0,
+            "frame_local_queue_to_shadow_uart_candidate": bool(count["temporal_queue_growth_uart_candidates"]),
+            "original_producer_pc_verified": False,
+            "original_isr_to_m68k_link_verified": False,
+            "natural_fighter_hit_proven": False,
+            "hardware_audio_verified": False,
+        },
+        "next": ("Run original i960 memory+PC trace from a candidate frame "
+                 "and correlate actual selector/queue writer PCs with the "
+                 "independently captured vector-15 ISR. PCM on its own "
+                 "does not prove a hit."),
+    }
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("jsonl", type=Path)
+    p.add_argument("--max-candidates", type=int, default=64)
+    args = p.parse_args()
+    with args.jsonl.open(encoding="utf-8") as records:
+        report = audit_observations(records, max_candidates=args.max_candidates)
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()
