@@ -326,7 +326,10 @@ int main(void)
         EXPECT_TRUE(dispatch.voices_cleared == 1u);
         EXPECT_TRUE(dispatch.handler_address == 0x1e5cu);
         EXPECT_TRUE(dispatch.handled != 0);
-        EXPECT_TRUE(descriptor[2] == 0xc1u);
+        /* C0 original D2 is the packet PAYLOAD: 0x70 | 0x80 = F0.
+         * Real frame-342 independent 68000 observations likewise pin
+         * CD74->F4, CA7E->FE and CB7F->FF. */
+        EXPECT_TRUE(descriptor[2] == 0xf0u);
         EXPECT_TRUE(voice[2] == 0u && voice[4] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_SHARED_COUNTER_151E] == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
