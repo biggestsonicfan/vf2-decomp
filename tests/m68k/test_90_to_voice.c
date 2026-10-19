@@ -27,10 +27,86 @@ static uint32_t be32(const uint8_t *p)
            (uint32_t)p[3];
 }
 
+/* WAV is a derivative of the owner's local ROM and is never an
+ * artifact committed to this repository or uploaded by CI. Explicit
+ * --wav-dir only; keep default and --probe-engine tests read-only. */
+static void little16(uint8_t *dst, uint16_t value)
+{
+    dst[0] = (uint8_t)value;
+    dst[1] = (uint8_t)(value >> 8u);
+}
+
+static void little32(uint8_t *dst, uint32_t value)
+{
+    dst[0] = (uint8_t)value;
+    dst[1] = (uint8_t)(value >> 8u);
+    dst[2] = (uint8_t)(value >> 16u);
+    dst[3] = (uint8_t)(value >> 24u);
+}
+
+static int write_wav(const char *directory, uint8_t cmd,
+                     const int16_t *left, const int16_t *right,
+                     size_t frames)
+{
+    uint8_t header[44] = {0u};
+    char destination[1024];
+    const char *filename =
+        cmd == 0x9bu ? "vf2_ad23_9b4278_scsp_model.wav" :
+                       "vf2_ad24_9a017f_scsp_model.wav";
+    FILE *out;
+    size_t i;
+    int length;
+    if (directory == NULL || left == NULL || right == NULL ||
+        frames > (size_t)(UINT32_MAX / 4u)) {
+        return 0;
+    }
+    length = snprintf(destination, sizeof(destination), "%s/%s",
+                      directory, filename);
+    if (length < 0 || (size_t)length >= sizeof(destination)) {
+        return 0;
+    }
+    out = fopen(destination, "wb");
+    if (out == NULL) {
+        fprintf(stderr, "Cannot create WAV %s\n", destination);
+        return 0;
+    }
+    memcpy(header, "RIFF", 4u);
+    little32(header + 4u, UINT32_C(36) + (uint32_t)frames * 4u);
+    memcpy(header + 8u, "WAVEfmt ", 8u);
+    little32(header + 16u, 16u);
+    little16(header + 20u, 1u);       /* signed integer PCM */
+    little16(header + 22u, 2u);       /* stereo */
+    little32(header + 24u, 44100u);  /* SCSP native sample rate */
+    little32(header + 28u, 44100u * 4u);
+    little16(header + 32u, 4u);
+    little16(header + 34u, 16u);
+    memcpy(header + 36u, "data", 4u);
+    little32(header + 40u, (uint32_t)frames * 4u);
+    if (fwrite(header, 1u, sizeof(header), out) != sizeof(header)) {
+        (void)fclose(out);
+        return 0;
+    }
+    for (i = 0u; i < frames; ++i) {
+        uint8_t sample[4];
+        little16(sample, (uint16_t)left[i]);
+        little16(sample + 2u, (uint16_t)right[i]);
+        if (fwrite(sample, 1u, 4u, out) != 4u) {
+            (void)fclose(out);
+            return 0;
+        }
+    }
+    if (fclose(out) != 0) {
+        return 0;
+    }
+    printf("WAV saved: %s (%lu frames, 44.1 kHz stereo PCM)\n",
+           destination, (unsigned long)frames);
+    return 1;
+}
+
 static int run_case(const uint8_t *rom, size_t rom_size,
                     uint8_t cmd, uint8_t payload, uint8_t second,
                     uint8_t mode, uint16_t word, uint8_t loopb,
-                    int probe_engine)
+                    int probe_engine, const char *wav_dir)
 {
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
@@ -190,14 +266,15 @@ static int run_case(const uint8_t *rom, size_t rom_size,
                        (unsigned)step_scsp.registers[0],
                        (unsigned)step_ram[0x2000u]);
                 if (step_scsp.slot_active[0] != 0u) {
-                    static int16_t left[4096], right[4096];
+                    static int16_t left[22050], right[22050];
+                    const size_t frames = wav_dir != NULL ? 22050u : 4096u;
                     size_t sample;
                     unsigned peak = 0u;
                     size_t nonzero = 0u;
                     vf2_status render_status =
-                        vf2_scsp_render(&step_scsp, left, right, 4096u);
+                        vf2_scsp_render(&step_scsp, left, right, frames);
                     if (render_status == VF2_OK) {
-                        for (sample = 0u; sample < 4096u; ++sample) {
+                        for (sample = 0u; sample < frames; ++sample) {
                             int l = (int)left[sample];
                             int r = (int)right[sample];
                             unsigned la = (unsigned)(l < 0 ? -l : l);
@@ -209,9 +286,15 @@ static int run_case(const uint8_t *rom, size_t rom_size,
                     }
                     printf("A0 90 %02x SCSP model PCM after real 68000 "
                            "keyon: render_status=%d peak=%u "
-                           "nonzero_stereo_frames=%u/4096\n",
+                           "nonzero_stereo_frames=%u/%lu\n",
                            (unsigned)cmd, (int)render_status,
-                           peak, (unsigned)nonzero);
+                           peak, (unsigned)nonzero,
+                           (unsigned long)frames);
+                    if (wav_dir != NULL &&
+                        (render_status != VF2_OK ||
+                         !write_wav(wav_dir, cmd, left, right, frames))) {
+                        return 0;
+                    }
                 }
             }
         }
@@ -226,12 +309,19 @@ int main(int argc, char **argv)
     size_t size = 0u, samples_size = 0u;
     int ok;
     int probe_engine;
-    if ((argc != 2 && argc != 3) ||
-        (argc == 3 && strcmp(argv[2], "--probe-engine") != 0)) {
-        fprintf(stderr, "usage: %s /path/to/original/vf2/ROMs [--probe-engine]\n", argv[0]);
+    const char *wav_dir = NULL;
+    if ((argc != 2 && argc != 3 && argc != 4) ||
+        (argc == 3 && strcmp(argv[2], "--probe-engine") != 0) ||
+        (argc == 4 && strcmp(argv[2], "--wav-dir") != 0)) {
+        fprintf(stderr,
+                "usage: %s /path/to/original/vf2/ROMs "
+                "[--probe-engine | --wav-dir DIRECTORY]\n", argv[0]);
         return 2;
     }
-    probe_engine = argc == 3;
+    probe_engine = argc >= 3;
+    if (argc == 4) {
+        wav_dir = argv[3];
+    }
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &rom, &size) != VF2_OK ||
         vf2_romset_build_region(argv[1], VF2_REGION_SAMPLES,
@@ -245,9 +335,9 @@ int main(int argc, char **argv)
     sample_bank = samples;
     sample_bank_size = samples_size;
     ok = run_case(rom, size, 0x9bu, 0x42u, 0x78u,
-                  0xfdu, 0x0242u, 0xd6u, probe_engine);
+                  0xfdu, 0x0242u, 0xd6u, probe_engine, wav_dir);
     ok = run_case(rom, size, 0x9au, 0x01u, 0x7fu,
-                  0xffu, 0x0261u, 0x81u, probe_engine) && ok;
+                  0xffu, 0x0261u, 0x81u, probe_engine, wav_dir) && ok;
     free(rom);
     free(samples);
     return ok ? 0 : 1;
