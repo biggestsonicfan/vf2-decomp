@@ -2491,14 +2491,15 @@ static void test_fac_d4_crash(
             (unsigned)regs.d[5], (unsigned)regs.d[6],
             (unsigned)regs.a[0], (unsigned)regs.a[1],
             (unsigned)regs.a[2]);
-    /* Phase 2: continue past the door with arrival regs intact
-     * (d4 carries the walk index). */
-    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xffffff), 0,
+    /* Phase 2: observe the original copy-engine entry with arrival
+     * registers intact. MOVEM.L D0-D7,(A2) at 0xcb6 is LEGAL on 68000
+     * (v0880); never invoke the old imagined vector-4 fault. */
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0xcb6), 0,
                           20000u, &done);
     fprintf(stderr, "dispatch fac-crash: s-status=%d pc=0x%05x steps=%u events=%u\n",
             (int)status, (unsigned)regs.pc, (unsigned)done,
             (unsigned)bus.event_count);
-    EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+    EXPECT_TRUE(status == VF2_OK);
     EXPECT_TRUE(regs.pc == UINT32_C(0xcb6));
     EXPECT_TRUE(done == 114u);
 }
@@ -4015,19 +4016,17 @@ static void test_chain_live_queue(
     free(bank);
 }
 
-/* E1: engine key-block probe (slot programming + copy-loop fault).
+/* E1: engine key-block probe (slot programming + legal copy-loop entry).
  *
  * First-run prints only (no pins): S4-shape board (real init,
  * production packet {9a,0,1,0}, S4 arming) driven two ways --
  * S drain 0x7a6 with progressive stops (0xc82 slot-program
- * entry, 0xcb2 copy-loop head, then unstopped to the stepper
- * fault), C dispatch_next as today. Prints: S regs at each
- * stop, S fault status/steps/pc, C report, post-state RAM
- * comparison. Purpose: pin the engine entry state, the slot
- * -program effects, and the 0x48d2 fault for the recovery
- * design. The copy loop is dead-on-silicon (movem.l d0-d7,(a2)
- * is a real illegal-instruction; the 0x4fe fault handler blinks
- * forever), so the C will refuse at 0xcb2 by design. */
+ * entry, 0xcb2 copy-loop head, then 0xcb6 (LEGAL MOVEM entry)),
+ * C dispatch_next as today. Prints S regs at each stop, the C
+ * refusal and state differential at the proven frontier. The
+ * old 0x48d2 vector-4 hypothesis was falsified by the M68000
+ * manual and stepper correction v0880. C still refuses at 0xcb2
+ * because full copy-loop recovery is a separate task. */
 static void test_engine_probe(
     const char *rom_dir,
     const uint8_t *audio_rom,
@@ -4126,7 +4125,7 @@ static void test_engine_probe(
         uint32_t stop_ip = stop == 0u ? UINT32_C(0x9ba)
             : stop == 1u ? UINT32_C(0xa8c)
             : stop == 2u ? UINT32_C(0xc82)
-            : stop == 3u ? UINT32_C(0xcb2) : UINT32_C(0xffffff);
+            : stop == 3u ? UINT32_C(0xcb2) : UINT32_C(0xcb6);
         memcpy(step_ram, pristine_ram, VF2_SOUND_RAM_BYTES);
         memcpy(&step_scsp, &pristine_scsp, sizeof(step_scsp));
         bus.ram = step_ram;
@@ -4143,7 +4142,10 @@ static void test_engine_probe(
         regs.a[6] = UINT32_C(0x1000);
         regs.a[7] = UINT32_C(0x7f00);
         regs.pc = UINT32_C(0x7a6);
-        status = vf2_m68k_run(&bus, &regs, stop_ip, 0, 20000u, &done);
+        /* The unreachable 0x9ba probe is bounded at the established
+         * 0xcb6 frontier. The other stops target their own PCs. */
+        status = vf2_m68k_run(&bus, &regs, stop_ip, 0,
+                              stop == 0u ? 384u : 20000u, &done);
         fprintf(stderr, "engine-probe: stop=0x%05x s-status=%d pc=0x%05x steps=%u events=%u\n",
                 (unsigned)stop_ip, (int)status, (unsigned)regs.pc,
                 (unsigned)done, (unsigned)bus.event_count);
@@ -4239,17 +4241,15 @@ static void test_engine_probe(
                 EXPECT_TRUE(0);
             }
         } else if (stop == 4u) {
-            /* Stepper fault on the 0x48d2 store word (movem.l
-             * d0-d7,(a2) is illegal on silicon; the 0x4fe handler
-             * blinks forever): the copy loop is dead-on-silicon
-             * and the C refuses at 0xcb2 by design. */
-            EXPECT_TRUE(status == VF2_ERROR_UNSUPPORTED);
+            /* Stop BEFORE the now-legal MOVEM at 0xcb6; do not
+             * assert an illegal instruction or invent a later exit. */
+            EXPECT_TRUE(status == VF2_OK);
             EXPECT_TRUE(regs.pc == UINT32_C(0xcb6));
             EXPECT_TRUE(done == 384u);
         } else {
-            /* Setup-region waypoints: 0x9ba never routes here
-             * (blow-through to the copy fault); 0xa8c arrives at
-             * 277 with the descriptor index in d3. */
+            /* Setup waypoints: 0x9ba is NOT entered in this S4
+             * scenario before the bounded 0xcb6 frontier; 0xa8c
+             * is independently reached after 277 instructions. */
             if (stop_ip == UINT32_C(0xa8c)) {
                 EXPECT_TRUE(status == VF2_OK);
                 EXPECT_TRUE(regs.pc == UINT32_C(0xa8c));
