@@ -247,6 +247,154 @@ static void test_rom_case(const uint8_t *rom, size_t rom_size,
     }
 }
 
+/* v0891: bridge ORIGINAL 68000 gameplay-dispatch-style setup,
+ * through the recovered native-C d92 admission frontier, into
+ * its actual DF8 copy+EB8 key-on branch.
+ *
+ * This is a STAGED sound-command fixture, not a naturally emitted
+ * collision. The ROM original is run unmodified from 0x7A6 until
+ * its own 0xDF8 entry and then through exactly 55 real instructions.
+ * C code reaches the same 0xDF8 boundary, using independently
+ * recovered dispatcher behavior. Drain bookkeeping is not asserted
+ * equal here; the payload/voice/SCSP boundary is, and the following
+ * 55-instruction original-ROM suffix uses one identical checkpoint. */
+static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
+                                   const uint8_t *samples, size_t sample_size)
+{
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report report;
+    uint8_t *ram = board.sound_ram;
+    uint8_t *desc;
+    uint8_t *voice;
+    vf2_status cstatus;
+    vf2_status status;
+    uint32_t steps = 0u, source, destination;
+    unsigned before = failed;
+    uint32_t stream = UINT32_C(0x2020);
+
+    memset(&board, 0, sizeof(board));
+    board.audio_rom = rom;
+    board.audio_rom_size = rom_size;
+    board.sample_rom = samples;
+    board.sample_rom_size = sample_size;
+    vf2_scsp_initialize(&board.scsp);
+    CHECK(vf2_scsp_attach_sample_rom(&board.scsp, samples, sample_size) ==
+          VF2_OK);
+    memset(ram, 0, VF2_SOUND_RAM_BYTES);
+    ram[VF2_SOUND_COMMAND_RING_BASE] = 0x93u;
+    ram[VF2_SOUND_COMMAND_RING_BASE + 1u] = 0u;
+    ram[VF2_SOUND_COMMAND_RING_BASE + 2u] = 1u;
+    ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    desc = ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    desc[0] = 0x80u;
+    desc[1] = 0x03u;
+    desc[2] = 0xf5u;
+    desc[8] = 0x02u;
+    desc[9] = 0x01u;
+    desc[10] = 0x80u;
+    desc[12] = 0x01u;
+    ram[VF2_SOUND_SHARED_COUNTER_152E] = 5u;
+    ram[0x4223u] = 0x07u;
+    voice = ram + VF2_SOUND_VOICE_TABLE_BASE;
+    voice[0] = 0u;
+    voice[1] = 0x20u;
+    voice[2] = 0x5au;
+    voice[9] = 0xffu;
+    /* Setup-authored voice select 0x0140 => d3=0x1900.
+     * 0x6904 is the unmodified table field for the sample ROM
+     * source; choose the measured AD23 address, not a PCM stub.
+     * Gate 0x690C takes the D92 arm. */
+    ram[0x6904u] = 0x00u;
+    ram[0x6905u] = 0xe6u;
+    ram[0x6906u] = 0x31u;
+    ram[0x6907u] = 0xb2u;
+    ram[0x690cu] = 0x00u;
+    ram[0x690du] = 0x11u;
+    ram[0x690eu] = 0x22u;
+    ram[0x690fu] = 0x33u;
+    memcpy(reference_ram, ram, VF2_SOUND_RAM_BYTES);
+    memcpy(&reference_scsp, &board.scsp, sizeof(reference_scsp));
+    memset(&bus, 0, sizeof(bus));
+    bus.ram = reference_ram;
+    bus.ram_size = sizeof(reference_ram);
+    bus.rom = rom;
+    bus.rom_size = rom_size;
+    bus.sample_rom = samples;
+    bus.sample_rom_size = sample_size;
+    bus.scsp = &reference_scsp;
+    vf2_m68k_regs_reset(&regs);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = VF2_SCSP_CPU_BASE;
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x7f00);
+    regs.pc = UINT32_C(0x7a6);
+
+    memset(&report, 0, sizeof(report));
+    cstatus = vf2_sound_board_dispatch_next(&board, &report);
+    CHECK(cstatus == VF2_ERROR_UNSUPPORTED);
+    CHECK(report.handler_address == UINT32_C(0x0df8));
+    CHECK(ram[VF2_SOUND_COMMAND_COUNT] == 1u);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x0df8),
+                          0, 20000u, &steps);
+    if (status != VF2_OK || regs.pc != UINT32_C(0x0df8)) {
+        fprintf(stderr, "d92 bridge: failed original entry "
+                "status=%d pc=%08x steps=%u\n", (int)status,
+                (unsigned)regs.pc, (unsigned)steps);
+        ++failed;
+        return;
+    }
+    CHECK(steps == 334u);
+    CHECK(voice[2] == reference_ram[VF2_SOUND_VOICE_TABLE_BASE + 2u]);
+    CHECK(memcmp(&board.scsp, &reference_scsp,
+                 sizeof(reference_scsp)) == 0);
+    CHECK(memcmp(ram + stream, reference_ram + stream, 32u) == 0);
+
+    /* Independently reached REAL 68000 A0/A2 are prerequisites.
+     * Never invent default mapped addresses for this chain. */
+    source = regs.a[0];
+    destination = regs.a[2];
+    if (source < VF2_SOUND_SAMPLE_ROM_BASE ||
+        destination > VF2_SOUND_RAM_BYTES - 512u ||
+        (source & 1u) != 0u || (destination & 1u) != 0u) {
+        fprintf(stderr, "d92 bridge: unmapped original copy inputs "
+                "a0=%08x a2=%08x\n",
+                (unsigned)source, (unsigned)destination);
+        ++failed;
+        return;
+    }
+    /* Sound CPU command-drain bookkeeping may differ between the
+     * native C and stepper at this first unretired boundary. Only
+     * normalize that bookkeeping by starting the suffix from the
+     * SAME original RAM image after separately pinning relevant
+     * voice/stream/SCSP equality above. */
+    memcpy(ram, reference_ram, VF2_SOUND_RAM_BYTES);
+    memcpy(&board.scsp, &reference_scsp, sizeof(reference_scsp));
+    CHECK(vf2_sound_board_copy_engine_page_512(
+        &board, &source, &destination) == VF2_OK);
+    CHECK(vf2_sound_board_finalize_engine_copy_eb8(
+        &board, 0u, source, destination) == VF2_OK);
+    status = vf2_m68k_run(&bus, &regs, UINT32_C(0x0ed6),
+                          0, 56u, &steps);
+    CHECK(status == VF2_OK);
+    CHECK(regs.pc == UINT32_C(0x0ed6));
+    CHECK(steps == 55u);
+    CHECK(regs.a[0] == source);
+    CHECK(regs.a[2] == destination);
+    CHECK(memcmp(ram, reference_ram, VF2_SOUND_RAM_BYTES) == 0);
+    CHECK(memcmp(&board.scsp, &reference_scsp,
+                 sizeof(reference_scsp)) == 0);
+    CHECK(reference_ram[stream] == 0x81u);
+    CHECK(be32(reference_ram + stream + 2u) == source);
+    CHECK(be32(reference_ram + stream + 6u) == destination);
+    if (before == failed) {
+        printf("MATCH original dispatch D92->DF8->ED6 "
+               "entry_steps=334 copy_tail_steps=55 "
+               "sample=%08x dest=%08x flag=81\n",
+               (unsigned)source, (unsigned)destination);
+    }
+}
+
 static int test_owner_rom(const char *directory)
 {
     uint8_t *rom = NULL;
@@ -342,6 +490,7 @@ static int test_owner_rom(const char *directory)
                   UINT16_C(0x0261), UINT32_C(0x00f04a72),
                   UINT32_C(0x0df8), UINT32_C(0x0eb8),
                   UINT32_C(0x0ed6), UINT8_C(0x81));
+    test_d92_to_ed6_bridge(rom, rom_size, samples, sample_size);
     free(rom);
     free(samples);
     return 1;
