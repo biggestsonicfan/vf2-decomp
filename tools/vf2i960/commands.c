@@ -7963,6 +7963,12 @@ typedef struct gf_tile { uint16_t sheet, x, y, w, h; } gf_tile;
  * normal points down. */
 static const float ext_up_normal[3] = { 0.0f, 1.0f, 0.0f };
 
+/* Link-type-0 accounting (a strip-restart polygon MAME culls, see the cull at the
+ * emit guard). Reset by the caller before a model's export, read after, to confirm
+ * every path (including the repeat-tile path) drops link-0 polys. emitted must be 0. */
+static unsigned long ext_link0_seen = 0ul;
+static unsigned long ext_link0_emitted = 0ul;
+
 static size_t ext_emit_piece(
     FILE *obj,
     const uint8_t *poly, size_t poly_size,
@@ -8174,15 +8180,32 @@ static size_t ext_emit_piece(
          * decal wins the z-test everywhere; 0.0015 ~ 0.1% of a fighter, far below
          * a visible gap but well clear of z-fighting. */
         dnrm = pnrm;
-        /* A repeated-tile floor (poly_tiled) whose model normal is near-vertical but
-         * points DOWN (VF2's normals are not consistently outward) orients its OBJ
-         * winding downward and shows the view background from above in a backface-
-         * culling viewer (the central arena slab a9bea0). Floors face up: flip such a
-         * tile's normal to +Y so the winding faces up. Walls (horizontal normal) and
-         * fighters (never tiled) are untouched. */
+        /* Floor-up rule (geometry-based). A repeated-tile floor whose OBJ winding comes
+         * out downward shows the view background from above in a backface-culling viewer
+         * (stage-4 central slab a9bea0; stage-3 floor rec57fd08). VF2 model normals are
+         * not consistently outward, so keying off the stored normal (pnrm) missed the
+         * stage-3 floor, whose stored normal is near-horizontal/degenerate. Instead key
+         * off the polygon's own GEOMETRIC normal: a tiled poly that is geometrically
+         * near-horizontal is a floor (or ceiling), so force its orientation to +Y. Walls
+         * (near-vertical geometric normal) and fighters (never tiled) are untouched; no
+         * stage has a down-facing near-horizontal tiled ceiling, so this only lifts
+         * floors. The geometric normal is computed in draw order (p1,p0,vA) to match
+         * ext_emit_poly, in object space then rotated to world by mtx's 3x3. */
         if (poly_tiled) {
-            float nm = (float)sqrt((double)(pnrm[0]*pnrm[0] + pnrm[1]*pnrm[1] + pnrm[2]*pnrm[2]));
-            if (nm > 1e-6f && pnrm[1] < 0.0f && -pnrm[1] > 0.9f * nm)
+            float e1[3], e2[3], g[3], gw[3], gl, ay;
+            e1[0]=p0.x-p1.x; e1[1]=p0.y-p1.y; e1[2]=p0.z-p1.z;
+            e2[0]=vA.x-p1.x; e2[1]=vA.y-p1.y; e2[2]=vA.z-p1.z;
+            g[0]=e1[1]*e2[2]-e1[2]*e2[1];
+            g[1]=e1[2]*e2[0]-e1[0]*e2[2];
+            g[2]=e1[0]*e2[1]-e1[1]*e2[0];
+            if (mtx != NULL) {
+                gw[0]=g[0]*mtx[0]+g[1]*mtx[3]+g[2]*mtx[6];
+                gw[1]=g[0]*mtx[1]+g[1]*mtx[4]+g[2]*mtx[7];
+                gw[2]=g[0]*mtx[2]+g[1]*mtx[5]+g[2]*mtx[8];
+            } else { gw[0]=g[0]; gw[1]=g[1]; gw[2]=g[2]; }
+            gl=(float)sqrt((double)(gw[0]*gw[0]+gw[1]*gw[1]+gw[2]*gw[2]));
+            ay = gw[1]<0.0f ? -gw[1] : gw[1];
+            if (gl > 1e-6f && ay > 0.9f * gl)
                 dnrm = ext_up_normal;
         }
         deps = 0.0f;
@@ -8217,6 +8240,8 @@ static size_t ext_emit_piece(
             vbase = ext_emit_poly(obj, vbase, pv, puv, numv,
                                   mtx, dnrm, deps, vacc, vacc_n, vacc_cap);
             *tri_count += (numv == 4u) ? 2u : 1u;
+        } else {
+            ++ext_link0_seen;   /* strip restart: culled here, never emitted */
         }
 
         uv_ptr += numv * 2u;
@@ -10387,6 +10412,7 @@ stage_selected:
                  "feet-centred. %zu pieces. Local only, never committed.\n",
             base, pose, nsel);
     fprintf(obj, "mtllib %s.mtl\n", base);
+    ext_link0_seen = 0ul; ext_link0_emitted = 0ul;
     for (k = 0u; k < nsel; ++k) {
         size_t idx = sel[k];
         size_t tris = 0u;
@@ -10421,6 +10447,9 @@ stage_selected:
                                    gf_diff, gf_amb, gf_sscale, gf_sctrl, gf_mode);
         tris_total += tris;
     }
+    if (stage_mode)
+        fprintf(stderr, "  link-0 polys: seen=%lu emitted=%lu (must be 0)\n",
+                ext_link0_seen, ext_link0_emitted);
     if (colour) {
         size_t t;
         snprintf(path, sizeof(path), "%s/%s_tex0.png", out_dir, base);
