@@ -107,6 +107,13 @@ static void test_session_fail_closed(void)
     CHECK(s == NULL);
     CHECK(vf2_session_open(NULL, "x", &s) == VF2_ERROR_INVALID_ARGUMENT);
     CHECK(vf2_session_step(NULL, 0u) == VF2_ERROR_INVALID_ARGUMENT);
+    {
+        vf2_i960_snapshot checkpoint;
+        vf2_i960_snapshot_init(&checkpoint);
+        CHECK(vf2_session_capture_oracle_snapshot(NULL, &checkpoint) ==
+              VF2_ERROR_INVALID_ARGUMENT);
+        vf2_i960_snapshot_destroy(&checkpoint);
+    }
     CHECK(vf2_session_pixels(NULL) == NULL);
     CHECK(vf2_session_audio_status(NULL) != VF2_OK);
     vf2_session_close(NULL);
