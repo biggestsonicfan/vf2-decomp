@@ -239,6 +239,11 @@ static void isolate_command(size_t command,
             }
             if (board.sound_ram[i] != step_ram[i]) {
                 if (first_other == VF2_SOUND_RAM_BYTES) first_other = i;
+                if (differences < 16u) {
+                    printf("FRAME342_9E_RAM_DIFF addr=%05x C=%02x S=%02x\n",
+                           (unsigned)i, (unsigned)board.sound_ram[i],
+                           (unsigned)step_ram[i]);
+                }
                 ++differences;
             }
         }
