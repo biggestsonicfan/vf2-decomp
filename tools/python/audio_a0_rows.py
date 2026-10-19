@@ -110,6 +110,35 @@ def inspect(main: bytes, audio: bytes) -> dict:
             'entries': entries}
 
 
+def verify_record_banks(audio: bytes) -> dict:
+    """Prove two adjacent 128-row pointer sleds, with stride 12 bytes.
+
+    Shape only: no guess about 12-byte record field semantics.
+    """
+    banks = []
+    for family in FAMILIES:
+        row_index = family & 0x7f
+        row = read32(audio, A0_ROWS + row_index * 4, AUDIO_BASE, '>')
+        maximum = read16(audio, row, AUDIO_BASE)
+        if maximum != 127:
+            raise InvalidRom(f'A0 family {family:#x} max changed: {maximum}')
+        pointers = [read32(audio, row + 2 + 4 * i, AUDIO_BASE, '>')
+                    for i in range(128)]
+        if (pointers[0] < AUDIO_BASE or
+                pointers[-1] + 12 > AUDIO_BASE + len(audio) or
+                any(p & 1 for p in pointers) or
+                any(pointers[i + 1] - pointers[i] != 12 for i in range(127))):
+            raise InvalidRom(f'A0 family {family:#x} record strides changed')
+        banks.append({'family': f'0x{family:06x}', 'row': row,
+                      'first_record': pointers[0],
+                      'end_exclusive': pointers[-1] + 12,
+                      'records': len(pointers), 'stride': 12})
+    if banks[0]['end_exclusive'] != banks[1]['first_record']:
+        raise InvalidRom('A0 record banks are no longer adjacent')
+    return {'record_count': 256, 'record_bytes': 12,
+            'contiguous': True, 'banks': banks}
+
+
 def main_cli() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('rom', type=Path)
@@ -119,6 +148,7 @@ def main_cli() -> None:
     args = p.parse_args()
     main, audio = read_pieces(args.rom)
     info = inspect(main, audio)
+    info['record_banks'] = verify_record_banks(audio)
     data = {key: value for key, value in info.items() if key != 'entries'}
     if args.profile is not None or args.column is not None:
         if args.profile is None or args.column is None:
