@@ -35,6 +35,7 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
     count = Counter()
     candidates = []
     original_writers = []
+    original_targets = []
     observed_bytes = 0
     for line_number, line in enumerate(lines, 1):
         if not line.strip():
@@ -85,6 +86,26 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
                       first_pc % 4 != 0)) or
                     (not writer_pc_proven and first_pc != 0)):
                 raise ValueError(f"line {line_number}: invalid original i960 queue writer")
+        # A PC-filtered checkpoint may target a LATER sound producer
+        # in the same frame (after e.g. 0x100 startup queue clears).
+        # Preserve both original-first and selected-target witnesses.
+        if "original_i960_target_writer_observed" in event:
+            target_found = event["original_i960_target_writer_observed"]
+            if not isinstance(target_found, bool):
+                raise ValueError(f"line {line_number}: target writer flag invalid")
+            target_pc = _integer(event, "original_i960_target_writer_pc",
+                                 0xFFFFFFFF)
+            target_slot = _integer(event, "original_i960_target_slot",
+                                   0xFFFFFFFF)
+            target_word = _integer(event, "original_i960_target_word",
+                                   0xFFFFFFFF)
+            if target_found:
+                if (original_writes == 0 or target_pc % 4 != 0 or
+                    not 0x00504020 <= target_slot < 0x00504060 or
+                    target_slot % 4 != 0):
+                    raise ValueError(f"line {line_number}: invalid selected original writer")
+            elif target_pc != 0 or target_slot != 0 or target_word != 0:
+                raise ValueError(f"line {line_number}: unobserved target payload")
         forwarded = _integer(event, "bytes_moved", CAP)
         captured = _integer(event, "uart_count", CAP)
         truncated = _integer(event, "uart_truncated")
@@ -119,6 +140,8 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         count["frames_with_uart"] += int(captured > 0)
         count["frames_with_original_i960_ring_writer"] += int(original_writes > 0)
         count["frames_with_original_i960_writer_pc"] += int(writer_pc_proven)
+        if event.get("original_i960_target_writer_observed") is True:
+            count["frames_with_selected_i960_writer"] += 1
         if original_writes > 0 and len(original_writers) < max_candidates:
             original_writers.append({
                 "frame": frame,
@@ -132,6 +155,15 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
                 "uart_forwarded_hex": hexed,
                 "scope": ("original i960 bus WRITE and pre-step instruction PC; "
                           "neither original ISR timing nor fighter hit proven"),
+            })
+        if event.get("original_i960_target_writer_observed") is True and len(original_targets) < max_candidates:
+            original_targets.append({
+                "frame": frame,
+                "input": event["input"],
+                "pc": f"0x{target_pc:08x}",
+                "slot": f"0x{target_slot:08x}",
+                "word": f"0x{target_word:08x}",
+                "scope": "original i960 selected queue write, not a fighter-hit cause",
             })
         count["frames_with_d92_keyon"] += int(keyons > 0)
         count["frames_with_nonzero_pcm"] += int(nonzero > 0)
@@ -158,6 +190,7 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         "candidates": candidates,
         "candidates_truncated": count["temporal_queue_growth_uart_candidates"] > len(candidates),
         "original_i960_ring_writers": original_writers,
+        "original_i960_selected_writers": original_targets,
         "original_writer_samples_truncated":
             count["frames_with_original_i960_ring_writer"] > len(original_writers),
         "gates": {
