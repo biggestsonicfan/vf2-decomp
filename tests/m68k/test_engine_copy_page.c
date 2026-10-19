@@ -455,17 +455,23 @@ static void test_d92_to_ed6_bridge(const uint8_t *rom, size_t rom_size,
          * is not hardware DAC fidelity or natural gameplay proof. */
         static int16_t cleft[4096], cright[4096];
         static int16_t sleft[4096], sright[4096];
+        static int16_t nleft[4096], nright[4096];
         vf2_status sc = vf2_scsp_render(&board.scsp, cleft, cright, 4096u);
         vf2_status ss = vf2_scsp_render(&reference_scsp, sleft, sright,
+                                        4096u);
+        vf2_status sn = vf2_scsp_render(&enabled.scsp, nleft, nright,
                                         4096u);
         size_t frame;
         size_t nonzero = 0u;
         unsigned peak = 0u;
         CHECK(sc == VF2_OK);
         CHECK(ss == VF2_OK);
-        if (sc == VF2_OK && ss == VF2_OK) {
+        CHECK(sn == VF2_OK);
+        if (sc == VF2_OK && ss == VF2_OK && sn == VF2_OK) {
             CHECK(memcmp(cleft, sleft, sizeof(cleft)) == 0);
             CHECK(memcmp(cright, sright, sizeof(cright)) == 0);
+            CHECK(memcmp(nleft, sleft, sizeof(nleft)) == 0);
+            CHECK(memcmp(nright, sright, sizeof(nright)) == 0);
             for (frame = 0u; frame < 4096u; ++frame) {
                 int32_t a = cleft[frame];
                 int32_t b = cright[frame];
