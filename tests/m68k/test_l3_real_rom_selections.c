@@ -267,6 +267,32 @@ static int check_a0_join(uint32_t command, const uint8_t *rom,
     sstatus = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f02), 0,
                            L3_STEP_LIMIT, &steps);
 
+    {
+        const size_t off = (size_t)(target - ram);
+        size_t pos;
+        int found = 0;
+        for (pos = 0u; pos < VF2_SOUND_STREAM_DESCRIPTOR_BYTES; ++pos) {
+            if (target[pos] != step_ram[off + pos]) {
+                fprintf(stderr,
+                        "A0 %08x first descriptor mismatch +0x%02x C=%02x S=%02x\n",
+                        (unsigned)command, (unsigned)pos,
+                        (unsigned)target[pos], (unsigned)step_ram[off + pos]);
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            fprintf(stderr,
+                    "A0 %08x descriptor matches; other predicates: "
+                    "C=%d handled=%d ring(C/S)=%u/%u SCSP=%d "
+                    "voice=%02x ptr=%08x\n",
+                    (unsigned)command, (int)cstatus, report.handled,
+                    (unsigned)ram[VF2_SOUND_COMMAND_COUNT],
+                    (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+                    memcmp(&board.scsp, &step_scsp, sizeof(step_scsp)),
+                    (unsigned)target[0], (unsigned)read_be32(target + 4u));
+        }
+    }
     if (cstatus != VF2_OK || report.handler_address != UINT32_C(0x1f02) ||
         report.handled != 1 || ram[VF2_SOUND_COMMAND_COUNT] != 0u ||
         sstatus != VF2_OK || regs.pc != UINT32_C(0x1f02) ||
