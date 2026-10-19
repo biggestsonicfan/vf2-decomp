@@ -34,6 +34,7 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
     last_frame = -1
     count = Counter()
     candidates = []
+    original_writers = []
     observed_bytes = 0
     for line_number, line in enumerate(lines, 1):
         if not line.strip():
@@ -54,6 +55,17 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         _integer(event, "input", 0xFFFFFFFF)
         before = _integer(event, "queue_before_step", 255)
         after = _integer(event, "queue_after_step", 255)
+        original_writes = 0
+        if "original_i960_ring_writes" in event:
+            original_writes = _integer(event, "original_i960_ring_writes")
+            first_slot = _integer(event, "original_i960_first_ring_slot")
+            first_word = _integer(event, "original_i960_first_ring_word", 0xFFFFFFFF)
+            if (event.get("original_i960_writer_pc_proven") is not False or
+                    (original_writes == 0 and (first_slot != 0 or first_word != 0)) or
+                    (original_writes > 0 and
+                     (not 0x00504020 <= first_slot < 0x00504060 or
+                      first_slot % 4 != 0))):
+                raise ValueError(f"line {line_number}: invalid original i960 queue writer")
         forwarded = _integer(event, "bytes_moved", CAP)
         captured = _integer(event, "uart_count", CAP)
         truncated = _integer(event, "uart_truncated")
@@ -86,6 +98,17 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
                 raise ValueError(f"line {line_number}: unsupported truth claim {claim}")
         observed_bytes += captured
         count["frames_with_uart"] += int(captured > 0)
+        count["frames_with_original_i960_ring_writer"] += int(original_writes > 0)
+        if original_writes > 0 and len(original_writers) < max_candidates:
+            original_writers.append({
+                "frame": frame,
+                "input": event["input"],
+                "ring_writes": original_writes,
+                "first_slot": f"0x{first_slot:08x}",
+                "first_command": f"0x{first_word:08x}",
+                "uart_forwarded_hex": hexed,
+                "scope": "original i960 bus WRITE, NOT original writer PC or fighting hit",
+            })
         count["frames_with_d92_keyon"] += int(keyons > 0)
         count["frames_with_nonzero_pcm"] += int(nonzero > 0)
         count["frames_with_i960_queue_growth"] += int(after > before)
@@ -110,15 +133,20 @@ def audit_observations(lines, *, max_candidates: int = 64) -> dict:
         "counts": dict(sorted(count.items())),
         "candidates": candidates,
         "candidates_truncated": count["temporal_queue_growth_uart_candidates"] > len(candidates),
+        "original_i960_ring_writers": original_writers,
+        "original_writer_samples_truncated":
+            count["frames_with_original_i960_ring_writer"] > len(original_writers),
         "gates": {
             "frame_progression_observed": frames > 0,
+            "original_i960_ring_write_observed":
+                bool(count["frames_with_original_i960_ring_writer"]),
             "frame_local_queue_to_shadow_uart_candidate": bool(count["temporal_queue_growth_uart_candidates"]),
             "original_producer_pc_verified": False,
             "original_isr_to_m68k_link_verified": False,
             "natural_fighter_hit_proven": False,
             "hardware_audio_verified": False,
         },
-        "next": ("Run original i960 memory+PC trace from a candidate frame "
+        "next": ("Run original i960 memory+PC trace from a captured pre-event frame "
                  "and correlate actual selector/queue writer PCs with the "
                  "independently captured vector-15 ISR. PCM on its own "
                  "does not prove a hit."),
