@@ -475,10 +475,15 @@ vf2_status vf2_session_pump_audio(
      * EXACTLY one cursor step per entry either way. The 0xcb2
      * copy-loop door applies the full slot program before refusing
      * (E1b fall-through shape, T2 round-1: handler + effects proven
-     * C==S) and counts as dispatched, as does the 0xdf8 door
-     * (E1i d92 arm: bclr + slot program + stream RMW before the
-     * same dead loop); earlier doors count as refused. The
-     * pre-E1b 0xc68 pin is retired -- no path refuses there
+     * C==S) and counts as dispatched, as does an unsupported 0xdf8
+     * door with the opt-in disabled or invalid source/destination.
+     * With allow_verified_d92_copy explicitly enabled and mapped,
+     * the now-recovered DF8->ED6 copy+KEYON returns OK and the native
+     * drain epilogue retires the packet exactly once. The v0892
+     * owner-ROM differential pins count/cursor after the original
+     * 68000 RTS at ED6 and final drain exit 265C. Earlier doors
+     * count as refused. The pre-E1b 0xc68 pin is retired -- no
+     * path refuses there
      * anymore. An unconditional advance here would double-advance
      * on OK and silently skip the next filed entry (latent since
      * T3; pinned by the E1r staged pump leg). */
