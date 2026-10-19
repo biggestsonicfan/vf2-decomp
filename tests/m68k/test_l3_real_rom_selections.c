@@ -133,8 +133,8 @@ static int check_l2_handoff(uint32_t command, const uint8_t *rom,
     }
     for (i = 0u; i < 6u; ++i) {
         size_t at = VF2_SOUND_COMMAND_RING_BASE +
-                    ((before + (uint16_t)((i / 3u) * 4u) +
-                      (uint16_t)(i % 3u)) & 0x0fffu);
+                    (((size_t)before + (i / 3u) * 4u +
+                      (i % 3u)) & (size_t)0x0fffu);
         if (ram[at] != packets[i]) {
             fprintf(stderr, "L2 %08x: packet byte[%u] got %02x expected %02x\n",
                     (unsigned)command, (unsigned)i,
