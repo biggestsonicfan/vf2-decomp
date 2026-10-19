@@ -211,6 +211,7 @@ static void usage(const char *p)
         "Usage: %s --rom-dir <dir> --snapshot <file> [--bindings <ini>]\n"
         "          [--frames <n>] [--fullscreen] [--integer]\n"
         "          [--screenshot <file.ppm>] [--digest <n>] [--fast] [--oracle]\n"
+        "          [--audio-evidence-jsonl <output.jsonl>] (requires --oracle)\n"
         "          [--verified-audio-copy] (owner-ROM D92 upload opt-in)\n"
         "       %s --selftest [--frames <n>]\n"
         "Keys: arrows, Z/X/C, Enter, 5=coin, F1=test, F2=service, P2 on IJKL/ASD;\n"
@@ -309,11 +310,93 @@ static int selftest(host *h, uint32_t frames)
     return failures == 0 ? 0 : 1;
 }
 
+/* Optional frame-level evidence: these are real oracle-session frame
+ * observations, but the UART forwarding path remains a SHADOW i960
+ * transport and cannot establish the original ISR PC nor fight-hit
+ * causality. Never group bytes into a supposed original packet: a
+ * partially transmitted packet may straddle the frame boundary. */
+static int write_audio_evidence_frame(
+    FILE *out,
+    uint32_t frame,
+    uint32_t input,
+    uint8_t queue_before,
+    uint8_t queue_after,
+    const vf2_session_audio_pump_report *pump_report,
+    vf2_status pump_status,
+    vf2_status render_status,
+    const int16_t *left,
+    const int16_t *right,
+    size_t frames
+)
+{
+    size_t i;
+    size_t nonzero = 0u;
+    unsigned peak = 0u;
+    if (out == NULL || pump_report == NULL ||
+        pump_report->observed_uart_count >
+            VF2_SESSION_AUDIO_UART_SAMPLE_CAP) {
+        return 0;
+    }
+    if (render_status == VF2_OK) {
+        for (i = 0u; i < frames; ++i) {
+            int32_t l = left[i], r = right[i];
+            unsigned al = (unsigned)(l < 0 ? -l : l);
+            unsigned ar = (unsigned)(r < 0 ? -r : r);
+            if (al > peak) peak = al;
+            if (ar > peak) peak = ar;
+            if (l != 0 || r != 0) ++nonzero;
+        }
+    }
+    if (fprintf(out,
+                "{\"type\":\"vf2_audio_frame\",\"frame\":%u,\"input\":%u,"
+                "\"origin\":\"oracle_frame_shadow_uart_pump\","
+                "\"queue_before_step\":%u,\"queue_after_step\":%u,"
+                "\"uart_forwarded_hex\":\"",
+                (unsigned)frame, (unsigned)input,
+                (unsigned)queue_before, (unsigned)queue_after) < 0) {
+        return 0;
+    }
+    for (i = 0u; i < pump_report->observed_uart_count; ++i) {
+        if (fprintf(out, "%02x",
+                    (unsigned)pump_report->observed_uart[i]) < 0) {
+            return 0;
+        }
+    }
+    if (fprintf(out,
+                "\",\"uart_count\":%u,\"uart_truncated\":%u,"
+                "\"bytes_moved\":%u,\"entries_filed\":%u,"
+                "\"entries_dispatched\":%u,\"entries_refused\":%u,"
+                "\"d92_keyons_retired\":%u,\"pump_status\":%d,"
+                "\"drain_status\":%d,\"stream_status\":%d,"
+                "\"voice_status\":%d,\"render_status\":%d,"
+                "\"pcm_frames\":%u,\"pcm_nonzero_frames\":%u,"
+                "\"pcm_peak\":%u,\"natural_fighter_hit_proven\":false,"
+                "\"original_uart_irq_proven\":false,"
+                "\"hardware_pcm_proven\":false}\n",
+                (unsigned)pump_report->observed_uart_count,
+                (unsigned)pump_report->observed_uart_truncated,
+                (unsigned)pump_report->bytes_moved,
+                (unsigned)pump_report->entries_filed,
+                (unsigned)pump_report->entries_dispatched,
+                (unsigned)pump_report->entries_refused,
+                (unsigned)pump_report->d92_keyons_retired,
+                (int)pump_status, (int)pump_report->drain_status,
+                (int)pump_report->stream_status,
+                (int)pump_report->voice_status, (int)render_status,
+                (unsigned)(render_status == VF2_OK ? frames : 0u),
+                (unsigned)nonzero, peak) < 0) {
+        return 0;
+    }
+    return fflush(out) == 0;
+}
+
 int main(int argc, char **argv)
 {
     host h;
     const char *rom_dir = NULL, *snapshot = NULL, *bindings_path = NULL;
     const char *screenshot = NULL;
+    const char *audio_evidence_path = NULL;
+    FILE *audio_evidence = NULL;
     uint32_t digest_every = 0u;
     int fast = 0;
     int oracle = 0;
@@ -338,11 +421,21 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--oracle") == 0) oracle = 1;
         else if (strcmp(argv[i], "--verified-audio-copy") == 0)
             verified_audio_copy = 1;
+        else if (strcmp(argv[i], "--audio-evidence-jsonl") == 0 &&
+                 i + 1 < argc)
+            audio_evidence_path = argv[++i];
         else if (strcmp(argv[i], "--digest") == 0 && i + 1 < argc) digest_every = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--fullscreen") == 0) h.fullscreen = 1;
         else if (strcmp(argv[i], "--integer") == 0) h.integer_scale = 1;
         else if (strcmp(argv[i], "--selftest") == 0) do_selftest = 1;
         else { usage(argv[0]); return EXIT_FAILURE; }
+    }
+    /* Evidence requires ORIGINAL i960 frame stepping; never log
+     * recovered-native frames as an original oracle observation. */
+    if (audio_evidence_path != NULL && (!oracle || do_selftest)) {
+        fprintf(stderr,
+                "--audio-evidence-jsonl requires --oracle and a snapshot\n");
+        return EXIT_FAILURE;
     }
     if (!do_selftest && (rom_dir == NULL || snapshot == NULL)) {
         usage(argv[0]);
@@ -384,6 +477,16 @@ int main(int argc, char **argv)
                     "only; no synthetic hit packets\n");
         }
     }
+    if (audio_evidence_path != NULL) {
+        audio_evidence = fopen(audio_evidence_path, "w");
+        if (audio_evidence == NULL) {
+            fprintf(stderr, "cannot open audio evidence file: %s\n",
+                    audio_evidence_path);
+            vf2_session_close(session);
+            host_close(&h);
+            return EXIT_FAILURE;
+        }
+    }
     if (vf2_session_audio_status(session) != VF2_OK) {
         fprintf(stderr, "note: audio unavailable (%s); running silent\n",
                 vf2_status_string(vf2_session_audio_status(session)));
@@ -397,36 +500,68 @@ int main(int argc, char **argv)
         while (!h.quit && (frame_limit == 0u || frame < frame_limit)) {
             pump(&h);
             if (!h.paused || h.step_once) {
+                vf2_session_audio_pump_report audio_pump;
+                uint32_t input = vf2_host_input_mask(&h.input);
+                uint8_t queue_before = 0u, queue_after = 0u;
+                vf2_status pump_status;
+                vf2_status render_status;
                 h.step_once = 0;
+                if (audio_evidence != NULL &&
+                    vf2_session_read_work_ram(session, UINT32_C(0x00504001),
+                                             &queue_before, 1u) != VF2_OK) {
+                    fprintf(stderr, "audio evidence: queue-before read failed\n");
+                    rc = EXIT_FAILURE;
+                    break;
+                }
                 st = oracle
-                    ? vf2_session_step_oracle(session, vf2_host_input_mask(&h.input))
-                    : vf2_session_step(session, vf2_host_input_mask(&h.input));
+                    ? vf2_session_step_oracle(session, input)
+                    : vf2_session_step(session, input);
                 if (st != VF2_OK) {
                     fprintf(stderr, "frame %u failed: %s\n", (unsigned)frame,
                             vf2_status_string(st));
                     rc = EXIT_FAILURE;
                     break;
                 }
-                /* Live-sound bridge (T3): drain newly filed queue
-                 * bytes into the board and dispatch them. Idle
-                 * unless game code filed commands this frame. */
-                {
-                    vf2_session_audio_pump_report audio_pump;
-                    memset(&audio_pump, 0, sizeof(audio_pump));
-                    if (vf2_session_pump_audio(session, &audio_pump) ==
-                            VF2_OK &&
-                        audio_pump.bytes_moved != 0u) {
-                        fprintf(stderr, "frame %u: audio pump bytes=%u filed=%u dispatched=%u refused=%u\n",
-                                (unsigned)frame,
-                                (unsigned)audio_pump.bytes_moved,
-                                (unsigned)audio_pump.entries_filed,
-                                (unsigned)audio_pump.entries_dispatched,
-                                (unsigned)audio_pump.entries_refused);
-                    }
+                if (audio_evidence != NULL &&
+                    vf2_session_read_work_ram(session, UINT32_C(0x00504001),
+                                             &queue_after, 1u) != VF2_OK) {
+                    fprintf(stderr, "audio evidence: queue-after read failed\n");
+                    rc = EXIT_FAILURE;
+                    break;
                 }
-                if (vf2_session_render_audio(session, left, right,
-                        AUDIO_FRAMES_PER_VIDEO_FRAME) == VF2_OK) {
-                    host_push_audio(&h, left, right, AUDIO_FRAMES_PER_VIDEO_FRAME);
+                /* All UART evidence comes from the normal per-frame
+                 * pump, never from injected events. */
+                memset(&audio_pump, 0, sizeof(audio_pump));
+                pump_status = vf2_session_pump_audio(session, &audio_pump);
+                if (pump_status == VF2_OK &&
+                    audio_pump.bytes_moved != 0u) {
+                    fprintf(stderr,
+                            "frame %u: audio pump bytes=%u filed=%u "
+                            "dispatched=%u refused=%u d92=%u\n",
+                            (unsigned)frame,
+                            (unsigned)audio_pump.bytes_moved,
+                            (unsigned)audio_pump.entries_filed,
+                            (unsigned)audio_pump.entries_dispatched,
+                            (unsigned)audio_pump.entries_refused,
+                            (unsigned)audio_pump.d92_keyons_retired);
+                }
+                render_status = vf2_session_render_audio(
+                    session, left, right, AUDIO_FRAMES_PER_VIDEO_FRAME);
+                if (render_status == VF2_OK) {
+                    host_push_audio(&h, left, right,
+                                    AUDIO_FRAMES_PER_VIDEO_FRAME);
+                }
+                if (audio_evidence != NULL &&
+                    !write_audio_evidence_frame(
+                        audio_evidence, frame, input, queue_before,
+                        queue_after, &audio_pump, pump_status,
+                        render_status, left, right,
+                        AUDIO_FRAMES_PER_VIDEO_FRAME)) {
+                    fprintf(stderr,
+                            "audio evidence: failed writing frame %u\n",
+                            (unsigned)frame);
+                    rc = EXIT_FAILURE;
+                    break;
                 }
                 ++frame;
                 if (digest_every != 0u && frame % digest_every == 0u) {
@@ -464,6 +599,10 @@ int main(int argc, char **argv)
     if (screenshot != NULL && vf2_session_pixels(session) != NULL &&
         !write_ppm(screenshot, vf2_session_pixels(session))) {
         fprintf(stderr, "screenshot: cannot write %s\n", screenshot);
+        rc = EXIT_FAILURE;
+    }
+    if (audio_evidence != NULL && fclose(audio_evidence) != 0) {
+        fprintf(stderr, "audio evidence: failed to close output\n");
         rc = EXIT_FAILURE;
     }
     vf2_session_close(session);
