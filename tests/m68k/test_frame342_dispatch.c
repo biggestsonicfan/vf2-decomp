@@ -139,7 +139,7 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
                 (uint8_t)(which == 0u ? 0x2au : 7u) ||
             step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] !=
                 (uint8_t)(which == 0u ? 0x2au : 7u)) {
-            fprintf(stderr, "FRAME342_AD21_BA wrong ring packet at %04x\\n",
+            fprintf(stderr, "FRAME342_AD21_BA wrong ring packet at %04x\n",
                     (unsigned)cursor);
             ++failures;
             continue;
@@ -147,24 +147,35 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         {
             size_t sample_diff = 0u, sample_first = VF2_SOUND_RAM_BYTES;
             size_t scsp_first = VF2_SCSP_REGISTER_BYTES;
+            size_t c_sample_changed = 0u, m_sample_changed = 0u;
+            size_t c_scsp_changed = 0u, m_scsp_changed = 0u;
             for (i = 0x50000u; i < VF2_SOUND_RAM_BYTES; ++i) {
+                if (board.sound_ram[i] != c_snapshot[i]) ++c_sample_changed;
+                if (step_ram[i] != m_snapshot[i]) ++m_sample_changed;
                 if (board.sound_ram[i] != step_ram[i]) {
                     if (sample_first == VF2_SOUND_RAM_BYTES) sample_first = i;
                     ++sample_diff;
                 }
             }
             for (i = 0u; i < VF2_SCSP_REGISTER_BYTES; ++i) {
-                if (board.scsp.registers[i] != step_scsp.registers[i]) {
-                    scsp_first = i;
-                    break;
-                }
+                if (board.scsp.registers[i] !=
+                    c_scsp_snapshot.registers[i]) ++c_scsp_changed;
+                if (step_scsp.registers[i] !=
+                    m_scsp_snapshot.registers[i]) ++m_scsp_changed;
+                if (board.scsp.registers[i] != step_scsp.registers[i] &&
+                    scsp_first == VF2_SCSP_REGISTER_BYTES) scsp_first = i;
             }
             printf("FRAME342_AD21_BA_DETAIL packet=%u sample_diff=%u "
                    "sample_first=%05x scsp_first=%04x "
-                   "C_handler=%05x C_handled=%u\\n",
+                   "C_handler=%05x C_handled=%u C_matches=%u "
+                   "C_sample_changed=%u M_sample_changed=%u "
+                   "C_scsp_changed=%u M_scsp_changed=%u\n",
                    packet, (unsigned)sample_diff, (unsigned)sample_first,
                    (unsigned)scsp_first, (unsigned)report.handler_address,
-                   (unsigned)report.handled);
+                   (unsigned)report.handled,
+                   (unsigned)report.descriptors_matched,
+                   (unsigned)c_sample_changed, (unsigned)m_sample_changed,
+                   (unsigned)c_scsp_changed, (unsigned)m_scsp_changed);
         }
         for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
             if (i >= 0x7e00u && i < 0x8000u) continue;
@@ -176,7 +187,7 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         printf("FRAME342_AD21_BA_DISPATCH packet=%u payload=%02x "
                "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
                "ram_diff=%u first=%05x scsp_equal=%u "
-               "C_count=%u M_count=%u diagnostic_only=1\\n",
+               "C_count=%u M_count=%u diagnostic_only=1\n",
                packet, which == 0u ? 0x2au : 7u,
                (int)cs, (int)ms, (unsigned)regs.pc, (unsigned)steps,
                (unsigned)differences, (unsigned)first,
