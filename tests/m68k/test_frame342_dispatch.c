@@ -228,7 +228,11 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
                    (unsigned)c_scsp_changed, (unsigned)m_scsp_changed);
         }
         for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
-            if (i >= 0x7e00u && i < 0x8000u) continue;
+            /* The BA run uses the EPR's original SSP=$5000.  Only
+             * 68000 stack frames *below* $5000 are allowed to differ.
+             * Do NOT exclude $7e00..$8000: the real BA staging copy
+             * writes there and C/68000 must agree on every byte. */
+            if (i >= 0x4f00u && i < 0x5000u) continue;
             if (board.sound_ram[i] != step_ram[i]) {
                 if (first == VF2_SOUND_RAM_BYTES) first = i;
                 ++differences;
