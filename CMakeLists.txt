@@ -17,7 +17,7 @@ option(VF2_BUILD_HOST "Build vf2_host, the SDL3 window/input/audio shell" OFF)
 option(VF2_BUILD_VIEWER "Build vf2_model_viewer, the SDL3 extracted-model viewer" OFF)
 option(VF2_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(VF2_ENABLE_LIFTED "Generate and compile the build-time lifted i960->C bridge (docs/VF2LIFT.md); scaffolding, opt-in" OFF)
-option(VF2_VERIFY_AD21_BA "Require original-ROM AD21 BA staging and selector-gate parity (experimental, owner ROM only)" OFF)
+option(VF2_VERIFY_AD21_BA "Verify owner-ROM AD21 BA payload-table dispatch and preserved RAM mutations" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
 if(NOT VF2_ROM_DIR)
   set(VF2_ROM_DIR "${CMAKE_SOURCE_DIR}/roms/vf2")
@@ -1179,10 +1179,12 @@ if(VF2_BUILD_TESTS)
                          "${VF2_ROM_DIR}" --probe-ad21-l2)
         set_tests_properties(vf2_m68k_frame342_ad21_l2_owner_rom
                              PROPERTIES TIMEOUT 900)
-        # Strict AD21 BA owner-ROM gate is deliberately opt-in:
-        # the original BA uploader's parity is still under investigation.
-        # The original BA selectors 7/42 exceed the ROM table max 1: validate
-        # the 13000-byte staging copy and absence of PCM sample-row writes.
+        # ROM-backed strict AD21 BA gates. B0 indexes the table by
+        # ring byte 1: BA 2A -> $194a; BA 07 -> $16ba, not uploader
+        # $1ac0 (selected only by ring byte 1 = $3a).
+        # Both measured owner-ROM dispatches preserve staging/PCM
+        # and match C memory deltas and SCSP registers exactly.
+        # Opt-in because public CI intentionally contains no game ROMs.
         if(VF2_VERIFY_AD21_BA)
             add_test(NAME vf2_m68k_frame342_ad21_ba_strict_owner_rom
                      COMMAND vf2_m68k_frame342_dispatch_tests
