@@ -221,6 +221,55 @@ static void test_ad21_b_class_drain(void)
     }
 }
 
+/* AD21 BA packets route to 0x1ac0 (sample uploader). With a ROM-free
+ * table whose maximum row is zero, selectors 0x2a and 0x07 both stage
+ * the boot bytes and exit before any sample-copy operation.  This is
+ * C-path regression coverage, NOT original MC68000 differential proof. */
+static void test_ad21_ba_upload_gate(void)
+{
+    static vf2_sound_board board;
+    static uint8_t rom[0x10010u];
+    static const uint8_t sample[2] = {0x35u, 0xacu};
+    static const uint8_t selectors[2] = {0x2au, 0x07u};
+    unsigned i;
+    for (i = 0u; i < 2u; ++i) {
+        uint8_t *descriptor;
+        vf2_sound_dispatch_report report;
+        uint8_t before_sample[16u];
+        uint8_t before_scsp[sizeof(board.scsp.registers)];
+        const uint8_t packet[4] = {
+            0xbau, selectors[i], (uint8_t)(i == 0u ? 0u : 0x7fu), 0u
+        };
+        test_boot_rom(rom);
+        EXPECT_TRUE(vf2_sound_board_initialize(&board, rom, sizeof(rom),
+                                               sample, sizeof(sample)) == VF2_OK);
+        descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        memset(descriptor, 0, VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
+               VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
+        descriptor[0] = 0x80u;
+        descriptor[1] = 0x0au;
+        memset(board.sound_ram + 0x5000u, 0x55, 16u);
+        memcpy(before_sample, board.sound_ram + 0x50000u,
+               sizeof(before_sample));
+        memcpy(before_scsp, board.scsp.registers, sizeof(before_scsp));
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) == VF2_OK);
+        EXPECT_TRUE(report.command == 0xbau);
+        EXPECT_TRUE(report.payload == selectors[i]);
+        EXPECT_TRUE(report.command_class == 0xb0u);
+        EXPECT_TRUE(report.handler_address == UINT32_C(0x13cc));
+        EXPECT_TRUE(report.selected_value == 0x3au);
+        EXPECT_TRUE(report.descriptors_matched == 1u);
+        EXPECT_TRUE(board.sound_ram[0x5000u] == rom[0x5b28u]);
+        EXPECT_TRUE(board.sound_ram[0x5001u] == 0x55u);
+        EXPECT_TRUE(memcmp(before_sample, board.sound_ram + 0x50000u,
+                           sizeof(before_sample)) == 0);
+        EXPECT_TRUE(memcmp(before_scsp, board.scsp.registers,
+                           sizeof(before_scsp)) == 0);
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    }
+}
+
 int main(void)
 {
     static uint8_t audio_rom[0x10010u];
@@ -1675,5 +1724,6 @@ int main(void)
     }
     test_render_first_tone();
     test_ad21_b_class_drain();
+    test_ad21_ba_upload_gate();
     return failures == 0 ? 0 : 1;
 }
