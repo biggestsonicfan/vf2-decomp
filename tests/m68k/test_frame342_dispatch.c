@@ -110,7 +110,7 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
                                   rom[0x8df1u]);
         printf("FRAME342_AD21_BA_ROM_TABLE max_selector=%u stage_bytes=%u\n",
                (unsigned)selector_max, (unsigned)staging_bytes);
-        if (selector_max >= 7u ||
+        if (selector_max != 1u || staging_bytes != 13000u ||
             staging_bytes > VF2_SOUND_RAM_BYTES - 0x5000u ||
             staging_bytes > rom_size - 0x5b28u) {
             fprintf(stderr,
@@ -260,7 +260,12 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
                 int equal = cs == VF2_OK && ms == VF2_OK &&
                             regs.pc == UINT32_C(0x265c) &&
                             report.handled != 0 &&
-                            report.descriptors_matched >= 1u &&
+                            report.command == 0xbau &&
+                            report.payload == (uint8_t)(which == 0u ? 0x2au : 7u) &&
+                            report.handler_address == UINT32_C(0x13cc) &&
+                            report.descriptors_matched == 1u &&
+                            report.cursor_before == cursor &&
+                            report.cursor_after == (uint16_t)(cursor + 4u) &&
                             board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
                             step_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
                             differences == 0u && scsp_equal &&
