@@ -388,7 +388,7 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         printf("FRAME342_AD21_BA_DISPATCH packet=%u payload=%02x "
                "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
                "ram_diff=%u first=%05x scsp_equal=%u "
-               "C_count=%u M_count=%u diagnostic_only=%u\n",
+               "C_count=%u M_count=%u diagnostic_only=1\n",
                packet, which == 0u ? 0x2au : 7u,
                (int)cs, (int)ms, (unsigned)regs.pc, (unsigned)steps,
                (unsigned)differences, (unsigned)first,
@@ -552,7 +552,7 @@ static void probe_ad21_b_matrix(const uint8_t *rom, size_t rom_size,
                "C_handled=%d C_matches=%u C_handler=%05x "
                "C_changed=%u M_changed=%u ram_delta_diff=%u first=%05x "
                "scsp_diff=%u C_pcm_changed=%u M_pcm_changed=%u "
-               "C_count=%u M_count=%u diagnostic_only=1\n",
+               "C_count=%u M_count=%u diagnostic_only=%u\n",
                (unsigned)packet, (unsigned)command, (unsigned)payload,
                (unsigned)argument, (int)c_status, (int)m_status,
                (unsigned)regs.pc, (unsigned)steps,
