@@ -256,6 +256,68 @@ packets leave the modeled SCSP and PCM sample area unchanged in this
 checkpoint. The demonstrated `9E` allocator/KEYON path and scheduling
 remain better targets for the sought punch/shout sound.
 
+## Original-ROM **stateful sequential** AD21 B drain (October 20, 2026)
+
+Follow-up to the isolated 12/12 B-class matrix, using the owner's verified
+`vf2(20261018-203049).zip` and the actual compiled
+`vf2_m68k_frame342_dispatch_tests` artifact. The source and strict
+option were added on `master` in commits `f6f975d` (probe),
+`07f4daf` (asserting gate), and `81e8218` (CTest registration).
+The strict executable was run locally against the owner's unpacked ROM
+without adding copyrighted chip bytes to the repository.
+
+**Observed strict run: exit status 0, exactly 12/12**
+`FRAME342_AD21_B_SEQUENCE_STRICT packet=N parity=1` checkpoints.
+The test DOES NOT restore RAM/command descriptors/SCSP between commands;
+only the 68000 call registers and PC are reset to their driver entry
+conditions for each request. C also consumes the live queued packets
+with `vf2_sound_board_dispatch_next` and never resets its state.
+
+| Phase | Original MC68000 instructions | C/original mutable-state delta difference |
+| --- | ---: | ---: |
+| B9, BA, BB, BD `2A 00` | 256 each | 0 |
+| BC, BE `2A 00` | 263 each | 0 |
+| B9–BE `07 7F` | 304 each | 0 |
+| **Total** | **3,374** | **0** |
+
+Each command changed exactly three non-stack RAM bytes on each side,
+with zero differences in *writes relative to that command's own
+initial mutable state*, zero SCSP register differences and zero
+PCM-area changes. Every command retired correctly. Final queue:
+`C_count=M_count=0`, read cursors `C=M=0x0044`.
+The strictly validated upstream original AD21 L2 tick had already
+produced the exact 12-packet ring in 471 instructions.
+
+Run manually with the legally obtained ROM set in a local directory:
+
+```sh
+cmake -S . -B build -DVF2_BUILD_TESTS=ON \
+  -DVF2_ROM_DIR=/local/vf2-roms \
+  -DVF2_VERIFY_AD21_B_SEQUENTIAL=ON
+cmake --build build --target vf2_m68k_frame342_dispatch_tests
+ctest --test-dir build --output-on-failure \
+  -R '^vf2_m68k_frame342_ad21_b_sequential_owner_rom
+
+The 12 newly filed packets are `B9..BE` B-class requests.
+A single B-class dispatcher entry, timer progression and
+possible voice programming require further **original-MC68000
+per-packet** differentials. Do not infer that AD21 itself
+produces audible PCM, nor that the observed KICK input caused
+a fighter-to-fighter collision. This remains an isolated
+original-audio-ROM differential rather than time-accurate
+concurrent original dual-CPU scheduling.
+
+```
+
+For diagnostics without strict pass/fail checks, use
+`vf2_m68k_frame342_dispatch_tests /local/vf2-roms --probe-ad21-b-sequential`.
+
+**Scope limit:** This proves sequential *driver-dispatch* effects
+from the post-L2 state in a controlled original-ROM execution.
+It does not prove authentic scheduler timing, concurrent i960–68000
+execution or that AD21 is itself audible. The direct 9E / allocator
+/ original KEYON path remains the next sound-producing lead.
+
 ## Next unresolved step
 
 The 12 newly filed packets are `B9..BE` B-class requests.
