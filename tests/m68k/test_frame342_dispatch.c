@@ -274,6 +274,12 @@ static void isolate_command(size_t command,
         CHECK(memcmp(board.scsp.slot_active, step_scsp.slot_active,
                      VF2_SCSP_SLOT_COUNT) == 0);
         CHECK(board.sound_ram[UINT32_C(0x2000)] == UINT8_C(0x80));
+        /* The C copy path must expose the uploaded bytes through
+         * the same SCSP sound-RAM map as the original 68000, rather
+         * than reading unrelated offsets in the source sample ROM. */
+        CHECK(board.scsp.sample_ram == board.sound_ram);
+        CHECK(board.scsp.sample_ram_size == VF2_SOUND_RAM_BYTES);
+        CHECK(step_scsp.sample_ram == step_ram);
         /* Both states were independently programmed by C and the
          * ORIGINAL 68000. Render the same 4096-frame software SCSP
          * model from each and compare every stereo PCM sample.
