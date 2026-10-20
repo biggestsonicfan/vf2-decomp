@@ -153,6 +153,36 @@ ctest --test-dir build --output-on-failure \
   -R '^vf2_m68k_frame342_ad21_ba_strict_owner_rom$'
 ```
 
+## Real 68000 stack reset and BA parity checkpoint (October 20, 2026)
+
+Static verification of the actual owner's `epr-17574.30` reveals the
+**reset supervisor stack pointer is `0x00005000`**, with reset PC
+`0x00600100`. Our first post-L2 BA diagnostic mistakenly inherited the
+`A7=0x7f00` artificial L2 stack. This is **inside** the real uploader
+staging destination: ROM `0x605b28` -> sound RAM
+`0x5000..0x82c7` (13,000 bytes). Thus a BA upload can overwrite its own
+test's synthetic return addresses before the 68000 reaches its exit.
+Using `A7=0x5000` (the original reset SSP) instead places pushed
+return addresses **below** `0x5000`, outside the copy.
+
+The owner-ROM BA differential now reads A7 from the original reset
+vector and requires `0x5000` in the verified `vf2` set. It excludes
+only the synthetic 68000 stack frame region `0x4f00..0x4fff` from
+C/68000 RAM equality; importantly **`0x7e00..0x7fff` is now
+included**, since it is genuine staged data and must match byte-for-byte.
+The strict check also requires the exact 13,000-byte source-to-RAM copy,
+ROM row max 1, exactly one active channel-A descriptor, B0 handler
+`0x13cc`, consumed command and no PCM sample-row copy.
+
+The owner-ROM opcode auditor verifies the original uploader prologue at
+`0x1ac0`, its `MOVE.B (A0)+,(A1)+ / DBF` loop, both relevant `Bcc.w`
+targets to the shared epilogue `0x1b46`, the `RTS`, and the active
+channel-0x0a row of the original descriptor image at `0x603186`.
+These facts confirm the expected *control-flow shape* from genuine
+machine bytes; this is not yet a full-MC68000 run. The executable
+`--verify-ad21-ba` must still be run with the owner's ROM to
+establish complete original/C parity in that runtime.
+
 ## Next unresolved step
 
 The 12 newly filed packets are `B9..BE` B-class requests.
