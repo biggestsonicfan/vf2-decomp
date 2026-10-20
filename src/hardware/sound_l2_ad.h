@@ -62,7 +62,7 @@ static inline int vf2_sound_l2_ad21_expand(const uint8_t *rom,
     }
     offset = (size_t)(after_header - UINT32_C(0x600000));
     if (offset == 0u || offset > rom_size ||
-        rom_size - offset < 52u || rom[offset - 1u] != UINT8_C(0xcf)) {
+        rom_size - offset < 51u || rom[offset - 1u] != UINT8_C(0xcf)) {
         return 0;
     }
     p = rom + offset;
@@ -77,8 +77,11 @@ static inline int vf2_sound_l2_ad21_expand(const uint8_t *rom,
             return 0;
         }
     }
+    /* The instruction terminates at FF 2F 00. Byte p[51]
+     * already belongs to the NEXT record (0xCF in the
+     * original ROM). Never require its value or consume it. */
     if (p[48] != UINT8_C(0xff) || p[49] != UINT8_C(0x2f) ||
-        p[50] != 0u || p[51] != 0u) return 0;
+        p[50] != 0u) return 0;
     for (i = 0u; i < 12u; ++i) {
         size_t at = i * 4u;
         packets[i * 3u] = p[at];
