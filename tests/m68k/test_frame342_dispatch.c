@@ -321,15 +321,36 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         if (verify_ad21_ba) {
             size_t staging_bytes = (size_t)(
                 ((uint16_t)rom[0x5b26u] << 8u) | rom[0x5b27u]) + 1u;
-            int staged_equal = 1;
+            size_t delta_differences = 0u, delta_first = VF2_SOUND_RAM_BYTES;
+            int stage_preserved = 1;
             int scsp_equal = memcmp(board.scsp.registers,
                                     step_scsp.registers,
                                     VF2_SCSP_REGISTER_BYTES) == 0;
+            /* Original BA 2A/07 never touches staging. It must
+             * preserve pre-existing (possibly relocated) RAM state,
+             * NOT replace it with literal EPR bytes. */
             for (i = 0u; i < staging_bytes; ++i) {
-                if (board.sound_ram[0x5000u + i] != rom[0x5b28u + i] ||
-                    step_ram[0x5000u + i] != rom[0x5b28u + i]) {
-                    staged_equal = 0;
+                if (board.sound_ram[0x5000u + i] != c_snapshot[0x5000u + i] ||
+                    step_ram[0x5000u + i] != m_snapshot[0x5000u + i]) {
+                    stage_preserved = 0;
                     break;
+                }
+            }
+            /* The post-L2 snapshots may already differ in the OLD
+             * $7f00 L2 stack footprint. Compare BA's mutations on
+             * each independent baseline instead of demanding that
+             * pre-existing unrelated stack bytes match. */
+            for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
+                int c_changed, m_changed;
+                if (i >= 0x4f00u && i < 0x5000u) {
+                    continue; /* actual BA 68000 stack below SSP=$5000 */
+                }
+                c_changed = board.sound_ram[i] != c_snapshot[i];
+                m_changed = step_ram[i] != m_snapshot[i];
+                if (c_changed != m_changed ||
+                    (c_changed && board.sound_ram[i] != step_ram[i])) {
+                    if (delta_first == VF2_SOUND_RAM_BYTES) delta_first = i;
+                    ++delta_differences;
                 }
             }
             /* Original VF2.1 selector max is 1. Both 7 and 42 are
@@ -348,16 +369,17 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
                             report.cursor_after == (uint16_t)(cursor + 4u) &&
                             board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
                             step_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
-                            differences == 0u && scsp_equal &&
-                            staged_equal &&
+                            report.selected_value == (uint8_t)(which == 0u ? 0x2au : 7u) &&
+                            delta_differences == 0u && scsp_equal &&
+                            stage_preserved &&
                             c_sample_changed == 0u &&
                             m_sample_changed == 0u;
                 printf("FRAME342_AD21_BA_STRICT packet=%u parity=%u "
-                       "staged_equal=%u C_sample_changed=%u "
-                       "M_sample_changed=%u\n",
-                       packet, (unsigned)equal, (unsigned)staged_equal,
-                       (unsigned)c_sample_changed,
-                       (unsigned)m_sample_changed);
+                       "stage_preserved=%u delta_diffs=%u delta_first=%05x "
+                       "C_sample_changed=%u M_sample_changed=%u\n",
+                       packet, (unsigned)equal, (unsigned)stage_preserved,
+                       (unsigned)delta_differences, (unsigned)delta_first,
+                       (unsigned)c_sample_changed, (unsigned)m_sample_changed);
                 CHECK(equal);
             }
         }
