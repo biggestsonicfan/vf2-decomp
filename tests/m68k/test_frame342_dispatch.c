@@ -156,7 +156,7 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
             step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 2u] !=
                 (uint8_t)(which == 0u ? 0u : 0x7fu)) {
             fprintf(stderr,
-                    "FRAME342_AD21_BA incorrect original L2 packet at %04x\\n",
+                    "FRAME342_AD21_BA incorrect original L2 packet at %04x\n",
                     (unsigned)cursor);
             ++failures;
             continue;
@@ -176,7 +176,23 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         regs.a[4] = UINT32_C(0x2506);
         regs.a[5] = VF2_SCSP_CPU_BASE;
         regs.a[6] = UINT32_C(0x1000);
-        regs.a[7] = UINT32_C(0x7f00);
+        /* The CPU reset vector in the original word-swapped sound
+         * EPR sets SSP/A7 = $5000 (ROM bytes 00 00 50 00).
+         * DO NOT use the $7f00 L2 test stack here: the BA uploader
+         * stages $32c8 bytes at RAM $5000..$82c7, which would
+         * overwrite return addresses on a synthetic $7f00 stack.
+         * With the original $5000 SP, 68k pushes grow below staging. */
+        regs.a[7] = ((uint32_t)rom[0u] << 24u) |
+                    ((uint32_t)rom[1u] << 16u) |
+                    ((uint32_t)rom[2u] << 8u) |
+                    (uint32_t)rom[3u];
+        if (regs.a[7] != UINT32_C(0x5000)) {
+            fprintf(stderr,
+                    "FRAME342_AD21_BA unexpected original SSP %08x\n",
+                    (unsigned)regs.a[7]);
+            ++failures;
+            continue;
+        }
         ms = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
                           0, 50000u, &steps);
         {
