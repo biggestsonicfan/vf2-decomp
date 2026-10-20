@@ -881,6 +881,8 @@ vf2_status vf2_sound_board_maintain_streams(
     size_t index = 0u;
     size_t ad_index = SIZE_MAX;
     uint8_t ad_packets[6] = {0u};
+    uint8_t ad21_packets[36] = {0u};
+    int ad21_mode = 0;
     uint16_t ad_cursor = 0u;
 
     if (board == NULL || report == NULL) {
@@ -920,6 +922,17 @@ vf2_status vf2_sound_board_maintain_streams(
                           board->audio_rom_size, next, candidate)) {
                     memcpy(ad_packets, candidate, sizeof(ad_packets));
                     ad_index = index;
+                } else if (index == 1u && ad_index == SIZE_MAX &&
+                    (ad_cursor & 3u) == 0u &&
+                    board->sound_ram[VF2_SOUND_COMMAND_COUNT] <= 243u &&
+                    vf2_sound_l2_ad21_expand(board->audio_rom,
+                          board->audio_rom_size, next, ad21_packets)) {
+                    /* Original AD21->B/CF record at 0x60A6B3. This
+                     * is deliberately NOT the AD23/AD24 8F grammar.
+                     * All 12 files must fit the ring and count,
+                     * preflighted before mutating either. */
+                    ad_index = index;
+                    ad21_mode = 1;
                 } else {
                     report->timers_expired = 1u;
                     report->refused_stage = 2u;
@@ -939,21 +952,26 @@ vf2_status vf2_sound_board_maintain_streams(
                 if (index == ad_index) {
                     size_t packet = 0u;
                     uint8_t *ring = board->sound_ram + VF2_SOUND_COMMAND_RING_BASE;
-                    for (packet = 0u; packet < 2u; ++packet) {
+                    size_t packet_count = ad21_mode ? 12u : 2u;
+                    const uint8_t *packets = ad21_mode ?
+                        ad21_packets : ad_packets;
+                    for (packet = 0u; packet < packet_count; ++packet) {
                         uint16_t at = (uint16_t)((ad_cursor +
                                                    (uint16_t)(4u * packet)) &
                                                   0x0fffu);
-                        /* ROM MOVE.B stores 3 bytes; the fourth stays
-                         * untouched until the 4-byte cursor advances. */
-                        ring[at] = ad_packets[packet * 3u];
-                        ring[at + 1u] = ad_packets[packet * 3u + 1u];
-                        ring[at + 2u] = ad_packets[packet * 3u + 2u];
+                        /* Original MOVE.B stores three packet bytes.
+                         * The fourth sound-ring byte is untouched. */
+                        ring[at] = packets[packet * 3u];
+                        ring[at + 1u] = packets[packet * 3u + 1u];
+                        ring[at + 2u] = packets[packet * 3u + 2u];
                     }
                     write_be16(board->sound_ram +
                                VF2_SOUND_COMMAND_WRITE_CURSOR,
-                               (uint16_t)((ad_cursor + 8u) & 0x0fffu));
+                               (uint16_t)((ad_cursor +
+                                    (uint16_t)(4u * packet_count)) & 0x0fffu));
                     board->sound_ram[VF2_SOUND_COMMAND_COUNT] =
-                        (uint8_t)(board->sound_ram[VF2_SOUND_COMMAND_COUNT] + 2u);
+                        (uint8_t)(board->sound_ram[VF2_SOUND_COMMAND_COUNT] +
+                                  (uint8_t)packet_count);
                     /* 0x1f9c files EVERY negative stream class
                      * byte into descriptor[+1], including 0xff.
                      * The terminating ff 2f therefore leaves 0xff
@@ -963,10 +981,15 @@ vf2_status vf2_sound_board_maintain_streams(
                     record[1] = UINT8_C(0xff);
                     write_be16(record + 2u, 0u);
                     report->timers_expired = 1u;
-                    report->packets_emitted = 2u;
-                    report->bytes_consumed = 10u;
+                    report->packets_emitted = packet_count;
+                    /* 8F two-packet path has its original ten-byte
+                     * accounting. The CF 12-packet stream count
+                     * is deferred until the interpreter's exact
+                     * per-byte accounting is independently traced. */
+                    report->bytes_consumed = ad21_mode ? 0u : 10u;
                     report->write_cursor_after =
-                        (uint16_t)((ad_cursor + 8u) & 0x0fffu);
+                        (uint16_t)((ad_cursor +
+                                    (uint16_t)(4u * packet_count)) & 0x0fffu);
                 } else {
                     write_be16(record + 2u,
                                (uint16_t)(read_be16(record + 2u) - 1u));
