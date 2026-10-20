@@ -652,6 +652,15 @@ if(VF2_BUILD_TESTS)
     add_test(NAME vf2_m68k_ad21_frame342_rom_free
              COMMAND vf2_m68k_ad21_frame342_rom_free)
 
+    # ROM-free next-frame AD21 B/CF stream; original owner ROM
+    # runs the stronger 68000-vs-C 12-packet differential probe.
+    add_executable(vf2_m68k_ad21_l2_rom_free
+                   tests/m68k/test_ad21_l2_frame342.c)
+    target_link_libraries(vf2_m68k_ad21_l2_rom_free PRIVATE vf2_core)
+    vf2_set_project_warnings(vf2_m68k_ad21_l2_rom_free)
+    add_test(NAME vf2_m68k_ad21_l2_rom_free
+             COMMAND vf2_m68k_ad21_l2_rom_free)
+
     # Original Motorola 68000 0xCB2..0xD72: 16 MOVEM triplets,
     # 48 native instructions / 512 bytes per sample page.
     add_executable(vf2_m68k_engine_copy_page_tests
