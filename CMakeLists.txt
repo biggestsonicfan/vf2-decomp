@@ -1169,6 +1169,15 @@ if(VF2_BUILD_TESTS)
                  COMMAND vf2_m68k_l3_selection_tests "${VF2_ROM_DIR}")
         add_test(NAME vf2_m68k_frame342_dispatch_owner_rom
                  COMMAND vf2_m68k_frame342_dispatch_tests "${VF2_ROM_DIR}")
+        # Original owner-ROM AD21 stream, one 471-instruction M68000
+        # L2 tick versus native C, 12 B/CF packets, full RAM/SCSP
+        # register equality. The ROM stays local; public CI uses
+        # the separate strict ROM-free shape/rollback regression.
+        add_test(NAME vf2_m68k_frame342_ad21_l2_owner_rom
+                 COMMAND vf2_m68k_frame342_dispatch_tests
+                         "${VF2_ROM_DIR}" --probe-ad21-l2)
+        set_tests_properties(vf2_m68k_frame342_ad21_l2_owner_rom
+                             PROPERTIES TIMEOUT 900)
         # v0898: exact fifteen original i960 vector-15 bytes from
         # owner-ROM headless frame 342 (input 0x20). Cx file after
         # TWO bytes and ignore F8; no invented 3-byte boundaries.
