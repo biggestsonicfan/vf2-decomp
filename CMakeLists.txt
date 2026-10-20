@@ -18,6 +18,7 @@ option(VF2_BUILD_VIEWER "Build vf2_model_viewer, the SDL3 extracted-model viewer
 option(VF2_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(VF2_ENABLE_LIFTED "Generate and compile the build-time lifted i960->C bridge (docs/VF2LIFT.md); scaffolding, opt-in" OFF)
 option(VF2_VERIFY_AD21_BA "Verify owner-ROM AD21 BA payload-table dispatch and preserved RAM mutations" OFF)
+option(VF2_VERIFY_AD21_B_ALL "Require owner-ROM AD21 parity for all twelve B9..BE packets" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
 if(NOT VF2_ROM_DIR)
   set(VF2_ROM_DIR "${CMAKE_SOURCE_DIR}/roms/vf2")
@@ -1190,6 +1191,16 @@ if(VF2_BUILD_TESTS)
                      COMMAND vf2_m68k_frame342_dispatch_tests
                              "${VF2_ROM_DIR}" --verify-ad21-ba)
             set_tests_properties(vf2_m68k_frame342_ad21_ba_strict_owner_rom
+                                 PROPERTIES TIMEOUT 900)
+        endif()
+        # Strict post-AD21 B9..BE 12-packet MC68000 vs native-C
+        # delta parity. Verified with the private VF2.1 owner ROM;
+        # never run in public CI without the original ROM set.
+        if(VF2_VERIFY_AD21_B_ALL)
+            add_test(NAME vf2_m68k_frame342_ad21_b_all_strict_owner_rom
+                     COMMAND vf2_m68k_frame342_dispatch_tests
+                             "${VF2_ROM_DIR}" --verify-ad21-b-all)
+            set_tests_properties(vf2_m68k_frame342_ad21_b_all_strict_owner_rom
                                  PROPERTIES TIMEOUT 900)
         endif()
         # v0898: exact fifteen original i960 vector-15 bytes from
