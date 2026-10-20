@@ -147,17 +147,14 @@ static void boundary(void)
 }
 
 
-/* AD21 CF stream -> 12 ring packets -> B0 dispatch -> both BA uploads.
- * This exercises composition which single-packet upload tests cannot
- * cover. ROM/table/sample values here are entirely synthetic; no claim
- * of original-ROM BA parity or real gameplay PCM is made.
- *
- * Row 42 selects entry 0 at 0x607800, then row 7 selects entry 1 at
- * 0x607810.  Both copy two bytes into the sound RAM sample area; the
- * later packet replaces the earlier bytes.  Non-BA B9/BB..BE packets
- * have no matching active command descriptor in this isolated fixture.
+/* AD21 CF stream -> 12 ring packets -> original-shaped B0 table doors.
+ * The BA command byte is NOT the upload selector: its second byte 2a/07
+ * selects the 0x194a / 0x16ba table entries, not uploader 0x1ac0.
+ * Even with valid synthetic sample rows 42 and 7, the original-shaped
+ * packets MUST NOT stage ROM bytes or copy PCM samples. No ROM bytes
+ * are committed here; the owner-ROM differential is separate.
  */
-static void drain_ad21_two_ba_uploads(void)
+static void drain_ad21_ba_no_upload(void)
 {
     static const uint8_t expected_first[2] = {0x17u, 0x42u};
     static const uint8_t expected_second[2] = {0x59u, 0x2du};
@@ -200,6 +197,7 @@ static void drain_ad21_two_ba_uploads(void)
     table[0] = 0x80u;
     table[1] = 0x0au;
     memset(board.sound_ram + 0x50000u, 0x88, 4u);
+    memset(board.sound_ram + 0x5000u, 0x55, 16u);
     CHECK(vf2_sound_board_maintain_streams(&board, &l2) == VF2_OK);
     CHECK(l2.packets_emitted == 12u);
     CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 12u);
@@ -224,23 +222,25 @@ static void drain_ad21_two_ba_uploads(void)
         CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] ==
               (uint8_t)(11u - i));
         if (command == 0xbau) {
-            const uint8_t *sample = i == 1u ?
-                expected_first : expected_second;
             CHECK(dispatch.descriptors_matched == 1u);
             CHECK(dispatch.handler_address == UINT32_C(0x13cc));
-            CHECK(dispatch.selected_value == 0x3au);
-            CHECK(memcmp(board.sound_ram + 0x50000u, sample, 2u) == 0);
+            CHECK(dispatch.selected_value == payload);
         } else {
             CHECK(dispatch.descriptors_matched == 0u);
         }
-        /* Uploading samples does not itself assert SCSP KEYON. */
+        /* Neither original-shaped BA packet enters the uploader. */
+        CHECK(board.sound_ram[0x5000u] == 0x55u);
+        CHECK(board.sound_ram[0x50000u] == 0x88u);
+        CHECK(board.sound_ram[0x50001u] == 0x88u);
         CHECK(memcmp(board.scsp.registers, original_scsp,
                      sizeof(original_scsp)) == 0);
     }
     CHECK(board.sound_ram[VF2_SOUND_COMMAND_CURSOR] == 0u);
     CHECK(board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] == 0x44u);
     CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
-    CHECK(memcmp(board.sound_ram + 0x50000u, expected_second, 2u) == 0);
+    CHECK(board.sound_ram[0x5000u] == 0x55u);
+    CHECK(board.sound_ram[0x50000u] == 0x88u);
+    CHECK(board.sound_ram[0x50001u] == 0x88u);
 }
 
 static void refuse(unsigned kind)
@@ -281,7 +281,7 @@ int main(void)
     unsigned i;
     positive();
     boundary();
-    drain_ad21_two_ba_uploads();
+    drain_ad21_ba_no_upload();
     for (i = 0u; i < 7u; ++i) refuse(i);
     if (failed == 0) {
         puts("AD21 B/CF 12 original-shaped commands and seven rollback refusals PASS");
