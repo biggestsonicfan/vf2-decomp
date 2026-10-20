@@ -157,6 +157,26 @@ unchanged staging memory, zero PCM upload, identical SCSP registers,
 exact single active channel-A dispatch and matching RAM mutation
 patterns.
 
+**Owner-ROM differential retest passed (exit code 0).**
+The executable was recovered from CI's
+`vf2-m68k-sound-differential-linux` artifact for commit `dee6856`
+and executed locally against the original 36-chip VF2.1 ROM folder
+(the ROM was never uploaded to GitHub):
+
+| Isolated original B0 command | M68000 steps | C/68000 mutation diffs | SCSP diffs | Staging changed | PCM changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `BA 2A 00` | 256 | 0 | 0 | no | no |
+| `BA 07 7F` | 304 | 0 | 0 | no | no |
+
+The absolute RAM comparison still prints **32 differing bytes**
+starting at `0x7ec9`, all inherited from the original *preceding*
+L2 stack, rather than written by BA. The strict comparison excludes
+this false dependence by comparing the **mutations relative to each
+post-L2 snapshot**, and checks both BA packets preserve the entire
+13,000-byte would-be uploader staging region. In the same run, the
+L2 original emitted twelve packets in 471 instructions with zero
+RAM/SCSP differences against C.
+
 The implementation and ROM-free fixtures were updated accordingly.
 The synthetic `B? 3A 05`, `B? 3A 07` and `B? 3A 2A` cases still
 exercise the real uploader entry, using byte 2 as its row argument;
