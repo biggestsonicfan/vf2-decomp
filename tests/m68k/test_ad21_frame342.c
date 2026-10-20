@@ -48,6 +48,20 @@ static void setup(uint8_t third, uint8_t record_header)
     ring[1] = 0x21u;
     ring[2] = third;
     board.sound_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    /* The original 0x7DC dispatcher scans *active command
+     * descriptors* before switching by class. An all-zero test
+     * board consumes every command as a no-op; frame 342 starts
+     * with a live descriptor matching channel 0xD. Synthesize
+     * precisely that prerequisite without staging any sample or
+     * SCSP state. A0's own first-vacant stream descriptor bank
+     * remains empty, as in the independently proven owner-ROM case. */
+    {
+        uint8_t *match = board.sound_ram +
+            VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
+            13u * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES;
+        match[0] = 0x80u;
+        match[1] = 0x0du;
+    }
 }
 
 static void check_valid(void)
