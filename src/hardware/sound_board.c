@@ -2935,15 +2935,18 @@ static vf2_status sound_board_dispatch_a0(
      * non-pristine history). Residue-wild by measurement:
      * refuse at the join, packet held. */
     report->handler_address = UINT32_C(0x00001e98);
-    /* The two ROM-confirmed AD23/AD24 families select records
-     * whose first byte is 0x8f. At 0x1e9e..0x1ea4, bit7 branches
-     * into the six-slot search at 0x1ed4. Recover only the FIRST
-     * vacant descriptor case: 0x1f04 zeros 32 bytes, and
-     * 0x1ef2..0x1f02 installs A2 (record+1), word 1, and bit7.
-     * Exhaustion currently falls through to a seventh address on
-     * the original ROM; do not emulate that unbounded side effect. */
+    /* Original owner-ROM AD23/AD24 record headers have bit7 set.
+     * Authentic i960 frame-342 command AD 21 00 selects row
+     * 0x6091A8 (max=0x007B), record 0x60A6B2, header=0xCF.
+     * All three take the ROM 0x1EA0 BTST #7 -> 0x1ED4
+     * six-descriptor vacant search. Recover only the FIRST
+     * vacant slot: 0x1F04 zeros 32 bytes, and 0x1EF2..0x1F02
+     * installs A2=record+1, word 1 and bit7. The precise AD21
+     * third byte 0 is checked here; do not generalize to other
+     * AD21 selectors or the unmeasured all-busy seventh address. */
     if (command == UINT8_C(0xad) &&
-        (payload == UINT8_C(0x23) || payload == UINT8_C(0x24))) {
+        (payload == UINT8_C(0x23) || payload == UINT8_C(0x24) ||
+         (payload == UINT8_C(0x21) && ring_byte2 == UINT8_C(0)))) {
         uint32_t record = 0u;
         uint8_t header = 0u;
         uint8_t *bank = ram + VF2_SOUND_DESCRIPTOR_BASE +
