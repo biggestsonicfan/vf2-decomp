@@ -284,8 +284,8 @@ static void test_ad21_ba07_sample_copy(void)
     test_boot_rom(rom);
     /* Row 7 points at a one-record selection of entry 0. */
     rom[0x8df0u] = 0u; rom[0x8df1u] = 7u;
-    rom[0x8e1eu] = 0u; rom[0x8e1fu] = 0x60u;
-    rom[0x8e20u] = 0x78u; rom[0x8e21u] = 0u;
+    rom[0x8e0eu] = 0u; rom[0x8e0fu] = 0x60u;
+    rom[0x8e10u] = 0x78u; rom[0x8e11u] = 0u;
     rom[0x7800u] = 0u; rom[0x7801u] = 0u;
     rom[0x7802u] = 0u; rom[0x7803u] = 0u;
     /* Entry-0 source: two bytes in the synthetic audio ROM.
