@@ -380,6 +380,10 @@ static void isolate_command(size_t command,
                     if (pb > peak) peak = pb;
                 }
             }
+            /* A byte-exact all-silence match would not verify
+             * playable sample output; the owner-ROM differential
+             * also requires nonzero stereo PCM after KEYON. */
+            CHECK(nonzero > 0u);
             printf("FRAME342_9E_PCM status_c=%d status_s=%d "
                    "matched_stereo_samples=%u nonzero_frames=%u/4096 "
                    "peak=%u model_only=1\n",
