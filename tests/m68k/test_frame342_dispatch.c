@@ -392,6 +392,32 @@ static void isolate_command(size_t command,
                    (unsigned)nonzero, peak);
         }
     }
+    if (command == 4u) {
+        size_t differences = 0u, first = VF2_SOUND_RAM_BYTES;
+        CHECK(s == VF2_OK);
+        CHECK(c == VF2_OK);
+        CHECK(report.handled == 1);
+        CHECK(scsp_c == scsp_s);
+        CHECK(memcmp(board.scsp.registers, step_scsp.registers,
+                     VF2_SCSP_REGISTER_BYTES) == 0);
+        for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
+            if (i >= 0x7e00u && i < 0x8000u) continue;
+            if (board.sound_ram[i] != step_ram[i]) {
+                if (first == VF2_SOUND_RAM_BYTES) first = i;
+                if (differences < 16u) {
+                    printf("FRAME342_AD21_RAM_DIFF addr=%05x C=%02x S=%02x\n",
+                           (unsigned)i, (unsigned)board.sound_ram[i],
+                           (unsigned)step_ram[i]);
+                }
+                ++differences;
+            }
+        }
+        printf("FRAME342_AD21_C68000_PARITY differences=%u first=%05x "
+               "C_handler=%05x S_steps=%u\n",
+               (unsigned)differences, (unsigned)first,
+               (unsigned)report.handler_address, (unsigned)steps);
+        CHECK(differences == 0u);
+    }
     if (command >= 1u && command <= 3u) {
         size_t descriptor = VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
             (size_t)(cls & UINT8_C(0x0f)) *
