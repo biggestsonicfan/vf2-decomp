@@ -105,46 +105,70 @@ when the owner provides a local `VF2_ROM_DIR`; public CI
 never includes proprietary game ROMs.
 
 
-## Original VF2.1 ROM evidence: BA rows are *not* uploads (October 20, 2026)
+## Owner-ROM execution: B0 table index was wrong (October 20, 2026)
 
-The owner's `vf2(20261018-203049).zip` was located in the ChatGPT
-Library and the original **audio EPR and all four sample MPR chips** were
-validated against the project's CRC manifest (without committing ROM bytes).
-The sound program `epr-17574.30` has CRC32 `4d4c3a55` and SHA-1
-`b6c0c3f0473bd7fc3ef4f5146110dfcc899a5af9`. The CPU-visible
-68000 audio ROM uses `LOAD16_WORD_SWAP`.
+The original 36-chip owner's `vf2(20261018-203049).zip` was verified:
+the audio EPR `epr-17574.30` has CRC32 `4d4c3a55`,
+SHA-1 `b6c0c3f0473bd7fc3ef4f5146110dfcc899a5af9`,
+and all four sample MPR checksums match the manifest. The CPU reads the
+audio region using `LOAD16_WORD_SWAP`.
 
-A reproducible **static**, original-ROM analysis
-(`python tools/inspect_ad21_ba_owner_rom.py /path/to/vf2.zip`) confirms:
+**The original 68000 was executed locally** with the owner ROM and the
+Linux `vf2_m68k_frame342_dispatch_tests` executable retrieved from
+the project's GitHub Actions build artifact, without uploading ROMs.
+The AD21 L2 stream executed **471 instructions**, produced **12 packets**
+and matched C with **zero RAM/SCSP differences outside the earlier L2
+stack**. The post-L2 B0 dispatch first exposed a genuine C bug:
+both original commands finish, but the old C spuriously re-staged the
+uploader's 13,000 bytes and changed 60 bytes relative to the original
+state. Those bytes are from old, relocated state that the 68000 leaves
+untouched; the original PCM area and SCSP registers were unchanged.
 
-- Original AD21 record at `0x60a6b2` has header CF, exactly twelve
-  B9..BE commands, including `BA 2A 00` and `BA 07 7F`, followed by
-  the three-byte `FF 2F 00` terminator.
-- Original uploader staging copy uses `word[0x605b26] = 0x32c7`:
-  **13,000 bytes** from ROM `0x605b28` to RAM `0x5000` (DBF+1).
-- Original BA row-table maximum at `0x608df0` is **1**.
-  **Both selectors 0x2a (42) and 0x07 (7) exceed the maximum.**
-  They reach the early-out row gate *after staging* and do **not**
-  select or copy an additional sample into the PCM area `0x50000`.
-  The packet's third byte `0x7f` is not the BA handler's selector.
-- This **invalidates** the earlier experimental strict gate requiring
-  `C_sample_changed > 0` and `M_sample_changed > 0`. That gate
-  was corrected in the owner-ROM harness: compare full mutable RAM
-  (except 68000 stack), SCSP registers, 13,000 staged bytes against
-  the actual EPR, and require **zero PCM-area writes** for both BA
-  selectors. Synthetic tests of rows 7 and 42 are still useful
-  *synthetic C branch tests*, not descriptions of the game's real
-  selector table.
+Single-instruction tracing of the original B0 dispatch at `0x13cc`
+identified the bug: the B0 jump table is indexed by
+**ring byte 1 & 0x7f**, NOT `command & 0x7f`. Ring byte 2 is
+placed in D0 as the selected handler's argument.
+The table entries and original stops were:
 
-`--verify-ad21-ba` and `-DVF2_VERIFY_AD21_BA=ON` remain **opt-in**.
-The static audit above has been executed successfully on the owner's ZIP;
-**actual original 68000 dispatch parity and PCM playback are NOT yet
-claimed**. The source checkout and the C/68000 executable were not
-available in the isolated ROM inspection runtime; no ROM data were
-uploaded into the repository. To test in a local source checkout:
+| AD21 packet | Table index | Table PC | Original handler | Original steps |
+| --- | --- | --- | --- | --- |
+| `BA 2A 00` | `0x2a` | `0x1486` | `0x194a` | 256 |
+| `BA 07 7F` | `0x07` | `0x13fa` | `0x16ba` | 304 |
+| `B? 3A XX` | `0x3a` | `0x14c6` | `0x1ac0` | not AD21 |
+
+The owner-ROM handler `0x1ac0` **would** stage 13,000 bytes from
+ROM `0x605b28` to sound RAM `0x5000..0x82c7`, then gate sample
+rows using the directory maximum of **1**. It is **not entered by**
+these two authentic BA packets. Both of their original executions
+change only the common drain fields `0x2506`, `0x2509`,
+`0x250e` in the isolated post-L2 snapshot. A C test that merely
+sees equal SCSP registers or no PCM bytes is insufficient.
+
+A secondary harness bug had initialized A7 to `0x7f00`, inside the
+uploader's would-be staging range. The ROM reset vector provides the
+correct initial supervisor stack pointer **`0x5000`** and reset PC
+`0x600100`. The diagnostic now takes SSP from the ROM and excludes
+`0x4f00..0x4fff` for original 68000 stack writes. The earlier L2
+tick also left pre-existing differences in its old `0x7f00` stack
+footprint. The strict BA check therefore compares **state deltas**
+relative to each side's own post-L2 baseline, rather than conflating
+unrelated earlier stack differences with new BA writes. It requires
+unchanged staging memory, zero PCM upload, identical SCSP registers,
+exact single active channel-A dispatch and matching RAM mutation
+patterns.
+
+The implementation and ROM-free fixtures were updated accordingly.
+The synthetic `B? 3A 05`, `B? 3A 07` and `B? 3A 2A` cases still
+exercise the real uploader entry, using byte 2 as its row argument;
+they must **not** be confused with authentic AD21 BA packets.
+The script `tools/inspect_ad21_ba_owner_rom.py` verifies checksum,
+machine-code jump-table geometry and original data independently.
+The `--verify-ad21-ba` owner-ROM gate stays opt-in so public CI does
+not silently claim original-ROM execution.
+
+To repeat privately, with the owner ROMs unpacked locally:
 
 ```sh
-python tools/inspect_ad21_ba_owner_rom.py /path/to/vf2.zip
 cmake -S . -B build -DVF2_BUILD_TESTS=ON \
   -DVF2_ROM_DIR=/path/to/unpacked/vf2 \
   -DVF2_VERIFY_AD21_BA=ON
@@ -152,36 +176,6 @@ cmake --build build --target vf2_m68k_frame342_dispatch_tests
 ctest --test-dir build --output-on-failure \
   -R '^vf2_m68k_frame342_ad21_ba_strict_owner_rom$'
 ```
-
-## Real 68000 stack reset and BA parity checkpoint (October 20, 2026)
-
-Static verification of the actual owner's `epr-17574.30` reveals the
-**reset supervisor stack pointer is `0x00005000`**, with reset PC
-`0x00600100`. Our first post-L2 BA diagnostic mistakenly inherited the
-`A7=0x7f00` artificial L2 stack. This is **inside** the real uploader
-staging destination: ROM `0x605b28` -> sound RAM
-`0x5000..0x82c7` (13,000 bytes). Thus a BA upload can overwrite its own
-test's synthetic return addresses before the 68000 reaches its exit.
-Using `A7=0x5000` (the original reset SSP) instead places pushed
-return addresses **below** `0x5000`, outside the copy.
-
-The owner-ROM BA differential now reads A7 from the original reset
-vector and requires `0x5000` in the verified `vf2` set. It excludes
-only the synthetic 68000 stack frame region `0x4f00..0x4fff` from
-C/68000 RAM equality; importantly **`0x7e00..0x7fff` is now
-included**, since it is genuine staged data and must match byte-for-byte.
-The strict check also requires the exact 13,000-byte source-to-RAM copy,
-ROM row max 1, exactly one active channel-A descriptor, B0 handler
-`0x13cc`, consumed command and no PCM sample-row copy.
-
-The owner-ROM opcode auditor verifies the original uploader prologue at
-`0x1ac0`, its `MOVE.B (A0)+,(A1)+ / DBF` loop, both relevant `Bcc.w`
-targets to the shared epilogue `0x1b46`, the `RTS`, and the active
-channel-0x0a row of the original descriptor image at `0x603186`.
-These facts confirm the expected *control-flow shape* from genuine
-machine bytes; this is not yet a full-MC68000 run. The executable
-`--verify-ad21-ba` must still be run with the owner's ROM to
-establish complete original/C parity in that runtime.
 
 ## Next unresolved step
 
