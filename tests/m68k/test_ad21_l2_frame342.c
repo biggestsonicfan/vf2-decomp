@@ -146,6 +146,103 @@ static void boundary(void)
     CHECK(memcmp(packets, expected, sizeof(packets)) == 0);
 }
 
+
+/* AD21 CF stream -> 12 ring packets -> B0 dispatch -> both BA uploads.
+ * This exercises composition which single-packet upload tests cannot
+ * cover. ROM/table/sample values here are entirely synthetic; no claim
+ * of original-ROM BA parity or real gameplay PCM is made.
+ *
+ * Row 42 selects entry 0 at 0x607800, then row 7 selects entry 1 at
+ * 0x607810.  Both copy two bytes into the sound RAM sample area; the
+ * later packet replaces the earlier bytes.  Non-BA B9/BB..BE packets
+ * have no matching active command descriptor in this isolated fixture.
+ */
+static void drain_ad21_two_ba_uploads(void)
+{
+    static const uint8_t expected_first[2] = {0x17u, 0x42u};
+    static const uint8_t expected_second[2] = {0x59u, 0x2du};
+    vf2_sound_stream_maintenance_report l2;
+    vf2_sound_dispatch_report dispatch;
+    uint8_t original_scsp[VF2_SCSP_REGISTER_BYTES];
+    uint8_t *table;
+    size_t i;
+    setup();
+
+    /* Upload staging: one byte. Entry 0 -> 0x607400, 2 bytes. */
+    rom[0x5b26u] = 0u; rom[0x5b27u] = 0u;
+    rom[0x5b28u] = 0u; rom[0x5b29u] = 0x60u;
+    rom[0x5b2au] = 0x74u; rom[0x5b2bu] = 0u;
+    rom[0x5b2cu] = 0u; rom[0x5b2du] = 0u;
+    rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 2u;
+    /* Entry 1 is 0x14 bytes after entry 0, source 0x607500. */
+    rom[0x5b3cu] = 0u; rom[0x5b3du] = 0x60u;
+    rom[0x5b3eu] = 0x75u; rom[0x5b3fu] = 0u;
+    rom[0x5b40u] = 0u; rom[0x5b41u] = 0u;
+    rom[0x5b42u] = 0xfeu; rom[0x5b43u] = 2u;
+    rom[0x7400u] = expected_first[0];
+    rom[0x7401u] = expected_first[1];
+    rom[0x7500u] = expected_second[0];
+    rom[0x7501u] = expected_second[1];
+
+    /* Directory max=42. Pointer offset is base+2+index*4. */
+    rom[0x8df0u] = 0u; rom[0x8df1u] = 0x2au;
+    rom[0x8e9au] = 0u; rom[0x8e9bu] = 0x60u;
+    rom[0x8e9cu] = 0x78u; rom[0x8e9du] = 0u; /* row 42 */
+    rom[0x8e0eu] = 0u; rom[0x8e0fu] = 0x60u;
+    rom[0x8e10u] = 0x78u; rom[0x8e11u] = 0x10u; /* row 7 */
+    rom[0x7800u] = 0u; rom[0x7801u] = 0u;
+    rom[0x7802u] = 0u; rom[0x7803u] = 0u; /* selector 0 */
+    rom[0x7810u] = 0u; rom[0x7811u] = 0u;
+    rom[0x7812u] = 0u; rom[0x7813u] = 1u; /* selector 1 */
+
+    /* One live command descriptor matching BA's channel A. */
+    table = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    table[0] = 0x80u;
+    table[1] = 0x0au;
+    memset(board.sound_ram + 0x50000u, 0x88, 4u);
+    CHECK(vf2_sound_board_maintain_streams(&board, &l2) == VF2_OK);
+    CHECK(l2.packets_emitted == 12u);
+    CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 12u);
+    CHECK(l2.write_cursor_after == 0x44u);
+    memcpy(original_scsp, board.scsp.registers, sizeof(original_scsp));
+
+    for (i = 0u; i < 12u; ++i) {
+        uint16_t cursor = (uint16_t)(0x14u + i * 4u);
+        uint8_t command = (uint8_t)(0xb9u + i % 6u);
+        uint8_t payload = (uint8_t)(i < 6u ? 0x2au : 7u);
+        const uint8_t *ring = board.sound_ram + VF2_SOUND_COMMAND_RING_BASE;
+        CHECK(ring[cursor] == command);
+        CHECK(ring[cursor + 1u] == payload);
+        CHECK(ring[cursor + 2u] == (uint8_t)(i < 6u ? 0u : 0x7fu));
+        CHECK(ring[cursor + 3u] == 0xccu);
+        memset(&dispatch, 0, sizeof(dispatch));
+        CHECK(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
+        CHECK(dispatch.command == command);
+        CHECK(dispatch.payload == payload);
+        CHECK(dispatch.cursor_before == cursor);
+        CHECK(dispatch.cursor_after == (uint16_t)(cursor + 4u));
+        CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] ==
+              (uint8_t)(11u - i));
+        if (command == 0xbau) {
+            const uint8_t *sample = i == 1u ?
+                expected_first : expected_second;
+            CHECK(dispatch.descriptors_matched == 1u);
+            CHECK(dispatch.handler_address == UINT32_C(0x13cc));
+            CHECK(dispatch.selected_value == 0x3au);
+            CHECK(memcmp(board.sound_ram + 0x50000u, sample, 2u) == 0);
+        } else {
+            CHECK(dispatch.descriptors_matched == 0u);
+        }
+        /* Uploading samples does not itself assert SCSP KEYON. */
+        CHECK(memcmp(board.scsp.registers, original_scsp,
+                     sizeof(original_scsp)) == 0);
+    }
+    CHECK(board.sound_ram[VF2_SOUND_COMMAND_CURSOR] == 0u);
+    CHECK(board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] == 0x44u);
+    CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    CHECK(memcmp(board.sound_ram + 0x50000u, expected_second, 2u) == 0);
+}
+
 static void refuse(unsigned kind)
 {
     vf2_sound_stream_maintenance_report report;
@@ -184,6 +281,7 @@ int main(void)
     unsigned i;
     positive();
     boundary();
+    drain_ad21_two_ba_uploads();
     for (i = 0u; i < 7u; ++i) refuse(i);
     if (failed == 0) {
         puts("AD21 B/CF 12 original-shaped commands and seven rollback refusals PASS");
