@@ -2289,6 +2289,18 @@ static vf2_status sound_board_run_engine_key(
             if (status != VF2_OK) {
                 return status;
             }
+            /* The original MC68000 MOVEM uploads the 512-byte page
+             * into SCSP-visible sound RAM, not directly to the ROM.
+             * Attach the owning board's current RAM before rendering.
+             * Out-of-range RAM reads still fall back to the ROM bank.
+             * Keep this scoped to the explicit verified-9E opt-in:
+             * generic board memcpy users must not inherit an unsafe
+             * self-pointer at initialization. */
+            status = vf2_scsp_attach_sample_ram(
+                &board->scsp, board->sound_ram, VF2_SOUND_RAM_BYTES);
+            if (status != VF2_OK) {
+                return status;
+            }
             report->handler_address = UINT32_C(0x00000d90);
             return VF2_OK;
         }
