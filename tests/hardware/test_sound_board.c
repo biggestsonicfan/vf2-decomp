@@ -216,16 +216,15 @@ static void test_ad21_b_class_drain(void)
         EXPECT_TRUE(report.command_class == 0xb0u);
         EXPECT_TRUE(report.descriptors_matched == 1u);
         EXPECT_TRUE(report.handler_address == UINT32_C(0x13cc));
-        EXPECT_TRUE(report.selected_value == (uint8_t)(packet[0] & 0x7fu));
+        EXPECT_TRUE(report.selected_value == (uint8_t)(packet[1] & 0x7fu));
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
     }
 }
 
-/* AD21 BA packets route to 0x1ac0 (sample uploader). With a ROM-free
- * table whose maximum row is zero, selectors 0x2a and 0x07 both stage
- * the boot bytes and exit before any sample-copy operation.  This is
- * C-path regression coverage, NOT original MC68000 differential proof. */
-static void test_ad21_ba_upload_gate(void)
+/* Original-ROM BA 2A 00 and BA 07 7F do NOT target the 0x1ac0
+ * uploader. The B0 dispatch selects table entries by ring byte 1,
+ * not the BA command byte: the staging area must remain untouched. */
+static void test_ad21_ba_does_not_stage(void)
 {
     static vf2_sound_board board;
     static uint8_t rom[0x10010u];
@@ -258,9 +257,9 @@ static void test_ad21_ba_upload_gate(void)
         EXPECT_TRUE(report.payload == selectors[i]);
         EXPECT_TRUE(report.command_class == 0xb0u);
         EXPECT_TRUE(report.handler_address == UINT32_C(0x13cc));
-        EXPECT_TRUE(report.selected_value == 0x3au);
+        EXPECT_TRUE(report.selected_value == selectors[i]);
         EXPECT_TRUE(report.descriptors_matched == 1u);
-        EXPECT_TRUE(board.sound_ram[0x5000u] == rom[0x5b28u]);
+        EXPECT_TRUE(board.sound_ram[0x5000u] == 0x55u);
         EXPECT_TRUE(board.sound_ram[0x5001u] == 0x55u);
         EXPECT_TRUE(memcmp(before_sample, board.sound_ram + 0x50000u,
                            sizeof(before_sample)) == 0);
@@ -270,9 +269,9 @@ static void test_ad21_ba_upload_gate(void)
     }
 }
 
-/* AD21's real BA 07 7F payload is 0x07, not 0x7f: the
- * third packet byte must never trigger the payload-only early exit.
- * Exercise a ROM-free, valid row-7 sample upload end to end. */
+/* Explicit B0 table selector 0x3a reaches the 0x1ac0 uploader.
+ * It consumes ring byte 2 (0x07) as the sample-row index. Changing
+ * ring byte 3 must not change the uploaded bytes. */
 static void test_ad21_ba07_sample_copy(void)
 {
     static vf2_sound_board board;
@@ -284,7 +283,7 @@ static void test_ad21_ba07_sample_copy(void)
     uint8_t slot_first[16u] = {0u};
     uint8_t scsp_first[sizeof(board.scsp.registers)] = {0u};
     unsigned variant;
-    uint8_t packet[4] = {0xbau, 0x07u, 0x7fu, 0u};
+    uint8_t packet[4] = {0xbau, 0x3au, 0x07u, 0u};
     test_boot_rom(rom);
     /* Row 7 points at a one-record selection of entry 0. */
     rom[0x8df0u] = 0u; rom[0x8df1u] = 7u;
@@ -300,7 +299,7 @@ static void test_ad21_ba07_sample_copy(void)
     rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 2u;
     rom[0x7400u] = 0xd3u; rom[0x7401u] = 0x4au;
     for (variant = 0u; variant < 2u; ++variant) {
-    packet[2] = variant == 0u ? 0x7fu : 0u;
+    packet[3] = variant == 0u ? 0x7fu : 0u;
     EXPECT_TRUE(vf2_sound_board_initialize(&board, rom, sizeof(rom),
                                            sample, sizeof(sample)) == VF2_OK);
     descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -313,7 +312,7 @@ static void test_ad21_ba07_sample_copy(void)
     EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
     EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) == VF2_OK);
     EXPECT_TRUE(report.command == 0xbau);
-    EXPECT_TRUE(report.payload == 7u);
+    EXPECT_TRUE(report.payload == 0x3au);
     EXPECT_TRUE(report.selected_value == 0x3au);
     EXPECT_TRUE(report.descriptors_matched == 1u);
     EXPECT_TRUE(board.sound_ram[0x50000u] == 0xd3u);
@@ -335,8 +334,9 @@ static void test_ad21_ba07_sample_copy(void)
     }
 }
 
-/* AD21 BA 2A 00 must address directory row 42, not byte 2 or
- * row 7. Synthetic one-record fixture: no copyrighted ROM content. */
+/* Explicit B0 selector 0x3a with argument byte 0x2a selects row 42.
+ * This is NOT the original AD21 BA 2A 00 packet, which selects table
+ * entry 0x2a instead of the uploader. */
 static void test_ad21_ba2a_sample_copy(void)
 {
     static vf2_sound_board board;
@@ -344,7 +344,7 @@ static void test_ad21_ba2a_sample_copy(void)
     static const uint8_t sample[2] = {0x35u, 0xacu};
     vf2_sound_dispatch_report report;
     uint8_t *descriptor;
-    uint8_t packet[4] = {0xbau, 0x2au, 0u, 0u};
+    uint8_t packet[4] = {0xbau, 0x3au, 0x2au, 0u};
     uint8_t first_sample[16u] = {0u};
     uint8_t first_slots[16u] = {0u};
     uint8_t first_scsp[sizeof(board.scsp.registers)] = {0u};
@@ -362,7 +362,7 @@ static void test_ad21_ba2a_sample_copy(void)
     rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 2u;
     rom[0x7400u] = 0x2au; rom[0x7401u] = 0xb9u;
     for (variant = 0u; variant < 2u; ++variant) {
-    packet[2] = variant == 0u ? 0u : 0x7fu;
+    packet[3] = variant == 0u ? 0u : 0x7fu;
     EXPECT_TRUE(vf2_sound_board_initialize(&board, rom, sizeof(rom),
                                            sample, sizeof(sample)) == VF2_OK);
     descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -375,7 +375,7 @@ static void test_ad21_ba2a_sample_copy(void)
     EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
     EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) == VF2_OK);
     EXPECT_TRUE(report.command == 0xbau);
-    EXPECT_TRUE(report.payload == 0x2au);
+    EXPECT_TRUE(report.payload == 0x3au);
     EXPECT_TRUE(report.selected_value == 0x3au);
     EXPECT_TRUE(report.descriptors_matched == 1u);
     EXPECT_TRUE(board.sound_ram[0x50000u] == 0x2au);
@@ -1354,8 +1354,7 @@ int main(void)
         EXPECT_TRUE(vf2_scsp_read_u16(&board.scsp, 0x0030u, &value) == VF2_OK);
         EXPECT_TRUE(value == 0u);
 
-        /* B0 default (v0795b): entry = command&0x7f; anything but 0x3a
-           takes the table-default rts: consume, no effects. */
+        /* B0 non-uploader: entry is ring byte 1 & 0x7f, not command & 0x7f. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -1371,13 +1370,13 @@ int main(void)
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
         EXPECT_TRUE(dispatch.channel == 1u);
-        EXPECT_TRUE(dispatch.selected_value == 0x31u);
+        EXPECT_TRUE(dispatch.selected_value == 0x01u);
         EXPECT_TRUE(dispatch.descriptors_matched == 1u);
         EXPECT_TRUE(dispatch.handled != 0);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
 
-        /* B0 entry 0x3f is likewise default-rts: only 0x3a is special. */
+        /* BF 01 selects the B0 table entry 01, not command-derived 3f. */
         EXPECT_TRUE(vf2_sound_board_initialize(&board, audio_rom, sizeof(audio_rom),
                                    sample_rom, sizeof(sample_rom)) == VF2_OK);
         memset(audio_rom, 0, sizeof(audio_rom));
@@ -1393,11 +1392,11 @@ int main(void)
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
         EXPECT_TRUE(dispatch.channel == 15u);
-        EXPECT_TRUE(dispatch.selected_value == 0x3fu);
+        EXPECT_TRUE(dispatch.selected_value == 0x01u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
 
-        /* B0 entry 0x3a with payload&0x7f == 0x7f exits via the 0x1b46
+        /* B0 entry 0x3a with third byte&0x7f == 0x7f exits via the 0x1b46
            epilogue (clean OK, verified beq target -- the old
            mid-dbf-trap/UNSUPPORTED pin was +4 damage): staged bytes
            persist (first_count 2 -> 3 bytes, dbf+1), packet consumed. */
@@ -1413,7 +1412,7 @@ int main(void)
             descriptor[1] = 10u;
             descriptor[2] = 10u;
             {
-                const uint8_t packet[4] = {0xbau, 0x7fu, 0u, 0u};
+                const uint8_t packet[4] = {0xbau, 0x3au, 0x7fu, 0u};
                 EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
@@ -1452,7 +1451,7 @@ int main(void)
             descriptor[1] = 10u;
             descriptor[2] = 10u;
             {
-                const uint8_t packet[4] = {0xbau, 0x00u, 0u, 0u};
+                const uint8_t packet[4] = {0xbau, 0x3au, 0u, 0u};
                 EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
@@ -1471,7 +1470,7 @@ int main(void)
             descriptor[1] = 10u;
             descriptor[2] = 10u;
             {
-                const uint8_t packet[4] = {0xbau, 0x00u, 0u, 0u};
+                const uint8_t packet[4] = {0xbau, 0x3au, 0u, 0u};
                 EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) ==
@@ -1515,7 +1514,7 @@ int main(void)
             descriptor[1] = 10u;
             descriptor[2] = 10u;
             {
-                const uint8_t packet[4] = {0xbau, 0x05u, 0u, 0u};
+                const uint8_t packet[4] = {0xbau, 0x3au, 0x05u, 0u};
                 EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
             }
             EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
@@ -1850,7 +1849,7 @@ int main(void)
     }
     test_render_first_tone();
     test_ad21_b_class_drain();
-    test_ad21_ba_upload_gate();
+    test_ad21_ba_does_not_stage();
     test_ad21_ba07_sample_copy();
     test_ad21_ba2a_sample_copy();
     return failures == 0 ? 0 : 1;
