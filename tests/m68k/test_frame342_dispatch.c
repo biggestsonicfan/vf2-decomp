@@ -31,6 +31,7 @@ static int failures;
 static int probe_ad21_l2;
 static int verify_ad21_ba;
 static int probe_ad21_b_all;
+static int verify_ad21_b_all;
 static int16_t frame342_c_left[4096], frame342_c_right[4096];
 static int16_t frame342_s_left[4096], frame342_s_right[4096];
 
@@ -387,7 +388,7 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         printf("FRAME342_AD21_BA_DISPATCH packet=%u payload=%02x "
                "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
                "ram_diff=%u first=%05x scsp_equal=%u "
-               "C_count=%u M_count=%u diagnostic_only=1\n",
+               "C_count=%u M_count=%u diagnostic_only=%u\n",
                packet, which == 0u ? 0x2au : 7u,
                (int)cs, (int)ms, (unsigned)regs.pc, (unsigned)steps,
                (unsigned)differences, (unsigned)first,
@@ -509,6 +510,43 @@ static void probe_ad21_b_matrix(const uint8_t *rom, size_t rom_size,
         for (i = 0u; i < VF2_SCSP_REGISTER_BYTES; ++i) {
             if (board.scsp.registers[i] != step_scsp.registers[i]) ++scsp_deltas;
         }
+        if (verify_ad21_b_all) {
+            const uint32_t expected_steps = packet >= 6u ? 304u :
+                (command == UINT8_C(0xbc) || command == UINT8_C(0xbe)
+                 ? 263u : 256u);
+            const size_t expected_matches =
+                (command == UINT8_C(0xbc) || command == UINT8_C(0xbe))
+                ? 2u : 1u;
+            const int parity =
+                c_status == VF2_OK && m_status == VF2_OK &&
+                regs.pc == UINT32_C(0x265c) &&
+                steps == expected_steps &&
+                report.handled == 1 &&
+                report.command == command &&
+                report.payload == payload &&
+                report.selected_value == payload &&
+                report.handler_address == UINT32_C(0x13cc) &&
+                report.descriptors_matched == expected_matches &&
+                report.cursor_before == cursor &&
+                report.cursor_after == (uint16_t)(cursor + 4u) &&
+                board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
+                step_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
+                ram_deltas == 0u &&
+                changed_c == 3u && changed_m == 3u &&
+                scsp_deltas == 0u &&
+                memcmp(board.scsp.registers, scsp_c.registers,
+                       VF2_SCSP_REGISTER_BYTES) == 0 &&
+                memcmp(step_scsp.registers, scsp_m.registers,
+                       VF2_SCSP_REGISTER_BYTES) == 0 &&
+                memcmp(board.scsp.slot_active, step_scsp.slot_active,
+                       VF2_SCSP_SLOT_COUNT) == 0 &&
+                sample_c == 0u && sample_m == 0u;
+            printf("FRAME342_AD21_B_MATRIX_STRICT packet=%u "
+                   "parity=%u expected_steps=%u expected_matches=%u\n",
+                   (unsigned)packet, (unsigned)parity,
+                   (unsigned)expected_steps, (unsigned)expected_matches);
+            CHECK(parity);
+        }
         printf("FRAME342_AD21_B_MATRIX packet=%u bytes=%02x%02x%02x "
                "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
                "C_handled=%d C_matches=%u C_handler=%05x "
@@ -524,7 +562,8 @@ static void probe_ad21_b_matrix(const uint8_t *rom, size_t rom_size,
                (unsigned)first_delta, (unsigned)scsp_deltas,
                (unsigned)sample_c, (unsigned)sample_m,
                (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
-               (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT]);
+               (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+               verify_ad21_b_all == 0 ? 1u : 0u);
     }
     memcpy(board.sound_ram, baseline_c, sizeof(baseline_c));
     memcpy(step_ram, baseline_m, sizeof(baseline_m));
@@ -1020,10 +1059,11 @@ int main(int argc, char **argv)
     if ((argc != 2 && argc != 3) ||
         (argc == 3 && strcmp(argv[2], "--probe-ad21-l2") != 0 &&
          strcmp(argv[2], "--verify-ad21-ba") != 0 &&
-         strcmp(argv[2], "--probe-ad21-b-all") != 0)) {
+         strcmp(argv[2], "--probe-ad21-b-all") != 0 &&
+         strcmp(argv[2], "--verify-ad21-b-all") != 0)) {
         fprintf(stderr,
                 "usage: %s <original-vf2-rom-directory> "
-                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all]\n",
+                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all]\n",
                 argv[0]);
         return 2;
     }
@@ -1031,7 +1071,10 @@ int main(int argc, char **argv)
     verify_ad21_ba = argc == 3 &&
                      strcmp(argv[2], "--verify-ad21-ba") == 0;
     probe_ad21_b_all = argc == 3 &&
-                       strcmp(argv[2], "--probe-ad21-b-all") == 0;
+                       (strcmp(argv[2], "--probe-ad21-b-all") == 0 ||
+                        strcmp(argv[2], "--verify-ad21-b-all") == 0);
+    verify_ad21_b_all = argc == 3 &&
+                        strcmp(argv[2], "--verify-ad21-b-all") == 0;
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &rom, &rom_size) != VF2_OK ||
         vf2_romset_build_region(argv[1], VF2_REGION_SAMPLES,
