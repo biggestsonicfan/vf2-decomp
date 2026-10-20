@@ -131,6 +131,41 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         regs.a[7] = UINT32_C(0x7f00);
         ms = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
                           0, 50000u, &steps);
+        /* Refuse misleading diagnostics if a future L2 change files
+         * a different packet at either expected ring position. */
+        if (board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor] != 0xbau ||
+            step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor] != 0xbau ||
+            board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] !=
+                (uint8_t)(which == 0u ? 0x2au : 7u) ||
+            step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] !=
+                (uint8_t)(which == 0u ? 0x2au : 7u)) {
+            fprintf(stderr, "FRAME342_AD21_BA wrong ring packet at %04x\\n",
+                    (unsigned)cursor);
+            ++failures;
+            continue;
+        }
+        {
+            size_t sample_diff = 0u, sample_first = VF2_SOUND_RAM_BYTES;
+            size_t scsp_first = VF2_SCSP_REGISTER_BYTES;
+            for (i = 0x50000u; i < VF2_SOUND_RAM_BYTES; ++i) {
+                if (board.sound_ram[i] != step_ram[i]) {
+                    if (sample_first == VF2_SOUND_RAM_BYTES) sample_first = i;
+                    ++sample_diff;
+                }
+            }
+            for (i = 0u; i < VF2_SCSP_REGISTER_BYTES; ++i) {
+                if (board.scsp.registers[i] != step_scsp.registers[i]) {
+                    scsp_first = i;
+                    break;
+                }
+            }
+            printf("FRAME342_AD21_BA_DETAIL packet=%u sample_diff=%u "
+                   "sample_first=%05x scsp_first=%04x "
+                   "C_handler=%05x C_handled=%u\\n",
+                   packet, (unsigned)sample_diff, (unsigned)sample_first,
+                   (unsigned)scsp_first, (unsigned)report.handler_address,
+                   (unsigned)report.handled);
+        }
         for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
             if (i >= 0x7e00u && i < 0x8000u) continue;
             if (board.sound_ram[i] != step_ram[i]) {
