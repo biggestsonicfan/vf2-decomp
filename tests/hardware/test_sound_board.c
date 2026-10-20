@@ -280,7 +280,9 @@ static void test_ad21_ba07_sample_copy(void)
     static const uint8_t sample[2] = {0x35u, 0xacu};
     vf2_sound_dispatch_report report;
     uint8_t *descriptor;
-    const uint8_t packet[4] = {0xbau, 0x07u, 0x7fu, 0u};
+    uint8_t sample_first[2u] = {0u, 0u};
+    unsigned variant;
+    uint8_t packet[4] = {0xbau, 0x07u, 0x7fu, 0u};
     test_boot_rom(rom);
     /* Row 7 points at a one-record selection of entry 0. */
     rom[0x8df0u] = 0u; rom[0x8df1u] = 7u;
@@ -295,6 +297,8 @@ static void test_ad21_ba07_sample_copy(void)
     rom[0x5b2cu] = 0u; rom[0x5b2du] = 0u;
     rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 2u;
     rom[0x7400u] = 0xd3u; rom[0x7401u] = 0x4au;
+    for (variant = 0u; variant < 2u; ++variant) {
+    packet[2] = variant == 0u ? 0x7fu : 0u;
     EXPECT_TRUE(vf2_sound_board_initialize(&board, rom, sizeof(rom),
                                            sample, sizeof(sample)) == VF2_OK);
     descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -313,6 +317,13 @@ static void test_ad21_ba07_sample_copy(void)
     EXPECT_TRUE(board.sound_ram[0x50000u] == 0xd3u);
     EXPECT_TRUE(board.sound_ram[0x50001u] == 0x4au);
     EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    if (variant == 0u) {
+        memcpy(sample_first, board.sound_ram + 0x50000u, sizeof(sample_first));
+    } else {
+        EXPECT_TRUE(memcmp(sample_first, board.sound_ram + 0x50000u,
+                           sizeof(sample_first)) == 0);
+    }
+    }
 }
 
 int main(void)
