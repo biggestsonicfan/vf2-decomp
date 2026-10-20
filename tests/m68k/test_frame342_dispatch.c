@@ -28,6 +28,7 @@ static vf2_scsp step_scsp;
 static uint8_t filed_ram[VF2_SOUND_RAM_BYTES];
 static vf2_scsp filed_scsp;
 static int failures;
+static int probe_ad21_l2;
 static int16_t frame342_c_left[4096], frame342_c_right[4096];
 static int16_t frame342_s_left[4096], frame342_s_right[4096];
 
@@ -417,6 +418,63 @@ static void isolate_command(size_t command,
                (unsigned)differences, (unsigned)first,
                (unsigned)report.handler_address, (unsigned)steps);
         CHECK(differences == 0u);
+        if (probe_ad21_l2) {
+            vf2_m68k_regs tick;
+            vf2_sound_stream_maintenance_report maintenance;
+            vf2_status c_tick, m_tick;
+            uint32_t tick_steps = 0u;
+            uint8_t *descriptor = board.sound_ram +
+                VF2_SOUND_DESCRIPTOR_BASE +
+                VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
+            uint32_t next = ((uint32_t)descriptor[4] << 24u) |
+                ((uint32_t)descriptor[5] << 16u) |
+                ((uint32_t)descriptor[6] << 8u) |
+                (uint32_t)descriptor[7];
+            printf("FRAME342_AD21_POST_DISPATCH stream_slot1=%02x%02x%02x%02x "
+                   "next=%08x rom_next_bytes=",
+                   descriptor[0], descriptor[1],
+                   descriptor[2], descriptor[3], (unsigned)next);
+            if (next >= VF2_SOUND_AUDIO_ROM_BASE &&
+                next < VF2_SOUND_AUDIO_ROM_BASE + rom_size &&
+                (uint64_t)(next - VF2_SOUND_AUDIO_ROM_BASE) + 16u <= rom_size) {
+                size_t j;
+                for (j = 0; j < 16u; ++j) {
+                    printf("%02x", rom[next - VF2_SOUND_AUDIO_ROM_BASE + j]);
+                }
+            } else {
+                printf("out_of_range");
+            }
+            putchar('\n');
+            memset(&maintenance, 0, sizeof(maintenance));
+            c_tick = vf2_sound_board_maintain_streams(&board, &maintenance);
+            vf2_m68k_regs_reset(&tick);
+            tick.pc = UINT32_C(0x1f16);
+            tick.a[4] = UINT32_C(0x2506);
+            tick.a[5] = VF2_SCSP_CPU_BASE;
+            tick.a[6] = UINT32_C(0x1000);
+            tick.a[7] = UINT32_C(0x7f00);
+            m_tick = vf2_m68k_run(&bus, &tick, UINT32_C(0x1f7a),
+                                   0, 10000u, &tick_steps);
+            printf("FRAME342_AD21_L2_PROBE C_status=%d C_refusal=%u "
+                   "C_refusal_record=%u C_count=%u C_stream_count=%u "
+                   "M_status=%d M_pc=%05x M_steps=%u "
+                   "M_count=%u M_stream_count=%u "
+                   "M_d0=%08x M_d1=%08x M_a2=%08x\n",
+                   (int)c_tick, (unsigned)maintenance.refused_stage,
+                   (unsigned)maintenance.refused_record,
+                   (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
+                   (unsigned)board.sound_ram[VF2_SOUND_DESCRIPTOR_BASE +
+                             VF2_SOUND_STREAM_DESCRIPTOR_BYTES + 3u],
+                   (int)m_tick, (unsigned)tick.pc, (unsigned)tick_steps,
+                   (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+                   (unsigned)step_ram[VF2_SOUND_DESCRIPTOR_BASE +
+                             VF2_SOUND_STREAM_DESCRIPTOR_BYTES + 3u],
+                   (unsigned)tick.d[0], (unsigned)tick.d[1],
+                   (unsigned)tick.a[2]);
+            /* Instrumentation only. A recovered L2 claim requires
+             * an independent original-M68000 RAM/SCSP differential
+             * and must NOT be inferred from this probe log. */
+        }
     }
     if (command >= 1u && command <= 3u) {
         size_t descriptor = VF2_SOUND_COMMAND_DESCRIPTOR_BASE +
@@ -432,10 +490,14 @@ int main(int argc, char **argv)
     uint8_t *samples = NULL;
     size_t rom_size = 0u, sample_size = 0u;
     size_t i;
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <original-vf2-rom-directory>\n", argv[0]);
+    if ((argc != 2 && argc != 3) ||
+        (argc == 3 && strcmp(argv[2], "--probe-ad21-l2") != 0)) {
+        fprintf(stderr,
+                "usage: %s <original-vf2-rom-directory> [--probe-ad21-l2]\n",
+                argv[0]);
         return 2;
     }
+    probe_ad21_l2 = argc == 3;
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &rom, &rom_size) != VF2_OK ||
         vf2_romset_build_region(argv[1], VF2_REGION_SAMPLES,
