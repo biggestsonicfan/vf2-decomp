@@ -270,6 +270,51 @@ static void test_ad21_ba_upload_gate(void)
     }
 }
 
+/* AD21's real BA 07 7F payload is 0x07, not 0x7f: the
+ * third packet byte must never trigger the payload-only early exit.
+ * Exercise a ROM-free, valid row-7 sample upload end to end. */
+static void test_ad21_ba07_sample_copy(void)
+{
+    static vf2_sound_board board;
+    static uint8_t rom[0x10010u];
+    static const uint8_t sample[2] = {0x35u, 0xacu};
+    vf2_sound_dispatch_report report;
+    uint8_t *descriptor;
+    const uint8_t packet[4] = {0xbau, 0x07u, 0x7fu, 0u};
+    test_boot_rom(rom);
+    /* Row 7 points at a one-record selection of entry 0. */
+    rom[0x8df0u] = 0u; rom[0x8df1u] = 7u;
+    rom[0x8e1eu] = 0u; rom[0x8e1fu] = 0x60u;
+    rom[0x8e20u] = 0x78u; rom[0x8e21u] = 0u;
+    rom[0x7800u] = 0u; rom[0x7801u] = 0u;
+    rom[0x7802u] = 0u; rom[0x7803u] = 0u;
+    /* Entry-0 source: two bytes in the synthetic audio ROM.
+     * (length + 0x1ff) & 0xffff = 1. */
+    rom[0x5b28u] = 0u; rom[0x5b29u] = 0x60u;
+    rom[0x5b2au] = 0x74u; rom[0x5b2bu] = 0u;
+    rom[0x5b2cu] = 0u; rom[0x5b2du] = 0u;
+    rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 2u;
+    rom[0x7400u] = 0xd3u; rom[0x7401u] = 0x4au;
+    EXPECT_TRUE(vf2_sound_board_initialize(&board, rom, sizeof(rom),
+                                           sample, sizeof(sample)) == VF2_OK);
+    descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    memset(descriptor, 0, VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
+           VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
+    descriptor[0] = 0x80u;
+    descriptor[1] = 0x0au;
+    board.sound_ram[0x50000u] = 0u;
+    board.sound_ram[0x50001u] = 0u;
+    EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+    EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) == VF2_OK);
+    EXPECT_TRUE(report.command == 0xbau);
+    EXPECT_TRUE(report.payload == 7u);
+    EXPECT_TRUE(report.selected_value == 0x3au);
+    EXPECT_TRUE(report.descriptors_matched == 1u);
+    EXPECT_TRUE(board.sound_ram[0x50000u] == 0xd3u);
+    EXPECT_TRUE(board.sound_ram[0x50001u] == 0x4au);
+    EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+}
+
 int main(void)
 {
     static uint8_t audio_rom[0x10010u];
@@ -1725,5 +1770,6 @@ int main(void)
     test_render_first_tone();
     test_ad21_b_class_drain();
     test_ad21_ba_upload_gate();
+    test_ad21_ba07_sample_copy();
     return failures == 0 ? 0 : 1;
 }
