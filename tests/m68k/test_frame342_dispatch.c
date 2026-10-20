@@ -471,6 +471,34 @@ static void isolate_command(size_t command,
                              VF2_SOUND_STREAM_DESCRIPTOR_BYTES + 3u],
                    (unsigned)tick.d[0], (unsigned)tick.d[1],
                    (unsigned)tick.a[2]);
+            {
+                uint16_t end = (uint16_t)(
+                    ((uint16_t)step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR] << 8u) |
+                     step_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]);
+                uint16_t start = (uint16_t)(
+                    ((uint16_t)step_ram[VF2_SOUND_COMMAND_CURSOR] << 8u) |
+                     step_ram[VF2_SOUND_COMMAND_CURSOR + 1u]);
+                size_t packet, k;
+                printf("FRAME342_AD21_L2_ORIGINAL_RING write_cursor=%04x "
+                       "read_cursor=%04x count=%u ", end, start,
+                       (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT]);
+                for (packet = 0; packet < 12u; ++packet) {
+                    uint16_t at = (uint16_t)((start + packet * 4u) & 0xfffu);
+                    printf("%s", packet != 0u ? " " : "");
+                    for (k = 0; k < 4u; ++k) {
+                        printf("%02x", (unsigned)step_ram[
+                            VF2_SOUND_COMMAND_RING_BASE + ((at + k) & 0xfffu)]);
+                    }
+                }
+                putchar('\n');
+                printf("FRAME342_AD21_L2_ORIGINAL_DESCRIPTOR ");
+                for (k = 0; k < VF2_SOUND_STREAM_DESCRIPTOR_BYTES; ++k) {
+                    printf("%02x", (unsigned)step_ram[
+                        VF2_SOUND_DESCRIPTOR_BASE +
+                        VF2_SOUND_STREAM_DESCRIPTOR_BYTES + k]);
+                }
+                putchar('\n');
+            }
             /* Instrumentation only. A recovered L2 claim requires
              * an independent original-M68000 RAM/SCSP differential
              * and must NOT be inferred from this probe log. */
