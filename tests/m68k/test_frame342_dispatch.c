@@ -33,6 +33,7 @@ static int verify_ad21_ba;
 static int probe_ad21_b_all;
 static int verify_ad21_b_all;
 static int probe_ad21_b_sequential_flag;
+static int verify_ad21_b_sequential;
 static int16_t frame342_c_left[4096], frame342_c_right[4096];
 static int16_t frame342_s_left[4096], frame342_s_right[4096];
 
@@ -591,6 +592,16 @@ static void probe_ad21_b_sequential(const uint8_t *rom, size_t rom_size,
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
     size_t packet;
+    size_t processed = 0u;
+    uint32_t total_steps = 0u;
+    size_t total_delta_differences = 0u;
+    uint8_t initial_c_pcm[16u];
+    uint8_t initial_m_pcm[16u];
+    vf2_scsp initial_c_scsp, initial_m_scsp;
+    memcpy(initial_c_pcm, board.sound_ram + 0x50000u, sizeof(initial_c_pcm));
+    memcpy(initial_m_pcm, step_ram + 0x50000u, sizeof(initial_m_pcm));
+    memcpy(&initial_c_scsp, &board.scsp, sizeof(initial_c_scsp));
+    memcpy(&initial_m_scsp, &step_scsp, sizeof(initial_m_scsp));
     memset(&bus, 0, sizeof(bus));
     bus.ram = step_ram;
     bus.ram_size = sizeof(step_ram);
@@ -668,6 +679,8 @@ static void probe_ad21_b_sequential(const uint8_t *rom, size_t rom_size,
         for (i = 0u; i < VF2_SCSP_REGISTER_BYTES; ++i) {
             if (board.scsp.registers[i] != step_scsp.registers[i]) ++scsp_diff;
         }
+        total_steps += steps;
+        total_delta_differences += differing;
         count_c = board.sound_ram[VF2_SOUND_COMMAND_COUNT];
         count_m = step_ram[VF2_SOUND_COMMAND_COUNT];
         read_c = ((unsigned)board.sound_ram[VF2_SOUND_COMMAND_CURSOR] << 8u) |
@@ -686,6 +699,40 @@ static void probe_ad21_b_sequential(const uint8_t *rom, size_t rom_size,
                (unsigned)differing, (unsigned)first, (unsigned)scsp_diff,
                (unsigned)c_pcm, (unsigned)m_pcm,
                (unsigned)report.descriptors_matched);
+        if (verify_ad21_b_sequential) {
+            const uint32_t expected_steps = packet >= 6u ? 304u :
+                (cmd == UINT8_C(0xbc) || cmd == UINT8_C(0xbe) ? 263u : 256u);
+            const size_t expected_matches =
+                (cmd == UINT8_C(0xbc) || cmd == UINT8_C(0xbe)) ? 2u : 1u;
+            const uint16_t expected_cursor = (uint16_t)(cursor + 4u);
+            const int parity = cs == VF2_OK && ms == VF2_OK &&
+                regs.pc == UINT32_C(0x265c) &&
+                steps == expected_steps &&
+                report.handled == 1 &&
+                report.command == cmd && report.payload == arg1 &&
+                report.selected_value == arg1 &&
+                report.handler_address == UINT32_C(0x13cc) &&
+                report.descriptors_matched == expected_matches &&
+                report.cursor_before == cursor &&
+                report.cursor_after == expected_cursor &&
+                count_c == 11u - packet && count_m == 11u - packet &&
+                read_c == expected_cursor && read_m == expected_cursor &&
+                c_changed == 3u && m_changed == 3u &&
+                differing == 0u && scsp_diff == 0u &&
+                c_pcm == 0u && m_pcm == 0u &&
+                memcmp(board.scsp.registers, initial_c_scsp.registers,
+                       VF2_SCSP_REGISTER_BYTES) == 0 &&
+                memcmp(step_scsp.registers, initial_m_scsp.registers,
+                       VF2_SCSP_REGISTER_BYTES) == 0 &&
+                memcmp(board.scsp.slot_active, step_scsp.slot_active,
+                       VF2_SCSP_SLOT_COUNT) == 0;
+            printf("FRAME342_AD21_B_SEQUENCE_STRICT packet=%u parity=%u "
+                   "M_steps=%u RAM_delta_diff=%u SCSP_diff=%u\n",
+                   (unsigned)packet, (unsigned)parity,
+                   (unsigned)steps, (unsigned)differing, (unsigned)scsp_diff);
+            CHECK(parity);
+        }
+        ++processed;
         /* This mode measures the first unproved interaction. Status or
          * retirement failures are evidence, not successes to mask. */
         if (cs != VF2_OK || ms != VF2_OK ||
@@ -695,6 +742,32 @@ static void probe_ad21_b_sequential(const uint8_t *rom, size_t rom_size,
                    (unsigned)packet);
             break;
         }
+    }
+    printf("FRAME342_AD21_B_SEQUENCE_FINAL processed=%u "
+           "total_steps=%u delta_differences=%u C_count=%u M_count=%u "
+           "C_cursor=%02x%02x M_cursor=%02x%02x\n",
+           (unsigned)processed, (unsigned)total_steps,
+           (unsigned)total_delta_differences,
+           (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
+           (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+           (unsigned)board.sound_ram[VF2_SOUND_COMMAND_CURSOR],
+           (unsigned)board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u],
+           (unsigned)step_ram[VF2_SOUND_COMMAND_CURSOR],
+           (unsigned)step_ram[VF2_SOUND_COMMAND_CURSOR + 1u]);
+    if (verify_ad21_b_sequential) {
+        CHECK(processed == 12u);
+        CHECK(total_steps == 3374u);
+        CHECK(total_delta_differences == 0u);
+        CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        CHECK(step_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+        CHECK(board.sound_ram[VF2_SOUND_COMMAND_CURSOR] == 0u);
+        CHECK(step_ram[VF2_SOUND_COMMAND_CURSOR] == 0u);
+        CHECK(board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] == 0x44u);
+        CHECK(step_ram[VF2_SOUND_COMMAND_CURSOR + 1u] == 0x44u);
+        CHECK(memcmp(initial_c_pcm, board.sound_ram + 0x50000u,
+                     sizeof(initial_c_pcm)) == 0);
+        CHECK(memcmp(initial_m_pcm, step_ram + 0x50000u,
+                     sizeof(initial_m_pcm)) == 0);
     }
 }
 
@@ -1186,10 +1259,11 @@ int main(int argc, char **argv)
          strcmp(argv[2], "--verify-ad21-ba") != 0 &&
          strcmp(argv[2], "--probe-ad21-b-all") != 0 &&
          strcmp(argv[2], "--verify-ad21-b-all") != 0 &&
-         strcmp(argv[2], "--probe-ad21-b-sequential") != 0)) {
+         strcmp(argv[2], "--probe-ad21-b-sequential") != 0 &&
+         strcmp(argv[2], "--verify-ad21-b-sequential") != 0)) {
         fprintf(stderr,
                 "usage: %s <original-vf2-rom-directory> "
-                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential]\n",
+                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential|--verify-ad21-b-sequential]\n",
                 argv[0]);
         return 2;
     }
@@ -1202,7 +1276,10 @@ int main(int argc, char **argv)
     verify_ad21_b_all = argc == 3 &&
                         strcmp(argv[2], "--verify-ad21-b-all") == 0;
     probe_ad21_b_sequential_flag = argc == 3 &&
-        strcmp(argv[2], "--probe-ad21-b-sequential") == 0;
+        (strcmp(argv[2], "--probe-ad21-b-sequential") == 0 ||
+         strcmp(argv[2], "--verify-ad21-b-sequential") == 0);
+    verify_ad21_b_sequential = argc == 3 &&
+        strcmp(argv[2], "--verify-ad21-b-sequential") == 0;
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &rom, &rom_size) != VF2_OK ||
         vf2_romset_build_region(argv[1], VF2_REGION_SAMPLES,
