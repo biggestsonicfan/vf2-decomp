@@ -57,6 +57,51 @@ def audit(path):
         assert packet == expected, f"AD21 packet {index} differs"
         packets.append(packet[:3].hex(" "))
     assert cpu[0xA6E3:0xA6E6] == b"\xff\x2f\x00", "AD21 terminator differs"
+    # Original EPR reset vector and exact BA machine opcode shape.
+    # This is an opcode-shape check, not a full M68000 execution.
+    original_ssp = int.from_bytes(cpu[0:4], "big")
+    original_entry = int.from_bytes(cpu[4:8], "big")
+    assert original_ssp == 0x5000, "unexpected reset SSP"
+    assert original_entry == 0x600100, "unexpected reset PC"
+    assert cpu[0x1AC0:0x1AD6] == bytes.fromhex(
+        "46fc2200 41f900605b26 3e18 43f85000 12d8 51cffffc"
+    ), "BA prologue/staging DBF opcodes changed"
+    assert cpu[0x1AD6:0x1AF0] == bytes.fromhex(
+        "0240007f 0c00007f 67000066 43f900608df0"
+        " 3219 b041 6e000058"
+    ), "BA payload gate/max-selector branch changed"
+    assert cpu[0x1B46:0x1B4C] == bytes.fromhex(
+        "46fc2000 4e75"
+    ), "BA early-return epilogue changed"
+
+    # M68k Bcc.w displacement is relative to the word after opcode.
+    def branch_target(pos):
+        assert cpu[pos] in (0x67, 0x6E) and cpu[pos + 1] == 0
+        disp = int.from_bytes(cpu[pos + 2:pos + 4], "big", signed=True)
+        return pos + 2 + disp
+
+    assert branch_target(0x1ADE) == 0x1B46, "BA 7f exit target changed"
+    assert branch_target(0x1AEC) == 0x1B46, "BA row-max exit target changed"
+
+    # Boot descriptor image 1 row 0 is an active channel 0xA:
+    # BA therefore enters the 0x1ac0 uploader (but never the sample row).
+    image0 = int.from_bytes(cpu[0x3066:0x306A], "big")
+    image1 = int.from_bytes(cpu[0x30A6:0x30AA], "big")
+    assert (image0, image1) == (0x6030E6, 0x603186), "descriptor roots changed"
+    descriptors = [
+        cpu[(root - 0x600000) + index * 16:
+            (root - 0x600000) + (index + 1) * 16]
+        for root in (image0, image1) for index in range(10)
+    ]
+    channel_a_rows = [
+        index for index, desc in enumerate(descriptors)
+        if (desc[0] & 0x80) and desc[1] == 0x0A
+    ]
+    assert channel_a_rows == [10], "BA descriptor routing changed"
+    assert 0x5000 <= 0x7F00 < 0x5000 + staging_bytes, (
+        "old 0x7f00 test-stack hazard disappeared"
+    )
+
     result = {
         "audio_rom_crc32": f"{AUDIO_CRC32:08x}",
         "sample_banks_verified": len(SAMPLE_CRCS),
@@ -65,6 +110,12 @@ def audit(path):
         "staging_copy_bytes": staging_bytes,
         "staging_source": "0x605b28",
         "staging_target": "0x5000",
+        "original_reset_ssp": f"0x{original_ssp:04x}",
+        "original_reset_pc": f"0x{original_entry:06x}",
+        "old_test_ssp_7f00_overwritten_by_staging": True,
+        "ba_active_channel_a_descriptors": channel_a_rows,
+        "ba_row_gate_exit_pc": "0x1b46",
+        "ba_return_opcode": "4e75",
         "ba_row_max": row_max,
         "ba_2a_row_admitted": 42 <= row_max,
         "ba_07_row_admitted": 7 <= row_max,
