@@ -178,3 +178,66 @@ replay, not as a time-accurate serial-bus emulation connecting two
 live CPUs. No fighter-collision origin, original 68000 L2/L1
 timer ordering, D92/CB2 KEYON for these five commands, or
 true SCSP DAC/DSP sound output has been established.
+
+## v0898 — Stereo PCM parity after restoring SCSP-visible sample RAM
+
+The frame-342 original owner-ROM five-command differential now covers
+the **9E 0A 7F** KEYON command in both the recovered-C dispatcher and
+the original Motorola 68000 interpreter. The independently executed
+C-vs-original CPU RAM and SCSP **register** parity had passed, but the
+4096-frame **stereo PCM comparison failed**. In the diagnostic's first
+failing run:
+
+```text
+FRAME342_SCSP_PRE ... C_sample_ram=0 S_sample_ram=1 ...
+FRAME342_PCM_RIGHT_FIRST_DIFF sample=0 C=320 S=0 C_left=0 S_left=0
+```
+
+This was not a pan or mixing bug. The original MC68000 `MOVEM` block
+copied the selected sample page to sound RAM at SCSP start `0x010000`;
+the C board still had its SCSP *only* attached to the direct sample ROM.
+The original interpreter's SCSP was correctly attached to its own
+sound RAM. Identical register values were therefore rendering
+**different bytes**.
+
+Fix: on the **strictly opt-in verified frame-342 9E dispatch**,
+after the legal 512-byte engine copy and the D72 KEYON tail have
+succeeded, attach `board->sound_ram` as the SCSP-visible sample RAM
+(`vf2_scsp_attach_sample_ram`). The existing sample-ROM attachment
+remains available for addresses beyond the 512KB RAM window.
+Leave default initialization unchanged to avoid stale internal
+self-pointers in callers that copy `vf2_sound_board` structs.
+
+The added regression asserts the C and original SCSP RAM bindings
+explicitly, requires both active slot 0, checks full sound-RAM
+parity (minus independently tracked stack/epilogue cells), then
+renders **4,096 stereo frames in each independently reached state**.
+Left **and** right sample buffers must be byte-for-byte identical,
+and the output cannot be all silence.
+
+**Actual owner-ROM test, GitHub Actions GCC artifact
+`vf2-m68k-sound-differential-linux` ID 12237322374:**
+
+```text
+EXIT:0
+FRAME342_DISPATCH index=0 entry=9e0a7f class=90 C_status=0 C_handler=00d90 C_handled=1 S_status=0 S_pc=0265c S_steps=367 SCSP_active_before=0 SCSP_active_C=1 SCSP_active_S=1 first_ram_diff=none
+FRAME342_9E_PARITY RAM_diff_except_epilogue=0 first=80000 SCSP_C=1 SCSP_S=1
+FRAME342_SCSP_PRE C_start=010000 S_start=010000 C_sample_ram=1 S_sample_ram=1 C_addr=00000000 S_addr=00000000 C_step=00000800 S_step=00000800 C_env=0 S_env=0 C_state=0 S_state=0 C_backward=0 S_backward=0
+FRAME342_9E_PCM status_c=0 status_s=0 matched_stereo_samples=1 nonzero_frames=920/4096 peak=22568 model_only=1
+```
+
+The same original-ROM fixture also reported full non-epilogue RAM
+parity for `CD 74`, `CA 7E`, and `CB 7F`; `AD 21 00`
+remains refused at `0x1e98` in the C dispatcher as an openly
+unrecovered branch.
+
+**Important limits:** `matched_stereo_samples=1` is the diagnostic's
+boolean flag meaning **both 4096-frame stereo buffers matched**, not
+a count of one sample. This is software-SCSP-model equality, not a
+real Model 2 arcade SCSP DSP or DAC comparison. The tested sound
+command was genuinely produced by original i960 gameplay code on
+the observed controller-input trajectory, but fighter collision
+causality and real asynchronous i960/68000 timing remain unproven.
+The isolated dispatch fixture initializes an owner-ROM sound board;
+it is not a full concurrent snapshot of all historical 68000 state.
+No proprietary ROM, sample or captured snapshot is checked into Git.
