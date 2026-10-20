@@ -500,26 +500,26 @@ static void isolate_command(size_t command,
                 putchar('\n');
             }
             {
-                size_t byte, differences = 0u;
-                size_t first = VF2_SOUND_RAM_BYTES;
+                size_t byte, l2_differences = 0u;
+                size_t l2_first = VF2_SOUND_RAM_BYTES;
                 for (byte = 0u; byte < VF2_SOUND_RAM_BYTES; ++byte) {
                     if (byte >= 0x7e00u && byte < 0x8000u) {
                         continue; /* Original interpreter's stack */
                     }
                     if (board.sound_ram[byte] != step_ram[byte]) {
-                        if (first == VF2_SOUND_RAM_BYTES) first = byte;
-                        if (differences < 16u) {
+                        if (l2_first == VF2_SOUND_RAM_BYTES) l2_first = byte;
+                        if (l2_differences < 16u) {
                             printf("FRAME342_AD21_L2_DIFF addr=%05x C=%02x S=%02x\n",
                                    (unsigned)byte,
                                    (unsigned)board.sound_ram[byte],
                                    (unsigned)step_ram[byte]);
                         }
-                        ++differences;
+                        ++l2_differences;
                     }
                 }
-                printf("FRAME342_AD21_L2_PARITY diff=%u first=%05x "
+                printf("FRAME342_AD21_L2_PARITY diff=%u l2_first=%05x "
                        "scsp_regs_equal=%u c_packets=%u c_cursor=%04x\n",
-                       (unsigned)differences, (unsigned)first,
+                       (unsigned)l2_differences, (unsigned)l2_first,
                        (unsigned)(memcmp(board.scsp.registers,
                              step_scsp.registers,
                              VF2_SCSP_REGISTER_BYTES) == 0),
@@ -532,7 +532,7 @@ static void isolate_command(size_t command,
                 CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 12u);
                 CHECK(step_ram[VF2_SOUND_COMMAND_COUNT] == 12u);
                 CHECK(maintenance.write_cursor_after == 0x44u);
-                CHECK(differences == 0u);
+                CHECK(l2_differences == 0u);
                 CHECK(memcmp(board.scsp.registers, step_scsp.registers,
                              VF2_SCSP_REGISTER_BYTES) == 0);
             }
