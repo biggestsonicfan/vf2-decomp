@@ -1635,7 +1635,7 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
-        EXPECT_TRUE(dispatch.selected_value == 0x33u);
+        EXPECT_TRUE(dispatch.selected_value == 0x7du);
         EXPECT_TRUE(dispatch.voices_cleared == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
@@ -1652,7 +1652,7 @@ int main(void)
         }
         EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &dispatch) == VF2_OK);
         EXPECT_TRUE(dispatch.handler_address == 0x13ccu);
-        EXPECT_TRUE(dispatch.selected_value == 0x33u);
+        EXPECT_TRUE(dispatch.selected_value == 0x7eu);
         EXPECT_TRUE(dispatch.voices_cleared == 0u);
         EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         EXPECT_TRUE(dispatch.cursor_after == 4u);
