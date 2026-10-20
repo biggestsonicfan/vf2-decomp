@@ -499,9 +499,43 @@ static void isolate_command(size_t command,
                 }
                 putchar('\n');
             }
-            /* Instrumentation only. A recovered L2 claim requires
-             * an independent original-M68000 RAM/SCSP differential
-             * and must NOT be inferred from this probe log. */
+            {
+                size_t byte, differences = 0u;
+                size_t first = VF2_SOUND_RAM_BYTES;
+                for (byte = 0u; byte < VF2_SOUND_RAM_BYTES; ++byte) {
+                    if (byte >= 0x7e00u && byte < 0x8000u) {
+                        continue; /* Original interpreter's stack */
+                    }
+                    if (board.sound_ram[byte] != step_ram[byte]) {
+                        if (first == VF2_SOUND_RAM_BYTES) first = byte;
+                        if (differences < 16u) {
+                            printf("FRAME342_AD21_L2_DIFF addr=%05x C=%02x S=%02x\n",
+                                   (unsigned)byte,
+                                   (unsigned)board.sound_ram[byte],
+                                   (unsigned)step_ram[byte]);
+                        }
+                        ++differences;
+                    }
+                }
+                printf("FRAME342_AD21_L2_PARITY diff=%u first=%05x "
+                       "scsp_regs_equal=%u c_packets=%u c_cursor=%04x\n",
+                       (unsigned)differences, (unsigned)first,
+                       (unsigned)(memcmp(board.scsp.registers,
+                             step_scsp.registers,
+                             VF2_SCSP_REGISTER_BYTES) == 0),
+                       (unsigned)maintenance.packets_emitted,
+                       (unsigned)maintenance.write_cursor_after);
+                CHECK(c_tick == VF2_OK);
+                CHECK(m_tick == VF2_OK);
+                CHECK(tick.pc == UINT32_C(0x1f7a));
+                CHECK(maintenance.packets_emitted == 12u);
+                CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 12u);
+                CHECK(step_ram[VF2_SOUND_COMMAND_COUNT] == 12u);
+                CHECK(maintenance.write_cursor_after == 0x44u);
+                CHECK(differences == 0u);
+                CHECK(memcmp(board.scsp.registers, step_scsp.registers,
+                             VF2_SCSP_REGISTER_BYTES) == 0);
+            }
         }
     }
     if (command >= 1u && command <= 3u) {
