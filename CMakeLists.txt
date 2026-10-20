@@ -1181,7 +1181,8 @@ if(VF2_BUILD_TESTS)
                              PROPERTIES TIMEOUT 900)
         # Strict AD21 BA owner-ROM gate is deliberately opt-in:
         # the original BA uploader's parity is still under investigation.
-        # The original BA selectors 7/42 exceed the ROM table max 1: validate\n        # the 13000-byte staging copy and absence of PCM sample-row writes.
+        # The original BA selectors 7/42 exceed the ROM table max 1: validate
+        # the 13000-byte staging copy and absence of PCM sample-row writes.
         if(VF2_VERIFY_AD21_BA)
             add_test(NAME vf2_m68k_frame342_ad21_ba_strict_owner_rom
                      COMMAND vf2_m68k_frame342_dispatch_tests
