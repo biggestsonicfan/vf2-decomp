@@ -76,6 +76,90 @@ static int file_stream(const uint8_t *rom, size_t rom_size,
     return 1;
 }
 
+/* Diagnostic only: after the owner-ROM AD21 L2 tick, isolate the
+ * BA 2A 00 and BA 07 7F entries for independent C/68000 dispatch.
+ * Do not assert equivalence or imply KEYON before measuring it. */
+static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
+                                    const uint8_t *samples, size_t sample_size)
+{
+    static uint8_t c_snapshot[VF2_SOUND_RAM_BYTES];
+    static uint8_t m_snapshot[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp c_scsp_snapshot, m_scsp_snapshot;
+    size_t which;
+    memcpy(c_snapshot, board.sound_ram, sizeof(c_snapshot));
+    memcpy(m_snapshot, step_ram, sizeof(m_snapshot));
+    memcpy(&c_scsp_snapshot, &board.scsp, sizeof(c_scsp_snapshot));
+    memcpy(&m_scsp_snapshot, &step_scsp, sizeof(m_scsp_snapshot));
+    for (which = 0u; which < 2u; ++which) {
+        const unsigned packet = which == 0u ? 1u : 7u;
+        const uint16_t cursor = (uint16_t)(0x14u + packet * 4u);
+        vf2_sound_dispatch_report report;
+        vf2_m68k_bus bus;
+        vf2_m68k_regs regs;
+        vf2_status cs, ms;
+        uint32_t steps = 0u;
+        size_t differences = 0u, first = VF2_SOUND_RAM_BYTES, i;
+        memcpy(board.sound_ram, c_snapshot, sizeof(c_snapshot));
+        memcpy(step_ram, m_snapshot, sizeof(m_snapshot));
+        memcpy(&board.scsp, &c_scsp_snapshot, sizeof(c_scsp_snapshot));
+        memcpy(&step_scsp, &m_scsp_snapshot, sizeof(m_scsp_snapshot));
+        (void)vf2_scsp_attach_sample_ram(&board.scsp,
+                  board.sound_ram, sizeof(board.sound_ram));
+        (void)vf2_scsp_attach_sample_ram(&step_scsp,
+                  step_ram, sizeof(step_ram));
+        board.sound_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+        step_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+        board.sound_ram[VF2_SOUND_COMMAND_CURSOR] = (uint8_t)(cursor >> 8u);
+        board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = (uint8_t)cursor;
+        step_ram[VF2_SOUND_COMMAND_CURSOR] = (uint8_t)(cursor >> 8u);
+        step_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = (uint8_t)cursor;
+        memset(&report, 0, sizeof(report));
+        cs = vf2_sound_board_dispatch_next(&board, &report);
+        memset(&bus, 0, sizeof(bus));
+        bus.ram = step_ram;
+        bus.ram_size = sizeof(step_ram);
+        bus.rom = rom;
+        bus.rom_size = rom_size;
+        bus.sample_rom = samples;
+        bus.sample_rom_size = sample_size;
+        bus.scsp = &step_scsp;
+        vf2_m68k_regs_reset(&regs);
+        regs.pc = UINT32_C(0x7a6);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = VF2_SCSP_CPU_BASE;
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        ms = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                          0, 50000u, &steps);
+        for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
+            if (i >= 0x7e00u && i < 0x8000u) continue;
+            if (board.sound_ram[i] != step_ram[i]) {
+                if (first == VF2_SOUND_RAM_BYTES) first = i;
+                ++differences;
+            }
+        }
+        printf("FRAME342_AD21_BA_DISPATCH packet=%u payload=%02x "
+               "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
+               "ram_diff=%u first=%05x scsp_equal=%u "
+               "C_count=%u M_count=%u diagnostic_only=1\\n",
+               packet, which == 0u ? 0x2au : 7u,
+               (int)cs, (int)ms, (unsigned)regs.pc, (unsigned)steps,
+               (unsigned)differences, (unsigned)first,
+               (unsigned)(memcmp(board.scsp.registers, step_scsp.registers,
+                                 VF2_SCSP_REGISTER_BYTES) == 0),
+               (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
+               (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT]);
+    }
+    memcpy(board.sound_ram, c_snapshot, sizeof(c_snapshot));
+    memcpy(step_ram, m_snapshot, sizeof(m_snapshot));
+    memcpy(&board.scsp, &c_scsp_snapshot, sizeof(c_scsp_snapshot));
+    memcpy(&step_scsp, &m_scsp_snapshot, sizeof(m_scsp_snapshot));
+    (void)vf2_scsp_attach_sample_ram(&board.scsp,
+              board.sound_ram, sizeof(board.sound_ram));
+    (void)vf2_scsp_attach_sample_ram(&step_scsp,
+              step_ram, sizeof(step_ram));
+}
+
 static void isolate_command(size_t command,
                             const uint8_t *rom, size_t rom_size,
                             const uint8_t *samples, size_t sample_size)
@@ -535,6 +619,7 @@ static void isolate_command(size_t command,
                 CHECK(l2_differences == 0u);
                 CHECK(memcmp(board.scsp.registers, step_scsp.registers,
                              VF2_SCSP_REGISTER_BYTES) == 0);
+                probe_ad21_ba_dispatch(rom, rom_size, samples, sample_size);
             }
         }
     }
