@@ -31,16 +31,19 @@ static void setup(void)
     board.audio_rom_size = sizeof(rom);
     vf2_scsp_initialize(&board.scsp);
     record = rom + 0xa6b2u;
+    /* CPU-visible Motorola 68000 order, i.e. the audio region
+     * after ROM word-byte assembly, NOT the raw EPR chip bytes. */
+    record[0u] = 0xcfu;
     for (i = 0u; i < 12u; ++i) {
-        record[i * 4u] = (uint8_t)(0xb9u + (i % 6u));
-        record[i * 4u + 1u] = i == 0u ? 0xcfu : 0u;
-        record[i * 4u + 2u] = i < 6u ? 0u : 0x7fu;
-        record[i * 4u + 3u] = i < 6u ? 0x2au : 7u;
+        record[1u + i * 4u] = (uint8_t)(0xb9u + (i % 6u));
+        record[2u + i * 4u] = i < 6u ? 0x2au : 7u;
+        record[3u + i * 4u] = i < 6u ? 0u : 0x7fu;
+        record[4u + i * 4u] = 0u;
     }
-    record[48u] = 0xffu;
-    record[49u] = 0u;
-    record[50u] = 0u;
-    record[51u] = 0x2fu;
+    record[49u] = 0xffu;
+    record[50u] = 0x2fu;
+    record[51u] = 0u;
+    record[52u] = 0u;
     desc = board.sound_ram + VF2_SOUND_DESCRIPTOR_BASE +
            VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
     desc[0] = 0x80u;
@@ -122,7 +125,7 @@ static void refuse(unsigned kind)
            VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
     switch (kind) {
     case 0u: record[1u] ^= 1u; break; /* Unknown B/CF header */
-    case 1u: record[51u] ^= 1u; break; /* Bad FF 2F terminator */
+    case 1u: record[50u] ^= 1u; break; /* Bad FF 2F terminator */
     case 2u: ++desc[7u]; break; /* Unapproved adjacent record */
     case 3u: board.sound_ram[VF2_SOUND_COMMAND_COUNT] = 244u; break;
     case 4u: ++board.sound_ram[VF2_SOUND_COMMAND_WRITE_CURSOR + 1u]; break;
@@ -131,7 +134,7 @@ static void refuse(unsigned kind)
         memcpy(other, desc, VF2_SOUND_STREAM_DESCRIPTOR_BYTES);
         break;
     }
-    case 6u: record[4u] ^= 1u; break; /* Incorrect B9..BE body */
+    case 6u: record[5u] ^= 1u; break; /* Incorrect BA body */
     default: CHECK(0); return;
     }
     memcpy(before, board.sound_ram, sizeof(before));
