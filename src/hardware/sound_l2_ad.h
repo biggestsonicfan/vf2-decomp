@@ -52,7 +52,7 @@ static int vf2_sound_l2_ad_expand(const uint8_t *rom, size_t rom_size,
  * and timer/control pokes. No other record address or grammar is
  * admitted until tested.
  */
-static int vf2_sound_l2_ad21_expand(const uint8_t *rom,
+static inline int vf2_sound_l2_ad21_expand(const uint8_t *rom,
                                    size_t rom_size,
                                    uint32_t after_header,
                                    uint8_t packets[36])
