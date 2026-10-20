@@ -29,6 +29,7 @@ static uint8_t filed_ram[VF2_SOUND_RAM_BYTES];
 static vf2_scsp filed_scsp;
 static int failures;
 static int probe_ad21_l2;
+static int verify_ad21_ba;
 static int16_t frame342_c_left[4096], frame342_c_right[4096];
 static int16_t frame342_s_left[4096], frame342_s_right[4096];
 
@@ -99,6 +100,7 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         vf2_status cs, ms;
         uint32_t steps = 0u;
         size_t differences = 0u, first = VF2_SOUND_RAM_BYTES, i;
+        size_t c_sample_changed = 0u, m_sample_changed = 0u;
         memcpy(board.sound_ram, c_snapshot, sizeof(c_snapshot));
         memcpy(step_ram, m_snapshot, sizeof(m_snapshot));
         memcpy(&board.scsp, &c_scsp_snapshot, sizeof(c_scsp_snapshot));
@@ -113,6 +115,24 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = (uint8_t)cursor;
         step_ram[VF2_SOUND_COMMAND_CURSOR] = (uint8_t)(cursor >> 8u);
         step_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = (uint8_t)cursor;
+        /* Validate the exact original L2 packet before dispatching:
+         * the old diagnostic checked only after mutating both sides. */
+        if (board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor] != 0xbau ||
+            step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor] != 0xbau ||
+            board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] !=
+                (uint8_t)(which == 0u ? 0x2au : 7u) ||
+            step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] !=
+                (uint8_t)(which == 0u ? 0x2au : 7u) ||
+            board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 2u] !=
+                (uint8_t)(which == 0u ? 0u : 0x7fu) ||
+            step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 2u] !=
+                (uint8_t)(which == 0u ? 0u : 0x7fu)) {
+            fprintf(stderr,
+                    "FRAME342_AD21_BA incorrect original L2 packet at %04x\\n",
+                    (unsigned)cursor);
+            ++failures;
+            continue;
+        }
         memset(&report, 0, sizeof(report));
         cs = vf2_sound_board_dispatch_next(&board, &report);
         memset(&bus, 0, sizeof(bus));
@@ -131,23 +151,9 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         regs.a[7] = UINT32_C(0x7f00);
         ms = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
                           0, 50000u, &steps);
-        /* Refuse misleading diagnostics if a future L2 change files
-         * a different packet at either expected ring position. */
-        if (board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor] != 0xbau ||
-            step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor] != 0xbau ||
-            board.sound_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] !=
-                (uint8_t)(which == 0u ? 0x2au : 7u) ||
-            step_ram[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u] !=
-                (uint8_t)(which == 0u ? 0x2au : 7u)) {
-            fprintf(stderr, "FRAME342_AD21_BA wrong ring packet at %04x\n",
-                    (unsigned)cursor);
-            ++failures;
-            continue;
-        }
         {
             size_t sample_diff = 0u, sample_first = VF2_SOUND_RAM_BYTES;
             size_t scsp_first = VF2_SCSP_REGISTER_BYTES;
-            size_t c_sample_changed = 0u, m_sample_changed = 0u;
             size_t c_scsp_changed = 0u, m_scsp_changed = 0u;
             for (i = 0x50000u; i < VF2_SOUND_RAM_BYTES; ++i) {
                 if (board.sound_ram[i] != c_snapshot[i]) ++c_sample_changed;
@@ -183,6 +189,23 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
                 if (first == VF2_SOUND_RAM_BYTES) first = i;
                 ++differences;
             }
+        }
+        if (verify_ad21_ba) {
+            /* Strict owner-ROM gate is opt-in. Exact equality of two
+             * no-ops is NOT evidence of a real sample upload. */
+            int scsp_equal = memcmp(board.scsp.registers,
+                                    step_scsp.registers,
+                                    VF2_SCSP_REGISTER_BYTES) == 0;
+            int equal = cs == VF2_OK && ms == VF2_OK &&
+                        regs.pc == UINT32_C(0x265c) &&
+                        report.handled != 0 &&
+                        differences == 0u && scsp_equal &&
+                        c_sample_changed > 0u && m_sample_changed > 0u;
+            printf("FRAME342_AD21_BA_STRICT packet=%u parity=%u "
+                   "C_sample_changed=%u M_sample_changed=%u\n",
+                   packet, (unsigned)equal,
+                   (unsigned)c_sample_changed, (unsigned)m_sample_changed);
+            CHECK(equal);
         }
         printf("FRAME342_AD21_BA_DISPATCH packet=%u payload=%02x "
                "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
@@ -684,13 +707,17 @@ int main(int argc, char **argv)
     size_t rom_size = 0u, sample_size = 0u;
     size_t i;
     if ((argc != 2 && argc != 3) ||
-        (argc == 3 && strcmp(argv[2], "--probe-ad21-l2") != 0)) {
+        (argc == 3 && strcmp(argv[2], "--probe-ad21-l2") != 0 &&
+         strcmp(argv[2], "--verify-ad21-ba") != 0)) {
         fprintf(stderr,
-                "usage: %s <original-vf2-rom-directory> [--probe-ad21-l2]\n",
+                "usage: %s <original-vf2-rom-directory> "
+                "[--probe-ad21-l2|--verify-ad21-ba]\n",
                 argv[0]);
         return 2;
     }
     probe_ad21_l2 = argc == 3;
+    verify_ad21_ba = argc == 3 &&
+                     strcmp(argv[2], "--verify-ad21-ba") == 0;
     if (vf2_romset_build_region(argv[1], VF2_REGION_AUDIOCPU,
                                 &rom, &rom_size) != VF2_OK ||
         vf2_romset_build_region(argv[1], VF2_REGION_SAMPLES,
