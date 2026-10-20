@@ -3198,30 +3198,36 @@ static vf2_status sound_board_dispatch_b0(
     vf2_sound_board *board,
     uint8_t command,
     uint8_t payload,
+    uint8_t argument,
     vf2_sound_dispatch_report *report
 )
 {
-    /* ROM switch enters at 0x13cc (primer skipped): d2 = command. The
-       table index is command&0x7f; for B0-class commands that is
-       0x30-0x3f, of which only 0x3a is live (-> 0x1ac0 sample-upload,
-       19-target table measured). Payload/byte2 select nothing here:
-       the 0x1ac0 body reads d0 = payload (the (a3) peek). */
+    /* Owner-ROM opcode trace at 0x13cc (frame342 AD21):
+     * MOVE.B D0,D2 takes ring byte 1 (payload), MOVE.B (A3),D0
+     * takes ring byte 2 (argument); ANDI.W #$7f,D2 and LSL.W
+     * #2,D2 select a four-byte PC-relative dispatch table.
+     * BA 2A 00 -> table[0x2a] -> 0x194a; BA 07 7f ->
+     * table[0x07] -> 0x16ba, neither stages ROM data in the
+     * verified owner-ROM snapshot. Only table[0x3a] targets the
+     * 0x1ac0 uploader. The prior command&0x7f selector always
+     * selected 0x3a for BA and spuriously re-staged 13000 bytes. */
     const uint8_t channel = (uint8_t)(command & 0x0fu);
-    const uint8_t entry = (uint8_t)(command & 0x7fu);
+    const uint8_t entry = (uint8_t)(payload & 0x7fu);
 
     report->handler_address = UINT32_C(0x000013cc);
     report->channel = channel;
     report->selected_value = entry;
     if (entry != 0x3au) {
-        /* Table default (0x13dc rts): consume, no effects. */
+        /* Owner-ROM AD21 0x2a/0x07 arms were measured to leave
+         * RAM unchanged except the common drain head/retirement.
+         * Other B0 table arms still need independent recovery. */
         return VF2_OK;
     }
-    /* ROM 0x1ac0: SR prologue, first-copy, andi.w #$7f 0x7f arm
-       (beq to the 0x1b46 epilogue -- clean exit, verified target),
-       max-gate + indexed row pick by payload, shared uploader. */
+    /* 0x1ac0 runs only for B0 table selector 0x3a. The third
+     * ring byte is now D0 and selects the uploader's row. */
     return sound_board_sample_upload(
         board, UINT32_C(0x608df0),
-        1, payload);
+        1, argument);
 }
 
 vf2_status vf2_sound_board_dispatch_next(
@@ -3354,7 +3360,9 @@ vf2_status vf2_sound_board_dispatch_next(
             }
         } else if (local.command_class == 0xb0u) {
             vf2_status status = sound_board_dispatch_b0(
-                board, local.command, local.payload, &local
+                board, local.command, local.payload,
+                ram[VF2_SOUND_COMMAND_RING_BASE +
+                    ((cursor + 2u) & UINT16_C(0x0fffu))], &local
             );
             if (status != VF2_OK) {
                 *report = local;
