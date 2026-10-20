@@ -19,6 +19,7 @@ option(VF2_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanit
 option(VF2_ENABLE_LIFTED "Generate and compile the build-time lifted i960->C bridge (docs/VF2LIFT.md); scaffolding, opt-in" OFF)
 option(VF2_VERIFY_AD21_BA "Verify owner-ROM AD21 BA payload-table dispatch and preserved RAM mutations" OFF)
 option(VF2_VERIFY_AD21_B_ALL "Require owner-ROM AD21 parity for all twelve B9..BE packets" OFF)
+option(VF2_VERIFY_AD21_B_SEQUENTIAL "Require owner-ROM AD21 full twelve B-packet stateful drain parity" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
 if(NOT VF2_ROM_DIR)
   set(VF2_ROM_DIR "${CMAKE_SOURCE_DIR}/roms/vf2")
@@ -1201,6 +1202,16 @@ if(VF2_BUILD_TESTS)
                      COMMAND vf2_m68k_frame342_dispatch_tests
                              "${VF2_ROM_DIR}" --verify-ad21-b-all)
             set_tests_properties(vf2_m68k_frame342_ad21_b_all_strict_owner_rom
+                                 PROPERTIES TIMEOUT 900)
+        endif()
+        # Full AD21 stateful sequential drain. Never restore sound
+        # RAM or SCSP between packets; the private owner-ROM 68000
+        # restarts at its dispatcher entry once per queue request.
+        if(VF2_VERIFY_AD21_B_SEQUENTIAL)
+            add_test(NAME vf2_m68k_frame342_ad21_b_sequential_owner_rom
+                     COMMAND vf2_m68k_frame342_dispatch_tests
+                             "${VF2_ROM_DIR}" --verify-ad21-b-sequential)
+            set_tests_properties(vf2_m68k_frame342_ad21_b_sequential_owner_rom
                                  PROPERTIES TIMEOUT 900)
         endif()
         # v0898: exact fifteen original i960 vector-15 bytes from
