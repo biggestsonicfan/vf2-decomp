@@ -179,9 +179,10 @@ static void test_render_first_tone(void)
     }
 }
 
-/* Frame-342 AD21 L2's twelve B9..BE packets take the B0-class
- * default table door (only BA maps to the uploader).  This ROM-free
- * check pins the recovered C dispatch path, not original 68000 parity. */
+/* Frame-342 AD21 L2's B9/BB..BE packets take the B0-class
+ * default table door. BA instead selects the sample uploader, which
+ * needs an independent original 68000 differential before asserting
+ * a whole-stream drain. This is a ROM-free C routing regression. */
 static void test_ad21_b_class_drain(void)
 {
     static vf2_sound_board board;
@@ -199,8 +200,10 @@ static void test_ad21_b_class_drain(void)
             (uint8_t)(i < 6u ? 0x2au : 7u),
             (uint8_t)(i < 6u ? 0u : 0x7fu), 0u
         };
+        /* BA maps to uploader 0x1ac0; do not assert it is a no-op. */
+        if (packet[0] == 0xbau) continue;
         /* One matching active channel descriptor; other rows remain
-         * as initialized. The B0 default door must not alter SCSP. */
+         * as initialized. These B0 default doors consume the ring. */
         memset(board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE, 0,
                VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
                VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
