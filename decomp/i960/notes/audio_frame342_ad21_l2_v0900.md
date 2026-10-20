@@ -104,6 +104,63 @@ The stronger original-ROM CTest
 when the owner provides a local `VF2_ROM_DIR`; public CI
 never includes proprietary game ROMs.
 
+
+## Follow-up: post-L2 BA owner-ROM gate (October 20, 2026)
+
+The AD21 L2 regression now also contains a **ROM-free composition test**
+for all twelve B9..BE packets and two synthetic BA sample uploads. This
+checks the C path only and cannot establish original-driver upload parity.
+
+The owner-ROM harness `vf2_m68k_frame342_dispatch_tests` has a new
+`--verify-ad21-ba` mode. It first runs the existing original L2 tick,
+then isolates the **second** and **eighth** packets from its twelve-packet
+ring: `BA 2A 00` at cursor `0x18` and `BA 07 7F` at `0x30`.
+Each independent C/68000 dispatch starts from the corresponding post-L2
+snapshot, with only count and read cursor changed to isolate the packet.
+The harness now verifies the expected three packet bytes **before** running
+either dispatcher.
+
+A strict success requires both dispatches to return OK, original PC
+`0x265C`, consumed C command, **zero RAM differences outside the
+68000 stack region**, **identical SCSP register values**, and **nonzero
+sample RAM changes on both sides**. Matching no-ops explicitly fail.
+This is **not** time-accurate dual-CPU scheduling, and the strict BA
+mode **has not yet been demonstrated to pass against the owner's ROM**.
+
+Run on the owner's machine with its legally obtained ROMs (not in CI):
+
+```sh
+cmake -S . -B build -DVF2_BUILD_TESTS=ON \
+  -DVF2_ROM_DIR=/local/owner/vf2-roms \
+  -DVF2_VERIFY_AD21_BA=ON
+cmake --build build --target vf2_m68k_frame342_dispatch_tests
+ctest --test-dir build --output-on-failure \
+  -R '^vf2_m68k_frame342_ad21_ba_strict_owner_rom
+
+The 12 newly filed packets are `B9..BE` B-class requests.
+A single B-class dispatcher entry, timer progression and
+possible voice programming require further **original-MC68000
+per-packet** differentials. Do not infer that AD21 itself
+produces audible PCM, nor that the observed KICK input caused
+a fighter-to-fighter collision. This remains an isolated
+original-audio-ROM differential rather than time-accurate
+concurrent original dual-CPU scheduling.
+
+```
+
+Or inspect without strict failure:
+
+```sh
+build/vf2_m68k_frame342_dispatch_tests \
+  /local/owner/vf2-roms --probe-ad21-l2
+```
+
+The detailed diagnostic reports original/C sample bytes changed, first
+RAM/SCSP differences, return statuses and the 68000 stopping PC. A
+nonzero strict failure should be investigated in the recovered B0
+descriptor matching, uploader table selection, bus accesses and
+68000 interpreter before making any PCM/KEYON claim.
+
 ## Next unresolved step
 
 The 12 newly filed packets are `B9..BE` B-class requests.
