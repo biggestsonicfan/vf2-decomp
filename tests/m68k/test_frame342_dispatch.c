@@ -77,6 +77,81 @@ static int file_stream(const uint8_t *rom, size_t rom_size,
     return 1;
 }
 
+/* Owner-ROM-only checkpoint trace.  Run exactly one 68000 instruction
+ * per call to expose *which* B0 table door was reached; max_steps=1
+ * returns UNSUPPORTED after a completed instruction by design.
+ * This is intentionally separate from the strict C/68000 comparison. */
+static void trace_ad21_ba_opcode_path(const uint8_t *initial_ram,
+                                      const vf2_scsp *initial_scsp,
+                                      uint16_t cursor,
+                                      const uint8_t *rom, size_t rom_size,
+                                      const uint8_t *samples, size_t sample_size)
+{
+    static uint8_t trace_ram[VF2_SOUND_RAM_BYTES];
+    static vf2_scsp trace_scsp;
+    vf2_m68k_bus trace_bus;
+    vf2_m68k_regs regs;
+    uint32_t step;
+    unsigned checkpoints = 0u;
+    memcpy(trace_ram, initial_ram, sizeof(trace_ram));
+    memcpy(&trace_scsp, initial_scsp, sizeof(trace_scsp));
+    if (vf2_scsp_attach_sample_ram(
+            &trace_scsp, trace_ram, sizeof(trace_ram)) != VF2_OK) {
+        ++failures;
+        return;
+    }
+    trace_ram[VF2_SOUND_COMMAND_COUNT] = 1u;
+    trace_ram[VF2_SOUND_COMMAND_CURSOR] = (uint8_t)(cursor >> 8u);
+    trace_ram[VF2_SOUND_COMMAND_CURSOR + 1u] = (uint8_t)cursor;
+    memset(&trace_bus, 0, sizeof(trace_bus));
+    trace_bus.ram = trace_ram;
+    trace_bus.ram_size = sizeof(trace_ram);
+    trace_bus.rom = rom;
+    trace_bus.rom_size = rom_size;
+    trace_bus.sample_rom = samples;
+    trace_bus.sample_rom_size = sample_size;
+    trace_bus.scsp = &trace_scsp;
+    vf2_m68k_regs_reset(&regs);
+    regs.pc = UINT32_C(0x7a6);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = VF2_SCSP_CPU_BASE;
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = ((uint32_t)rom[0u] << 24u) |
+                ((uint32_t)rom[1u] << 16u) |
+                ((uint32_t)rom[2u] << 8u) |
+                (uint32_t)rom[3u];
+    for (step = 0u; step < 50000u; ++step) {
+        uint32_t pc = regs.pc;
+        uint32_t executed = 0u;
+        vf2_status status;
+        if (pc == UINT32_C(0x265c)) break;
+        if ((pc >= UINT32_C(0x13ca) && pc < UINT32_C(0x1500)) ||
+            (pc >= UINT32_C(0x1ac0) && pc <= UINT32_C(0x1b4a))) {
+            if (checkpoints < 32u) {
+                printf("FRAME342_AD21_BA_PC_TRACE cursor=%04x step=%u "
+                       "pc=%05x d0=%08x d2=%08x a3=%08x sp=%08x\n",
+                       (unsigned)cursor, (unsigned)step, (unsigned)pc,
+                       (unsigned)regs.d[0], (unsigned)regs.d[2],
+                       (unsigned)regs.a[3], (unsigned)regs.a[7]);
+                ++checkpoints;
+            }
+        }
+        status = vf2_m68k_run(&trace_bus, &regs, UINT32_C(0x265c),
+                              0, 1u, &executed);
+        if (executed != 1u ||
+            (status != VF2_ERROR_UNSUPPORTED && status != VF2_OK)) {
+            printf("FRAME342_AD21_BA_PC_TRACE_STOP cursor=%04x step=%u "
+                   "status=%d executed=%u pc=%05x\n",
+                   (unsigned)cursor, (unsigned)step,
+                   (int)status, (unsigned)executed, (unsigned)regs.pc);
+            break;
+        }
+    }
+    printf("FRAME342_AD21_BA_PC_TRACE_END cursor=%04x steps=%u pc=%05x "
+           "checkpoints=%u\n", (unsigned)cursor, (unsigned)step,
+           (unsigned)regs.pc, checkpoints);
+}
+
 /* Diagnostic only: after the owner-ROM AD21 L2 tick, isolate the
  * BA 2A 00 and BA 07 7F entries for independent C/68000 dispatch.
  * Do not assert equivalence or imply KEYON before measuring it. */
@@ -195,6 +270,11 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
         }
         ms = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
                           0, 50000u, &steps);
+        if (verify_ad21_ba) {
+            trace_ad21_ba_opcode_path(m_snapshot, &m_scsp_snapshot,
+                                      cursor, rom, rom_size,
+                                      samples, sample_size);
+        }
         {
             size_t sample_diff = 0u, sample_first = VF2_SOUND_RAM_BYTES;
             size_t scsp_first = VF2_SCSP_REGISTER_BYTES;
