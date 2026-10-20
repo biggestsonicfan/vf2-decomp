@@ -114,6 +114,38 @@ static void positive(void)
     CHECK(board.scsp.registers[0x423u] == 0x40u);
 }
 
+
+/* The terminator is exactly three bytes long.  The byte after it
+ * belongs to an adjacent record and is deliberately unconstrained.
+ * A truncated view must fail without touching the caller's packets. */
+static void boundary(void)
+{
+    uint8_t packets[36u], expected[36u];
+    size_t i, minimum;
+    setup();
+    minimum = 0xa6b3u + 51u;
+    CHECK(minimum <= sizeof(rom));
+    memset(expected, 0xa5, sizeof(expected));
+    for (i = 0u; i < 51u; ++i) {
+        memset(packets, 0xa5, sizeof(packets));
+        CHECK(!vf2_sound_l2_ad21_expand(rom, 0xa6b3u + i,
+              UINT32_C(0x60a6b3), packets));
+        CHECK(memcmp(packets, expected, sizeof(packets)) == 0);
+    }
+    rom[minimum] = 0xcfu; /* Next record's header, not the terminator. */
+    CHECK(vf2_sound_l2_ad21_expand(rom, minimum,
+          UINT32_C(0x60a6b3), packets));
+    CHECK(packets[0] == 0xb9u && packets[35] == 0x7fu);
+    rom[minimum] = 0x5au; /* Next record must not affect decoding. */
+    CHECK(vf2_sound_l2_ad21_expand(rom, minimum + 1u,
+          UINT32_C(0x60a6b3), packets));
+    CHECK(packets[0] == 0xb9u && packets[35] == 0x7fu);
+    memset(packets, 0xa5, sizeof(packets));
+    CHECK(!vf2_sound_l2_ad21_expand(rom, sizeof(rom),
+          UINT32_C(0x60a6b4), packets));
+    CHECK(memcmp(packets, expected, sizeof(packets)) == 0);
+}
+
 static void refuse(unsigned kind)
 {
     vf2_sound_stream_maintenance_report report;
@@ -151,6 +183,7 @@ int main(void)
 {
     unsigned i;
     positive();
+    boundary();
     for (i = 0u; i < 7u; ++i) refuse(i);
     if (failed == 0) {
         puts("AD21 B/CF 12 original-shaped commands and seven rollback refusals PASS");
