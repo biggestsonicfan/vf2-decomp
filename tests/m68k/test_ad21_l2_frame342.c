@@ -67,6 +67,13 @@ static void positive(void)
     memset(actual, 0u, sizeof(actual));
     CHECK(vf2_sound_l2_ad21_expand(rom, sizeof(rom),
           UINT32_C(0x60a6b3), actual));
+    /* The old 8F AD23/24 two-packet grammar MUST reject this
+     * new B/CF record; it cannot silently claim parity. */
+    {
+        uint8_t other[6] = {0u};
+        CHECK(!vf2_sound_l2_ad_expand(
+            rom, sizeof(rom), UINT32_C(0x60a6b3), other));
+    }
     for (i = 0u; i < 12u; ++i) {
         CHECK(actual[i * 3u] == (uint8_t)(0xb9u + i % 6u));
         CHECK(actual[i * 3u + 1u] == (uint8_t)(i < 6u ? 0x2au : 7u));
