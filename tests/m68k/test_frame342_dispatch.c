@@ -91,6 +91,34 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
     memcpy(m_snapshot, step_ram, sizeof(m_snapshot));
     memcpy(&c_scsp_snapshot, &board.scsp, sizeof(c_scsp_snapshot));
     memcpy(&m_scsp_snapshot, &step_scsp, sizeof(m_scsp_snapshot));
+    /* The VF2.1 owner sound program is word-swapped on loading.
+     * 0x608df0 = maximum B0 uploader selector (original value: 1).
+     * 0x605b26 = initial DBF byte count (original: 0x32c7).
+     * BA 2A and BA 07 exceed the maximum and must NOT enter
+     * the sample-copy loop, though both stage the initial bytes. */
+    if (verify_ad21_ba) {
+        size_t staging_bytes;
+        uint16_t selector_max;
+        if (rom_size <= 0x8df1u || rom_size <= 0x5b27u) {
+            fprintf(stderr, "FRAME342_AD21_BA_STRICT missing original ROM table\n");
+            ++failures;
+            return;
+        }
+        staging_bytes = (size_t)(((uint16_t)rom[0x5b26u] << 8u) |
+                                 rom[0x5b27u]) + 1u;
+        selector_max = (uint16_t)(((uint16_t)rom[0x8df0u] << 8u) |
+                                  rom[0x8df1u]);
+        printf("FRAME342_AD21_BA_ROM_TABLE max_selector=%u stage_bytes=%u\n",
+               (unsigned)selector_max, (unsigned)staging_bytes);
+        if (selector_max >= 7u ||
+            staging_bytes > VF2_SOUND_RAM_BYTES - 0x5000u ||
+            staging_bytes > rom_size - 0x5b28u) {
+            fprintf(stderr,
+                    "FRAME342_AD21_BA_STRICT ROM selector/staging guard failed\n");
+            ++failures;
+            return;
+        }
+    }
     for (which = 0u; which < 2u; ++which) {
         const unsigned packet = which == 0u ? 1u : 7u;
         const uint16_t cursor = (uint16_t)(0x14u + packet * 4u);
@@ -191,21 +219,42 @@ static void probe_ad21_ba_dispatch(const uint8_t *rom, size_t rom_size,
             }
         }
         if (verify_ad21_ba) {
-            /* Strict owner-ROM gate is opt-in. Exact equality of two
-             * no-ops is NOT evidence of a real sample upload. */
+            size_t staging_bytes = (size_t)(
+                ((uint16_t)rom[0x5b26u] << 8u) | rom[0x5b27u]) + 1u;
+            int staged_equal = 1;
             int scsp_equal = memcmp(board.scsp.registers,
                                     step_scsp.registers,
                                     VF2_SCSP_REGISTER_BYTES) == 0;
-            int equal = cs == VF2_OK && ms == VF2_OK &&
-                        regs.pc == UINT32_C(0x265c) &&
-                        report.handled != 0 &&
-                        differences == 0u && scsp_equal &&
-                        c_sample_changed > 0u && m_sample_changed > 0u;
-            printf("FRAME342_AD21_BA_STRICT packet=%u parity=%u "
-                   "C_sample_changed=%u M_sample_changed=%u\n",
-                   packet, (unsigned)equal,
-                   (unsigned)c_sample_changed, (unsigned)m_sample_changed);
-            CHECK(equal);
+            for (i = 0u; i < staging_bytes; ++i) {
+                if (board.sound_ram[0x5000u + i] != rom[0x5b28u + i] ||
+                    step_ram[0x5000u + i] != rom[0x5b28u + i]) {
+                    staged_equal = 0;
+                    break;
+                }
+            }
+            /* Original VF2.1 selector max is 1. Both 7 and 42 are
+             * out of range: the copy of staging bytes still runs,
+             * but no PCM sample row is selected. Comparing unchanged
+             * samples is *correct* here; earlier >0 gates were wrong. */
+            {
+                int equal = cs == VF2_OK && ms == VF2_OK &&
+                            regs.pc == UINT32_C(0x265c) &&
+                            report.handled != 0 &&
+                            report.descriptors_matched >= 1u &&
+                            board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
+                            step_ram[VF2_SOUND_COMMAND_COUNT] == 0u &&
+                            differences == 0u && scsp_equal &&
+                            staged_equal &&
+                            c_sample_changed == 0u &&
+                            m_sample_changed == 0u;
+                printf("FRAME342_AD21_BA_STRICT packet=%u parity=%u "
+                       "staged_equal=%u C_sample_changed=%u "
+                       "M_sample_changed=%u\n",
+                       packet, (unsigned)equal, (unsigned)staged_equal,
+                       (unsigned)c_sample_changed,
+                       (unsigned)m_sample_changed);
+                CHECK(equal);
+            }
         }
         printf("FRAME342_AD21_BA_DISPATCH packet=%u payload=%02x "
                "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
