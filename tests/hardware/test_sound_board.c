@@ -344,7 +344,11 @@ static void test_ad21_ba2a_sample_copy(void)
     static const uint8_t sample[2] = {0x35u, 0xacu};
     vf2_sound_dispatch_report report;
     uint8_t *descriptor;
-    const uint8_t packet[4] = {0xbau, 0x2au, 0u, 0u};
+    uint8_t packet[4] = {0xbau, 0x2au, 0u, 0u};
+    uint8_t first_sample[16u] = {0u};
+    uint8_t first_slots[16u] = {0u};
+    uint8_t first_scsp[sizeof(board.scsp.registers)] = {0u};
+    unsigned variant;
     test_boot_rom(rom);
     rom[0x8df0u] = 0u; rom[0x8df1u] = 0x2au;
     /* Directory entry at 0x608df2 + 0x2a * 4 = 0x608e9a. */
@@ -357,6 +361,8 @@ static void test_ad21_ba2a_sample_copy(void)
     rom[0x5b2cu] = 0u; rom[0x5b2du] = 0u;
     rom[0x5b2eu] = 0xfeu; rom[0x5b2fu] = 2u;
     rom[0x7400u] = 0x2au; rom[0x7401u] = 0xb9u;
+    for (variant = 0u; variant < 2u; ++variant) {
+    packet[2] = variant == 0u ? 0u : 0x7fu;
     EXPECT_TRUE(vf2_sound_board_initialize(&board, rom, sizeof(rom),
                                            sample, sizeof(sample)) == VF2_OK);
     descriptor = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
@@ -375,6 +381,19 @@ static void test_ad21_ba2a_sample_copy(void)
     EXPECT_TRUE(board.sound_ram[0x50000u] == 0x2au);
     EXPECT_TRUE(board.sound_ram[0x50001u] == 0xb9u);
     EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    if (variant == 0u) {
+        memcpy(first_sample, board.sound_ram + 0x50000u, sizeof(first_sample));
+        memcpy(first_slots, board.sound_ram + 0x5000u, sizeof(first_slots));
+        memcpy(first_scsp, board.scsp.registers, sizeof(first_scsp));
+    } else {
+        EXPECT_TRUE(memcmp(first_sample, board.sound_ram + 0x50000u,
+                           sizeof(first_sample)) == 0);
+        EXPECT_TRUE(memcmp(first_slots, board.sound_ram + 0x5000u,
+                           sizeof(first_slots)) == 0);
+        EXPECT_TRUE(memcmp(first_scsp, board.scsp.registers,
+                           sizeof(first_scsp)) == 0);
+    }
+    }
 }
 
 int main(void)
