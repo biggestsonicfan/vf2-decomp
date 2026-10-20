@@ -487,11 +487,11 @@ static void probe_ad21_b_matrix(const uint8_t *rom, size_t rom_size,
             int c_changed = board.sound_ram[i] != baseline_c[i];
             int m_changed = step_ram[i] != baseline_m[i];
             if (i >= 0x4f00u && i < 0x5000u) continue; /* original stack */
-            changed_c += c_changed;
-            changed_m += m_changed;
+            changed_c += (size_t)c_changed;
+            changed_m += (size_t)m_changed;
             if (i >= 0x50000u) {
-                sample_c += c_changed;
-                sample_m += m_changed;
+                sample_c += (size_t)c_changed;
+                sample_m += (size_t)m_changed;
             }
             if (c_changed != m_changed ||
                 (c_changed && board.sound_ram[i] != step_ram[i])) {
