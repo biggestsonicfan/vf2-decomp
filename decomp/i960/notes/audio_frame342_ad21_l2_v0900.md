@@ -105,61 +105,53 @@ when the owner provides a local `VF2_ROM_DIR`; public CI
 never includes proprietary game ROMs.
 
 
-## Follow-up: post-L2 BA owner-ROM gate (October 20, 2026)
+## Original VF2.1 ROM evidence: BA rows are *not* uploads (October 20, 2026)
 
-The AD21 L2 regression now also contains a **ROM-free composition test**
-for all twelve B9..BE packets and two synthetic BA sample uploads. This
-checks the C path only and cannot establish original-driver upload parity.
+The owner's `vf2(20261018-203049).zip` was located in the ChatGPT
+Library and the original **audio EPR and all four sample MPR chips** were
+validated against the project's CRC manifest (without committing ROM bytes).
+The sound program `epr-17574.30` has CRC32 `4d4c3a55` and SHA-1
+`b6c0c3f0473bd7fc3ef4f5146110dfcc899a5af9`. The CPU-visible
+68000 audio ROM uses `LOAD16_WORD_SWAP`.
 
-The owner-ROM harness `vf2_m68k_frame342_dispatch_tests` has a new
-`--verify-ad21-ba` mode. It first runs the existing original L2 tick,
-then isolates the **second** and **eighth** packets from its twelve-packet
-ring: `BA 2A 00` at cursor `0x18` and `BA 07 7F` at `0x30`.
-Each independent C/68000 dispatch starts from the corresponding post-L2
-snapshot, with only count and read cursor changed to isolate the packet.
-The harness now verifies the expected three packet bytes **before** running
-either dispatcher.
+A reproducible **static**, original-ROM analysis
+(`python tools/inspect_ad21_ba_owner_rom.py /path/to/vf2.zip`) confirms:
 
-A strict success requires both dispatches to return OK, original PC
-`0x265C`, consumed C command, **zero RAM differences outside the
-68000 stack region**, **identical SCSP register values**, and **nonzero
-sample RAM changes on both sides**. Matching no-ops explicitly fail.
-This is **not** time-accurate dual-CPU scheduling, and the strict BA
-mode **has not yet been demonstrated to pass against the owner's ROM**.
+- Original AD21 record at `0x60a6b2` has header CF, exactly twelve
+  B9..BE commands, including `BA 2A 00` and `BA 07 7F`, followed by
+  the three-byte `FF 2F 00` terminator.
+- Original uploader staging copy uses `word[0x605b26] = 0x32c7`:
+  **13,000 bytes** from ROM `0x605b28` to RAM `0x5000` (DBF+1).
+- Original BA row-table maximum at `0x608df0` is **1**.
+  **Both selectors 0x2a (42) and 0x07 (7) exceed the maximum.**
+  They reach the early-out row gate *after staging* and do **not**
+  select or copy an additional sample into the PCM area `0x50000`.
+  The packet's third byte `0x7f` is not the BA handler's selector.
+- This **invalidates** the earlier experimental strict gate requiring
+  `C_sample_changed > 0` and `M_sample_changed > 0`. That gate
+  was corrected in the owner-ROM harness: compare full mutable RAM
+  (except 68000 stack), SCSP registers, 13,000 staged bytes against
+  the actual EPR, and require **zero PCM-area writes** for both BA
+  selectors. Synthetic tests of rows 7 and 42 are still useful
+  *synthetic C branch tests*, not descriptions of the game's real
+  selector table.
 
-Run on the owner's machine with its legally obtained ROMs (not in CI):
+`--verify-ad21-ba` and `-DVF2_VERIFY_AD21_BA=ON` remain **opt-in**.
+The static audit above has been executed successfully on the owner's ZIP;
+**actual original 68000 dispatch parity and PCM playback are NOT yet
+claimed**. The source checkout and the C/68000 executable were not
+available in the isolated ROM inspection runtime; no ROM data were
+uploaded into the repository. To test in a local source checkout:
 
 ```sh
+python tools/inspect_ad21_ba_owner_rom.py /path/to/vf2.zip
 cmake -S . -B build -DVF2_BUILD_TESTS=ON \
-  -DVF2_ROM_DIR=/local/owner/vf2-roms \
+  -DVF2_ROM_DIR=/path/to/unpacked/vf2 \
   -DVF2_VERIFY_AD21_BA=ON
 cmake --build build --target vf2_m68k_frame342_dispatch_tests
 ctest --test-dir build --output-on-failure \
-  -R '^vf2_m68k_frame342_ad21_ba_strict_owner_rom
-
-The 12 newly filed packets are `B9..BE` B-class requests.
-A single B-class dispatcher entry, timer progression and
-possible voice programming require further **original-MC68000
-per-packet** differentials. Do not infer that AD21 itself
-produces audible PCM, nor that the observed KICK input caused
-a fighter-to-fighter collision. This remains an isolated
-original-audio-ROM differential rather than time-accurate
-concurrent original dual-CPU scheduling.
-
+  -R '^vf2_m68k_frame342_ad21_ba_strict_owner_rom$'
 ```
-
-Or inspect without strict failure:
-
-```sh
-build/vf2_m68k_frame342_dispatch_tests \
-  /local/owner/vf2-roms --probe-ad21-l2
-```
-
-The detailed diagnostic reports original/C sample bytes changed, first
-RAM/SCSP differences, return statuses and the 68000 stopping PC. A
-nonzero strict failure should be investigated in the recovered B0
-descriptor matching, uploader table selection, bus accesses and
-68000 interpreter before making any PCM/KEYON claim.
 
 ## Next unresolved step
 
