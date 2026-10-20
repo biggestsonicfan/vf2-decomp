@@ -83,8 +83,31 @@ def audit(path):
     assert branch_target(0x1ADE) == 0x1B46, "BA 7f exit target changed"
     assert branch_target(0x1AEC) == 0x1B46, "BA row-max exit target changed"
 
-    # Boot descriptor image 1 row 0 is an active channel 0xA:
-    # BA therefore enters the 0x1ac0 uploader (but never the sample row).
+    # Original ROM B0 dispatch: D2 = ring byte 1, D0 = ring byte 2,
+    # the PC-relative 4-byte jump table is indexed by (D2 & 0x7f).
+    # The command byte BA only establishes the B-class and channel A.
+    assert cpu[0x13CC:0x13DC] == bytes.fromhex(
+        "1400 1013 0242007f e54a 43fb2006 4ed1"
+    ), "B0 dispatch selector opcodes changed"
+
+    def b0_target(selector):
+        slot = 0x13DE + selector * 4
+        assert cpu[slot:slot + 2] == bytes.fromhex("4efa")
+        disp = int.from_bytes(cpu[slot + 2:slot + 4],
+                              "big", signed=True)
+        return slot + 2 + disp
+
+    b0_targets = {
+        "0x2a": b0_target(0x2A),
+        "0x07": b0_target(0x07),
+        "0x3a": b0_target(0x3A),
+    }
+    assert b0_targets == {
+        "0x2a": 0x194A, "0x07": 0x16BA, "0x3a": 0x1AC0
+    }, "B0 jump-table destinations changed"
+
+    # Boot descriptor image 1 row 0 is an active channel 0xA.
+    # This admits B-class dispatch but does NOT select uploader 0x1ac0.
     image0 = int.from_bytes(cpu[0x3066:0x306A], "big")
     image1 = int.from_bytes(cpu[0x30A6:0x30AA], "big")
     assert (image0, image1) == (0x6030E6, 0x603186), "descriptor roots changed"
@@ -107,18 +130,21 @@ def audit(path):
         "sample_banks_verified": len(SAMPLE_CRCS),
         "cpu_rom_layout": "LOAD16_WORD_SWAP",
         "ad21_packets": packets,
-        "staging_copy_bytes": staging_bytes,
-        "staging_source": "0x605b28",
-        "staging_target": "0x5000",
+        "uploader_3a_staging_bytes": staging_bytes,
+        "uploader_3a_staging_source": "0x605b28",
+        "uploader_3a_staging_target": "0x5000",
         "original_reset_ssp": f"0x{original_ssp:04x}",
         "original_reset_pc": f"0x{original_entry:06x}",
         "old_test_ssp_7f00_overwritten_by_staging": True,
         "ba_active_channel_a_descriptors": channel_a_rows,
-        "ba_row_gate_exit_pc": "0x1b46",
-        "ba_return_opcode": "4e75",
-        "ba_row_max": row_max,
-        "ba_2a_row_admitted": 42 <= row_max,
-        "ba_07_row_admitted": 7 <= row_max,
+        "uploader_3a_row_gate_exit_pc": "0x1b46",
+        "uploader_3a_return_opcode": "4e75",
+        "uploader_3a_row_max": row_max,
+        "b0_dispatch_table_targets": {
+            selector: f"0x{target:04x}"
+            for selector, target in b0_targets.items()
+        },
+        "ad21_ba_packets_enter_uploader": False,
         "evidence": "static ROM data; no MC68000 interpreter run",
     }
     return result
