@@ -179,6 +179,45 @@ static void test_render_first_tone(void)
     }
 }
 
+/* Frame-342 AD21 L2's twelve B9..BE packets take the B0-class
+ * default table door (only BA maps to the uploader).  This ROM-free
+ * check pins the recovered C dispatch path, not original 68000 parity. */
+static void test_ad21_b_class_drain(void)
+{
+    static vf2_sound_board board;
+    static uint8_t rom[0x10010u];
+    static const uint8_t sample[2] = {0u, 0u};
+    unsigned i;
+    test_boot_rom(rom);
+    EXPECT_TRUE(vf2_sound_board_initialize(&board, rom, sizeof(rom),
+                                           sample, sizeof(sample)) == VF2_OK);
+    for (i = 0u; i < 12u; ++i) {
+        uint8_t *desc = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+        vf2_sound_dispatch_report report;
+        const uint8_t packet[4] = {
+            (uint8_t)(0xb9u + i % 6u),
+            (uint8_t)(i < 6u ? 0x2au : 7u),
+            (uint8_t)(i < 6u ? 0u : 0x7fu), 0u
+        };
+        /* One matching active channel descriptor; other rows remain
+         * as initialized. The B0 default door must not alter SCSP. */
+        memset(board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE, 0,
+               VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
+               VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
+        desc[0] = 0x80u;
+        desc[1] = (uint8_t)(packet[0] & 0x0fu);
+        EXPECT_TRUE(vf2_sound_board_emit_command(&board, packet) == VF2_OK);
+        EXPECT_TRUE(vf2_sound_board_dispatch_next(&board, &report) == VF2_OK);
+        EXPECT_TRUE(report.command == packet[0]);
+        EXPECT_TRUE(report.payload == packet[1]);
+        EXPECT_TRUE(report.command_class == 0xb0u);
+        EXPECT_TRUE(report.descriptors_matched == 1u);
+        EXPECT_TRUE(report.handler_address == UINT32_C(0x13cc));
+        EXPECT_TRUE(report.selected_value == (uint8_t)(packet[0] & 0x7fu));
+        EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
+    }
+}
+
 int main(void)
 {
     static uint8_t audio_rom[0x10010u];
@@ -1632,5 +1671,6 @@ int main(void)
         EXPECT_TRUE(board.sound_ram[0x50000u] == 0xdeu);
     }
     test_render_first_tone();
+    test_ad21_b_class_drain();
     return failures == 0 ? 0 : 1;
 }
