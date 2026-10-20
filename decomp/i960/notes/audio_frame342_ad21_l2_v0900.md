@@ -197,6 +197,65 @@ ctest --test-dir build --output-on-failure \
   -R '^vf2_m68k_frame342_ad21_ba_strict_owner_rom$'
 ```
 
+## Original-ROM AD21 B9..BE strict matrix: 12/12 (October 20, 2026)
+
+The owner-original Motorola 68000 dispatcher was executed with the verified
+VF2.1 ROM set, via the Linux differential binary built by GitHub Actions
+commit `1d9a9fc24686b57e919302f98696b3289c119934`. The
+`--verify-ad21-b-all` run exited **0**, with twelve distinct
+`FRAME342_AD21_B_MATRIX_STRICT parity=1` checkpoints. The original L2
+tick also generated twelve packets in 471 instructions with zero RAM/SCSP
+differences against C, outside its temporary original interpreter stack.
+
+Each B packet was independently dispatched from the corresponding
+post-L2 snapshot (isolated queue count=1 and read cursor=packet),
+both in recovered C and in the original-ROM MC68000 stepper. The strict
+gate asserts the command/byte-1 selector, handler and matched-descriptor
+count, command retirement, original instruction count and stop PC
+`0x265c`, exactly three non-stack RAM bytes changed on each side,
+zero RAM mutation mismatches, identical/unchanged SCSP registers and
+slot activity, and zero new PCM sample-area writes.
+
+| AD21 packets | Original MC68000 instructions | Matched descriptor rows | RAM/SCSP mutation mismatch |
+| --- | ---: | ---: | ---: |
+| B9, BA, BB, BD `2A 00` | 256 each | 1 each | 0 |
+| BC, BE `2A 00` | 263 each | 2 each | 0 |
+| B9..BE `07 7F` | 304 each | 1 each except BC/BE: 2 | 0 |
+
+The prior L2 tick used temporary stack bytes around `0x7f00`, so the
+post-L2 absolute RAM states can include unrelated existing stack residue.
+This test correctly compares changes from each side's independent initial
+state and excludes only the current 68000 stack at `0x4f00..0x4fff`.
+It does not normalize the modeled program's mutations to force a pass.
+
+Run with the owner's ROM, never added to GitHub:
+
+```sh
+cmake -S . -B build -DVF2_BUILD_TESTS=ON \
+  -DVF2_ROM_DIR=/path/to/vf2-roms \
+  -DVF2_VERIFY_AD21_B_ALL=ON
+cmake --build build --target vf2_m68k_frame342_dispatch_tests
+ctest --test-dir build --output-on-failure \
+  -R '^vf2_m68k_frame342_ad21_b_all_strict_owner_rom
+
+The 12 newly filed packets are `B9..BE` B-class requests.
+A single B-class dispatcher entry, timer progression and
+possible voice programming require further **original-MC68000
+per-packet** differentials. Do not infer that AD21 itself
+produces audible PCM, nor that the observed KICK input caused
+a fighter-to-fighter collision. This remains an isolated
+original-audio-ROM differential rather than time-accurate
+concurrent original dual-CPU scheduling.
+
+```
+
+For a non-asserting inventory, use `--probe-ad21-b-all` instead.
+**This is isolated dispatcher parity, not sequential queue parity,
+real arcade timing, or proof of audible PCM.** All twelve original
+packets leave the modeled SCSP and PCM sample area unchanged in this
+checkpoint. The demonstrated `9E` allocator/KEYON path and scheduling
+remain better targets for the sought punch/shout sound.
+
 ## Next unresolved step
 
 The 12 newly filed packets are `B9..BE` B-class requests.
