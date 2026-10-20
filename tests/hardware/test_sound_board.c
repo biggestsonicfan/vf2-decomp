@@ -280,7 +280,9 @@ static void test_ad21_ba07_sample_copy(void)
     static const uint8_t sample[2] = {0x35u, 0xacu};
     vf2_sound_dispatch_report report;
     uint8_t *descriptor;
-    uint8_t sample_first[2u] = {0u, 0u};
+    uint8_t sample_first[16u] = {0u};
+    uint8_t slot_first[16u] = {0u};
+    uint8_t scsp_first[sizeof(board.scsp.registers)] = {0u};
     unsigned variant;
     uint8_t packet[4] = {0xbau, 0x07u, 0x7fu, 0u};
     test_boot_rom(rom);
@@ -316,12 +318,19 @@ static void test_ad21_ba07_sample_copy(void)
     EXPECT_TRUE(report.descriptors_matched == 1u);
     EXPECT_TRUE(board.sound_ram[0x50000u] == 0xd3u);
     EXPECT_TRUE(board.sound_ram[0x50001u] == 0x4au);
+    EXPECT_TRUE(board.sound_ram[0x50000u + 2u] == 0u);
     EXPECT_TRUE(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
     if (variant == 0u) {
         memcpy(sample_first, board.sound_ram + 0x50000u, sizeof(sample_first));
+        memcpy(slot_first, board.sound_ram + 0x5000u, sizeof(slot_first));
+        memcpy(scsp_first, board.scsp.registers, sizeof(scsp_first));
     } else {
         EXPECT_TRUE(memcmp(sample_first, board.sound_ram + 0x50000u,
                            sizeof(sample_first)) == 0);
+        EXPECT_TRUE(memcmp(slot_first, board.sound_ram + 0x5000u,
+                           sizeof(slot_first)) == 0);
+        EXPECT_TRUE(memcmp(scsp_first, board.scsp.registers,
+                           sizeof(scsp_first)) == 0);
     }
     }
 }
