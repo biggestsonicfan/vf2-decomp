@@ -90,7 +90,8 @@ static void test_render_first_tone(void)
     EXPECT_TRUE(vf2_scsp_attach_sample_rom(&board.scsp, sample_rom,
                                           sizeof(sample_rom)) == VF2_OK);
     /* Slot 0: KEYONB|PCM8B|forward-loop, start 0, loop 0..64,
-       attack 31, level bypass, pitch 1 sample/frame, pan 15. */
+       attack 31, level bypass, pitch 1 sample/frame,
+       direct output=0dB (DISDL7), centered (DIPAN00). */
     EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0000u, 0x0830u) ==
                 VF2_OK);
     EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0002u, 0x0000u) ==
@@ -106,7 +107,7 @@ static void test_render_first_tone(void)
                 VF2_OK);
     EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0010u, 0x0000u) ==
                 VF2_OK);
-    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0016u, 0x0f00u) ==
+    EXPECT_TRUE(vf2_scsp_write_u16(&board.scsp, 0x0016u, 0xe000u) ==
                 VF2_OK);
     EXPECT_TRUE(vf2_sound_board_render(&board, left, right, 512u) ==
                 VF2_OK);
