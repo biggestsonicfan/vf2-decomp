@@ -1596,7 +1596,7 @@ int main(int argc, char **argv)
          strcmp(argv[2], "--verify-frame342-chain") != 0)) {
         fprintf(stderr,
                 "usage: %s <original-vf2-rom-directory> "
-                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential|--verify-ad21-b-sequential|--probe-frame342-chain|--verify-frame342-chain]\n",
+                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential|--verify-ad21-b-sequential|--probe-frame342-chain|--verify-frame342-chain|--wav-dir DIR|--chain-wav-dir DIR]\n",
                 argv[0]);
         return 2;
     }
