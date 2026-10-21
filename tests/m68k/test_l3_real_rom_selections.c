@@ -844,6 +844,22 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                                 step_scsp.registers[base + 0x11u]);
                             const uint32_t start = ((uint32_t)(
                                 voice_control & 0x000fu) << 16u) | start_low;
+                            {
+                                const uint32_t rec = UINT32_C(0x2000) +
+                                    (uint32_t)mix_slot * UINT32_C(0x20);
+                                const uint32_t source = read_be32(
+                                    step_ram + rec + 2u);
+                                const uint32_t dest = read_be32(
+                                    step_ram + rec + 6u);
+                                printf("AKIRA_ORIGINAL_PAGE_RECORD tick=%u "
+                                       "slot=%u flags=%02x src=%08x "
+                                       "dest=%08x sample_range=%u\n",
+                                       (unsigned)tick, (unsigned)mix_slot,
+                                       (unsigned)step_ram[rec],
+                                       (unsigned)source, (unsigned)dest,
+                                       (unsigned)(source >= UINT32_C(0x800000) &&
+                                        source < UINT32_C(0x1000000)));
+                            }
                             printf("AKIRA_ORIGINAL_SCSP_VOICE tick=%u slot=%u "
                                    "ctl=%04x start=%05x loop_start=%u "
                                    "loop_end=%u pitch=%04x step=%u "
