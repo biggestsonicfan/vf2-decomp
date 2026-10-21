@@ -35,6 +35,7 @@ static int verify_ad21_b_all;
 static int probe_ad21_b_sequential_flag;
 static int verify_ad21_b_sequential;
 static int probe_frame342_chain_flag;
+static int verify_frame342_chain;
 #define FRAME342_WAV_FRAMES 22050u
 static const char *frame342_wav_dir;
 static int16_t frame342_c_left[FRAME342_WAV_FRAMES];
@@ -772,8 +773,9 @@ static void probe_ad21_b_sequential(const uint8_t *rom, size_t rom_size,
                (unsigned)differing, (unsigned)first, (unsigned)scsp_diff,
                (unsigned)c_pcm, (unsigned)m_pcm,
                (unsigned)report.descriptors_matched);
-        if (verify_ad21_b_sequential) {
-            const uint32_t expected_steps = packet >= 6u ? 304u :
+        if (verify_ad21_b_sequential || verify_frame342_chain) {
+            const uint32_t expected_steps = packet >= 6u ?
+                (verify_frame342_chain ? (packet == 11u ? 320u : 308u) : 304u) :
                 (cmd == UINT8_C(0xbc) || cmd == UINT8_C(0xbe) ? 263u : 256u);
             const size_t expected_matches =
                 (cmd == UINT8_C(0xbc) || cmd == UINT8_C(0xbe)) ? 2u : 1u;
@@ -829,8 +831,12 @@ static void probe_ad21_b_sequential(const uint8_t *rom, size_t rom_size,
            (unsigned)step_ram[VF2_SOUND_COMMAND_CURSOR + 1u]);
     if (verify_ad21_b_sequential) {
         CHECK(processed == 12u);
-        CHECK(total_steps == 3374u);
+        CHECK(total_steps == (verify_frame342_chain ? 3410u : 3374u));
         CHECK(total_delta_differences == 0u);
+        if (verify_frame342_chain) {
+            CHECK(active_slots(&board.scsp) == 1u);
+            CHECK(active_slots(&step_scsp) == 1u);
+        }
         CHECK(board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         CHECK(step_ram[VF2_SOUND_COMMAND_COUNT] == 0u);
         CHECK(board.sound_ram[VF2_SOUND_COMMAND_CURSOR] == 0u);
@@ -946,6 +952,36 @@ static void probe_frame342_chain(const uint8_t *rom, size_t rom_size,
                        VF2_SCSP_REGISTER_BYTES) != 0),
                (unsigned)(memcmp(initial_m_scsp.registers,step_scsp.registers,
                        VF2_SCSP_REGISTER_BYTES) != 0));
+        if (verify_frame342_chain) {
+            static const uint32_t expected_steps[5] = {
+                367u, 305u, 305u, 305u, 248u
+            };
+            const unsigned expected_count = (unsigned)(4u - packet);
+            const unsigned expected_cursor = (unsigned)((packet + 1u) * 4u);
+            const int parity = c_status == VF2_OK && m_status == VF2_OK &&
+                regs.pc == UINT32_C(0x265c) &&
+                steps == expected_steps[packet] &&
+                report.handled == 1 &&
+                report.cursor_before == cursor &&
+                report.cursor_after == expected_cursor &&
+                (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT] ==
+                    expected_count &&
+                (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT] ==
+                    expected_count &&
+                (unsigned)board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] ==
+                    expected_cursor &&
+                (unsigned)step_ram[VF2_SOUND_COMMAND_CURSOR + 1u] ==
+                    expected_cursor &&
+                delta_differences == 0u && scsp_differences == 0u &&
+                active_slots(&board.scsp) == 1u &&
+                active_slots(&step_scsp) == 1u &&
+                (packet == 0u || (
+                    initial_c[VF2_SOUND_COMMAND_RING_BASE + cursor + 2u] == 0u &&
+                    initial_m[VF2_SOUND_COMMAND_RING_BASE + cursor + 2u] == 0u));
+            printf("FRAME342_CHAIN_UART_STRICT index=%u parity=%u steps=%u\n",
+                   (unsigned)packet, (unsigned)parity, (unsigned)steps);
+            CHECK(parity);
+        }
         if (c_status != VF2_OK || m_status != VF2_OK ||
             regs.pc != UINT32_C(0x265c) ||
             board.sound_ram[VF2_SOUND_COMMAND_COUNT] !=
@@ -996,10 +1032,45 @@ static void probe_frame342_chain(const uint8_t *rom, size_t rom_size,
                (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
                active_slots(&board.scsp), active_slots(&step_scsp),
                (unsigned)ram_delta_diff, (unsigned)scsp_diff);
+        if (verify_frame342_chain) {
+            const int parity = c_status == VF2_OK && m_status == VF2_OK &&
+                regs.pc == UINT32_C(0x1f7a) && steps == 471u &&
+                report.packets_emitted == 12u &&
+                board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 12u &&
+                step_ram[VF2_SOUND_COMMAND_COUNT] == 12u &&
+                ram_delta_diff == 0u && scsp_diff == 0u &&
+                active_slots(&board.scsp) == 1u &&
+                active_slots(&step_scsp) == 1u;
+            printf("FRAME342_CHAIN_L2_STRICT parity=%u steps=%u\n",
+                   (unsigned)parity, (unsigned)steps);
+            CHECK(parity);
+        }
         if (c_status == VF2_OK && m_status == VF2_OK &&
             board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 12u &&
             step_ram[VF2_SOUND_COMMAND_COUNT] == 12u) {
             probe_ad21_b_sequential(rom, rom_size, samples, sample_size);
+            if (verify_frame342_chain) {
+                const size_t frames = 4096u;
+                vf2_status rc = vf2_scsp_render(
+                    &board.scsp, frame342_c_left, frame342_c_right, frames);
+                vf2_status rm = vf2_scsp_render(
+                    &step_scsp, frame342_s_left, frame342_s_right, frames);
+                size_t sample, nonzero = 0u;
+                int matched = rc == VF2_OK && rm == VF2_OK &&
+                    memcmp(frame342_c_left, frame342_s_left,
+                           frames * sizeof(frame342_c_left[0])) == 0 &&
+                    memcmp(frame342_c_right, frame342_s_right,
+                           frames * sizeof(frame342_c_right[0])) == 0;
+                for (sample = 0u; sample < frames; ++sample) {
+                    if (frame342_c_left[sample] != 0 ||
+                        frame342_c_right[sample] != 0) ++nonzero;
+                }
+                printf("FRAME342_CHAIN_PCM parity=%u nonzero=%u frames=%u "
+                       "C_slots=%u M_slots=%u\n",
+                       (unsigned)matched, (unsigned)nonzero, (unsigned)frames,
+                       active_slots(&board.scsp), active_slots(&step_scsp));
+                CHECK(matched && nonzero > 0u);
+            }
         } else {
             printf("FRAME342_CHAIN_STOP stage=l2 reason=status_or_packet_count\n");
         }
@@ -1510,15 +1581,20 @@ int main(int argc, char **argv)
          strcmp(argv[2], "--verify-ad21-b-all") != 0 &&
          strcmp(argv[2], "--probe-ad21-b-sequential") != 0 &&
          strcmp(argv[2], "--verify-ad21-b-sequential") != 0 &&
-         strcmp(argv[2], "--probe-frame342-chain") != 0)) {
+         strcmp(argv[2], "--probe-frame342-chain") != 0 &&
+         strcmp(argv[2], "--verify-frame342-chain") != 0)) {
         fprintf(stderr,
                 "usage: %s <original-vf2-rom-directory> "
-                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential|--verify-ad21-b-sequential|--probe-frame342-chain]\n",
+                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential|--verify-ad21-b-sequential|--probe-frame342-chain|--verify-frame342-chain]\n",
                 argv[0]);
         return 2;
     }
     frame342_wav_dir = argc == 4 ? argv[3] : NULL;
-    probe_frame342_chain_flag = argc == 3 && strcmp(argv[2], "--probe-frame342-chain") == 0;
+    probe_frame342_chain_flag = argc == 3 &&
+        (strcmp(argv[2], "--probe-frame342-chain") == 0 ||
+         strcmp(argv[2], "--verify-frame342-chain") == 0);
+    verify_frame342_chain = argc == 3 &&
+        strcmp(argv[2], "--verify-frame342-chain") == 0;
     probe_ad21_l2 = argc == 3;
     verify_ad21_ba = argc == 3 &&
                      strcmp(argv[2], "--verify-ad21-ba") == 0;
