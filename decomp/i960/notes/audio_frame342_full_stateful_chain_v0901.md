@@ -73,6 +73,17 @@ build/vf2_m68k_frame342_dispatch_tests /path/to/vf2 --wav-dir out
 build/vf2_m68k_frame342_dispatch_tests /path/to/vf2 --chain-wav-dir out
 ```
 
+The owner-ROM `--chain-wav-dir` run (commit `44c86a4`) also
+exited **0**: 5/5 UART, L2, 12/12 B, and 22,050/22,050 C/original
+stereo PCM frames matched. The final clip had 1,840 non-silent
+frames, peak 22,568. The isolated-`9E` clip and the **complete-chain**
+clip are **byte-identical**, both SHA-256
+`728811fe6463a26f773edd58a28790bf6cb2e928de1cc7f2475e45a7b5da50e5`.
+This establishes that the intervening Cx/AD21/B **did not change
+the software-rendered sound of the already-keyed 9E voice in this
+controlled driver state**. It does not generalize to concurrently
+running gameplay or other audio tick schedules.
+
 The first file contains PCM rendered after the isolated original
 `9E 0A 7F` KEYON; the second contains PCM rendered **after the
 whole chain**. Both are 22,050 frames, 44,100 Hz, stereo 16-bit,
