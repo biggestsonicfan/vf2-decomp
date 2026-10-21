@@ -20,6 +20,7 @@ option(VF2_ENABLE_LIFTED "Generate and compile the build-time lifted i960->C bri
 option(VF2_VERIFY_AD21_BA "Verify owner-ROM AD21 BA payload-table dispatch and preserved RAM mutations" OFF)
 option(VF2_VERIFY_AD21_B_ALL "Require owner-ROM AD21 parity for all twelve B9..BE packets" OFF)
 option(VF2_VERIFY_AD21_B_SEQUENTIAL "Require owner-ROM AD21 full twelve B-packet stateful drain parity" OFF)
+option(VF2_VERIFY_FRAME342_CHAIN "Require owner-ROM 9E/Cx/AD21/L2/B stateful chain and PCM parity" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
 if(NOT VF2_ROM_DIR)
   set(VF2_ROM_DIR "${CMAKE_SOURCE_DIR}/roms/vf2")
@@ -1212,6 +1213,16 @@ if(VF2_BUILD_TESTS)
                      COMMAND vf2_m68k_frame342_dispatch_tests
                              "${VF2_ROM_DIR}" --verify-ad21-b-sequential)
             set_tests_properties(vf2_m68k_frame342_ad21_b_sequential_owner_rom
+                                 PROPERTIES TIMEOUT 900)
+        endif()
+        # Experimental full frame342 UART 9E -> three Cx -> AD21
+        # -> original L2 -> 12 B driver dispatch callbacks. Includes
+        # modeled PCM matching AFTER all B packets. Owner-ROM only.
+        if(VF2_VERIFY_FRAME342_CHAIN)
+            add_test(NAME vf2_m68k_frame342_stateful_chain_owner_rom
+                     COMMAND vf2_m68k_frame342_dispatch_tests
+                             "${VF2_ROM_DIR}" --verify-frame342-chain)
+            set_tests_properties(vf2_m68k_frame342_stateful_chain_owner_rom
                                  PROPERTIES TIMEOUT 900)
         endif()
         # v0898: exact fifteen original i960 vector-15 bytes from
