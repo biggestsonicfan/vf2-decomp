@@ -858,6 +858,45 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                                    (int)step_scsp.slot_envelope[mix_slot],
                                    (unsigned)step_scsp.slot_envelope_state[mix_slot],
                                    (unsigned)mixer, disdl, dipan);
+                            /* PCM address statistics, not private bytes.
+                             * Determines whether the apparent loop is a
+                             * real staged wave or uninitialized RAM. */
+                            if (tick == 0u || tick == 882u) {
+                                const uint32_t until =
+                                    loop_end == 0u ? 1024u : (uint32_t)loop_end;
+                                const uint32_t limit = until > 8192u ? 8192u : until;
+                                uint32_t sample_index;
+                                size_t sample_nonzero = 0u;
+                                size_t sample_changes = 0u;
+                                uint32_t abs_sum = 0u;
+                                uint8_t previous = 0u;
+                                for (sample_index = 0u;
+                                     sample_index < limit; ++sample_index) {
+                                    const uint32_t addr = start + sample_index;
+                                    uint8_t value = 0u;
+                                    if (addr < VF2_SOUND_RAM_BYTES) {
+                                        value = step_ram[addr];
+                                    }
+                                    if (value != 0u) ++sample_nonzero;
+                                    abs_sum += (uint32_t)(
+                                        (int32_t)(int8_t)value < 0 ?
+                                        -(int32_t)(int8_t)value :
+                                        (int32_t)(int8_t)value);
+                                    if (sample_index != 0u &&
+                                        value != previous) ++sample_changes;
+                                    previous = value;
+                                }
+                                printf("AKIRA_ORIGINAL_WAVE_STATS tick=%u "
+                                       "slot=%u start=%05x size=%u "
+                                       "bytes_nonzero=%u transitions=%u "
+                                       "mean_abs=%u source=SCSP_RAM\n",
+                                       (unsigned)tick, (unsigned)mix_slot,
+                                       (unsigned)start, (unsigned)limit,
+                                       (unsigned)sample_nonzero,
+                                       (unsigned)sample_changes,
+                                       limit != 0u ?
+                                           (unsigned)(abs_sum / limit) : 0u);
+                            }
                         }
                     }
                 }
