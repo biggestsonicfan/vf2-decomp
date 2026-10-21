@@ -21,6 +21,7 @@ option(VF2_VERIFY_AD21_BA "Verify owner-ROM AD21 BA payload-table dispatch and p
 option(VF2_VERIFY_AD21_B_ALL "Require owner-ROM AD21 parity for all twelve B9..BE packets" OFF)
 option(VF2_VERIFY_AD21_B_SEQUENTIAL "Require owner-ROM AD21 full twelve B-packet stateful drain parity" OFF)
 option(VF2_VERIFY_FRAME342_CHAIN "Require owner-ROM 9E/Cx/AD21/L2/B stateful chain and PCM parity" OFF)
+option(VF2_VERIFY_AKIRA_MUSIC "Require original-ROM Akira SOUND TEST stream to KEYON and nonzero software PCM" OFF)
 set(VF2_ROM_DIR "" CACHE PATH "Optional supported VF2 ROM directory for integration tests")
 if(NOT VF2_ROM_DIR)
   set(VF2_ROM_DIR "${CMAKE_SOURCE_DIR}/roms/vf2")
@@ -1223,6 +1224,17 @@ if(VF2_BUILD_TESTS)
                      COMMAND vf2_m68k_frame342_dispatch_tests
                              "${VF2_ROM_DIR}" --verify-frame342-chain)
             set_tests_properties(vf2_m68k_frame342_stateful_chain_owner_rom
+                                 PROPERTIES TIMEOUT 900)
+        endif()
+        # Akira SOUND TEST #11 AD 10 04: original 68000-only
+        # low-header record and stream worker, 32 drained note packets,
+        # 8 keyed SCSP voices and nonzero PCM model. This is not
+        # recovered native-C sequencer parity, nor full music.
+        if(VF2_VERIFY_AKIRA_MUSIC)
+            add_test(NAME vf2_m68k_akira_music_owner_rom
+                     COMMAND vf2_m68k_l3_selection_tests
+                             "${VF2_ROM_DIR}" --verify-akira-music)
+            set_tests_properties(vf2_m68k_akira_music_owner_rom
                                  PROPERTIES TIMEOUT 900)
         endif()
         # v0898: exact fifteen original i960 vector-15 bytes from
