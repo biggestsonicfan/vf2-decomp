@@ -38,6 +38,7 @@ static int probe_frame342_chain_flag;
 static int verify_frame342_chain;
 #define FRAME342_WAV_FRAMES 22050u
 static const char *frame342_wav_dir;
+static const char *frame342_chain_wav_dir;
 static int16_t frame342_c_left[FRAME342_WAV_FRAMES];
 static int16_t frame342_c_right[FRAME342_WAV_FRAMES];
 static int16_t frame342_s_left[FRAME342_WAV_FRAMES];
@@ -64,9 +65,9 @@ static void frame342_le32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 24u);
 }
 
-static int frame342_write_9e_wav(const char *directory, size_t frames)
+static int frame342_write_pcm_wav(const char *directory,
+                                   const char *filename, size_t frames)
 {
-    static const char filename[] = "vf2_frame342_9e0a7f_scsp_model.wav";
     char path[1024];
     uint8_t header[44] = {0u};
     FILE *out;
@@ -1050,7 +1051,8 @@ static void probe_frame342_chain(const uint8_t *rom, size_t rom_size,
             step_ram[VF2_SOUND_COMMAND_COUNT] == 12u) {
             probe_ad21_b_sequential(rom, rom_size, samples, sample_size);
             if (verify_frame342_chain) {
-                const size_t frames = 4096u;
+                const size_t frames = frame342_chain_wav_dir != NULL ?
+                    FRAME342_WAV_FRAMES : 4096u;
                 vf2_status rc = vf2_scsp_render(
                     &board.scsp, frame342_c_left, frame342_c_right, frames);
                 vf2_status rm = vf2_scsp_render(
@@ -1070,6 +1072,12 @@ static void probe_frame342_chain(const uint8_t *rom, size_t rom_size,
                        (unsigned)matched, (unsigned)nonzero, (unsigned)frames,
                        active_slots(&board.scsp), active_slots(&step_scsp));
                 CHECK(matched && nonzero > 0u);
+                if (frame342_chain_wav_dir != NULL && matched &&
+                    nonzero > 0u) {
+                    CHECK(frame342_write_pcm_wav(
+                        frame342_chain_wav_dir,
+                        "vf2_frame342_9e_ad21_chain_scsp_model.wav", frames));
+                }
             }
         } else {
             printf("FRAME342_CHAIN_STOP stage=l2 reason=status_or_packet_count\n");
@@ -1400,7 +1408,8 @@ static void isolate_command(size_t command,
                        render_frames * sizeof(frame342_c_left[0])) == 0 &&
                 memcmp(frame342_c_right, frame342_s_right,
                        render_frames * sizeof(frame342_c_right[0])) == 0) {
-                CHECK(frame342_write_9e_wav(frame342_wav_dir,
+                CHECK(frame342_write_pcm_wav(frame342_wav_dir,
+                                            "vf2_frame342_9e0a7f_scsp_model.wav",
                                             render_frames));
             } else if (frame342_wav_dir != NULL) {
                 CHECK(0); /* refuse WAV export without original parity */
@@ -1574,7 +1583,9 @@ int main(int argc, char **argv)
     size_t rom_size = 0u, sample_size = 0u;
     size_t i;
     if ((argc != 2 && argc != 3 &&
-         !(argc == 4 && strcmp(argv[2], "--wav-dir") == 0)) ||
+         !(argc == 4 &&
+           (strcmp(argv[2], "--wav-dir") == 0 ||
+            strcmp(argv[2], "--chain-wav-dir") == 0))) ||
         (argc == 3 && strcmp(argv[2], "--probe-ad21-l2") != 0 &&
          strcmp(argv[2], "--verify-ad21-ba") != 0 &&
          strcmp(argv[2], "--probe-ad21-b-all") != 0 &&
@@ -1589,12 +1600,16 @@ int main(int argc, char **argv)
                 argv[0]);
         return 2;
     }
-    frame342_wav_dir = argc == 4 ? argv[3] : NULL;
-    probe_frame342_chain_flag = argc == 3 &&
-        (strcmp(argv[2], "--probe-frame342-chain") == 0 ||
-         strcmp(argv[2], "--verify-frame342-chain") == 0);
-    verify_frame342_chain = argc == 3 &&
-        strcmp(argv[2], "--verify-frame342-chain") == 0;
+    frame342_wav_dir = argc == 4 &&
+        strcmp(argv[2], "--wav-dir") == 0 ? argv[3] : NULL;
+    frame342_chain_wav_dir = argc == 4 &&
+        strcmp(argv[2], "--chain-wav-dir") == 0 ? argv[3] : NULL;
+    probe_frame342_chain_flag = frame342_chain_wav_dir != NULL ||
+        (argc == 3 &&
+         (strcmp(argv[2], "--probe-frame342-chain") == 0 ||
+          strcmp(argv[2], "--verify-frame342-chain") == 0));
+    verify_frame342_chain = frame342_chain_wav_dir != NULL ||
+        (argc == 3 && strcmp(argv[2], "--verify-frame342-chain") == 0);
     probe_ad21_l2 = argc == 3;
     verify_ad21_ba = argc == 3 &&
                      strcmp(argv[2], "--verify-ad21-ba") == 0;
