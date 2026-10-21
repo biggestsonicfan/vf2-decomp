@@ -89,6 +89,8 @@ class SoundTestCatalog(unittest.TestCase):
         self.assertEqual((len(catalog), catalog[11]["address"],
                           catalog[11]["name"], catalog[11]["command"]),
                          (297, 0x76BE0, "Akira", 0x00AD1004))
+        self.assertEqual((catalog[34]["name"], catalog[34]["command"]),
+                         ("coin", 0x009E0A7F))
         self.assertEqual((info["directory_row"], info["record"],
                           len(info["stream_pointers"])),
                          (0x608F24, 0x609C36, 6))
