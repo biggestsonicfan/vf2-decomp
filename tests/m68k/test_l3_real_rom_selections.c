@@ -812,9 +812,10 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                 unsigned pan_right = 0u;
                 for (mix_slot = 0u; mix_slot < VF2_SCSP_SLOT_COUNT; ++mix_slot) {
                     if (step_scsp.slot_active[mix_slot] != 0u) {
-                        const uint16_t mixer = read_be16(
-                            step_scsp.registers +
-                            mix_slot * VF2_SCSP_SLOT_BYTES + 0x16u);
+                        const size_t at = mix_slot * VF2_SCSP_SLOT_BYTES + 0x16u;
+                        const uint16_t mixer = (uint16_t)(
+                            ((uint16_t)step_scsp.registers[at] << 8u) |
+                            step_scsp.registers[at + 1u]);
                         const unsigned disdl = ((unsigned)mixer >> 13u) & 7u;
                         const unsigned dipan = ((unsigned)mixer >> 8u) & 31u;
                         ++active_voices;
