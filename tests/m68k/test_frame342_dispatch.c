@@ -34,6 +34,7 @@ static int probe_ad21_b_all;
 static int verify_ad21_b_all;
 static int probe_ad21_b_sequential_flag;
 static int verify_ad21_b_sequential;
+static int probe_frame342_chain_flag;
 #define FRAME342_WAV_FRAMES 22050u
 static const char *frame342_wav_dir;
 static int16_t frame342_c_left[FRAME342_WAV_FRAMES];
@@ -843,6 +844,168 @@ static void probe_ad21_b_sequential(const uint8_t *rom, size_t rom_size,
     }
 }
 
+/* Discovery probe for a genuine stateful UART-to-L2-to-B-class chain.
+ * The five 15-byte frame342 UART commands are already in filed_ram:
+ * 9E 0A 7F; CD 74 F8; CA 7E F8; CB 7F F8; AD 21 00.
+ * No reinitialization between successive C or 68000 dispatches.
+ * The original 68000 register file is reset at each drain callback
+ * (as in individual owner-ROM probes), NOT the RAM/SCSP. This does
+ * not imply measured real-time scheduling or physical arcade audio. */
+static void probe_frame342_chain(const uint8_t *rom, size_t rom_size,
+                                 const uint8_t *samples, size_t sample_size)
+{
+    static uint8_t initial_c[VF2_SOUND_RAM_BYTES];
+    static uint8_t initial_m[VF2_SOUND_RAM_BYTES];
+    vf2_m68k_bus bus;
+    size_t i, packet;
+    vf2_scsp initial_c_scsp, initial_m_scsp;
+    memcpy(board.sound_ram, filed_ram, sizeof(board.sound_ram));
+    memcpy(step_ram, filed_ram, sizeof(step_ram));
+    memcpy(&board.scsp, &filed_scsp, sizeof(board.scsp));
+    memcpy(&step_scsp, &filed_scsp, sizeof(step_scsp));
+    CHECK(vf2_scsp_attach_sample_ram(
+          &board.scsp, board.sound_ram, sizeof(board.sound_ram)) == VF2_OK);
+    CHECK(vf2_scsp_attach_sample_ram(
+          &step_scsp, step_ram, sizeof(step_ram)) == VF2_OK);
+    board.allow_verified_90_allocator = 1u; /* this exact original 9E */
+    memset(&bus, 0, sizeof(bus));
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = rom;
+    bus.rom_size = rom_size;
+    bus.sample_rom = samples;
+    bus.sample_rom_size = sample_size;
+    bus.scsp = &step_scsp;
+    for (packet = 0u; packet < 5u; ++packet) {
+        const uint16_t cursor = (uint16_t)(4u * packet);
+        vf2_sound_dispatch_report report = {0};
+        vf2_m68k_regs regs;
+        vf2_status c_status, m_status;
+        uint32_t steps = 0u;
+        size_t delta_differences = 0u;
+        size_t scsp_differences = 0u;
+        size_t first_delta = VF2_SOUND_RAM_BYTES;
+        memcpy(initial_c, board.sound_ram, sizeof(initial_c));
+        memcpy(initial_m, step_ram, sizeof(initial_m));
+        memcpy(&initial_c_scsp, &board.scsp, sizeof(initial_c_scsp));
+        memcpy(&initial_m_scsp, &step_scsp, sizeof(initial_m_scsp));
+        c_status = vf2_sound_board_dispatch_next(&board, &report);
+        vf2_m68k_regs_reset(&regs);
+        regs.pc = UINT32_C(0x7a6);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = VF2_SCSP_CPU_BASE;
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        m_status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                                0, 50000u, &steps);
+        for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
+            const int c_change = board.sound_ram[i] != initial_c[i];
+            const int m_change = step_ram[i] != initial_m[i];
+            if (i >= 0x7e00u && i < 0x8000u) continue;
+            if (c_change != m_change ||
+                (c_change && board.sound_ram[i] != step_ram[i])) {
+                if (first_delta == VF2_SOUND_RAM_BYTES) first_delta = i;
+                if (delta_differences < 6u) {
+                    printf("FRAME342_CHAIN_DELTA_DIFF command=%u "
+                           "addr=%05x C_before=%02x C_after=%02x "
+                           "M_before=%02x M_after=%02x\n",
+                           (unsigned)packet, (unsigned)i,
+                           (unsigned)initial_c[i], (unsigned)board.sound_ram[i],
+                           (unsigned)initial_m[i], (unsigned)step_ram[i]);
+                }
+                ++delta_differences;
+            }
+        }
+        for (i = 0u; i < VF2_SCSP_REGISTER_BYTES; ++i) {
+            if (board.scsp.registers[i] != step_scsp.registers[i]) {
+                ++scsp_differences;
+            }
+        }
+        printf("FRAME342_CHAIN_UART index=%u packet=%02x%02x%02x "
+               "C_status=%d M_status=%d M_pc=%05x M_steps=%u "
+               "C_handler=%05x C_count=%u M_count=%u "
+               "C_cursor=%02x%02x M_cursor=%02x%02x "
+               "C_active=%u M_active=%u ram_delta_diff=%u first=%05x "
+               "scsp_diff=%u C_scsp_changed=%u M_scsp_changed=%u\n",
+               (unsigned)packet,
+               (unsigned)initial_c[VF2_SOUND_COMMAND_RING_BASE + cursor],
+               (unsigned)initial_c[VF2_SOUND_COMMAND_RING_BASE + cursor + 1u],
+               (unsigned)initial_c[VF2_SOUND_COMMAND_RING_BASE + cursor + 2u],
+               (int)c_status, (int)m_status, (unsigned)regs.pc,
+               (unsigned)steps, (unsigned)report.handler_address,
+               (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
+               (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+               (unsigned)board.sound_ram[VF2_SOUND_COMMAND_CURSOR],
+               (unsigned)board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u],
+               (unsigned)step_ram[VF2_SOUND_COMMAND_CURSOR],
+               (unsigned)step_ram[VF2_SOUND_COMMAND_CURSOR + 1u],
+               active_slots(&board.scsp), active_slots(&step_scsp),
+               (unsigned)delta_differences, (unsigned)first_delta,
+               (unsigned)scsp_differences,
+               (unsigned)(memcmp(initial_c_scsp.registers,board.scsp.registers,
+                       VF2_SCSP_REGISTER_BYTES) != 0),
+               (unsigned)(memcmp(initial_m_scsp.registers,step_scsp.registers,
+                       VF2_SCSP_REGISTER_BYTES) != 0));
+        if (c_status != VF2_OK || m_status != VF2_OK ||
+            regs.pc != UINT32_C(0x265c) ||
+            board.sound_ram[VF2_SOUND_COMMAND_COUNT] !=
+                step_ram[VF2_SOUND_COMMAND_COUNT] ||
+            board.sound_ram[VF2_SOUND_COMMAND_CURSOR] !=
+                step_ram[VF2_SOUND_COMMAND_CURSOR] ||
+            board.sound_ram[VF2_SOUND_COMMAND_CURSOR + 1u] !=
+                step_ram[VF2_SOUND_COMMAND_CURSOR + 1u]) {
+            printf("FRAME342_CHAIN_STOP stage=uart command=%u reason=status_or_queue\n",
+                   (unsigned)packet);
+            return;
+        }
+    }
+    {
+        vf2_sound_stream_maintenance_report report = {0};
+        vf2_m68k_regs regs;
+        vf2_status c_status, m_status;
+        uint32_t steps = 0u;
+        size_t ram_delta_diff = 0u, scsp_diff = 0u;
+        memcpy(initial_c, board.sound_ram, sizeof(initial_c));
+        memcpy(initial_m, step_ram, sizeof(initial_m));
+        c_status = vf2_sound_board_maintain_streams(&board, &report);
+        vf2_m68k_regs_reset(&regs);
+        regs.pc = UINT32_C(0x1f16);
+        regs.a[4] = UINT32_C(0x2506);
+        regs.a[5] = VF2_SCSP_CPU_BASE;
+        regs.a[6] = UINT32_C(0x1000);
+        regs.a[7] = UINT32_C(0x7f00);
+        m_status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f7a),
+                                0, 20000u, &steps);
+        for (i = 0u; i < VF2_SOUND_RAM_BYTES; ++i) {
+            int cc = board.sound_ram[i] != initial_c[i];
+            int mm = step_ram[i] != initial_m[i];
+            if (i >= 0x7e00u && i < 0x8000u) continue;
+            if (cc != mm || (cc && board.sound_ram[i] != step_ram[i])) {
+                ++ram_delta_diff;
+            }
+        }
+        for (i = 0u; i < VF2_SCSP_REGISTER_BYTES; ++i) {
+            if (board.scsp.registers[i] != step_scsp.registers[i]) ++scsp_diff;
+        }
+        printf("FRAME342_CHAIN_L2 C_status=%d M_status=%d M_pc=%05x "
+               "M_steps=%u emitted=%u C_count=%u M_count=%u "
+               "C_active=%u M_active=%u ram_delta_diff=%u scsp_diff=%u\n",
+               (int)c_status, (int)m_status, (unsigned)regs.pc,
+               (unsigned)steps, (unsigned)report.packets_emitted,
+               (unsigned)board.sound_ram[VF2_SOUND_COMMAND_COUNT],
+               (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+               active_slots(&board.scsp), active_slots(&step_scsp),
+               (unsigned)ram_delta_diff, (unsigned)scsp_diff);
+        if (c_status == VF2_OK && m_status == VF2_OK &&
+            board.sound_ram[VF2_SOUND_COMMAND_COUNT] == 12u &&
+            step_ram[VF2_SOUND_COMMAND_COUNT] == 12u) {
+            probe_ad21_b_sequential(rom, rom_size, samples, sample_size);
+        } else {
+            printf("FRAME342_CHAIN_STOP stage=l2 reason=status_or_packet_count\n");
+        }
+    }
+}
+
 static void isolate_command(size_t command,
                             const uint8_t *rom, size_t rom_size,
                             const uint8_t *samples, size_t sample_size)
@@ -1346,14 +1509,16 @@ int main(int argc, char **argv)
          strcmp(argv[2], "--probe-ad21-b-all") != 0 &&
          strcmp(argv[2], "--verify-ad21-b-all") != 0 &&
          strcmp(argv[2], "--probe-ad21-b-sequential") != 0 &&
-         strcmp(argv[2], "--verify-ad21-b-sequential") != 0)) {
+         strcmp(argv[2], "--verify-ad21-b-sequential") != 0 &&
+         strcmp(argv[2], "--probe-frame342-chain") != 0)) {
         fprintf(stderr,
                 "usage: %s <original-vf2-rom-directory> "
-                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential|--verify-ad21-b-sequential]\n",
+                "[--probe-ad21-l2|--verify-ad21-ba|--probe-ad21-b-all|--verify-ad21-b-all|--probe-ad21-b-sequential|--verify-ad21-b-sequential|--probe-frame342-chain]\n",
                 argv[0]);
         return 2;
     }
     frame342_wav_dir = argc == 4 ? argv[3] : NULL;
+    probe_frame342_chain_flag = argc == 3 && strcmp(argv[2], "--probe-frame342-chain") == 0;
     probe_ad21_l2 = argc == 3;
     verify_ad21_ba = argc == 3 &&
                      strcmp(argv[2], "--verify-ad21-ba") == 0;
@@ -1382,8 +1547,12 @@ int main(int argc, char **argv)
         free(samples);
         return 1;
     }
-    for (i = 0u; i < 5u; ++i) {
-        isolate_command(i, rom, rom_size, samples, sample_size);
+    if (probe_frame342_chain_flag) {
+        probe_frame342_chain(rom, rom_size, samples, sample_size);
+    } else {
+        for (i = 0u; i < 5u; ++i) {
+            isolate_command(i, rom, rom_size, samples, sample_size);
+        }
     }
     free(rom);
     free(samples);
