@@ -675,6 +675,11 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
             regs.a[5] = VF2_SCSP_CPU_BASE;
             regs.a[6] = UINT32_C(0x1000);
             regs.a[7] = UINT32_C(0x5000); /* original reset SSP */
+            /* Bus events are per invocation, not a persistent FIFO.
+             * Reusing >64 diagnostic writes across many ticks caused
+             * a false UNSUPPORTED at 0x2080 on tick 434. Reset ONLY
+             * this bounded instrumentation log; never RAM or SCSP. */
+            bus.event_count = 0u;
             status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f7a),
                                   0, 100000u, &original_steps);
             for (voice = 0u; voice < VF2_SCSP_SLOT_COUNT; ++voice) {
@@ -691,10 +696,12 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                 step_ram[VF2_SOUND_COMMAND_COUNT] != 0u ||
                 (tick % 64u) == 0u || status != VF2_OK) {
                 printf("AKIRA_MUSIC_L2 tick=%u status=%d pc=%05x "
-                       "steps=%u active_slots=%u queue=%u no_playback_claim=1\n",
+                       "steps=%u active_slots=%u queue=%u events=%u "
+                       "no_playback_claim=1\n",
                        (unsigned)tick, (int)status, (unsigned)regs.pc,
                        (unsigned)original_steps, keyed,
-                       (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT]);
+                       (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+                       (unsigned)bus.event_count);
             }
             if (status != VF2_OK || regs.pc != UINT32_C(0x1f7a)) {
                 break; /* preserve original failure frontier */
@@ -725,6 +732,7 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                     regs.a[5] = VF2_SCSP_CPU_BASE;
                     regs.a[6] = UINT32_C(0x1000);
                     regs.a[7] = UINT32_C(0x5000);
+                    bus.event_count = 0u;
                     dispatch_status = vf2_m68k_run(
                         &bus, &regs, UINT32_C(0x265c),
                         0, 100000u, &dispatch_steps);
