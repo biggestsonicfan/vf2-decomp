@@ -128,5 +128,49 @@ int main(void)
         EXPECT_TRUE(left[0] == 0 && right[0] == 0);
     }
 
+    /* Akira AD 10 04: the original sound CPU retunes already-active
+     * voices. A stale KEYON-latched slot_step changed their notes'
+     * pitch but NOT their playback speed (audible rotor/chopping).
+     * Writes to either byte of OCT/FNS must retune immediately,
+     * without resetting the playback cursor or ADSR. */
+    {
+        vf2_scsp voice;
+        uint32_t position_before;
+        int32_t envelope_before;
+        vf2_scsp_initialize(&voice);
+        EXPECT_TRUE(vf2_scsp_attach_sample_ram(
+            &voice, samples, sizeof(samples)) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&voice, 0x0006u, 32u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&voice, 0x0010u, 0u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&voice, 0x0016u, 0xe000u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&voice, 0x0000u, 0x0830u) == VF2_OK);
+        EXPECT_TRUE(voice.slot_active[0] == 1u);
+        EXPECT_TRUE(voice.slot_step[0] == 4096u);
+        EXPECT_TRUE(vf2_scsp_render(&voice, left, right, 1u) == VF2_OK);
+        position_before = voice.slot_address[0];
+        envelope_before = voice.slot_envelope[0];
+
+        EXPECT_TRUE(vf2_scsp_write_u16(&voice, 0x0010u, 0x7800u) == VF2_OK);
+        EXPECT_TRUE(voice.slot_step[0] == 2048u);
+        EXPECT_TRUE(voice.slot_address[0] == position_before);
+        EXPECT_TRUE(voice.slot_envelope[0] == envelope_before);
+        EXPECT_TRUE(voice.slot_active[0] == 1u);
+        EXPECT_TRUE(vf2_scsp_render(&voice, left, right, 1u) == VF2_OK);
+        EXPECT_TRUE(voice.slot_address[0] == position_before + 2048u);
+
+        position_before = voice.slot_address[0];
+        EXPECT_TRUE(vf2_scsp_write_u8(&voice, 0x0010u, 0x00u) == VF2_OK);
+        EXPECT_TRUE(voice.slot_step[0] == 4096u);
+        EXPECT_TRUE(voice.slot_address[0] == position_before);
+        EXPECT_TRUE(vf2_scsp_write_u8(&voice, 0x0010u, 0x78u) == VF2_OK);
+        EXPECT_TRUE(voice.slot_step[0] == 2048u);
+
+        /* Also handle byte-image writes from the original M68K bus,
+         * since this harness can mutate mapped SCSP registers directly. */
+        voice.registers[0x0010u] = 0u;
+        EXPECT_TRUE(vf2_scsp_render(&voice, left, right, 1u) == VF2_OK);
+        EXPECT_TRUE(voice.slot_step[0] == 4096u);
+    }
+
     return failures == 0 ? 0 : 1;
 }
