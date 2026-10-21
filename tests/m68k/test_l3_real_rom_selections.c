@@ -460,13 +460,95 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
  * C-vs-original memory/SCSP state and actual hardware-poke count at
  * every individual byte. This remains an isolated 68000 L3 fixture;
  * source-of-frame and hardware interrupt timing are separate oracles. */
+/* Local preview from owner-ROM-68000-authored SCSP state.
+ * The waveform uses the project's software SCSP model, NOT a
+ * board-captured analog output or a C-vs-68000 sequencer differential.
+ * Only write on explicit opt-in, after a nonzero eight-voice KEYON. */
+static void akira_le16(uint8_t *p, uint16_t x)
+{
+    p[0] = (uint8_t)x;
+    p[1] = (uint8_t)(x >> 8u);
+}
+
+static void akira_le32(uint8_t *p, uint32_t x)
+{
+    p[0] = (uint8_t)x;
+    p[1] = (uint8_t)(x >> 8u);
+    p[2] = (uint8_t)(x >> 16u);
+    p[3] = (uint8_t)(x >> 24u);
+}
+
+static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
+{
+    enum { FRAMES = 88200u }; /* 2 seconds at 44.1 kHz */
+    static int16_t left[FRAMES], right[FRAMES];
+    static const char filename[] =
+        "vf2_akira_original_8voices_scsp_model_preview.wav";
+    char path[1024];
+    uint8_t header[44] = {0u};
+    FILE *out;
+    size_t i, nonzero = 0u;
+    unsigned peak = 0u;
+    int length;
+    if (directory == NULL || scsp == NULL) return 0;
+    if (vf2_scsp_render(scsp, left, right, FRAMES) != VF2_OK) {
+        fprintf(stderr, "AKIRA_WAV unsupported SCSP renderer\n");
+        return 0;
+    }
+    for (i = 0u; i < FRAMES; ++i) {
+        const int32_t a = (int32_t)left[i], b = (int32_t)right[i];
+        const unsigned pa = (unsigned)(a < 0 ? -a : a);
+        const unsigned pb = (unsigned)(b < 0 ? -b : b);
+        nonzero += (size_t)(a != 0 || b != 0);
+        if (peak < pa) peak = pa;
+        if (peak < pb) peak = pb;
+    }
+    printf("AKIRA_MUSIC_PCM frames=%u nonzero=%u peak=%u "
+           "original_driver=1 model_only=1 full_song=0\n",
+           (unsigned)FRAMES, (unsigned)nonzero, peak);
+    if (nonzero == 0u) return 0;
+    length = snprintf(path, sizeof(path), "%s/%s", directory, filename);
+    if (length < 0 || (size_t)length >= sizeof(path)) return 0;
+    out = fopen(path, "wb");
+    if (out == NULL) return 0;
+    memcpy(header, "RIFF", 4u);
+    akira_le32(header + 4u, UINT32_C(36) + FRAMES * 4u);
+    memcpy(header + 8u, "WAVEfmt ", 8u);
+    akira_le32(header + 16u, 16u);
+    akira_le16(header + 20u, 1u);
+    akira_le16(header + 22u, 2u);
+    akira_le32(header + 24u, 44100u);
+    akira_le32(header + 28u, 44100u * 4u);
+    akira_le16(header + 32u, 4u);
+    akira_le16(header + 34u, 16u);
+    memcpy(header + 36u, "data", 4u);
+    akira_le32(header + 40u, FRAMES * 4u);
+    if (fwrite(header, 1u, sizeof(header), out) != sizeof(header)) {
+        (void)fclose(out);
+        return 0;
+    }
+    for (i = 0u; i < FRAMES; ++i) {
+        uint8_t samples[4];
+        akira_le16(samples, (uint16_t)left[i]);
+        akira_le16(samples + 2u, (uint16_t)right[i]);
+        if (fwrite(samples, 1u, sizeof(samples), out) != sizeof(samples)) {
+            (void)fclose(out);
+            return 0;
+        }
+    }
+    if (fclose(out) != 0) return 0;
+    printf("AKIRA_MUSIC_WAV path=%s preview_only=1\n", path);
+    return 1;
+}
+
 /* Owner-ROM SOUND TEST #11: original i960 command 00 AD 10 04.
  * Preserve the exact original BOOT channel descriptor table, not the
  * synthetic one-channel fixture used by the AD23/24 unit tests.
  * Music emits 9x/Bx/Cx packets to channels A..F: clearing boot channels
  * before the L2 tick produced a convincing but FALSE silent result.
  * Controlled original 68000 driver probe; not real-time gameplay. */
-static int probe_akira_music(const uint8_t *rom, size_t rom_size)
+static int probe_akira_music(const uint8_t *rom, size_t rom_size,
+                             const char *wav_dir)
 {
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
@@ -665,6 +747,18 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size)
             }
         }
     }
+    if (wav_dir != NULL) {
+        unsigned active_count = 0u;
+        size_t v;
+        for (v = 0u; v < VF2_SCSP_SLOT_COUNT; ++v) {
+            active_count += (unsigned)(step_scsp.slot_active[v] != 0u);
+        }
+        if (active_count < 8u ||
+            !write_akira_model_preview(wav_dir, &step_scsp)) {
+            fprintf(stderr, "AKIRA_MUSIC_WAV refused: no verified voice state\n");
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -765,6 +859,7 @@ int main(int argc, char **argv)
     int l3_matrix = 0;
     int l3_stream = 0;
     int akira_music_probe = 0;
+    const char *akira_wav_dir = NULL;
     uint8_t stream_bytes[64] = {0u};
     size_t stream_length = 0u;
     uint32_t l3_packet = 0u;
@@ -778,14 +873,15 @@ int main(int argc, char **argv)
      */
     if (argc != 2 && !(argc == 4 &&
                        (strcmp(argv[2], "--l3-packet") == 0 ||
-                        strcmp(argv[2], "--uart-stream") == 0)) &&
+                        strcmp(argv[2], "--uart-stream") == 0 ||
+                        strcmp(argv[2], "--akira-wav-dir") == 0)) &&
         !(argc == 3 &&
           (strcmp(argv[2], "--matrix-l3") == 0 ||
            strcmp(argv[2], "--probe-akira-music") == 0))) {
         fprintf(stderr,
                 "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits> "
                 "| --uart-stream <even-hex-digits> | --matrix-l3 "
-                "| --probe-akira-music]\n",
+                "| --probe-akira-music | --akira-wav-dir DIRECTORY]\n",
                 argv[0]);
         return 2;
     }
@@ -794,7 +890,11 @@ int main(int argc, char **argv)
                         strcmp(argv[2], "--probe-akira-music") == 0;
     l3_stream = argc == 4 &&
         strcmp(argv[2], "--uart-stream") == 0;
-    if (argc == 4) {
+    if (argc == 4 && strcmp(argv[2], "--akira-wav-dir") == 0) {
+        akira_music_probe = 1;
+        akira_wav_dir = argv[3];
+    }
+    if (argc == 4 && akira_wav_dir == NULL) {
         const char *hex = argv[3];
         size_t j, length = hex != NULL ? strlen(hex) : 0u;
         l3_only = !l3_stream;
@@ -845,7 +945,7 @@ int main(int argc, char **argv)
     sample_bank = samples;
     sample_bank_size = samples_size;
     if (akira_music_probe) {
-        valid = probe_akira_music(audio, audio_size);
+        valid = probe_akira_music(audio, audio_size, akira_wav_dir);
         free(audio);
         free(data);
         free(samples);
