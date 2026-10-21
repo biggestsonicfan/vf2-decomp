@@ -548,7 +548,7 @@ static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
  * before the L2 tick produced a convincing but FALSE silent result.
  * Controlled original 68000 driver probe; not real-time gameplay. */
 static int probe_akira_music(const uint8_t *rom, size_t rom_size,
-                             const char *wav_dir)
+                             const char *wav_dir, int strict)
 {
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
@@ -557,6 +557,8 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
     uint32_t steps = 0u, tail_steps = 0u, row, record;
     size_t i;
     unsigned active = 0u;
+    size_t first_tick_count = 0u, first_drain = 0u;
+    int full_drain = 1;
     uint8_t *desc = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
     if (!check_one(UINT32_C(0x00ad1004), rom, rom_size, 1)) {
         return 0;
@@ -675,6 +677,8 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
             for (voice = 0u; voice < VF2_SCSP_SLOT_COUNT; ++voice) {
                 keyed += (unsigned)(step_scsp.slot_active[voice] != 0u);
             }
+            if (tick == 0u) first_tick_count =
+                (size_t)step_ram[VF2_SOUND_COMMAND_COUNT];
             printf("AKIRA_MUSIC_L2 tick=%u status=%d pc=%05x "
                    "steps=%u active_slots=%u queue=%u no_playback_claim=1\n",
                    (unsigned)tick, (int)status, (unsigned)regs.pc,
@@ -738,6 +742,8 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                         break;
                     }
                 }
+                if (tick == 0u) first_drain = dispatched;
+                if (first_failed != 0u) full_drain = 0;
                 printf("AKIRA_MUSIC_DRAIN_SUMMARY tick=%u drained=%u "
                        "queue=%u failed=%u original_only=1\n",
                        (unsigned)tick, (unsigned)dispatched,
@@ -745,6 +751,33 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                        first_failed);
                 if (first_failed != 0u) break;
             }
+        }
+    }
+    if (strict) {
+        static int16_t left[4096u], right[4096u];
+        size_t frame, audible = 0u;
+        unsigned keyed = 0u;
+        vf2_status render_status;
+        for (i = 0u; i < VF2_SCSP_SLOT_COUNT; ++i) {
+            keyed += (unsigned)(step_scsp.slot_active[i] != 0u);
+        }
+        render_status = vf2_scsp_render(&step_scsp, left, right, 4096u);
+        if (render_status == VF2_OK) {
+            for (frame = 0u; frame < 4096u; ++frame) {
+                audible += (size_t)(left[frame] != 0 || right[frame] != 0);
+            }
+        }
+        printf("AKIRA_MUSIC_STRICT first_tick_queue=%u first_drain=%u "
+               "queue_after=%u active_voices=%u audible_frames=%u "
+               "original_only=1 C_music_parity=0\n",
+               (unsigned)first_tick_count, (unsigned)first_drain,
+               (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+               keyed, (unsigned)audible);
+        if (first_tick_count != 32u || first_drain != 32u ||
+            !full_drain || step_ram[VF2_SOUND_COMMAND_COUNT] != 0u ||
+            keyed != 8u || render_status != VF2_OK || audible == 0u) {
+            fprintf(stderr, "AKIRA_MUSIC_STRICT owner-ROM gate failed\n");
+            return 0;
         }
     }
     if (wav_dir != NULL) {
@@ -859,6 +892,7 @@ int main(int argc, char **argv)
     int l3_matrix = 0;
     int l3_stream = 0;
     int akira_music_probe = 0;
+    int akira_music_strict = 0;
     const char *akira_wav_dir = NULL;
     uint8_t stream_bytes[64] = {0u};
     size_t stream_length = 0u;
@@ -877,17 +911,22 @@ int main(int argc, char **argv)
                         strcmp(argv[2], "--akira-wav-dir") == 0)) &&
         !(argc == 3 &&
           (strcmp(argv[2], "--matrix-l3") == 0 ||
-           strcmp(argv[2], "--probe-akira-music") == 0))) {
+           strcmp(argv[2], "--probe-akira-music") == 0 ||
+           strcmp(argv[2], "--verify-akira-music") == 0))) {
         fprintf(stderr,
                 "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits> "
                 "| --uart-stream <even-hex-digits> | --matrix-l3 "
-                "| --probe-akira-music | --akira-wav-dir DIRECTORY]\n",
+                "| --probe-akira-music | --verify-akira-music "
+                "| --akira-wav-dir DIRECTORY]\n",
                 argv[0]);
         return 2;
     }
     l3_matrix = argc == 3 && strcmp(argv[2], "--matrix-l3") == 0;
     akira_music_probe = argc == 3 &&
-                        strcmp(argv[2], "--probe-akira-music") == 0;
+                        (strcmp(argv[2], "--probe-akira-music") == 0 ||
+                         strcmp(argv[2], "--verify-akira-music") == 0);
+    akira_music_strict = argc == 3 &&
+                         strcmp(argv[2], "--verify-akira-music") == 0;
     l3_stream = argc == 4 &&
         strcmp(argv[2], "--uart-stream") == 0;
     if (argc == 4 && strcmp(argv[2], "--akira-wav-dir") == 0) {
@@ -945,7 +984,8 @@ int main(int argc, char **argv)
     sample_bank = samples;
     sample_bank_size = samples_size;
     if (akira_music_probe) {
-        valid = probe_akira_music(audio, audio_size, akira_wav_dir);
+        valid = probe_akira_music(audio, audio_size, akira_wav_dir,
+                                  akira_music_strict);
         free(audio);
         free(data);
         free(samples);
