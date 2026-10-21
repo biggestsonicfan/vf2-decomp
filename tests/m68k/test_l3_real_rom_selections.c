@@ -478,24 +478,21 @@ static void akira_le32(uint8_t *p, uint32_t x)
     p[3] = (uint8_t)(x >> 24u);
 }
 
-static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
+static int write_akira_stereo_pcm(const char *directory,
+                                   const char *filename,
+                                   const int16_t *left, const int16_t *right,
+                                   size_t frames, int sequenced)
 {
-    enum { FRAMES = 88200u }; /* 2 seconds at 44.1 kHz */
-    static int16_t left[FRAMES], right[FRAMES];
-    static const char filename[] =
-        "vf2_akira_original_8voices_scsp_model_preview.wav";
     char path[1024];
     uint8_t header[44] = {0u};
     FILE *out;
     size_t i, nonzero = 0u;
     unsigned peak = 0u;
     int length;
-    if (directory == NULL || scsp == NULL) return 0;
-    if (vf2_scsp_render(scsp, left, right, FRAMES) != VF2_OK) {
-        fprintf(stderr, "AKIRA_WAV unsupported SCSP renderer\n");
-        return 0;
-    }
-    for (i = 0u; i < FRAMES; ++i) {
+    if (directory == NULL || filename == NULL ||
+        left == NULL || right == NULL || frames == 0u ||
+        frames > (size_t)(UINT32_MAX / 4u)) return 0;
+    for (i = 0u; i < frames; ++i) {
         const int32_t a = (int32_t)left[i], b = (int32_t)right[i];
         const unsigned pa = (unsigned)(a < 0 ? -a : a);
         const unsigned pb = (unsigned)(b < 0 ? -b : b);
@@ -504,15 +501,15 @@ static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
         if (peak < pb) peak = pb;
     }
     printf("AKIRA_MUSIC_PCM frames=%u nonzero=%u peak=%u "
-           "original_driver=1 model_only=1 full_song=0\n",
-           (unsigned)FRAMES, (unsigned)nonzero, peak);
+           "original_driver=1 model_only=1 sequenced=%u full_song=0\n",
+           (unsigned)frames, (unsigned)nonzero, peak, (unsigned)sequenced);
     if (nonzero == 0u) return 0;
     length = snprintf(path, sizeof(path), "%s/%s", directory, filename);
     if (length < 0 || (size_t)length >= sizeof(path)) return 0;
     out = fopen(path, "wb");
     if (out == NULL) return 0;
     memcpy(header, "RIFF", 4u);
-    akira_le32(header + 4u, UINT32_C(36) + FRAMES * 4u);
+    akira_le32(header + 4u, UINT32_C(36) + (uint32_t)frames * 4u);
     memcpy(header + 8u, "WAVEfmt ", 8u);
     akira_le32(header + 16u, 16u);
     akira_le16(header + 20u, 1u);
@@ -522,12 +519,12 @@ static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
     akira_le16(header + 32u, 4u);
     akira_le16(header + 34u, 16u);
     memcpy(header + 36u, "data", 4u);
-    akira_le32(header + 40u, FRAMES * 4u);
+    akira_le32(header + 40u, (uint32_t)frames * 4u);
     if (fwrite(header, 1u, sizeof(header), out) != sizeof(header)) {
         (void)fclose(out);
         return 0;
     }
-    for (i = 0u; i < FRAMES; ++i) {
+    for (i = 0u; i < frames; ++i) {
         uint8_t samples[4];
         akira_le16(samples, (uint16_t)left[i]);
         akira_le16(samples + 2u, (uint16_t)right[i]);
@@ -537,8 +534,25 @@ static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
         }
     }
     if (fclose(out) != 0) return 0;
-    printf("AKIRA_MUSIC_WAV path=%s preview_only=1\n", path);
+    printf("AKIRA_MUSIC_WAV path=%s frames=%u "
+           "original_ROM_68000=1 sequenced=%u approximate_pacing=%u\n",
+           path, (unsigned)frames, (unsigned)sequenced,
+           (unsigned)sequenced);
     return 1;
+}
+
+static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
+{
+    enum { FRAMES = 88200u }; /* 2 seconds at 44.1 kHz */
+    static int16_t left[FRAMES], right[FRAMES];
+    if (directory == NULL || scsp == NULL) return 0;
+    if (vf2_scsp_render(scsp, left, right, FRAMES) != VF2_OK) {
+        fprintf(stderr, "AKIRA_WAV unsupported SCSP renderer\n");
+        return 0;
+    }
+    return write_akira_stereo_pcm(
+        directory, "vf2_akira_original_8voices_scsp_model_preview.wav",
+        left, right, FRAMES, 0);
 }
 
 /* Owner-ROM SOUND TEST #11: original i960 command 00 AD 10 04.
@@ -548,7 +562,8 @@ static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
  * before the L2 tick produced a convincing but FALSE silent result.
  * Controlled original 68000 driver probe; not real-time gameplay. */
 static int probe_akira_music(const uint8_t *rom, size_t rom_size,
-                             const char *wav_dir, int strict, int progress)
+                             const char *wav_dir, int strict, int progress,
+                             const char *sequenced_dir)
 {
     vf2_m68k_bus bus;
     vf2_m68k_regs regs;
@@ -562,6 +577,10 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
     size_t last_tick_with_packets = 0u;
     unsigned peak_voices = 0u;
     int full_drain = 1;
+    size_t rendered_ticks = 0u;
+    enum { SEQUENCE_TICKS = 8820u, FRAMES_PER_TICK = 50u };
+    static int16_t music_left[SEQUENCE_TICKS * FRAMES_PER_TICK];
+    static int16_t music_right[SEQUENCE_TICKS * FRAMES_PER_TICK];
     uint8_t *desc = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
     if (!check_one(UINT32_C(0x00ad1004), rom, rom_size, 1)) {
         return 0;
@@ -664,7 +683,9 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
         /* Original L2 IRQ probe: independent CPU invocation for a
          * finite number of ticks; never label these as real-time
          * scheduling or synthesize the recovered-C sequence. */
-        for (tick = 0u; tick < (progress ? 1024u : 16u); ++tick) {
+        for (tick = 0u;
+             tick < (sequenced_dir != NULL ? SEQUENCE_TICKS :
+                     (progress ? 1024u : 16u)); ++tick) {
             uint32_t original_steps = 0u;
             vf2_status status;
             unsigned keyed = 0u;
@@ -765,27 +786,52 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                 if (tick == 0u) first_drain = dispatched;
                 if (first_failed != 0u) full_drain = 0;
                 total_drain += dispatched;
-                if (dispatched == 0u && progress && tick > 15u &&
-                    (tick % 64u) != 0u) {
-                    if (first_failed != 0u) break;
-                    continue;
+                if (dispatched != 0u || !progress || tick < 16u ||
+                    (tick % 64u) == 0u || first_failed != 0u) {
+                    printf("AKIRA_MUSIC_DRAIN_SUMMARY tick=%u drained=%u "
+                           "queue=%u failed=%u original_only=1\n",
+                           (unsigned)tick, (unsigned)dispatched,
+                           (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+                           first_failed);
                 }
-                printf("AKIRA_MUSIC_DRAIN_SUMMARY tick=%u drained=%u "
-                       "queue=%u failed=%u original_only=1\n",
-                       (unsigned)tick, (unsigned)dispatched,
-                       (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
-                       first_failed);
                 if (first_failed != 0u) break;
+            }
+            if (sequenced_dir != NULL) {
+                const size_t pos = tick * FRAMES_PER_TICK;
+                vf2_status render = vf2_scsp_render(
+                    &step_scsp, music_left + pos, music_right + pos,
+                    FRAMES_PER_TICK);
+                if (render != VF2_OK) {
+                    printf("AKIRA_MUSIC_SEQUENCE_FAIL tick=%u render=%d\n",
+                           (unsigned)tick, (int)render);
+                    break;
+                }
+                ++rendered_ticks;
             }
         }
     }
     if (progress) {
-        printf("AKIRA_MUSIC_PROGRESS ticks=1024 total_drained=%u "
+        printf("AKIRA_MUSIC_PROGRESS ticks=%u total_drained=%u "
                "active_ticks=%u last_packet_tick=%u peak_voices=%u "
                "final_queue=%u original_only=1 real_time_pacing=0\n",
+               (unsigned)(sequenced_dir != NULL ? SEQUENCE_TICKS : 1024u),
                (unsigned)total_drain, (unsigned)active_ticks,
                (unsigned)last_tick_with_packets, peak_voices,
                (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT]);
+    }
+    if (sequenced_dir != NULL) {
+        const size_t total_frames = SEQUENCE_TICKS * FRAMES_PER_TICK;
+        printf("AKIRA_MUSIC_SEQUENCE_FINISH rendered_ticks=%u "
+               "total_drained=%u last_packet_tick=%u voices_peak=%u "
+               "timer_hz_assumed=882 source=SCSP_TimerA_CE "
+               "original_driver=1 realtime_verified=0\n",
+               (unsigned)rendered_ticks, (unsigned)total_drain,
+               (unsigned)last_tick_with_packets, peak_voices);
+        if (rendered_ticks != SEQUENCE_TICKS || !full_drain ||
+            first_tick_count != 32u || total_drain <= 43u) return 0;
+        return write_akira_stereo_pcm(
+            sequenced_dir, "vf2_akira_ride_the_tiger_10s_sequenced_scsp_model.wav",
+            music_left, music_right, total_frames, 1);
     }
     if (strict) {
         static int16_t left[4096u], right[4096u];
@@ -929,6 +975,7 @@ int main(int argc, char **argv)
     int akira_music_strict = 0;
     int akira_music_progress = 0;
     const char *akira_wav_dir = NULL;
+    const char *akira_sequenced_dir = NULL;
     uint8_t stream_bytes[64] = {0u};
     size_t stream_length = 0u;
     uint32_t l3_packet = 0u;
@@ -943,7 +990,8 @@ int main(int argc, char **argv)
     if (argc != 2 && !(argc == 4 &&
                        (strcmp(argv[2], "--l3-packet") == 0 ||
                         strcmp(argv[2], "--uart-stream") == 0 ||
-                        strcmp(argv[2], "--akira-wav-dir") == 0)) &&
+                        strcmp(argv[2], "--akira-wav-dir") == 0 ||
+                        strcmp(argv[2], "--akira-sequenced-wav-dir") == 0)) &&
         !(argc == 3 &&
           (strcmp(argv[2], "--matrix-l3") == 0 ||
            strcmp(argv[2], "--probe-akira-music") == 0 ||
@@ -954,7 +1002,7 @@ int main(int argc, char **argv)
                 "| --uart-stream <even-hex-digits> | --matrix-l3 "
                 "| --probe-akira-music | --verify-akira-music "
                 "| --probe-akira-progress "
-                "| --akira-wav-dir DIRECTORY]\n",
+                "| --akira-wav-dir DIRECTORY | --akira-sequenced-wav-dir DIRECTORY]\n",
                 argv[0]);
         return 2;
     }
@@ -973,7 +1021,13 @@ int main(int argc, char **argv)
         akira_music_probe = 1;
         akira_wav_dir = argv[3];
     }
-    if (argc == 4 && akira_wav_dir == NULL) {
+    if (argc == 4 && strcmp(argv[2], "--akira-sequenced-wav-dir") == 0) {
+        akira_music_probe = 1;
+        akira_music_progress = 1;
+        akira_sequenced_dir = argv[3];
+    }
+    if (argc == 4 && akira_wav_dir == NULL &&
+        akira_sequenced_dir == NULL) {
         const char *hex = argv[3];
         size_t j, length = hex != NULL ? strlen(hex) : 0u;
         l3_only = !l3_stream;
@@ -1025,7 +1079,7 @@ int main(int argc, char **argv)
     sample_bank_size = samples_size;
     if (akira_music_probe) {
         valid = probe_akira_music(audio, audio_size, akira_wav_dir, akira_music_strict,
-                                  akira_music_progress);
+                                  akira_music_progress, akira_sequenced_dir);
         free(audio);
         free(data);
         free(samples);
