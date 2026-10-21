@@ -227,6 +227,19 @@ static void advance_slot(vf2_scsp *scsp, unsigned slot)
     }
 }
 
+/* SCSP MIXER (SEGA User's Manual 4.2.7):
+ * DISDL bits 15:13 are 0=mute, 1=-36dB ... 7=0dB.
+ * DIPAN bits 12:8 are NOT linear 0=left, 31=right:
+ * 00/10=center; bit4 selects the attenuated channel and
+ * bits 3:0 give 3dB attenuation steps, 0xF=mute.
+ * Q15 coefficients are rounded from 10^(-3*n/20), n=0..14.
+ * This models only the direct (dry) route, not DSP/wet output.
+ */
+static const int32_t scsp_pan_atten_q15[16] = {
+    32768, 23198, 16423, 11627, 8231, 5827, 4125, 2920,
+    2068, 1464, 1036, 734, 519, 368, 260, 0
+};
+
 static int32_t clamp_sample(int32_t value)
 {
     if (value < -32768) {
@@ -496,8 +509,12 @@ vf2_status vf2_scsp_render(
             const uint16_t level = slot_word(scsp, slot, 0x0cu);
             const uint16_t pan_word = slot_word(scsp, slot, 0x16u);
             const unsigned pan = (pan_word >> 8u) & 0x1fu;
+            const unsigned direct_level = (pan_word >> 13u) & 7u;
+            const int32_t pan_atten = scsp_pan_atten_q15[pan & 0x0fu];
             int32_t sample;
-            int32_t gain;
+            int32_t dry;
+            int32_t left_gain;
+            int32_t right_gain;
 
             synchronize_slot(scsp, slot);
             if (!scsp->slot_active[slot]) {
@@ -512,10 +529,15 @@ vf2_status vf2_scsp_render(
             }
             sample = (sample * scsp->slot_envelope[slot]) /
                      VF2_SCSP_SLOT_ENVELOPE_MAX;
-            gain = (int32_t)(pan > 31u ? 0u : 31u - pan);
-            mix_left += (sample * gain) / 31;
-            gain = (int32_t)pan;
-            mix_right += (sample * gain) / 31;
+            /* Apply the owner's slot-level dry attenuation BEFORE
+             * summing multiple simultaneous voices. Reducing only
+             * the final clipped WAV cannot restore lost peaks. */
+            dry = direct_level == 0u ? 0 :
+                  sample / (int32_t)(1u << (7u - direct_level));
+            left_gain = (pan & 0x10u) != 0u ? 32768 : pan_atten;
+            right_gain = (pan & 0x10u) != 0u ? pan_atten : 32768;
+            mix_left += (dry * left_gain) / 32768;
+            mix_right += (dry * right_gain) / 32768;
             advance_slot(scsp, slot);
         }
         left[frame] = (int16_t)clamp_sample(mix_left);
