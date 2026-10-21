@@ -76,6 +76,63 @@ after the first L2 tick, eight active voices and nonzero model PCM;
 enable through CMake `-DVF2_VERIFY_AKIRA_MUSIC=ON` and
 `-DVF2_ROM_DIR=/path/to/unpacked/vf2`.
 
+## Stereo distortion diagnosis and direct mixer correction (October 21, 2026)
+
+The first original-ROM generated ten-second WAV was audibly recognizable
+but distorted and almost mono. Direct PCM inspection established:
+- left: 31,548 clipped samples (7.1537% of the left channel);
+- right: 22 clipped samples; 82.65% of right-channel frames zero;
+- severe left/right RMS disparity (15,476 / 2,961).
+
+The source cause was NOT incorrect original song identity or the
+`AD 10 04` event. The SCSP software renderer used a fictional
+**linear** pan (DIPAN 0=full left, 31=full right) and **ignored DISDL**.
+That contradicts the original SEGA *SCSP User's Manual*, §4.2.7 MIXER,
+https://www.infochunk.com/saturn/segahtml_en/hard/scsp/hon/p04_27.htm:
+
+- DIPAN 00 / 10 = true center; bits 0–3 select 3 dB attenuation steps
+  on the channel chosen by bit 4 (0: left attenuated / pan right;
+  1: right attenuated / pan left).
+- DIPAN 0F mutes LEFT, 1F mutes RIGHT.
+- DISDL 0 disables direct output; levels 1..7 select -36, -30, -24,
+  -18, -12, -6 and 0 dB attenuation respectively.
+
+We added an owner-ROM-only SCSP register probe to
+`tests/m68k/test_l3_real_rom_selections.c`. From original 68000
+execution at the first note on tick 0, all eight voices had **DISDL=3
+(-24 dB)**, six had **DIPAN=00** (center), two had 13/14 (leftward).
+At tick 882, 11 of 13 active voices were centered; at tick 4410,
+13 of 17 were centered. These directly explain the false pan/volume
+in the first preview.
+
+`src/hardware/scsp.c` now scales each dry slot by DISDL *before*
+mixing and uses a deterministic Q15 approximation to the DIPAN 3 dB
+steps. ROM-free mixer tests cover center, left/right and mute. No
+DSP/EFSDL/wet rendering is claimed.
+
+The full original-ROM `--akira-sequenced-wav-dir` experiment was
+rerun from scratch after the patch. It still executed all **8820**
+experimental L2 ticks and drained **456** original 68000 commands;
+the exact model-only sequence contained **441,000 stereo frames**
+and had a peak absolute PCM of **8,344** instead of 32,768.
+
+| Measurement | Previous model | Corrected direct mixer |
+| --- | ---: | ---: |
+| Clipped left samples | 31,548 | **0** |
+| Clipped right samples | 22 | **0** |
+| Right channel zero frames | 82.65% | **5.96%** |
+| Left/right RMS | 15,476 / 2,961 | **1,142 / 1,122** |
+
+The corrected technical WAV is normalized by +10.77 dB **only for
+an optional owner-local listening copy**, with common L/R gain and
+no new sample clipping; that normalization is NOT part of the
+SCSP device model or the source ROM. Private WAV, ROM, and sample
+data remain outside the repository.
+
+This change fixes two *verified* mathematical mixer errors but does
+NOT imply arcade-perfect sound: DSP/wet path, authentic hardware
+envelopes, sample interpolation, and IRQ cadence remain under study.
+
 ## Not yet the full track
 
 The WAV is **an initial eight-voice note-state preview**, not the
