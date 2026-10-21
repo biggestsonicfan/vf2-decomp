@@ -796,6 +796,47 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                 }
                 if (first_failed != 0u) break;
             }
+            /* Original-ROM mixer register snapshot: record the *actual*
+             * direct send level and pan of active voices. Our current
+             * software renderer interprets DIPAN as linear 0..31,
+             * whereas the SEGA SCSP manual specifies 00/10=center,
+             * low nibble=3 dB increments and bit4 selects side.
+             * This diagnostic is owner-ROM-only, no chip data exported. */
+            if (sequenced_dir != NULL &&
+                (tick == 0u || tick == 882u || tick == 4410u)) {
+                size_t mix_slot;
+                unsigned active_voices = 0u;
+                unsigned with_direct = 0u;
+                unsigned pan_center = 0u;
+                unsigned pan_left = 0u;
+                unsigned pan_right = 0u;
+                for (mix_slot = 0u; mix_slot < VF2_SCSP_SLOT_COUNT; ++mix_slot) {
+                    if (step_scsp.slot_active[mix_slot] != 0u) {
+                        const uint16_t mixer = read_be16(
+                            step_scsp.registers +
+                            mix_slot * VF2_SCSP_SLOT_BYTES + 0x16u);
+                        const unsigned disdl = ((unsigned)mixer >> 13u) & 7u;
+                        const unsigned dipan = ((unsigned)mixer >> 8u) & 31u;
+                        ++active_voices;
+                        with_direct += (unsigned)(disdl != 0u);
+                        pan_center += (unsigned)((dipan & 15u) == 0u);
+                        pan_left += (unsigned)((dipan & 16u) != 0u &&
+                                                 (dipan & 15u) != 0u);
+                        pan_right += (unsigned)((dipan & 16u) == 0u &&
+                                                  (dipan & 15u) != 0u);
+                        printf("AKIRA_ORIGINAL_SCSP_MIX tick=%u slot=%u "
+                               "mix_word=%04x disdl=%u dipan=%02x "
+                               "env=%d\n",
+                               (unsigned)tick, (unsigned)mix_slot,
+                               (unsigned)mixer, disdl, dipan,
+                               (int)step_scsp.slot_envelope[mix_slot]);
+                    }
+                }
+                printf("AKIRA_ORIGINAL_SCSP_MIX_SUMMARY tick=%u active=%u "
+                       "direct=%u pan_center=%u pan_left=%u pan_right=%u\n",
+                       (unsigned)tick, active_voices, with_direct,
+                       pan_center, pan_left, pan_right);
+            }
             if (sequenced_dir != NULL) {
                 const size_t pos = tick * FRAMES_PER_TICK;
                 vf2_status render = vf2_scsp_render(
