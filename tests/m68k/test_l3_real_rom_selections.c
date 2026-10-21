@@ -595,6 +595,68 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size)
             if (status != VF2_OK || regs.pc != UINT32_C(0x1f7a)) {
                 break; /* preserve original failure frontier */
             }
+            {
+                size_t dispatched = 0u;
+                unsigned first_failed = 0u;
+                while (step_ram[VF2_SOUND_COMMAND_COUNT] > 0u &&
+                       dispatched < 64u) {
+                    const uint8_t queued = step_ram[VF2_SOUND_COMMAND_COUNT];
+                    const uint16_t cursor =
+                        (uint16_t)(((uint16_t)step_ram[VF2_SOUND_COMMAND_CURSOR]
+                          << 8u) | step_ram[VF2_SOUND_COMMAND_CURSOR + 1u]);
+                    const uint16_t at = (uint16_t)(cursor & UINT16_C(0x0fff));
+                    uint8_t bytes[3];
+                    uint32_t dispatch_steps = 0u;
+                    vf2_status dispatch_status;
+                    size_t v;
+                    unsigned now_active = 0u;
+                    bytes[0] = step_ram[VF2_SOUND_COMMAND_RING_BASE + at];
+                    bytes[1] = step_ram[VF2_SOUND_COMMAND_RING_BASE +
+                                        ((at + 1u) & UINT16_C(0x0fff))];
+                    bytes[2] = step_ram[VF2_SOUND_COMMAND_RING_BASE +
+                                        ((at + 2u) & UINT16_C(0x0fff))];
+                    vf2_m68k_regs_reset(&regs);
+                    regs.pc = UINT32_C(0x7a6);
+                    regs.a[4] = UINT32_C(0x2506);
+                    regs.a[5] = VF2_SCSP_CPU_BASE;
+                    regs.a[6] = UINT32_C(0x1000);
+                    regs.a[7] = UINT32_C(0x5000);
+                    dispatch_status = vf2_m68k_run(
+                        &bus, &regs, UINT32_C(0x265c),
+                        0, 100000u, &dispatch_steps);
+                    for (v = 0u; v < VF2_SCSP_SLOT_COUNT; ++v) {
+                        now_active += (unsigned)
+                            (step_scsp.slot_active[v] != 0u);
+                    }
+                    if (dispatched < 12u ||
+                        dispatch_status != VF2_OK || now_active > 0u) {
+                        printf("AKIRA_MUSIC_DRAIN tick=%u index=%u "
+                               "bytes=%02x%02x%02x status=%d pc=%05x "
+                               "steps=%u count_before=%u count_after=%u "
+                               "active_slots=%u\n",
+                               (unsigned)tick, (unsigned)dispatched,
+                               (unsigned)bytes[0], (unsigned)bytes[1],
+                               (unsigned)bytes[2], (int)dispatch_status,
+                               (unsigned)regs.pc, (unsigned)dispatch_steps,
+                               (unsigned)queued,
+                               (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+                               now_active);
+                    }
+                    ++dispatched;
+                    if (dispatch_status != VF2_OK ||
+                        regs.pc != UINT32_C(0x265c) ||
+                        step_ram[VF2_SOUND_COMMAND_COUNT] >= queued) {
+                        first_failed = 1u;
+                        break;
+                    }
+                }
+                printf("AKIRA_MUSIC_DRAIN_SUMMARY tick=%u drained=%u "
+                       "queue=%u failed=%u original_only=1\n",
+                       (unsigned)tick, (unsigned)dispatched,
+                       (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT],
+                       first_failed);
+                if (first_failed != 0u) break;
+            }
         }
     }
     return 1;
