@@ -878,10 +878,13 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                                         value = step_ram[addr];
                                     }
                                     if (value != 0u) ++sample_nonzero;
-                                    abs_sum += (uint32_t)(
-                                        (int32_t)(int8_t)value < 0 ?
-                                        -(int32_t)(int8_t)value :
-                                        (int32_t)(int8_t)value);
+                                    {
+                                        const int32_t signed_sample =
+                                            (int32_t)(int8_t)value;
+                                        abs_sum += signed_sample < 0 ?
+                                            (uint32_t)(-signed_sample) :
+                                            (uint32_t)signed_sample;
+                                    }
                                     if (sample_index != 0u &&
                                         value != previous) ++sample_changes;
                                     previous = value;
