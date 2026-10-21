@@ -460,6 +460,100 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
  * C-vs-original memory/SCSP state and actual hardware-poke count at
  * every individual byte. This remains an isolated 68000 L3 fixture;
  * source-of-frame and hardware interrupt timing are separate oracles. */
+/* Owner-ROM SOUND TEST #11: original i960 command 00 AD 10 04.
+ * This pins the genuine A0 ROM record-selection boundary for Akira's
+ * theme. It does NOT claim that the music sequencer is recovered.
+ * A single channel-D matching descriptor is explicitly staged on
+ * BOTH sides, just as the existing AD23/24 owner-ROM A0 frontier test
+ * does; this is controlled driver exploration, not gameplay timing. */
+static int probe_akira_music(const uint8_t *rom, size_t rom_size)
+{
+    vf2_m68k_bus bus;
+    vf2_m68k_regs regs;
+    vf2_sound_dispatch_report report;
+    vf2_status c_status, to_record, tail_status;
+    uint32_t steps = 0u, tail_steps = 0u, row, record;
+    size_t i;
+    unsigned active = 0u;
+    uint8_t *desc = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    if (!check_one(UINT32_C(0x00ad1004), rom, rom_size, 1)) {
+        return 0;
+    }
+    if (rom_size < 0x9c60u) {
+        fprintf(stderr, "AKIRA_ROM invalid truncated program\n");
+        return 0;
+    }
+    row = read_be32(rom + 0x8e12u + 0x10u * 4u);
+    record = read_be32(rom + (size_t)(row - VF2_SOUND_AUDIO_ROM_BASE) +
+                       2u + 4u * 4u);
+    if (row != UINT32_C(0x608f24) ||
+        record != UINT32_C(0x609c36) ||
+        read_be32(rom + (size_t)(record - VF2_SOUND_AUDIO_ROM_BASE)) !=
+            UINT32_C(0x10101010)) {
+        fprintf(stderr, "AKIRA_ROM unexpected AD10/04 music record\n");
+        return 0;
+    }
+    memset(desc, 0, VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
+                    VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
+    desc[0] = UINT8_C(0x80);
+    desc[1] = UINT8_C(0x0d);
+    memcpy(step_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE, desc,
+           VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
+           VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
+    if (vf2_scsp_attach_sample_ram(&board.scsp, board.sound_ram,
+                                   sizeof(board.sound_ram)) != VF2_OK ||
+        vf2_scsp_attach_sample_ram(&step_scsp, step_ram,
+                                   sizeof(step_ram)) != VF2_OK) {
+        return 0;
+    }
+    memset(&report, 0, sizeof(report));
+    c_status = vf2_sound_board_dispatch_next(&board, &report);
+    memset(&bus, 0, sizeof(bus));
+    bus.ram = step_ram;
+    bus.ram_size = sizeof(step_ram);
+    bus.rom = rom;
+    bus.rom_size = rom_size;
+    bus.sample_rom = sample_bank;
+    bus.sample_rom_size = sample_bank_size;
+    bus.scsp = &step_scsp;
+    vf2_m68k_regs_reset(&regs);
+    regs.pc = UINT32_C(0x7a6);
+    regs.a[4] = UINT32_C(0x2506);
+    regs.a[5] = VF2_SCSP_CPU_BASE;
+    regs.a[6] = UINT32_C(0x1000);
+    regs.a[7] = UINT32_C(0x5000);
+    to_record = vf2_m68k_run(&bus, &regs, UINT32_C(0x1e98),
+                             0, 30000u, &steps);
+    printf("AKIRA_A0_FRONTIER command=00ad1004 row=%06x record=%06x "
+           "C_status=%d C_handler=%05x M_status=%d M_pc=%05x "
+           "M_steps=%u descriptor_matches=%u\n",
+           (unsigned)row, (unsigned)record,
+           (int)c_status, (unsigned)report.handler_address,
+           (int)to_record, (unsigned)regs.pc, (unsigned)steps,
+           (unsigned)report.descriptors_matched);
+    if (c_status != VF2_ERROR_UNSUPPORTED ||
+        report.handler_address != UINT32_C(0x1e98) ||
+        to_record != VF2_OK || regs.pc != UINT32_C(0x1e98)) {
+        fprintf(stderr, "AKIRA_A0_FRONTIER failed: no original ROM join\n");
+        return 0;
+    }
+    /* Beyond here is a DIAGNOSTIC of the previously unmodeled
+     * low-header A0 body. Original success/unsupported are reported,
+     * never laundered into native-C/SCSP music parity. */
+    tail_status = vf2_m68k_run(&bus, &regs, UINT32_C(0x265c),
+                               0, 100000u, &tail_steps);
+    for (i = 0u; i < VF2_SCSP_SLOT_COUNT; ++i) {
+        active += (unsigned)(step_scsp.slot_active[i] != 0u);
+    }
+    printf("AKIRA_A0_TAIL original_status=%d pc=%05x steps=%u "
+           "queue=%u active_slots=%u C_unrecovered=1 "
+           "music_pcm_not_proven=1\n",
+           (int)tail_status, (unsigned)regs.pc,
+           (unsigned)tail_steps,
+           (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT], active);
+    return 1;
+}
+
 static int check_uart_stream(
     const uint8_t *bytes,
     size_t length,
@@ -556,6 +650,7 @@ int main(int argc, char **argv)
     int l3_only = 0;
     int l3_matrix = 0;
     int l3_stream = 0;
+    int akira_music_probe = 0;
     uint8_t stream_bytes[64] = {0u};
     size_t stream_length = 0u;
     uint32_t l3_packet = 0u;
@@ -570,14 +665,19 @@ int main(int argc, char **argv)
     if (argc != 2 && !(argc == 4 &&
                        (strcmp(argv[2], "--l3-packet") == 0 ||
                         strcmp(argv[2], "--uart-stream") == 0)) &&
-        !(argc == 3 && strcmp(argv[2], "--matrix-l3") == 0)) {
+        !(argc == 3 &&
+          (strcmp(argv[2], "--matrix-l3") == 0 ||
+           strcmp(argv[2], "--probe-akira-music") == 0))) {
         fprintf(stderr,
                 "usage: %s <vf2-rom-directory> [--l3-packet <six-hex-digits> "
-                "| --uart-stream <even-hex-digits> | --matrix-l3]\n",
+                "| --uart-stream <even-hex-digits> | --matrix-l3 "
+                "| --probe-akira-music]\n",
                 argv[0]);
         return 2;
     }
-    l3_matrix = argc == 3;
+    l3_matrix = argc == 3 && strcmp(argv[2], "--matrix-l3") == 0;
+    akira_music_probe = argc == 3 &&
+                        strcmp(argv[2], "--probe-akira-music") == 0;
     l3_stream = argc == 4 &&
         strcmp(argv[2], "--uart-stream") == 0;
     if (argc == 4) {
@@ -630,6 +730,13 @@ int main(int argc, char **argv)
     }
     sample_bank = samples;
     sample_bank_size = samples_size;
+    if (akira_music_probe) {
+        valid = probe_akira_music(audio, audio_size);
+        free(audio);
+        free(data);
+        free(samples);
+        return valid ? 0 : 1;
+    }
     if (l3_matrix) {
         /*
          * The 18x11 original ROM table contains 107 occupied cells and
