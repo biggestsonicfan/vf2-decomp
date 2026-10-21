@@ -34,12 +34,84 @@ static int probe_ad21_b_all;
 static int verify_ad21_b_all;
 static int probe_ad21_b_sequential_flag;
 static int verify_ad21_b_sequential;
-static int16_t frame342_c_left[4096], frame342_c_right[4096];
-static int16_t frame342_s_left[4096], frame342_s_right[4096];
+#define FRAME342_WAV_FRAMES 22050u
+static const char *frame342_wav_dir;
+static int16_t frame342_c_left[FRAME342_WAV_FRAMES];
+static int16_t frame342_c_right[FRAME342_WAV_FRAMES];
+static int16_t frame342_s_left[FRAME342_WAV_FRAMES];
+static int16_t frame342_s_right[FRAME342_WAV_FRAMES];
 
 #define CHECK(c) do { if (!(c)) { \
     fprintf(stderr, "FAIL:%u: %s\n", (unsigned)__LINE__, #c); \
     ++failures; } } while (0)
+
+/* Owner-only 9E audio preview: serialize ONLY PCM already proven equal
+ * between recovered C and original 68000+SCSP model. No ROM in output
+ * and no WAV is added to the repository or produced in public CI. */
+static void frame342_le16(uint8_t *p, uint16_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8u);
+}
+
+static void frame342_le32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8u);
+    p[2] = (uint8_t)(v >> 16u);
+    p[3] = (uint8_t)(v >> 24u);
+}
+
+static int frame342_write_9e_wav(const char *directory, size_t frames)
+{
+    static const char filename[] = "vf2_frame342_9e0a7f_scsp_model.wav";
+    char path[1024];
+    uint8_t header[44] = {0u};
+    FILE *out;
+    size_t i;
+    int length;
+    if (directory == NULL || frames == 0u ||
+        frames > FRAME342_WAV_FRAMES || frames > (size_t)(UINT32_MAX / 4u)) {
+        return 0;
+    }
+    length = snprintf(path, sizeof(path), "%s/%s", directory, filename);
+    if (length < 0 || (size_t)length >= sizeof(path)) return 0;
+    out = fopen(path, "wb");
+    if (out == NULL) {
+        fprintf(stderr, "FRAME342_9E_WAV cannot create %s\n", path);
+        return 0;
+    }
+    memcpy(header, "RIFF", 4u);
+    frame342_le32(header + 4u, 36u + (uint32_t)frames * 4u);
+    memcpy(header + 8u, "WAVEfmt ", 8u);
+    frame342_le32(header + 16u, 16u);
+    frame342_le16(header + 20u, 1u);
+    frame342_le16(header + 22u, 2u);
+    frame342_le32(header + 24u, 44100u);
+    frame342_le32(header + 28u, 44100u * 4u);
+    frame342_le16(header + 32u, 4u);
+    frame342_le16(header + 34u, 16u);
+    memcpy(header + 36u, "data", 4u);
+    frame342_le32(header + 40u, (uint32_t)frames * 4u);
+    if (fwrite(header, 1u, sizeof(header), out) != sizeof(header)) {
+        (void)fclose(out);
+        return 0;
+    }
+    for (i = 0u; i < frames; ++i) {
+        uint8_t sample[4];
+        frame342_le16(sample, (uint16_t)frame342_c_left[i]);
+        frame342_le16(sample + 2u, (uint16_t)frame342_c_right[i]);
+        if (fwrite(sample, 1u, sizeof(sample), out) != sizeof(sample)) {
+            (void)fclose(out);
+            return 0;
+        }
+    }
+    if (fclose(out) != 0) return 0;
+    printf("FRAME342_9E_WAV path=%s frames=%u rate=44100 "
+           "channels=2 original_model_pcm_match=1\n",
+           path, (unsigned)frames);
+    return 1;
+}
 
 static unsigned active_slots(const vf2_scsp *scsp)
 {
@@ -984,6 +1056,8 @@ static void isolate_command(size_t command,
             size_t frame;
             size_t nonzero = 0u;
             unsigned peak = 0u;
+            const size_t render_frames = frame342_wav_dir != NULL ?
+                FRAME342_WAV_FRAMES : 4096u;
             /* Pre-render SCSP state and backing sample pointers are
              * required for a meaningful stereo differential: identical
              * registers alone are insufficient if the original
@@ -1028,9 +1102,9 @@ static void isolate_command(size_t command,
                 }
             }
             vf2_status cs = vf2_scsp_render(
-                &board.scsp, frame342_c_left, frame342_c_right, 4096u);
+                &board.scsp, frame342_c_left, frame342_c_right, render_frames);
             vf2_status ss = vf2_scsp_render(
-                &step_scsp, frame342_s_left, frame342_s_right, 4096u);
+                &step_scsp, frame342_s_left, frame342_s_right, render_frames);
             CHECK(cs == VF2_OK);
             CHECK(ss == VF2_OK);
             printf("FRAME342_SCSP_POST PCM_SLOT0 "
@@ -1051,8 +1125,8 @@ static void isolate_command(size_t command,
                    (unsigned)step_scsp.slot_backward[0]);
             if (cs == VF2_OK && ss == VF2_OK) {
                 CHECK(memcmp(frame342_c_left, frame342_s_left,
-                             sizeof(frame342_c_left)) == 0);
-                for (frame = 0u; frame < 4096u; ++frame) {
+                             render_frames * sizeof(frame342_c_left[0])) == 0);
+                for (frame = 0u; frame < render_frames; ++frame) {
                     if (frame342_c_right[frame] != frame342_s_right[frame]) {
                         printf("FRAME342_PCM_RIGHT_FIRST_DIFF sample=%u C=%d S=%d "
                                "C_left=%d S_left=%d\n",
@@ -1065,8 +1139,8 @@ static void isolate_command(size_t command,
                     }
                 }
                 CHECK(memcmp(frame342_c_right, frame342_s_right,
-                             sizeof(frame342_c_right)) == 0);
-                for (frame = 0u; frame < 4096u; ++frame) {
+                             render_frames * sizeof(frame342_c_right[0])) == 0);
+                for (frame = 0u; frame < render_frames; ++frame) {
                     int32_t a = frame342_c_left[frame];
                     int32_t b = frame342_c_right[frame];
                     unsigned pa = (unsigned)(a < 0 ? -a : a);
@@ -1081,11 +1155,22 @@ static void isolate_command(size_t command,
              * also requires nonzero stereo PCM after KEYON. */
             CHECK(nonzero > 0u);
             printf("FRAME342_9E_PCM status_c=%d status_s=%d "
-                   "matched_stereo_samples=%u nonzero_frames=%u/4096 "
+                   "matched_stereo_samples=%u nonzero_frames=%u/%u "
                    "peak=%u model_only=1\n",
                    (int)cs, (int)ss,
                    (unsigned)(cs == VF2_OK && ss == VF2_OK),
-                   (unsigned)nonzero, peak);
+                   (unsigned)nonzero, (unsigned)render_frames, peak);
+            if (frame342_wav_dir != NULL && cs == VF2_OK && ss == VF2_OK &&
+                nonzero > 0u &&
+                memcmp(frame342_c_left, frame342_s_left,
+                       render_frames * sizeof(frame342_c_left[0])) == 0 &&
+                memcmp(frame342_c_right, frame342_s_right,
+                       render_frames * sizeof(frame342_c_right[0])) == 0) {
+                CHECK(frame342_write_9e_wav(frame342_wav_dir,
+                                            render_frames));
+            } else if (frame342_wav_dir != NULL) {
+                CHECK(0); /* refuse WAV export without original parity */
+            }
         }
     }
     if (command == 4u) {
@@ -1254,7 +1339,8 @@ int main(int argc, char **argv)
     uint8_t *samples = NULL;
     size_t rom_size = 0u, sample_size = 0u;
     size_t i;
-    if ((argc != 2 && argc != 3) ||
+    if ((argc != 2 && argc != 3 &&
+         !(argc == 4 && strcmp(argv[2], "--wav-dir") == 0)) ||
         (argc == 3 && strcmp(argv[2], "--probe-ad21-l2") != 0 &&
          strcmp(argv[2], "--verify-ad21-ba") != 0 &&
          strcmp(argv[2], "--probe-ad21-b-all") != 0 &&
@@ -1267,6 +1353,7 @@ int main(int argc, char **argv)
                 argv[0]);
         return 2;
     }
+    frame342_wav_dir = argc == 4 ? argv[3] : NULL;
     probe_ad21_l2 = argc == 3;
     verify_ad21_ba = argc == 3 &&
                      strcmp(argv[2], "--verify-ad21-ba") == 0;
