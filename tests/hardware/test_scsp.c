@@ -74,11 +74,12 @@ int main(void)
     EXPECT_TRUE(vf2_scsp_write_u16(&scsp, 0x0006u, 4u) == VF2_OK);
     EXPECT_TRUE(vf2_scsp_write_u16(&scsp, 0x000cu, 0u) == VF2_OK);
     EXPECT_TRUE(vf2_scsp_write_u16(&scsp, 0x0010u, 0u) == VF2_OK);
-    EXPECT_TRUE(vf2_scsp_write_u16(&scsp, 0x0016u, 0x1f00u) == VF2_OK);
+    /* DISDL=7, DIPAN=1f is full LEFT, not full right. */
+    EXPECT_TRUE(vf2_scsp_write_u16(&scsp, 0x0016u, 0xff00u) == VF2_OK);
     EXPECT_TRUE(vf2_scsp_write_u16(&scsp, 0x0000u, 0x0830u) == VF2_OK);
     EXPECT_TRUE(vf2_scsp_render(&scsp, left, right, 8u) == VF2_OK);
-    EXPECT_TRUE(left[0] == 0);
-    EXPECT_TRUE(right[0] > 0);
+    EXPECT_TRUE(left[0] > 0);
+    EXPECT_TRUE(right[0] == 0);
     EXPECT_TRUE(scsp.slot_active[0] != 0u);
     EXPECT_TRUE(scsp.slot_address[0] < (4u << 12u));
 
@@ -96,6 +97,36 @@ int main(void)
     EXPECT_TRUE(vf2_scsp_write_u16(&scsp, 0x0000u, 0x0810u) == VF2_OK);
     EXPECT_TRUE(vf2_scsp_render(&scsp, left, right, 8u) == VF2_OK);
     EXPECT_TRUE(scsp.slot_active[0] == 0u);
+
+    /* SEGA SCSP 4.2.7 direct mixer: DIPAN 00 is true stereo center,
+     * 13 attenuates right by 9dB, 0f mutes left, DISDL 0 mutes both.
+     * Use a fresh slot so none of the release-state tests are reused. */
+    {
+        vf2_scsp mix;
+        vf2_scsp_initialize(&mix);
+        EXPECT_TRUE(vf2_scsp_attach_sample_ram(
+            &mix, samples, sizeof(samples)) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0004u, 0u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0006u, 4u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x000cu, 0u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0010u, 0u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0016u, 0x6000u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0000u, 0x0830u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_render(&mix, left, right, 8u) == VF2_OK);
+        EXPECT_TRUE(left[0] > 0 && left[0] == right[0]);
+
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0016u, 0x7300u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_render(&mix, left, right, 8u) == VF2_OK);
+        EXPECT_TRUE(left[0] > right[0] && right[0] > 0);
+
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0016u, 0x6f00u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_render(&mix, left, right, 8u) == VF2_OK);
+        EXPECT_TRUE(left[0] == 0 && right[0] > 0);
+
+        EXPECT_TRUE(vf2_scsp_write_u16(&mix, 0x0016u, 0x0000u) == VF2_OK);
+        EXPECT_TRUE(vf2_scsp_render(&mix, left, right, 8u) == VF2_OK);
+        EXPECT_TRUE(left[0] == 0 && right[0] == 0);
+    }
 
     return failures == 0 ? 0 : 1;
 }
