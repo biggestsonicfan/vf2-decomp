@@ -133,6 +133,68 @@ This change fixes two *verified* mathematical mixer errors but does
 NOT imply arcade-perfect sound: DSP/wet path, authentic hardware
 envelopes, sample interpolation, and IRQ cadence remain under study.
 
+## Live-pitch retuning: recovered rotor-noise model defect (October 21, 2026)
+
+The volume/pan corrected ten-second Akira SCSP WAV was still
+described by the listener as a rhythmic **helicopter** noise. Instead
+of applying blanket filtering to the model, we reproduced the
+original 68000 sequencer with the owner's checksum-verified ROM,
+logging active slot PITCH registers **and** the model's sample
+advance increments at ticks 0, 882, and 4410.
+
+The comparison revealed actual **stale pitch playback increments**:
+the 68000 updates `OCT/FNS` in SCSP slot register `+0x10`
+while voices remain active, but the previous model computed
+`vf2_scsp.slot_step` only when the slot first keyed on.
+
+| Music tick | Active slot | Original live PITCH | Old model slot_step | Required slot_step |
+| --- | ---: | --- | ---: | ---: |
+| 4410 | 1 | `0x7800` | 4096 | 2048 |
+| 4410 | 14 | `0x79a8` | 2048 | 2896 |
+| 4410 | 22 | `0x0000` | 2048 | 4096 |
+
+This is a definite **software renderer defect**; it can change the
+frequency of a sustaining voice by a full octave while the game
+correctly writes a new note. The original ROM's pitch register, not
+the prior note's cached increment, is authoritative. It is a
+plausible contributor to the user's rotor/chopping timbre but is
+not independently proven to be the only remaining issue.
+
+`src/hardware/scsp.c` was updated to refresh active-slot playback
+increment immediately on 16-bit or 8-bit pitch-register writes and
+when rendering, without resetting the address/envelope or triggering
+a new KEYON. The render-time refresh also covers raw mapped 68000
+register-image writes. `tests/hardware/test_scsp.c` now checks
+live retuning, both write widths, fallback direct-register changes
+and preservation of current sample phase and ADSR.
+
+The owner-ROM original 68000 sound test was **rerun from scratch**
+after this change, again draining **456** original musical packets
+over **8,820** experimental L2 timer invocations and rendering
+**441,000** stereo frames. The model's active slot 1 and 14
+increments at tick 4410 now match their live original register
+pitches. Relative to the earlier mixer-only corrected WAV,
+**221,137 of 441,000** stereo frames (50.14%) changed due
+to actual retuning; the fixed output remained free of clipping
+(peak raw PCM **8,501**).
+
+There are three distinct local-only artifacts:
+
+- `vf2_akira_ride_the_tiger_10s_sequenced_scsp_model.wav`:
+  corrected raw SCSP-model PCM output.
+- `Ride_the_Tiger_Akira_pitch_corrigido.wav`:
+  common gain + headroom for listening; **not** used by the SCSP model.
+- `Ride_the_Tiger_Akira_pitch_corrigido_sem_graves_120Hz_TESTE.wav`:
+  optional fourth-order high-pass comparison at 120 Hz; **not**
+  hardware-faithful, not part of the C runtime, and may remove
+  legitimate bass instruments.
+
+**Open issues:** Authentic timers, SCSP envelope/loop/filter behavior,
+pitch LFO and DSP/wet effects need verification against arcade
+silicon or a validated emulator reference. The old and new
+clips use the same original-ROM sequence; no full-song or
+original-board-perfect-audio claim is made.
+
 ## Not yet the full track
 
 The WAV is **an initial eight-voice note-state preview**, not the
