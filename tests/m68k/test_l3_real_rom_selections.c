@@ -825,12 +825,40 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
                                                  (dipan & 15u) != 0u);
                         pan_right += (unsigned)((dipan & 16u) == 0u &&
                                                   (dipan & 15u) != 0u);
-                        printf("AKIRA_ORIGINAL_SCSP_MIX tick=%u slot=%u "
-                               "mix_word=%04x disdl=%u dipan=%02x "
-                               "env=%d\n",
-                               (unsigned)tick, (unsigned)mix_slot,
-                               (unsigned)mixer, disdl, dipan,
-                               (int)step_scsp.slot_envelope[mix_slot]);
+                        {
+                            const size_t base = mix_slot * VF2_SCSP_SLOT_BYTES;
+                            const uint16_t voice_control = (uint16_t)(
+                                ((uint16_t)step_scsp.registers[base] << 8u) |
+                                step_scsp.registers[base + 1u]);
+                            const uint16_t start_low = (uint16_t)(
+                                ((uint16_t)step_scsp.registers[base + 2u] << 8u) |
+                                step_scsp.registers[base + 3u]);
+                            const uint16_t loop_start = (uint16_t)(
+                                ((uint16_t)step_scsp.registers[base + 4u] << 8u) |
+                                step_scsp.registers[base + 5u]);
+                            const uint16_t loop_end = (uint16_t)(
+                                ((uint16_t)step_scsp.registers[base + 6u] << 8u) |
+                                step_scsp.registers[base + 7u]);
+                            const uint16_t pitch = (uint16_t)(
+                                ((uint16_t)step_scsp.registers[base + 0x10u] << 8u) |
+                                step_scsp.registers[base + 0x11u]);
+                            const uint32_t start = ((uint32_t)(
+                                voice_control & 0x000fu) << 16u) | start_low;
+                            printf("AKIRA_ORIGINAL_SCSP_VOICE tick=%u slot=%u "
+                                   "ctl=%04x start=%05x loop_start=%u "
+                                   "loop_end=%u pitch=%04x step=%u "
+                                   "address=%u envelope=%d env_state=%u "
+                                   "mix=%04x disdl=%u dipan=%02x\n",
+                                   (unsigned)tick, (unsigned)mix_slot,
+                                   (unsigned)voice_control, (unsigned)start,
+                                   (unsigned)loop_start, (unsigned)loop_end,
+                                   (unsigned)pitch,
+                                   (unsigned)step_scsp.slot_step[mix_slot],
+                                   (unsigned)step_scsp.slot_address[mix_slot],
+                                   (int)step_scsp.slot_envelope[mix_slot],
+                                   (unsigned)step_scsp.slot_envelope_state[mix_slot],
+                                   (unsigned)mixer, disdl, dipan);
+                        }
                     }
                 }
                 printf("AKIRA_ORIGINAL_SCSP_MIX_SUMMARY tick=%u active=%u "
