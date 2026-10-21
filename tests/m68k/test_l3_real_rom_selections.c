@@ -551,6 +551,52 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size)
            (int)tail_status, (unsigned)regs.pc,
            (unsigned)tail_steps,
            (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT], active);
+    if (tail_status == VF2_OK && regs.pc == UINT32_C(0x265c)) {
+        size_t slot, tick;
+        /* Show exact original descriptor pointers after AD10/04,
+         * without dumping copyright-protected stream content. */
+        for (slot = 0u; slot < 8u; ++slot) {
+            const size_t at = VF2_SOUND_DESCRIPTOR_BASE +
+                              slot * VF2_SOUND_STREAM_DESCRIPTOR_BYTES;
+            const uint32_t next = read_be32(step_ram + at + 4u);
+            printf("AKIRA_A0_STREAM slot=%u flags=%02x%02x%02x%02x "
+                   "next=%08x countdown=%02x%02x\n",
+                   (unsigned)slot,
+                   (unsigned)step_ram[at], (unsigned)step_ram[at + 1u],
+                   (unsigned)step_ram[at + 2u],
+                   (unsigned)step_ram[at + 3u], (unsigned)next,
+                   (unsigned)step_ram[at + 12u],
+                   (unsigned)step_ram[at + 13u]);
+        }
+        /* Original L2 IRQ probe: independent CPU invocation for a
+         * finite number of ticks; never label these as real-time
+         * scheduling or synthesize the recovered-C sequence. */
+        for (tick = 0u; tick < 16u; ++tick) {
+            uint32_t original_steps = 0u;
+            vf2_status status;
+            unsigned keyed = 0u;
+            size_t voice;
+            vf2_m68k_regs_reset(&regs);
+            regs.pc = UINT32_C(0x1f16);
+            regs.a[4] = UINT32_C(0x2506);
+            regs.a[5] = VF2_SCSP_CPU_BASE;
+            regs.a[6] = UINT32_C(0x1000);
+            regs.a[7] = UINT32_C(0x5000); /* original reset SSP */
+            status = vf2_m68k_run(&bus, &regs, UINT32_C(0x1f7a),
+                                  0, 100000u, &original_steps);
+            for (voice = 0u; voice < VF2_SCSP_SLOT_COUNT; ++voice) {
+                keyed += (unsigned)(step_scsp.slot_active[voice] != 0u);
+            }
+            printf("AKIRA_MUSIC_L2 tick=%u status=%d pc=%05x "
+                   "steps=%u active_slots=%u queue=%u no_playback_claim=1\n",
+                   (unsigned)tick, (int)status, (unsigned)regs.pc,
+                   (unsigned)original_steps, keyed,
+                   (unsigned)step_ram[VF2_SOUND_COMMAND_COUNT]);
+            if (status != VF2_OK || regs.pc != UINT32_C(0x1f7a)) {
+                break; /* preserve original failure frontier */
+            }
+        }
+    }
     return 1;
 }
 
