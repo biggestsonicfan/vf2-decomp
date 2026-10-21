@@ -74,6 +74,15 @@ static void synchronize_slot(vf2_scsp *scsp, unsigned slot)
     } else if (!key_on && scsp->slot_active[slot]) {
         scsp->slot_envelope_state[slot] = VF2_SCSP_ENVELOPE_RELEASE;
     }
+
+    /* PITCH is live, not a one-time KEYON latch. The original 68000
+     * rewrites OCT/FNS while a slot is active (Akira music, AD 10 04).
+     * Recalculate the playback increment without resetting sample
+     * position, envelope or key-on state. Also covers 68000 bus paths
+     * that update the register byte image directly. */
+    if (scsp->slot_active[slot]) {
+        scsp->slot_step[slot] = slot_step(scsp, slot);
+    }
 }
 
 static void advance_envelope(vf2_scsp *scsp, unsigned slot)
@@ -362,7 +371,8 @@ vf2_status vf2_scsp_write_u16(
     }
     if (address < VF2_SCSP_MASTER_BASE &&
         (address / VF2_SCSP_SLOT_BYTES) < VF2_SCSP_SLOT_COUNT &&
-        (address % VF2_SCSP_SLOT_BYTES) <= 1u) {
+        ((address % VF2_SCSP_SLOT_BYTES) <= 1u ||
+         (address % VF2_SCSP_SLOT_BYTES) == 0x10u)) {
         synchronize_slot(scsp, address / VF2_SCSP_SLOT_BYTES);
     }
     return VF2_OK;
@@ -401,7 +411,9 @@ vf2_status vf2_scsp_write_u8(
     }
     if (address < VF2_SCSP_MASTER_BASE &&
         (address / VF2_SCSP_SLOT_BYTES) < VF2_SCSP_SLOT_COUNT &&
-        (address % VF2_SCSP_SLOT_BYTES) <= 1u) {
+        ((address % VF2_SCSP_SLOT_BYTES) <= 1u ||
+         (address % VF2_SCSP_SLOT_BYTES) == 0x10u ||
+         (address % VF2_SCSP_SLOT_BYTES) == 0x11u)) {
         synchronize_slot(scsp, address / VF2_SCSP_SLOT_BYTES);
     }
     return VF2_OK;
