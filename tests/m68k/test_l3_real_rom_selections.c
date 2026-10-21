@@ -20,6 +20,7 @@ static uint8_t step_ram[VF2_SOUND_RAM_BYTES];
 static vf2_scsp step_scsp;
 static const uint8_t *sample_bank;
 static size_t sample_bank_size;
+static int akira_wave_prefill_experiment;
 
 static uint32_t le32(const uint8_t *bytes)
 {
@@ -541,6 +542,60 @@ static int write_akira_stereo_pcm(const char *directory,
     return 1;
 }
 
+/* EXPERIMENTAL listening-only buffer completeness test.
+ * This is NOT original 68000 sequencing and MUST NOT be wired into
+ * normal emulation. The original sound driver staged only the first
+ * 512 bytes of each 8192-byte PCM8 wave window during initial KEYON.
+ * Stream records at RAM 0x2000 + slot*0x20 carry source/destination
+ * pointers to the following pages. Prefilling the remaining pages
+ * establishes whether the isolated preview's rotor-like pulsing is
+ * explained by empty (not yet DMA-serviced) pages.
+ *
+ * A correct implementation will recover original 68000 DMA timing,
+ * respect its rolling RAM cursor and compare against a reference
+ * SCSP emulator. This opt-in test cannot prove that.
+ */
+static size_t akira_prefill_wave_pages(
+    uint8_t *ram, const uint8_t *samples, size_t samples_bytes,
+    uint32_t previous_source[VF2_SCSP_SLOT_COUNT],
+    uint32_t previous_destination[VF2_SCSP_SLOT_COUNT])
+{
+    size_t count = 0u;
+    unsigned slot;
+    if (ram == NULL || samples == NULL) return 0u;
+    for (slot = 0u; slot < VF2_SCSP_SLOT_COUNT; ++slot) {
+        const size_t record = 0x2000u + (size_t)slot * 0x20u;
+        const uint32_t source = read_be32(ram + record + 2u);
+        const uint32_t destination = read_be32(ram + record + 6u);
+        const uint32_t window = destination & ~UINT32_C(0x1fff);
+        const uint32_t wave_end = window + UINT32_C(0x2000);
+        size_t size;
+        if ((ram[record] & UINT8_C(0x80)) == 0u ||
+            source < UINT32_C(0x800000) ||
+            (uint64_t)(source - UINT32_C(0x800000)) >= samples_bytes ||
+            destination < UINT32_C(0x10000) ||
+            destination > VF2_SOUND_RAM_BYTES ||
+            wave_end > VF2_SOUND_RAM_BYTES ||
+            destination >= wave_end ||
+            (destination & UINT32_C(0x1ff)) != 0u ||
+            (previous_source[slot] == source &&
+             previous_destination[slot] == destination)) {
+            continue;
+        }
+        size = (size_t)(wave_end - destination);
+        if (size > samples_bytes -
+                   (size_t)(source - UINT32_C(0x800000))) {
+            continue;
+        }
+        memcpy(ram + destination,
+               samples + (size_t)(source - UINT32_C(0x800000)), size);
+        previous_source[slot] = source;
+        previous_destination[slot] = destination;
+        count += size / 512u;
+    }
+    return count;
+}
+
 static int write_akira_model_preview(const char *directory, vf2_scsp *scsp)
 {
     enum { FRAMES = 88200u }; /* 2 seconds at 44.1 kHz */
@@ -581,7 +636,12 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
     enum { SEQUENCE_TICKS = 8820u, FRAMES_PER_TICK = 50u };
     static int16_t music_left[SEQUENCE_TICKS * FRAMES_PER_TICK];
     static int16_t music_right[SEQUENCE_TICKS * FRAMES_PER_TICK];
+    uint32_t last_source[VF2_SCSP_SLOT_COUNT];
+    uint32_t last_destination[VF2_SCSP_SLOT_COUNT];
+    size_t preview_pages = 0u;
     uint8_t *desc = board.sound_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE;
+    memset(last_source, 0, sizeof(last_source));
+    memset(last_destination, 0, sizeof(last_destination));
     if (!check_one(UINT32_C(0x00ad1004), rom, rom_size, 1)) {
         return 0;
     }
@@ -926,6 +986,11 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
             }
             if (sequenced_dir != NULL) {
                 const size_t pos = tick * FRAMES_PER_TICK;
+                if (akira_wave_prefill_experiment) {
+                    preview_pages += akira_prefill_wave_pages(
+                        step_ram, sample_bank, sample_bank_size,
+                        last_source, last_destination);
+                }
                 vf2_status render = vf2_scsp_render(
                     &step_scsp, music_left + pos, music_right + pos,
                     FRAMES_PER_TICK);
@@ -949,6 +1014,11 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
     }
     if (sequenced_dir != NULL) {
         const size_t total_frames = SEQUENCE_TICKS * FRAMES_PER_TICK;
+        if (akira_wave_prefill_experiment) {
+            printf("AKIRA_MUSIC_PREFILL_EXPERIMENT pages=%u "
+                   "original_refill_executed=0 unverified_timing=1\n",
+                   (unsigned)preview_pages);
+        }
         printf("AKIRA_MUSIC_SEQUENCE_FINISH rendered_ticks=%u "
                "total_drained=%u last_packet_tick=%u voices_peak=%u "
                "timer_hz_assumed=882 source=SCSP_TimerA_CE "
@@ -958,7 +1028,9 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size,
         if (rendered_ticks != SEQUENCE_TICKS || !full_drain ||
             first_tick_count != 32u || total_drain <= 43u) return 0;
         return write_akira_stereo_pcm(
-            sequenced_dir, "vf2_akira_ride_the_tiger_10s_sequenced_scsp_model.wav",
+            sequenced_dir, akira_wave_prefill_experiment ?
+            "vf2_akira_10s_PREFILL_UNVERIFIED_scsp_model.wav" :
+            "vf2_akira_ride_the_tiger_10s_sequenced_scsp_model.wav",
             music_left, music_right, total_frames, 1);
     }
     if (strict) {
@@ -1119,7 +1191,8 @@ int main(int argc, char **argv)
                        (strcmp(argv[2], "--l3-packet") == 0 ||
                         strcmp(argv[2], "--uart-stream") == 0 ||
                         strcmp(argv[2], "--akira-wav-dir") == 0 ||
-                        strcmp(argv[2], "--akira-sequenced-wav-dir") == 0)) &&
+                        strcmp(argv[2], "--akira-sequenced-wav-dir") == 0 ||
+                        strcmp(argv[2], "--akira-prefill-wav-dir") == 0)) &&
         !(argc == 3 &&
           (strcmp(argv[2], "--matrix-l3") == 0 ||
            strcmp(argv[2], "--probe-akira-music") == 0 ||
@@ -1130,7 +1203,8 @@ int main(int argc, char **argv)
                 "| --uart-stream <even-hex-digits> | --matrix-l3 "
                 "| --probe-akira-music | --verify-akira-music "
                 "| --probe-akira-progress "
-                "| --akira-wav-dir DIRECTORY | --akira-sequenced-wav-dir DIRECTORY]\n",
+                "| --akira-wav-dir DIRECTORY | --akira-sequenced-wav-dir DIRECTORY "
+                "| --akira-prefill-wav-dir DIRECTORY]\n",
                 argv[0]);
         return 2;
     }
@@ -1152,6 +1226,12 @@ int main(int argc, char **argv)
     if (argc == 4 && strcmp(argv[2], "--akira-sequenced-wav-dir") == 0) {
         akira_music_probe = 1;
         akira_music_progress = 1;
+        akira_sequenced_dir = argv[3];
+    }
+    if (argc == 4 && strcmp(argv[2], "--akira-prefill-wav-dir") == 0) {
+        akira_music_probe = 1;
+        akira_music_progress = 1;
+        akira_wave_prefill_experiment = 1;
         akira_sequenced_dir = argv[3];
     }
     if (argc == 4 && akira_wav_dir == NULL &&
