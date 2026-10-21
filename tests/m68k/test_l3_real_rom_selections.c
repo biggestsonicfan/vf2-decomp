@@ -461,11 +461,11 @@ static int check_one(uint32_t command, const uint8_t *rom, size_t rom_size,
  * every individual byte. This remains an isolated 68000 L3 fixture;
  * source-of-frame and hardware interrupt timing are separate oracles. */
 /* Owner-ROM SOUND TEST #11: original i960 command 00 AD 10 04.
- * This pins the genuine A0 ROM record-selection boundary for Akira's
- * theme. It does NOT claim that the music sequencer is recovered.
- * A single channel-D matching descriptor is explicitly staged on
- * BOTH sides, just as the existing AD23/24 owner-ROM A0 frontier test
- * does; this is controlled driver exploration, not gameplay timing. */
+ * Preserve the exact original BOOT channel descriptor table, not the
+ * synthetic one-channel fixture used by the AD23/24 unit tests.
+ * Music emits 9x/Bx/Cx packets to channels A..F: clearing boot channels
+ * before the L2 tick produced a convincing but FALSE silent result.
+ * Controlled original 68000 driver probe; not real-time gameplay. */
 static int probe_akira_music(const uint8_t *rom, size_t rom_size)
 {
     vf2_m68k_bus bus;
@@ -493,13 +493,19 @@ static int probe_akira_music(const uint8_t *rom, size_t rom_size)
         fprintf(stderr, "AKIRA_ROM unexpected AD10/04 music record\n");
         return 0;
     }
-    memset(desc, 0, VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
-                    VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
-    desc[0] = UINT8_C(0x80);
-    desc[1] = UINT8_C(0x0d);
-    memcpy(step_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE, desc,
-           VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
-           VF2_SOUND_COMMAND_DESCRIPTOR_BYTES);
+    /* Original image 1 row 3 is active channel D. Preserve
+     * ALL other boot descriptors, especially A/B/C/E/F channels. */
+    if (desc[13u * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES] != UINT8_C(0x81) ||
+        desc[13u * VF2_SOUND_COMMAND_DESCRIPTOR_BYTES + 1u] !=
+            UINT8_C(0x0d) ||
+        memcmp(desc, step_ram + VF2_SOUND_COMMAND_DESCRIPTOR_BASE,
+               VF2_SOUND_COMMAND_DESCRIPTOR_COUNT *
+               VF2_SOUND_COMMAND_DESCRIPTOR_BYTES) != 0) {
+        fprintf(stderr, "AKIRA_ROM boot channel descriptors mismatch\n");
+        return 0;
+    }
+    printf("AKIRA_ROM_BOOT_CHANNELS original_20_descriptors=1 "
+           "original_channel_D=1 injected_descriptors=0\n");
     if (vf2_scsp_attach_sample_ram(&board.scsp, board.sound_ram,
                                    sizeof(board.sound_ram)) != VF2_OK ||
         vf2_scsp_attach_sample_ram(&step_scsp, step_ram,
