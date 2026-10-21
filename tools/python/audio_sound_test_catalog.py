@@ -101,6 +101,8 @@ def original_catalog(program: bytes) -> list[dict]:
     ) != ("stage clear", 0x00AD1006) or (
         rows[11]["name"], rows[11]["command"]
     ) != ("Akira", AKIRA_COMMAND) or (
+        rows[34]["name"], rows[34]["command"]
+    ) != ("coin", 0x009E0A7F) or (
         rows[296]["name"], rows[296]["command"]
     ) != ("Wo13", 0x00AD235A):
         raise InvalidSoundTest("VF2.1 SOUND TEST anchors changed")
